@@ -164,7 +164,7 @@ describe('policy GUI server', () => {
 
       expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
       expect(html).toContain('<title>CC Safety Net</title>');
-      expect(html).toContain(`const token = ${JSON.stringify(server.token)};`);
+      expect(html).toContain(`var token = ${JSON.stringify(server.token)};`);
       expect(html).toContain('cc-safety-net-gui-custom-css');
       expect(html).toContain('role="status"');
       expect(html).toContain('aria-live="polite"');
@@ -195,22 +195,24 @@ describe('policy GUI server', () => {
       expect(html).toContain('<section class="view" data-view="integrations" hidden>');
       expect(html).toContain('<section class="view" data-view="settings" hidden>');
       expect(html).toContain(
-        "const viewNames = ['overview', 'activity', 'policy', 'rules', 'integrations', 'settings'];",
+        'var viewNames = ["overview", "activity", "policy", "rules", "integrations", "settings"];',
       );
-      expect(html).toContain("requestJson('/api/integrations')");
-      expect(html).toContain("window.addEventListener('hashchange', applyView);");
+      expect(html).toContain('requestJson("/api/integrations")');
+      expect(html).toContain('window.addEventListener("hashchange", applyView);');
       expect(html).toContain('<header class="topbar" id="topbar">');
       expect(html.indexOf('id="policy-savebar"')).toBeLessThan(html.indexOf('id="save"'));
       expect(html.indexOf('id="save"')).toBeLessThan(html.indexOf('id="reset"'));
       expect(html).toContain('.topbar {\n  position: sticky;');
       // Topbar merges the view title, status chip, and Save; title tracks the route.
       expect(html).toContain('id="topbar-title"');
-      expect(html).toContain('const viewTitles = {');
+      expect(html).toContain('var viewTitles = {');
       expect(html).toContain('.topbar-row {');
       expect(html).toContain('document.title = `${viewTitles[view]} · CC Safety Net`;');
       // A fallback runtime configuration is stated on every view through the
       // existing alert banner, carrying the snapshot reason verbatim.
-      expect(html).toContain("if (!configState || configState.state === 'ready') return null;");
+      expect(html).toContain(
+        'if (!configState || configState.state === "ready")\n    return null;',
+      );
       expect(html).toContain(
         'return `A fallback configuration is being enforced: ${configState.reason}`;',
       );
@@ -226,21 +228,21 @@ describe('policy GUI server', () => {
       expect(html).toContain('`Last ${dayCount(overview.days)}`');
       // Retention goes down to 1, so day counts are rendered through one helper
       // rather than hardcoding the plural at each label.
-      expect(html).toContain("const dayCount = (days) => `${days} day${days === 1 ? '' : 's'}`;");
+      expect(html).toContain('var dayCount = (days) => `${days} day${days === 1 ? "" : "s"}`;');
       expect(html).toContain(
-        "tile(overview.counts.blocked, 'Blocked', sparkline(overview.counts.blockedByDay, 'blocked'))",
+        'tile(overview.counts.blocked, "Blocked", sparkline(overview.counts.blockedByDay, "blocked"))',
       );
       expect(html).toContain(
-        "tile(overview.totalInWindow, 'Analyzed', sparkline(overview.counts.analyzedByDay, 'analyzed'))",
+        'tile(overview.totalInWindow, "Analyzed", sparkline(overview.counts.analyzedByDay, "analyzed"))',
       );
       // Overview health strip loads asynchronously after first render via GET /api/health.
       expect(html).toContain('id="health-strip"');
-      expect(html).toContain("requestJson('/api/health')");
+      expect(html).toContain('requestJson("/api/health")');
       // Part 2 replaced the recent-blocks feed with posture + pattern cards.
       expect(html).not.toContain('id="recent-blocks"');
       expect(html).not.toContain('id="view-all-blocks"');
       expect(html).toContain('id="protection-card"');
-      expect(html).toContain('const renderProtectionCard = () => {');
+      expect(html).toContain('var renderProtectionCard = () => {');
       expect(html).toContain('.protection-warning {');
       expect(html).toContain('Destructive command protection is OFF');
       expect(html).toContain('Secret protection is OFF');
@@ -249,7 +251,7 @@ describe('policy GUI server', () => {
       // Activity <-> Policy cross-links reuse the rule-id chip as a button in both directions.
       expect(html).toContain('data-rule-activity=');
       expect(html).toContain('data-jump-rule');
-      expect(html).toContain('const jumpToActivityRule');
+      expect(html).toContain('var jumpToActivityRule');
       // Top command drill-down filters the feed by exact signature, blocked-only,
       // so the feed count reconciles with the Top blocked commands tally.
       expect(html).toContain(
@@ -257,12 +259,12 @@ describe('policy GUI server', () => {
       );
       expect(html).toContain('No blocked commands in this window.');
       expect(html).toContain('id="guard-errors"');
-      expect(html).toContain("[chipHtml('decision', 'error', 'Errors', activity.counts.errors)]");
+      expect(html).toContain('[chipHtml("decision", "error", "Errors", activity.counts.errors)]');
       expect(html).toContain(
-        "if (activityFilters.decision === 'error' && !entry.failureStage) return false;",
+        'if (activityFilters.decision === "error" && !entry.failureStage)\n      return false;',
       );
       expect(html).toContain(
-        "if (activityFilters.decision === 'error' && activity.counts.errors === 0) {",
+        'if (activityFilters.decision === "error" && activity.counts.errors === 0) {',
       );
       // Activity: filterable audit feed.
       expect(html).toContain('id="activity-days"');
@@ -285,7 +287,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="activity-command-filter"');
       expect(html).toContain('data-clear-command');
       // Feed rows lead with the offending segment (fallback to the raw command).
-      expect(html).toContain("entry.segment || entry.command || '(no command recorded)'");
+      expect(html).toContain('entry.segment || entry.command || "(no command recorded)"');
       // False-positive reporting stays blocked-entry-only and prefills nothing
       // but the selected entry.
       expect(html).toContain(
@@ -296,19 +298,19 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="activity-feed"');
       expect(html).toContain('id="activity-count"');
       expect(html).toContain('requestJson(`/api/activity?days=${activityFilters.days}`)');
-      expect(html).toContain('const feedItemHtml = (entry, index) => {');
+      expect(html).toContain('var feedItemHtml = (entry, index) => {');
       // Per-entry copy-as-JSON button, matching the raw JSON copy control.
       expect(html).toContain('class="icon-button feed-copy" data-log-copy=');
       expect(html).toContain('JSON.stringify(entry, null, 2)');
       expect(html).toContain(
-        "const activityFilters = { days: 7, decision: 'all', agent: 'all', query: '', command: '' };",
+        'var activityFilters = { days: 7, decision: "all", agent: "all", query: "", command: "" };',
       );
       expect(html).toContain('data-activity-chip=');
       // Error badge for fail-closed guard failures (amber, still a deny).
       expect(html).toContain('--warn-fg:');
       expect(html).toContain('.decision-badge.error {');
       expect(html).toContain(
-        "const badgeClass = entry.failureStage ? 'error' : deny ? 'deny' : 'allow';",
+        'const badgeClass = entry.failureStage ? "error" : deny ? "deny" : "allow";',
       );
       // Agent display names; the badge renders only for identified agents.
       // Every audit `agent` value is an integration id, so a hand-kept subset
@@ -318,9 +320,9 @@ describe('policy GUI server', () => {
           `${JSON.stringify(id)}:${JSON.stringify(getIntegrationDisplayName(id))}`,
         );
       }
-      expect(html).toContain("entry.agent && entry.agent !== 'unknown'");
+      expect(html).toContain('entry.agent && entry.agent !== "unknown"');
       // Unattributed logs get no chip; they fall under the "All agents" view.
-      expect(html).toContain(".filter((name) => name !== 'unknown')");
+      expect(html).toContain('.filter((name) => name !== "unknown")');
       expect(html).toContain('data-chip-value=');
       // Search matches only what the row shows: the rule id and the displayed
       // command (segment, falling back to the raw command). Reason/cwd/agent are
@@ -333,12 +335,12 @@ describe('policy GUI server', () => {
       expect(html).toContain('.feed-command.expanded {');
       // Day separators in the Activity feed.
       expect(html).toContain('.feed-day-sep {');
-      expect(html).toContain('const dayLabel = (ts) => {');
+      expect(html).toContain('var dayLabel = (ts) => {');
       // Per-day sparklines built from server counts only.
       expect(html).toContain('const sparkline = (byDay, noun) => {');
       expect(html).toContain('Commands ${noun} per day, most recent');
       expect(html).toContain(
-        '<div class="spark-bar${count === 0 ? \' spark-zero\' : \'\'}" aria-hidden="true"',
+        '<div class="spark-bar${count === 0 ? " spark-zero" : ""}" aria-hidden="true"',
       );
       // Settings: file locations, raw JSON, and the danger zone with reset.
       expect(html).toContain('id="logs-path"');
@@ -354,10 +356,10 @@ describe('policy GUI server', () => {
       expect(html).toContain('Changes discarded.');
       expect(html).not.toContain('.app-status .discard-link {');
       expect(html).toContain('No changes to save');
-      expect(html).toContain('let dirty = false;');
-      expect(html).toContain('const updateDirtyStatus = () => {');
+      expect(html).toContain('var dirty = false;');
+      expect(html).toContain('var updateDirtyStatus = () => {');
       expect(html).toContain('dirty = draftJson !== JSON.stringify(state.policy);');
-      expect(html).toContain("qs('policy-savebar').hidden = !dirty;");
+      expect(html).toContain('qs("policy-savebar").hidden = !dirty;');
       expect(html).toContain(
         '<div class="policy-savebar" id="policy-savebar" hidden><span>Unsaved changes</span><div class="savebar-actions"><button type="button" id="discard-changes">Discard</button><button class="primary" id="save">Save</button></div></div>',
       );
@@ -366,18 +368,18 @@ describe('policy GUI server', () => {
       expect(html).toContain('.app-status:empty {');
       expect(html).toContain('--topbar-h');
       expect(html).toContain('.policy-savebar {');
-      expect(html).toContain("window.addEventListener('beforeunload'");
+      expect(html).toContain('window.addEventListener("beforeunload"');
       expect(html).toContain('cc-safety-net-draft');
       expect(html).toContain('Restored unsaved draft');
-      expect(html).toContain("setAppStatus('Repair required', 'error');");
-      expect(html).toContain("setAppStatus('');");
+      expect(html).toContain('setAppStatus("Repair required", "error");');
+      expect(html).toContain('setAppStatus("");');
       expect(html).toContain('setDetailStatus(');
       expect(html).toContain('Destructive Command Protection');
       expect(html).toContain('Safety preset');
       // Preset status dedupe: text only when customized, hidden when empty.
       expect(html).toContain('#safety-preset-status:empty');
       expect(html).toContain(
-        "qs('safety-preset-status').textContent = customized ? `${presetName()} · Customized` : '';",
+        'qs("safety-preset-status").textContent = customized ? `${presetName()} · Customized` : "";',
       );
       expect(html).toContain('Available in every preset');
       expect(html).toContain('Strict tier');
@@ -404,51 +406,55 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="rule-example-command"');
       expect(html).toContain('data-rule-example=');
       expect(html).toContain('Show blocked example for');
-      expect(html).toContain('const openRuleExample = ');
+      expect(html).toContain('var openRuleExample = ');
       expect(html).toContain(
-        "showRulePopover(button, 'Blocked command example', rule.label, rule.example);",
+        'showRulePopover(button, "Blocked command example", rule.label, rule.example);',
       );
       // The brand logo is a link home, so it uses the same hash routing as the sidenav.
       expect(html).toContain('<h1 class="brand-logo"><a class="brand-home" href="#overview"');
       // The Settings tab states which cc-safety-net version is serving the page.
       expect(html).toContain('id="app-version"');
-      expect(html).toContain("qs('app-version').textContent = state.version");
+      expect(html).toContain('qs("app-version").textContent = state.version');
       expect(html).toContain('data-secret-paths=');
       expect(html).toContain('Show protected paths for');
+      // The bundler prints the '\n' separator as a template literal holding one
+      // real newline, so the call spans two lines in the served script.
       expect(html).toContain(
-        "showRulePopover(button, 'Protected paths', rule.label, rule.paths.join('\\n'));",
+        'showRulePopover(button, "Protected paths", rule.label, rule.paths.join(`\n`));',
       );
       expect(html).toContain('popover.showPopover();');
       expect(html).toContain('.rule-example-button {');
       expect(html).toContain('.rule-example-popover {');
-      expect(html).toContain("requestJson('/api/policy/preview'");
+      expect(html).toContain('requestJson("/api/policy/preview"');
       expect(html).toContain('id="tester-input"');
-      expect(html).toContain("requestJson('/api/policy/explain'");
-      expect(html).toContain('let previewRequestId = 0;');
+      expect(html).toContain('requestJson("/api/policy/explain"');
+      expect(html).toContain('var previewRequestId = 0;');
       expect(html).toContain('const requestId = ++previewRequestId;');
-      expect(html).toContain('if (requestId !== previewRequestId) return false;');
+      expect(html).toContain('if (requestId !== previewRequestId)\n    return false;');
       expect(html).toContain(
         'if (input.checked === preview.rules[ruleId].inheritedEnabled)\n      delete draftPolicy.destructive_command_protection.overrides[ruleId];',
       );
-      expect(html).toContain('const tierExpanded = new Map([');
-      expect(html).toContain("['strict', false]");
-      expect(html).not.toContain("['strict', true]");
-      expect(html).toContain('const searchCollapsedTiers = new Set();');
-      expect(html).toContain('if (searchActive && expanded) searchCollapsedTiers.add(tier);');
+      expect(html).toContain('var tierExpanded = new Map([');
+      expect(html).toContain('["strict", false]');
+      expect(html).not.toContain('["strict", true]');
+      expect(html).toContain('var searchCollapsedTiers = new Set;');
+      expect(html).toContain(
+        'if (searchActive && expanded)\n      searchCollapsedTiers.add(tier);',
+      );
       expect(html).toContain('Destructive command protection');
       expect(html).toContain('Catastrophic and custom rules remain active when disabled.');
       // Catastrophic rules render in a read-only, collapsible "Always enforced" group, not as (locked) toggles.
       expect(html).toContain('rule-tier-enforced');
       expect(html).toContain('>Always enforced<');
       expect(html).toContain('data-tier-toggle="enforced"');
-      expect(html).toContain("['enforced', false]");
+      expect(html).toContain('["enforced", false]');
       expect(html).toContain(
         'const enforcedRules = matchingRules.filter((rule) => rule.catastrophic);',
       );
       expect(html).toContain(
         'const configurableRules = matchingRules.filter((rule) => !rule.catastrophic);',
       );
-      expect(html).not.toContain("effective.source === 'catastrophic' ||");
+      expect(html).not.toContain('effective.source === "catastrophic" ||');
       expect(html).not.toContain('catastrophic protection cannot be disabled');
       expect(html).not.toContain('secret protection unchanged');
       expect(html).toContain('data-destructive-command-enabled');
@@ -461,7 +467,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('class="view-search topbar-search" data-search-view="activity"');
       expect(html).toContain('class="view-search topbar-search" data-search-view="policy"');
       expect(html).toContain('.topbar.has-search {');
-      expect(html).toContain("qs('topbar').classList.toggle('has-search', hasSearch)");
+      expect(html).toContain('qs("topbar").classList.toggle("has-search", hasSearch)');
       expect(html).not.toContain('appbar');
       expect(html).not.toContain('id="destructive-command-search"');
       expect(html).not.toContain('id="secret-search"');
@@ -506,13 +512,13 @@ describe('policy GUI server', () => {
       // Tier counts trim zero segments and color off. A customized count is not
       // among them: it overlays on/off rather than partitioning with them, so it
       // reads as a third state. The panel head and each rule row still say it.
-      expect(html).toContain('const tierCountHtml = (segments) => {');
+      expect(html).toContain('var tierCountHtml = (segments) => {');
       expect(html).toContain('[allGroupRules.length - onCount, ');
       expect(html).toContain('.tier-counts .count-off {');
       expect(html).not.toContain('count-customized');
-      expect(html).not.toContain("'customized', 'customized'");
-      expect(html).toContain('const secretGroupExpanded = new Map();');
-      expect(html).toContain('const searchCollapsedSecretGroups = new Set();');
+      expect(html).not.toContain('"customized", "customized"');
+      expect(html).toContain('var secretGroupExpanded = new Map;');
+      expect(html).toContain('var searchCollapsedSecretGroups = new Set;');
       expect(html).toContain('Active');
       expect(html).toContain('Disabled');
       expect(html).not.toContain('Paused');
@@ -520,10 +526,10 @@ describe('policy GUI server', () => {
       expect(html).toContain('<dialog class="confirm-dialog" id="confirm-dialog"');
       expect(html).toContain('id="confirm-dialog-title"');
       expect(html).toContain('id="confirm-dialog-confirm"');
-      expect(html).toContain('const confirmDialog =');
+      expect(html).toContain('var confirmDialog =');
       expect(html).toContain('showModal()');
-      expect(html).toContain("qs('confirm-dialog-detail').parentElement.hidden = !options.detail;");
-      expect(html).toContain('const confirmProtectionDisable =');
+      expect(html).toContain('qs("confirm-dialog-detail").parentElement.hidden = !options.detail;');
+      expect(html).toContain('var confirmProtectionDisable =');
       expect(html).toContain('Disable destructive command protection?');
       expect(html).toContain('Custom rules remain active.');
       expect(html).toContain(
@@ -544,7 +550,7 @@ describe('policy GUI server', () => {
       );
       expect(html).not.toContain('Configured deny paths are part of Secret protection.');
       expect(html).toContain('input.checked = true;');
-      expect(html).toContain("confirmLabel: 'Reset policy'");
+      expect(html).toContain('confirmLabel: "Reset policy"');
       expect(html).not.toContain('Confirm reset');
       expect(html).not.toContain('Search secret patterns');
       expect(html).toContain('Default sensitive paths');
@@ -558,26 +564,26 @@ describe('policy GUI server', () => {
         'Configured paths and everything inside them are blocked while Secret protection is on.',
       );
       expect(html).not.toContain('blocks nearly every command the agent runs');
-      expect(html).toContain('deny_paths: paths,');
+      expect(html).toContain('deny_paths: paths');
       expect(html).not.toContain('Deny paths remain active');
       expect(html).not.toContain('Deny paths are always blocked');
       expect(html).not.toContain('trusted user policy');
       expect(html).toContain('const disabled = !draftPolicy.secret_protection.enabled;');
-      expect(html).not.toContain("qs('deny-paths')");
+      expect(html).not.toContain('qs("deny-paths")');
       expect(html).not.toContain('One path per line');
       expect(html).toContain('id="deny-paths-input"');
       expect(html).toContain('id="deny-paths-add-button"');
       expect(html).toContain('id="deny-paths-list"');
       expect(html).toContain('id="deny-paths-hint"');
-      expect(html).toContain('const createPathList = ');
-      expect(html).toContain('const pathLists = {');
+      expect(html).toContain('var createPathList = ');
+      expect(html).toContain('var pathLists = {');
       expect(html).toContain('data-path-remove');
       expect(html).toContain('No ${config.itemLabel}s configured.');
       expect(html).toContain('id="deny-paths-count"');
-      expect(html).toContain("`${paths.length} path${paths.length === 1 ? '' : 's'}`");
+      expect(html).toContain('`${paths.length} path${paths.length === 1 ? "" : "s"}`');
       expect(html).toContain('Already listed:');
       expect(html).toContain('Remove ${config.itemLabel} ${escapeHtml(path)}');
-      expect(html).toContain('const pathListIcons =');
+      expect(html).toContain('var pathListIcons =');
       expect(html).toContain('aria-label="Add deny path"');
       expect(html).toContain('aria-label="Add allow path"');
       expect(html).toContain('Recursive deletes targeting these paths are not blocked, like /tmp.');
@@ -589,15 +595,15 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('updateDraftSecretPaths');
       expect(html).not.toContain('textarea:disabled:hover');
       expect(html).toContain('cursor: not-allowed');
-      expect(html).toContain("if (input.id === 'policy-search') {");
+      expect(html).toContain('if (input.id === "policy-search") {');
       expect(html).not.toContain('searchPanelIds');
-      expect(html).toContain('let searchActive = false;');
+      expect(html).toContain('var searchActive = false;');
       expect(html).not.toContain('searchExpandedPanels');
-      expect(html).toContain('const syncSearchState = () => {');
-      expect(html).toContain('if (active === searchActive) return;');
+      expect(html).toContain('var syncSearchState = () => {');
+      expect(html).toContain('if (active === searchActive)\n    return;');
       expect(html).toContain('searchCollapsedSecretGroups.clear();');
       expect(html).toContain(
-        'if (searchActive && expanded) searchCollapsedSecretGroups.add(category);',
+        'if (searchActive && expanded)\n      searchCollapsedSecretGroups.add(category);',
       );
       expect(html).toContain('renderDestructiveCommands();');
       expect(html).toContain('renderSecretPatterns();');
@@ -650,43 +656,41 @@ describe('policy GUI server', () => {
         '<a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">Documentation</a>',
       );
       expect(html).toContain('If CC Safety Net is useful to you, star it on GitHub.');
-      expect(html).toContain('const starIcons =');
+      expect(html).toContain('var starIcons =');
       expect(html).not.toContain('id="star-repo"');
       expect(html).not.toContain('starCtaDismissedKey');
-      expect(html).toContain('const formatStarCount = (count) => {');
+      expect(html).toContain('var formatStarCount = (count) => {');
       expect(html).toContain(
-        "if (count >= 1000) return `${(count / 1000).toFixed(1).replace(/\\.0$/, '')}k`;",
+        'if (count >= 1000)\n    return `${(count / 1000).toFixed(1).replace(/\\.0$/, "")}k`;',
       );
-      expect(html).toContain('const renderStarCta = (context) => {');
+      expect(html).toContain('var renderStarCta = (context) => {');
       expect(html).toContain('if (context.starred === true) {');
       expect(html).not.toContain('localStorage.getItem(starCtaDismissedKey)');
       expect(html).toContain(
         'aria-label="Star CC Safety Net on GitHub. One click via your GitHub CLI."',
       );
       expect(html).toContain(
-        "CC Safety Net has blocked <strong>${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command${context.blockedTotal === 1 ? ",
+        'CC Safety Net has blocked <strong>${escapeHtml(context.blockedTotal.toLocaleString("en-US"))}</strong> risky command${context.blockedTotal === 1 ? ',
       );
       // The star count is filtered by the configured retention, so its copy must
       // name that same window instead of a fixed one or a lifetime total.
       expect(html).toContain(
-        "'s'} on this machine in its retained ${escapeHtml(dayCount(retentionDays()))} history.",
+        '"s"} on this machine in its retained ${escapeHtml(dayCount(retentionDays()))} history.',
       );
-      expect(html).toContain("qs('star-mechanism').hidden = context.starred !== false;");
+      expect(html).toContain('qs("star-mechanism").hidden = context.starred !== false;');
       expect(html).toContain('if (context.starred === null) {');
       expect(html).toContain('renderStarLink(context);');
-      expect(html).toContain('const renderStarPitch = (context, starred = false) => {');
+      expect(html).toContain('var renderStarPitch = (context, starred = false) => {');
       expect(html).toContain('${evidence} If it saved your work, star it on GitHub.');
       expect(html).toContain('renderStarPitch(activeStarContext, true);');
       expect(html).toContain('target="_blank" rel="noopener"');
       expect(html).toContain('aria-label="Star CC Safety Net on GitHub (opens github.com)"');
       expect(html).not.toContain('aria-label="Hide star button"');
       expect(html).not.toContain('star-dismiss');
+      expect(html).toContain('var fallbackRepoUrl = "https://github.com/kenryu42/cc-safety-net";');
+      expect(html).toContain('const result = await requestJson("/api/star", { method: "POST" });');
       expect(html).toContain(
-        "const fallbackRepoUrl = 'https://github.com/kenryu42/cc-safety-net';",
-      );
-      expect(html).toContain("const result = await requestJson('/api/star', { method: 'POST' });");
-      expect(html).toContain(
-        "button.querySelector('.star-label').textContent = 'Starred. Thank you.';",
+        'button.querySelector(".star-label").textContent = "Starred. Thank you.";',
       );
       expect(html).toContain(
         'renderStarLink(activeStarContext, result.data?.fallbackUrl ?? fallbackRepoUrl);',
@@ -696,8 +700,8 @@ describe('policy GUI server', () => {
       // The star CTA stays a real link: the only popup in the page is the
       // false-positive report opening the prefilled GitHub form.
       expect(html.match(/window\.open\(/g)).toHaveLength(1);
-      expect(html).not.toContain("window.open('', '_blank')");
-      expect(html).toContain("setAppStatus('Starred on GitHub', 'ok');");
+      expect(html).not.toContain('window.open("", "_blank")');
+      expect(html).toContain('setAppStatus("Starred on GitHub", "ok");');
       expect(html).toContain('.sidebar-links {');
       expect(html).toContain('.sidebar-links a {');
       expect(html).toContain('.tiles {');
@@ -726,11 +730,11 @@ describe('policy GUI server', () => {
       expect(html).toContain('white-space: nowrap;');
       expect(html).toContain('href="${escapeHtml(href)}"');
       expect(html).not.toContain('rawIsManual');
-      expect(html).not.toContain("if (input.id === 'raw')");
-      expect(html).not.toContain("JSON.parse(qs('raw')");
-      expect(html).toContain('const rawCopyIcons =');
-      expect(html).toContain("navigator.clipboard.writeText(qs('raw').value)");
-      expect(html).toContain("qs('raw-copy').classList.toggle('copied', copied);");
+      expect(html).not.toContain('if (input.id === "raw")');
+      expect(html).not.toContain('JSON.parse(qs("raw")');
+      expect(html).toContain('var rawCopyIcons =');
+      expect(html).toContain('navigator.clipboard.writeText(qs("raw").value)');
+      expect(html).toContain('qs("raw-copy").classList.toggle("copied", copied);');
       expect(html).toContain(
         'rawCopyResetTimer = setTimeout(() => setRawCopyCopied(false), 2000);',
       );

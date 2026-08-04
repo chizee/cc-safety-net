@@ -34,7 +34,7 @@
     "check:ci": "bun run lint:ci && bun run typecheck && bun run knip && bun run check-duplicates && bun run test:coverage && bun run verify:coverage",
     "lint": "biome check --write",
     "lint:ci": "biome ci .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.gui.json --noEmit",
     "knip": "knip --production",
     "check-duplicates": "bunx jscpd src tests --noTips --exitCode 1 --reporters ai --ignore '**/*.svg'",
     "test": "bun test",

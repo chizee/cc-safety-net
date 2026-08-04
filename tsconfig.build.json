@@ -6,5 +6,7 @@
     "stripInternal": true
   },
   "include": ["src/**/*"],
-  "exclude": ["tests", "dist", "node_modules"]
+  // The frontend is browser code with its own lib and globals; it ships inside
+  // the page, not as a declaration. tsconfig.gui.json covers it.
+  "exclude": ["tests", "dist", "node_modules", "src/bin/gui/frontend"]
 }

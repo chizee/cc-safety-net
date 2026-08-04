@@ -86,7 +86,7 @@ on error number -128
 end try`,WINDOWS_SCRIPT=`Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
 $dialog.Description = '${PROMPT}'
-if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($dialog.SelectedPath) }`,LINUX_DIALOGS=[{binary:"zenity",args:["--file-selection","--directory",`--title=${PROMPT}`]},{binary:"kdialog",args:["--getexistingdirectory",".","--title",PROMPT]}],onPath=(binary,env)=>(env.PATH??"").split(delimiter2).some((dir)=>dir.length>0&&existsSync18(join20(dir,binary)));function isDirectoryPickerAvailable(platform,env){if(platform==="darwin"||platform==="win32")return!0;if(platform!=="linux")return!1;if(!env.DISPLAY&&!env.WAYLAND_DISPLAY)return!1;return LINUX_DIALOGS.some((dialog)=>onPath(dialog.binary,env))}function getDialogCommand(platform,env){if(platform==="darwin")return{cmd:"osascript",args:["-e",MACOS_SCRIPT]};if(platform==="win32")return{cmd:"powershell.exe",args:["-NoProfile","-STA","-Command",WINDOWS_SCRIPT]};let dialog=LINUX_DIALOGS.find((candidate)=>onPath(candidate.binary,env));return dialog?{cmd:dialog.binary,args:dialog.args}:null}function chooseDirectory(platform=process.platform,env=process.env){let command=getDialogCommand(platform,env);if(!command)return Promise.resolve({error:"No folder dialog is available on this system"});return new Promise((resolve5)=>{let child=spawn3(command.cmd,command.args,{env,stdio:["ignore","pipe","pipe"]}),stdout2="",settled=!1,finish=(result)=>{if(settled)return;settled=!0,clearTimeout(timeout),resolve5(result)},timeout=setTimeout(()=>{child.kill(),finish({error:"The folder dialog timed out"})},DIALOG_TIMEOUT_MS);child.stdout.on("data",(chunk)=>{stdout2+=chunk.toString()}),child.on("error",()=>finish({error:`Could not open the folder dialog (${command.cmd})`})),child.on("close",()=>{let picked=stdout2.trim().replace(/\/+$/,"");if(!picked)return finish({cancelled:!0});if(!existsSync18(picked)||!statSync2(picked).isDirectory())return finish({error:"That selection is not a folder on disk"});finish({path:picked})})})}var custom_default=`/* cc-safety-net-gui-custom-css */
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($dialog.SelectedPath) }`,LINUX_DIALOGS=[{binary:"zenity",args:["--file-selection","--directory",`--title=${PROMPT}`]},{binary:"kdialog",args:["--getexistingdirectory",".","--title",PROMPT]}],onPath=(binary,env)=>(env.PATH??"").split(delimiter2).some((dir)=>dir.length>0&&existsSync18(join20(dir,binary)));function isDirectoryPickerAvailable(platform,env){if(platform==="darwin"||platform==="win32")return!0;if(platform!=="linux")return!1;if(!env.DISPLAY&&!env.WAYLAND_DISPLAY)return!1;return LINUX_DIALOGS.some((dialog)=>onPath(dialog.binary,env))}function getDialogCommand(platform,env){if(platform==="darwin")return{cmd:"osascript",args:["-e",MACOS_SCRIPT]};if(platform==="win32")return{cmd:"powershell.exe",args:["-NoProfile","-STA","-Command",WINDOWS_SCRIPT]};let dialog=LINUX_DIALOGS.find((candidate)=>onPath(candidate.binary,env));return dialog?{cmd:dialog.binary,args:dialog.args}:null}function chooseDirectory(platform=process.platform,env=process.env){let command=getDialogCommand(platform,env);if(!command)return Promise.resolve({error:"No folder dialog is available on this system"});return new Promise((resolve5)=>{let child=spawn3(command.cmd,command.args,{env,stdio:["ignore","pipe","pipe"]}),stdout2="",settled=!1,finish=(result)=>{if(settled)return;settled=!0,clearTimeout(timeout),resolve5(result)},timeout=setTimeout(()=>{child.kill(),finish({error:"The folder dialog timed out"})},DIALOG_TIMEOUT_MS);child.stdout.on("data",(chunk)=>{stdout2+=chunk.toString()}),child.on("error",()=>finish({error:`Could not open the folder dialog (${command.cmd})`})),child.on("close",()=>{let picked=stdout2.trim().replace(/\/+$/,"");if(!picked)return finish({cancelled:!0});if(!existsSync18(picked)||!statSync2(picked).isDirectory())return finish({error:"That selection is not a folder on disk"});finish({path:picked})})})}var customCss=`/* cc-safety-net-gui-custom-css */
 :root {
   color-scheme: light dark;
 
@@ -2477,7 +2477,7 @@ textarea {
 [hidden] {
   display: none;
 }
-`;var favicon_default=`<?xml version="1.0" encoding="UTF-8"?>
+`,faviconSvg=`<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="54 23 1140 1140" role="img" aria-label="Safety net logo mesh variant">
   <defs>
     <radialGradient id="spot-0" cx="50%" cy="50%" r="50%">
@@ -2608,7 +2608,7 @@ textarea {
     </g>
   </g>
 </svg>
-`;var logo_default=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 512" role="img" aria-label="CC Safety Net">
+`,logoSvg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 512" role="img" aria-label="CC Safety Net">
   <path d="M 1439 165 L 1411 165 L 1409 166 L 1408 168 L 1403 173 L 1403 174 L 1398 179 L 1398 180 L 1395 183 L 1394 183 L 1394 184 L 1385 194 L 1385 195 L 1381 199 L 1381 200 L 1378 202 L 1378 203 L 1374 207 L 1374 208 L 1367 215 L 1367 216 L 1358 226 L 1358 227 L 1352 233 L 1352 234 L 1347 239 L 1347 240 L 1341 246 L 1341 247 L 1336 252 L 1336 253 L 1332 257 L 1332 258 L 1325 265 L 1325 266 L 1319 272 L 1319 273 L 1314 278 L 1314 279 L 1309 284 L 1309 285 L 1303 291 L 1303 292 L 1299 296 L 1299 297 L 1294 302 L 1291 299 L 1290 300 L 1290 301 L 1293 301 L 1294 302 L 1288 309 L 1287 308 L 1288 309 L 1286 312 L 1285 311 L 1285 306 L 1286 305 L 1286 303 L 1288 299 L 1288 296 L 1289 295 L 1289 292 L 1290 291 L 1290 287 L 1291 286 L 1291 284 L 1293 280 L 1293 277 L 1294 276 L 1294 272 L 1295 271 L 1295 269 L 1297 265 L 1297 262 L 1298 261 L 1298 258 L 1299 257 L 1299 253 L 1300 252 L 1300 250 L 1301 249 L 1301 247 L 1303 243 L 1303 238 L 1304 237 L 1304 235 L 1305 234 L 1305 232 L 1307 228 L 1307 224 L 1308 223 L 1308 221 L 1309 220 L 1309 217 L 1310 216 L 1310 214 L 1312 210 L 1312 205 L 1314 202 L 1314 199 L 1316 195 L 1317 188 L 1318 187 L 1318 185 L 1319 184 L 1319 182 L 1321 178 L 1321 173 L 1323 169 L 1323 166 L 1296 166 L 1296 168 L 1294 171 L 1294 174 L 1293 175 L 1293 178 L 1292 179 L 1291 186 L 1290 187 L 1290 189 L 1289 190 L 1289 192 L 1287 196 L 1287 200 L 1285 204 L 1285 207 L 1283 211 L 1283 215 L 1282 216 L 1282 218 L 1281 219 L 1281 222 L 1279 226 L 1279 229 L 1278 230 L 1278 234 L 1277 235 L 1277 237 L 1276 238 L 1276 240 L 1274 244 L 1274 249 L 1273 250 L 1273 252 L 1271 256 L 1271 259 L 1270 260 L 1270 263 L 1269 264 L 1269 268 L 1268 269 L 1268 271 L 1266 275 L 1266 278 L 1265 279 L 1265 284 L 1264 285 L 1264 287 L 1262 291 L 1262 294 L 1261 295 L 1261 298 L 1260 299 L 1259 306 L 1258 307 L 1258 309 L 1257 310 L 1257 313 L 1256 314 L 1256 318 L 1254 322 L 1254 325 L 1273 325 L 1274 327 L 1273 328 L 1272 327 L 1273 328 L 1269 332 L 1269 333 L 1265 337 L 1265 338 L 1261 341 L 1261 342 L 1252 352 L 1252 353 L 1247 358 L 1247 359 L 1242 364 L 1242 365 L 1239 367 L 1239 368 L 1224 385 L 1224 386 L 1220 390 L 1220 391 L 1216 395 L 1216 396 L 1214 397 L 1214 399 L 1247 399 L 1249 397 L 1249 396 L 1259 385 L 1259 384 L 1263 380 L 1263 379 L 1265 377 L 1266 377 L 1266 376 L 1271 371 L 1271 370 L 1278 363 L 1278 362 L 1283 357 L 1283 356 L 1294 344 L 1294 343 L 1298 339 L 1298 338 L 1305 331 L 1305 330 L 1309 326 L 1309 325 L 1312 323 L 1313 320 L 1315 319 L 1316 317 L 1321 312 L 1322 312 L 1321 311 L 1330 301 L 1330 300 L 1335 295 L 1335 294 L 1337 292 L 1338 292 L 1339 289 L 1342 287 L 1342 286 L 1346 282 L 1346 281 L 1352 275 L 1352 274 L 1361 264 L 1361 263 L 1370 253 L 1370 252 L 1375 247 L 1375 246 L 1380 241 L 1380 240 L 1387 233 L 1387 232 L 1402 215 L 1402 214 L 1406 210 L 1406 209 L 1408 207 L 1409 207 L 1409 206 L 1413 202 L 1413 201 L 1418 196 L 1418 195 L 1422 191 L 1422 190 L 1427 185 L 1427 184 L 1431 180 L 1431 179 L 1440 169 L 1441 167 Z
 M 1129 179 L 1126 178 L 1125 176 L 1124 176 L 1116 170 L 1114 170 L 1107 166 L 1105 166 L 1104 165 L 1101 165 L 1100 164 L 1096 164 L 1095 163 L 1091 163 L 1090 162 L 1081 162 L 1080 161 L 1076 161 L 1075 162 L 1066 162 L 1065 163 L 1061 163 L 1060 164 L 1057 164 L 1056 165 L 1051 165 L 1050 166 L 1045 167 L 1040 170 L 1038 170 L 1028 175 L 1023 179 L 1021 179 L 1017 183 L 1016 183 L 1012 187 L 1011 187 L 999 199 L 999 200 L 996 203 L 996 204 L 994 205 L 993 208 L 990 211 L 981 229 L 981 231 L 980 232 L 980 234 L 979 235 L 979 237 L 977 241 L 977 244 L 976 245 L 976 254 L 975 255 L 975 265 L 976 266 L 976 273 L 977 274 L 977 277 L 980 283 L 981 288 L 984 292 L 985 295 L 988 298 L 989 301 L 998 310 L 1001 311 L 1004 314 L 1007 315 L 1009 317 L 1013 319 L 1015 319 L 1018 321 L 1020 321 L 1024 323 L 1027 323 L 1028 324 L 1035 324 L 1036 325 L 1054 325 L 1055 324 L 1062 324 L 1063 323 L 1067 323 L 1068 322 L 1071 322 L 1077 319 L 1080 319 L 1087 315 L 1089 315 L 1093 313 L 1095 311 L 1098 310 L 1103 306 L 1106 305 L 1116 296 L 1117 296 L 1115 292 L 1113 290 L 1112 290 L 1111 288 L 1109 286 L 1108 286 L 1107 284 L 1100 278 L 1098 279 L 1090 286 L 1089 286 L 1086 289 L 1074 295 L 1072 295 L 1068 297 L 1065 297 L 1064 298 L 1061 298 L 1060 299 L 1041 299 L 1040 298 L 1037 298 L 1036 297 L 1031 296 L 1028 294 L 1026 294 L 1024 292 L 1020 290 L 1010 280 L 1008 275 L 1006 273 L 1005 271 L 1005 268 L 1004 267 L 1004 264 L 1003 263 L 1003 248 L 1004 247 L 1005 238 L 1008 233 L 1008 231 L 1010 227 L 1012 225 L 1013 222 L 1018 216 L 1018 215 L 1030 203 L 1031 203 L 1044 194 L 1046 194 L 1053 190 L 1056 190 L 1057 189 L 1060 189 L 1061 188 L 1064 188 L 1065 187 L 1071 187 L 1072 186 L 1076 186 L 1077 187 L 1083 187 L 1084 188 L 1087 188 L 1088 189 L 1090 189 L 1091 190 L 1096 191 L 1100 194 L 1103 195 L 1106 198 L 1107 198 L 1109 200 L 1109 201 L 1114 206 L 1114 207 L 1116 209 L 1118 213 L 1118 216 L 1120 220 L 1120 225 L 1116 227 L 1111 227 L 1110 228 L 1103 228 L 1102 229 L 1097 229 L 1096 230 L 1091 230 L 1090 231 L 1086 231 L 1085 232 L 1077 232 L 1076 233 L 1072 233 L 1071 234 L 1066 234 L 1065 235 L 1061 235 L 1060 236 L 1053 236 L 1052 237 L 1047 237 L 1047 240 L 1046 241 L 1046 243 L 1045 244 L 1045 247 L 1044 248 L 1044 250 L 1043 251 L 1043 254 L 1042 255 L 1042 260 L 1041 261 L 1041 263 L 1044 263 L 1045 262 L 1050 262 L 1051 261 L 1058 261 L 1059 260 L 1063 260 L 1064 259 L 1068 259 L 1069 258 L 1073 258 L 1074 257 L 1080 257 L 1081 256 L 1086 256 L 1087 255 L 1092 255 L 1093 254 L 1097 254 L 1098 253 L 1103 253 L 1104 252 L 1111 252 L 1112 251 L 1116 251 L 1117 250 L 1121 250 L 1122 249 L 1126 249 L 1127 248 L 1133 248 L 1134 247 L 1139 247 L 1140 246 L 1144 246 L 1146 243 L 1146 240 L 1147 239 L 1147 231 L 1148 230 L 1148 220 L 1147 219 L 1147 211 L 1146 210 L 1146 207 L 1144 204 L 1144 202 L 1143 201 L 1143 199 L 1141 195 L 1139 193 L 1138 190 L 1134 186 L 1133 183 L 1132 183 L 1129 180 Z
 M 1779 171 L 1767 165 L 1765 165 L 1764 164 L 1762 164 L 1758 162 L 1755 162 L 1754 161 L 1747 161 L 1746 160 L 1729 160 L 1728 161 L 1722 161 L 1721 162 L 1718 162 L 1717 163 L 1715 163 L 1711 165 L 1707 165 L 1687 175 L 1685 177 L 1681 179 L 1672 187 L 1671 187 L 1661 197 L 1661 198 L 1657 202 L 1657 203 L 1652 209 L 1651 212 L 1649 214 L 1644 224 L 1643 229 L 1640 235 L 1640 238 L 1639 239 L 1639 244 L 1638 245 L 1638 250 L 1637 251 L 1637 267 L 1638 268 L 1638 273 L 1639 274 L 1639 278 L 1640 279 L 1640 282 L 1648 298 L 1652 302 L 1652 303 L 1655 306 L 1657 307 L 1657 308 L 1659 310 L 1660 310 L 1663 313 L 1669 316 L 1671 318 L 1673 319 L 1675 319 L 1676 320 L 1678 320 L 1684 323 L 1688 323 L 1689 324 L 1696 324 L 1697 325 L 1715 325 L 1716 324 L 1723 324 L 1724 323 L 1728 323 L 1729 322 L 1732 322 L 1738 319 L 1741 319 L 1748 315 L 1750 315 L 1754 313 L 1758 310 L 1759 311 L 1760 309 L 1761 309 L 1764 306 L 1765 306 L 1771 301 L 1772 301 L 1778 295 L 1761 278 L 1760 278 L 1756 282 L 1755 282 L 1751 286 L 1750 286 L 1745 290 L 1737 294 L 1732 295 L 1729 297 L 1726 297 L 1725 298 L 1721 298 L 1720 299 L 1703 299 L 1702 298 L 1698 298 L 1697 297 L 1692 296 L 1684 292 L 1682 290 L 1681 290 L 1673 282 L 1671 278 L 1668 275 L 1668 273 L 1667 272 L 1667 270 L 1666 269 L 1666 267 L 1664 263 L 1664 246 L 1665 245 L 1665 242 L 1666 241 L 1666 239 L 1668 235 L 1668 232 L 1670 228 L 1672 226 L 1673 224 L 1673 222 L 1680 214 L 1680 213 L 1690 203 L 1691 203 L 1694 200 L 1695 200 L 1700 196 L 1712 190 L 1715 190 L 1716 189 L 1718 189 L 1722 187 L 1725 187 L 1726 186 L 1744 186 L 1745 187 L 1747 187 L 1748 188 L 1750 188 L 1751 189 L 1756 190 L 1758 191 L 1761 194 L 1764 195 L 1773 204 L 1773 205 L 1777 210 L 1777 212 L 1778 213 L 1778 215 L 1780 219 L 1780 223 L 1781 225 L 1780 226 L 1775 226 L 1774 227 L 1768 227 L 1767 228 L 1759 228 L 1758 229 L 1753 229 L 1752 230 L 1747 230 L 1746 231 L 1742 231 L 1741 232 L 1733 232 L 1732 233 L 1727 233 L 1726 234 L 1722 234 L 1721 235 L 1717 235 L 1716 236 L 1709 236 L 1707 238 L 1707 241 L 1706 242 L 1706 246 L 1705 247 L 1705 250 L 1703 254 L 1703 258 L 1702 259 L 1702 262 L 1706 262 L 1707 261 L 1714 261 L 1715 260 L 1724 259 L 1725 258 L 1728 258 L 1729 257 L 1735 257 L 1736 256 L 1742 256 L 1743 255 L 1747 255 L 1748 254 L 1752 254 L 1753 253 L 1757 253 L 1758 252 L 1765 252 L 1766 251 L 1771 251 L 1772 250 L 1776 250 L 1777 249 L 1781 249 L 1782 248 L 1789 248 L 1790 247 L 1794 247 L 1795 246 L 1804 245 L 1805 243 L 1805 240 L 1806 239 L 1807 240 L 1807 243 L 1809 244 L 1809 241 L 1808 241 L 1806 238 L 1806 232 L 1807 231 L 1807 217 L 1806 216 L 1806 210 L 1805 209 L 1805 206 L 1802 200 L 1802 198 L 1800 194 L 1798 192 L 1797 189 L 1790 181 L 1790 180 L 1788 179 Z
@@ -2622,7 +2622,7 @@ M 333 132 L 331 134 L 328 135 L 326 137 L 321 139 L 311 148 L 310 148 L 296 163 
 M 181 132 L 179 134 L 174 136 L 172 138 L 168 140 L 165 143 L 164 143 L 159 148 L 158 148 L 156 150 L 156 151 L 154 152 L 152 154 L 152 155 L 147 160 L 147 161 L 143 165 L 143 166 L 139 171 L 138 174 L 136 176 L 130 188 L 130 190 L 129 191 L 129 193 L 128 194 L 128 196 L 126 200 L 126 203 L 125 204 L 125 208 L 124 209 L 124 213 L 123 214 L 123 222 L 122 223 L 122 232 L 123 233 L 123 241 L 124 242 L 124 246 L 125 247 L 125 252 L 126 253 L 126 256 L 129 262 L 130 267 L 135 277 L 137 279 L 138 282 L 144 289 L 144 290 L 156 302 L 157 302 L 160 305 L 164 307 L 167 310 L 167 311 L 169 310 L 174 314 L 176 315 L 178 315 L 185 319 L 188 319 L 189 320 L 191 320 L 195 322 L 198 322 L 199 323 L 204 323 L 205 324 L 214 324 L 215 325 L 286 325 L 287 324 L 287 319 L 288 318 L 288 302 L 289 301 L 289 298 L 288 297 L 214 297 L 213 296 L 208 296 L 207 295 L 200 294 L 195 291 L 193 291 L 189 289 L 187 287 L 184 286 L 178 281 L 177 281 L 168 272 L 168 271 L 164 267 L 163 264 L 159 259 L 159 257 L 155 250 L 155 248 L 154 247 L 154 243 L 152 239 L 152 233 L 151 232 L 151 221 L 152 220 L 152 214 L 153 213 L 153 210 L 154 209 L 154 205 L 157 199 L 157 197 L 159 194 L 159 192 L 163 187 L 163 185 L 167 181 L 168 178 L 170 177 L 171 175 L 184 163 L 185 163 L 190 159 L 200 154 L 202 154 L 205 152 L 207 152 L 210 150 L 215 150 L 216 149 L 222 149 L 223 148 L 295 148 L 296 147 L 296 140 L 297 139 L 297 128 L 298 127 L 298 121 L 297 120 L 227 120 L 226 121 L 215 121 L 214 122 L 209 122 L 208 123 L 205 123 L 201 125 L 198 125 L 197 126 L 192 127 L 185 131 L 183 131 Z
 M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1495 147 L 1494 148 L 1494 151 L 1493 152 L 1493 155 L 1492 156 L 1491 163 L 1489 167 L 1489 170 L 1488 171 L 1488 175 L 1487 176 L 1487 179 L 1485 183 L 1485 186 L 1484 187 L 1484 190 L 1483 191 L 1483 195 L 1482 196 L 1482 199 L 1481 200 L 1481 202 L 1480 203 L 1480 206 L 1479 207 L 1479 212 L 1478 213 L 1478 216 L 1476 220 L 1476 223 L 1475 224 L 1475 227 L 1474 228 L 1474 232 L 1473 233 L 1472 240 L 1470 244 L 1470 249 L 1469 250 L 1468 257 L 1466 261 L 1466 265 L 1465 266 L 1465 270 L 1464 271 L 1464 274 L 1463 275 L 1463 277 L 1462 278 L 1462 281 L 1461 282 L 1461 287 L 1460 288 L 1460 290 L 1459 291 L 1459 294 L 1457 298 L 1456 307 L 1455 308 L 1455 311 L 1454 312 L 1454 314 L 1453 315 L 1453 318 L 1452 319 L 1452 325 L 1478 325 L 1479 324 L 1479 321 L 1481 317 L 1481 312 L 1482 311 L 1482 308 L 1483 307 L 1483 304 L 1484 303 L 1484 300 L 1485 299 L 1485 296 L 1486 295 L 1486 290 L 1488 286 L 1488 283 L 1489 282 L 1489 279 L 1490 278 L 1490 274 L 1491 273 L 1491 270 L 1492 269 L 1492 267 L 1493 266 L 1493 263 L 1494 262 L 1495 253 L 1496 252 L 1496 249 L 1497 248 L 1497 245 L 1498 244 L 1498 241 L 1499 240 L 1499 235 L 1500 234 L 1500 232 L 1502 228 L 1502 225 L 1503 224 L 1503 220 L 1504 219 L 1504 216 L 1506 212 L 1506 209 L 1507 208 L 1507 205 L 1508 204 L 1508 199 L 1509 198 L 1509 195 L 1511 191 L 1511 188 L 1512 187 L 1512 183 L 1513 182 L 1513 179 L 1515 175 L 1516 168 L 1517 167 L 1519 169 L 1519 171 L 1520 172 L 1521 170 L 1521 167 L 1519 165 L 1518 167 L 1517 166 L 1518 159 L 1520 156 L 1522 159 L 1522 162 L 1523 163 L 1524 170 L 1525 171 L 1525 173 L 1527 177 L 1527 180 L 1528 181 L 1528 183 L 1530 187 L 1530 190 L 1532 194 L 1532 197 L 1533 198 L 1533 200 L 1534 201 L 1534 203 L 1536 207 L 1536 211 L 1537 212 L 1537 215 L 1538 216 L 1538 218 L 1539 219 L 1539 221 L 1541 225 L 1541 229 L 1542 230 L 1542 232 L 1543 233 L 1543 235 L 1545 239 L 1546 246 L 1547 247 L 1547 249 L 1548 250 L 1548 252 L 1550 256 L 1550 261 L 1551 262 L 1551 264 L 1552 265 L 1552 267 L 1554 271 L 1555 278 L 1556 279 L 1556 281 L 1558 285 L 1558 288 L 1559 289 L 1560 296 L 1561 297 L 1561 299 L 1563 303 L 1563 307 L 1564 308 L 1564 310 L 1566 314 L 1568 316 L 1568 317 L 1570 319 L 1571 319 L 1573 321 L 1577 323 L 1579 323 L 1580 324 L 1595 324 L 1596 323 L 1598 323 L 1606 318 L 1610 310 L 1610 306 L 1612 302 L 1612 299 L 1613 298 L 1613 296 L 1614 295 L 1614 292 L 1615 291 L 1615 287 L 1616 286 L 1616 284 L 1617 283 L 1617 280 L 1619 276 L 1619 272 L 1620 271 L 1620 269 L 1621 268 L 1621 265 L 1623 261 L 1623 258 L 1624 257 L 1624 253 L 1625 252 L 1625 250 L 1627 246 L 1627 243 L 1628 242 L 1628 238 L 1629 237 L 1629 235 L 1631 231 L 1631 228 L 1632 227 L 1632 223 L 1633 222 L 1633 220 L 1634 219 L 1634 216 L 1635 215 L 1635 213 L 1637 209 L 1637 205 L 1638 204 L 1638 202 L 1639 201 L 1639 198 L 1641 194 L 1641 190 L 1642 189 L 1642 186 L 1643 185 L 1643 183 L 1645 179 L 1646 172 L 1647 171 L 1647 169 L 1648 168 L 1648 165 L 1650 161 L 1650 157 L 1651 156 L 1651 154 L 1652 153 L 1652 151 L 1654 147 L 1654 144 L 1655 143 L 1655 139 L 1656 138 L 1656 136 L 1657 135 L 1657 133 L 1659 129 L 1659 125 L 1661 122 L 1661 120 L 1660 119 L 1635 119 L 1632 123 L 1632 125 L 1631 126 L 1631 129 L 1630 130 L 1630 134 L 1629 135 L 1629 137 L 1627 141 L 1627 144 L 1626 145 L 1626 149 L 1625 150 L 1625 152 L 1624 153 L 1624 155 L 1622 159 L 1622 162 L 1621 163 L 1621 167 L 1620 168 L 1620 170 L 1618 174 L 1618 177 L 1617 178 L 1617 182 L 1616 183 L 1616 185 L 1614 189 L 1614 192 L 1612 196 L 1612 200 L 1611 201 L 1611 203 L 1610 204 L 1610 207 L 1608 211 L 1608 215 L 1606 219 L 1606 222 L 1604 226 L 1604 229 L 1603 230 L 1602 237 L 1600 241 L 1600 244 L 1599 245 L 1599 249 L 1598 250 L 1598 253 L 1597 254 L 1597 256 L 1595 260 L 1595 264 L 1594 265 L 1594 268 L 1592 272 L 1592 275 L 1590 278 L 1588 274 L 1587 274 L 1587 277 L 1590 281 L 1590 284 L 1588 288 L 1586 287 L 1586 285 L 1585 284 L 1585 281 L 1583 277 L 1583 273 L 1582 272 L 1582 270 L 1581 269 L 1581 267 L 1579 263 L 1579 260 L 1578 259 L 1578 256 L 1577 255 L 1577 253 L 1575 249 L 1575 246 L 1574 245 L 1573 238 L 1572 237 L 1572 235 L 1570 231 L 1569 224 L 1568 223 L 1568 221 L 1566 217 L 1565 210 L 1564 209 L 1564 207 L 1562 203 L 1562 200 L 1561 199 L 1560 192 L 1559 191 L 1559 189 L 1557 185 L 1557 182 L 1556 181 L 1556 179 L 1555 178 L 1555 176 L 1553 172 L 1552 165 L 1550 161 L 1550 158 L 1548 154 L 1548 151 L 1547 150 L 1547 147 L 1545 143 L 1545 140 L 1544 139 L 1543 134 L 1541 130 L 1534 123 L 1530 121 L 1528 121 L 1524 119 L 1513 119 L 1512 120 L 1509 120 L 1508 121 Z" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"/>
 </svg>
-`;var page_default=`<!doctype html>
+`,pageHtml=`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -3014,147 +3014,134 @@ M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1
   </script>
 </body>
 </html>
-`;var page_script_default=`const token = __CC_SAFETY_NET_TOKEN__;
-const fallbackRepoUrl = 'https://github.com/kenryu42/cc-safety-net';
-const safetyLevels = {
+`,pageScriptJs=`var token = __CC_SAFETY_NET_TOKEN__;
+var fallbackRepoUrl = "https://github.com/kenryu42/cc-safety-net";
+var safetyLevels = {
   standard: [
-    'Standard',
-    'Blocks recognizable destructive commands and sensitive content access while allowing metadata-only sensitive-path checks. Recommended for normal coding.',
+    "Standard",
+    "Blocks recognizable destructive commands and sensitive content access while allowing metadata-only sensitive-path checks. Recommended for normal coding."
   ],
   strict: [
-    'Strict',
-    'Standard, plus blocks dynamic or unparseable commands and metadata-only sensitive-path discovery. Occasional false positives on advanced shell.',
+    "Strict",
+    "Standard, plus blocks dynamic or unparseable commands and metadata-only sensitive-path discovery. Occasional false positives on advanced shell."
   ],
   paranoid: [
-    'Paranoid',
-    'Strict, plus blocks rm -rf inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos.',
-  ],
+    "Paranoid",
+    "Strict, plus blocks rm -rf inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos."
+  ]
 };
-const safetyOverrides = {
-  fail_closed: ['Fail closed', 'Block commands the parser cannot fully understand.'],
-  paranoid_rm: ['Paranoid rm -rf checks', 'Block non-temp rm -rf inside the project.'],
-  paranoid_interpreters: ['Paranoid interpreters', 'Block interpreter one-liners.'],
+var safetyOverrides = {
+  fail_closed: ["Fail closed", "Block commands the parser cannot fully understand."],
+  paranoid_rm: ["Paranoid rm -rf checks", "Block non-temp rm -rf inside the project."],
+  paranoid_interpreters: ["Paranoid interpreters", "Block interpreter one-liners."]
 };
-const rawCopyIcons = {
+var rawCopyIcons = {
   copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2"></path></svg>',
-  check:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>'
 };
-const starIcons = {
-  outline:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>',
-  filled:
-    '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>',
+var starIcons = {
+  outline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>',
+  filled: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>'
 };
-const reportIcon =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><path d="M4 22v-7"></path></svg>';
-const pathListIcons = {
+var reportIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><path d="M4 22v-7"></path></svg>';
+var pathListIcons = {
   add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
-  remove:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6M14 11v6"></path></svg>',
+  remove: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6M14 11v6"></path></svg>'
 };
-let state;
-let draftPolicy;
-let preview;
-let previewRequestId = 0;
-let dirty = false;
-let searchActive = false;
-const OVERVIEW_DAYS = 7;
-const DEFAULT_RETENTION_DAYS = 30;
-const MAX_RETENTION_DAYS = 365;
-let overview = null;
-let activity = null;
-let knownRuleIds = new Set();
-const activityFilters = { days: 7, decision: 'all', agent: 'all', query: '', command: '' };
-const tierExpanded = new Map([
-  ['enforced', false],
-  ['normal', false],
-  ['strict', false],
-  ['paranoid', false],
+var state;
+var draftPolicy;
+var preview;
+var previewRequestId = 0;
+var dirty = false;
+var searchActive = false;
+var OVERVIEW_DAYS = 7;
+var DEFAULT_RETENTION_DAYS = 30;
+var MAX_RETENTION_DAYS = 365;
+var overview = null;
+var activity = null;
+var knownRuleIds = new Set;
+var activityFilters = { days: 7, decision: "all", agent: "all", query: "", command: "" };
+var tierExpanded = new Map([
+  ["enforced", false],
+  ["normal", false],
+  ["strict", false],
+  ["paranoid", false]
 ]);
-const searchCollapsedTiers = new Set();
-const secretGroupExpanded = new Map();
-const searchCollapsedSecretGroups = new Set();
-let rawCopyResetTimer = null;
-let feedCopyResetTimer = null;
-let activityQueryTimer = null;
-let renderedFeedEntries = [];
-let suspects = new Set();
-let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
-let integrations = null;
-let integrationsRequested = false;
-const integrationBusy = new Set();
-let rulesData = null;
-let rulesRequested = false;
-let rulesScope = 'project';
-let pendingRuleFocus = null;
-// Set once a dialog that detection said was available failed to open, so a
-// later refresh cannot re-lock the field behind a button that does not work.
-let directoryPickerFailed = false;
-const api = (path, init = {}) =>
-  fetch(\`\${path}\${path.includes('?') ? '&' : '?'}token=\${encodeURIComponent(token)}\`, {
-    ...init,
-    headers: {
-      'content-type': 'application/json',
-      'x-cc-safety-net-token': token,
-      ...(init.headers || {}),
-    },
-  });
-const requestJson = async (path, init) => {
+var searchCollapsedTiers = new Set;
+var secretGroupExpanded = new Map;
+var searchCollapsedSecretGroups = new Set;
+var rawCopyResetTimer = null;
+var feedCopyResetTimer = null;
+var activityQueryTimer;
+var renderedFeedEntries = [];
+var suspects = new Set;
+var activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
+var integrations = null;
+var integrationsRequested = false;
+var integrationBusy = new Set;
+var rulesData = null;
+var rulesRequested = false;
+var rulesScope = "project";
+var pendingRuleFocus = null;
+var directoryPickerFailed = false;
+var api = (path, init = {}) => fetch(\`\${path}\${path.includes("?") ? "&" : "?"}token=\${encodeURIComponent(token)}\`, {
+  ...init,
+  headers: {
+    "content-type": "application/json",
+    "x-cc-safety-net-token": token,
+    ...init.headers || {}
+  }
+});
+var requestJson = async (path, init) => {
   try {
     const response = await api(path, init);
     const text = await response.text();
-    return { ok: response.ok, status: response.status, data: text ? JSON.parse(text) : {} };
+    return {
+      ok: response.ok,
+      status: response.status,
+      data: text ? JSON.parse(text) : {},
+      error: undefined
+    };
   } catch (error) {
-    return { ok: false, status: 0, error: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      status: 0,
+      data: undefined,
+      error: error instanceof Error ? error.message : String(error)
+    };
   }
 };
-const errorText = (result) =>
-  result.error ??
-  (Array.isArray(result.data?.errors) && result.data.errors.length
-    ? result.data.errors.join('\\n')
-    : null) ??
-  result.data?.error ??
-  \`Request failed (status \${result.status}).\`;
-const isWriteSuccess = (result) =>
-  result.ok && !(Array.isArray(result.data?.errors) && result.data.errors.length > 0);
-const isPolicyState = (value) =>
-  !!value &&
-  typeof value === 'object' &&
-  !!value.policy &&
-  typeof value.policy === 'object' &&
-  !!value.policy.safety &&
-  !!value.policy.workflow &&
-  !!value.policy.secret_protection &&
-  Array.isArray(value.destructiveCommandRules) &&
-  Array.isArray(value.secretPatterns) &&
-  (value.preview === null || (value.preview && typeof value.preview === 'object')) &&
-  Array.isArray(value.errors);
-const qs = (id) => document.getElementById(id);
-const setDetailStatus = (text, kind = '') => {
-  qs('status').textContent = text;
-  qs('status').className = \`status \${kind}\`;
+var errorText = (result) => result.error ?? (Array.isArray(result.data?.errors) && result.data.errors.length ? result.data.errors.join(\`
+\`) : null) ?? result.data?.error ?? \`Request failed (status \${result.status}).\`;
+var isWriteSuccess = (result) => result.ok && !(Array.isArray(result.data?.errors) && result.data.errors.length > 0);
+var isPolicyState = (value) => !!value && typeof value === "object" && !!value.policy && typeof value.policy === "object" && !!value.policy.safety && !!value.policy.workflow && !!value.policy.secret_protection && Array.isArray(value.destructiveCommandRules) && Array.isArray(value.secretPatterns) && (value.preview === null || value.preview && typeof value.preview === "object") && Array.isArray(value.errors);
+var qs = (id) => document.getElementById(id);
+var setDetailStatus = (text, kind = "") => {
+  qs("status").textContent = text;
+  qs("status").className = \`status \${kind}\`;
 };
-let appStatusTimer;
-const setAppStatus = (text, kind = '') => {
-  qs('app-status').textContent = text;
-  qs('app-status').className = \`app-status \${kind}\`;
+var appStatusTimer;
+var setAppStatus = (text, kind = "") => {
+  qs("app-status").textContent = text;
+  qs("app-status").className = \`app-status \${kind}\`;
   clearTimeout(appStatusTimer);
-  if (kind === 'ok') appStatusTimer = setTimeout(() => setAppStatus(''), 4000);
+  if (kind === "ok")
+    appStatusTimer = setTimeout(() => setAppStatus(""), 4000);
 };
-let busy = false;
-const updateActions = () => {
+var busy = false;
+var updateActions = () => {
   const hasErrors = (state?.errors.length ?? 0) > 0;
-  qs('save').disabled = busy || !state || hasErrors;
-  qs('reset').disabled = busy || !state;
-  qs('repair').disabled = busy || !hasErrors;
+  qs("save").disabled = busy || !state || hasErrors;
+  qs("reset").disabled = busy || !state;
+  qs("repair").disabled = busy || !hasErrors;
 };
-const runExclusive = async (pendingText, fn) => {
-  if (busy) return;
+var runExclusive = async (pendingText, fn) => {
+  if (busy)
+    return;
   busy = true;
   updateActions();
   setAppStatus(pendingText);
-  setDetailStatus('');
+  setDetailStatus("");
   try {
     await fn();
   } finally {
@@ -3162,1007 +3149,813 @@ const runExclusive = async (pendingText, fn) => {
     updateActions();
   }
 };
-const checkbox = (checked) => (checked ? 'checked' : '');
-// Retention goes down to 1, so every window label has to survive the singular.
-const dayCount = (days) => \`\${days} day\${days === 1 ? '' : 's'}\`;
-const syncMasterBadges = () => {
-  document.querySelectorAll('label.row.master input').forEach((input) => {
-    input.closest('label').querySelector('.master-badge').textContent = input.checked
-      ? 'On'
-      : 'Off';
+var checkbox = (checked) => checked ? "checked" : "";
+var dayCount = (days) => \`\${days} day\${days === 1 ? "" : "s"}\`;
+var syncMasterBadges = () => {
+  document.querySelectorAll("label.row.master input").forEach((input) => {
+    input.closest("label").querySelector(".master-badge").textContent = input.checked ? "On" : "Off";
   });
 };
-const escapeHtml = (value) =>
-  String(value).replace(
-    /[&<>"']/g,
-    (char) =>
-      ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;',
-      })[char],
-  );
-const clonePolicy = (policy) => JSON.parse(JSON.stringify(policy));
-const pathLines = (value) =>
-  value
-    .split('\\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-const formatPolicy = (policy) => \`\${JSON.stringify(policy, null, 2)}\\n\`;
-const collectFormPolicy = () => ({
+var escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;"
+})[char]);
+var clonePolicy = (policy) => JSON.parse(JSON.stringify(policy));
+var pathLines = (value) => value.split(\`
+\`).map((line) => line.trim()).filter(Boolean);
+var formatPolicy = (policy) => \`\${JSON.stringify(policy, null, 2)}
+\`;
+var collectFormPolicy = () => ({
   version: 1,
   safety: {
     level: draftPolicy.safety.level,
-    overrides: Object.fromEntries(
-      Object.entries(draftPolicy.safety.overrides).filter(
-        ([, value]) => typeof value === 'boolean',
-      ),
-    ),
+    overrides: Object.fromEntries(Object.entries(draftPolicy.safety.overrides).filter(([, value]) => typeof value === "boolean"))
   },
   workflow: draftPolicy.workflow,
   destructive_command_protection: draftPolicy.destructive_command_protection,
   secret_protection: {
     enabled: draftPolicy.secret_protection.enabled,
     overrides: draftPolicy.secret_protection.overrides,
-    deny_paths: draftPolicy.secret_protection.deny_paths,
+    deny_paths: draftPolicy.secret_protection.deny_paths
   },
-  audit: draftPolicy.audit,
+  audit: draftPolicy.audit
 });
-const viewNames = ['overview', 'activity', 'policy', 'rules', 'integrations', 'settings'];
-const viewTitles = {
-  overview: 'Overview',
-  activity: 'Activity',
-  policy: 'Policy',
-  rules: 'Rules',
-  integrations: 'Integrations',
-  settings: 'Settings',
+var viewNames = ["overview", "activity", "policy", "rules", "integrations", "settings"];
+var viewTitles = {
+  overview: "Overview",
+  activity: "Activity",
+  policy: "Policy",
+  rules: "Rules",
+  integrations: "Integrations",
+  settings: "Settings"
 };
-const currentView = () => {
-  const hash = location.hash.replace('#', '');
-  return viewNames.includes(hash) ? hash : 'overview';
+var currentView = () => {
+  const hash = location.hash.replace("#", "");
+  return viewNames.includes(hash) ? hash : "overview";
 };
-const applyView = () => {
+var applyView = () => {
   const view = currentView();
   document.body.dataset.view = view;
-  const hasSearch = view === 'activity' || view === 'policy';
-  qs('topbar-title').textContent = viewTitles[view];
-  // Search takes the bar's space on these views, but the heading is the only
-  // thing naming the current view, so it stays in the accessibility tree.
-  qs('topbar-title').classList.toggle('sr-only', hasSearch);
-  document.querySelectorAll('.topbar-search').forEach((el) => {
+  const hasSearch = view === "activity" || view === "policy";
+  qs("topbar-title").textContent = viewTitles[view];
+  qs("topbar-title").classList.toggle("sr-only", hasSearch);
+  document.querySelectorAll(".topbar-search").forEach((el) => {
     el.hidden = el.dataset.searchView !== view;
   });
-  qs('topbar').classList.toggle('has-search', hasSearch);
+  qs("topbar").classList.toggle("has-search", hasSearch);
   document.title = \`\${viewTitles[view]} · CC Safety Net\`;
-  document.querySelectorAll('[data-view]').forEach((section) => {
+  document.querySelectorAll("[data-view]").forEach((section) => {
     section.hidden = section.dataset.view !== view;
   });
-  document.querySelectorAll('[data-nav]').forEach((link) => {
-    if (link.dataset.nav === view) link.setAttribute('aria-current', 'page');
-    else link.removeAttribute('aria-current');
+  document.querySelectorAll("[data-nav]").forEach((link) => {
+    if (link.dataset.nav === view)
+      link.setAttribute("aria-current", "page");
+    else
+      link.removeAttribute("aria-current");
   });
-  qs('dirty-chip').hidden = !dirty || view === 'policy';
-  if (view === 'activity') applyFeedClamps(qs('activity-feed'));
-  if (view === 'integrations' && !integrationsRequested) {
+  qs("dirty-chip").hidden = !dirty || view === "policy";
+  if (view === "activity")
+    applyFeedClamps(qs("activity-feed"));
+  if (view === "integrations" && !integrationsRequested) {
     integrationsRequested = true;
-    void loadIntegrations();
+    loadIntegrations();
   }
-  if (view === 'rules' && !rulesRequested) {
+  if (view === "rules" && !rulesRequested) {
     rulesRequested = true;
-    void loadRules();
+    loadRules();
   }
-  // The section is unhidden above, so this is the earliest point a jumped-to
-  // rule can be scrolled into view.
-  if (view === 'rules' && rulesData && pendingRuleFocus) renderRules();
+  if (view === "rules" && rulesData && pendingRuleFocus)
+    renderRules();
 };
-const relativeTime = (ts) => {
+var relativeTime = (ts) => {
   const diff = Date.now() - new Date(ts).getTime();
-  if (!Number.isFinite(diff)) return '';
+  if (!Number.isFinite(diff))
+    return "";
   const minutes = Math.floor(diff / 60000);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
-  if (days > 0) return \`\${days}d ago\`;
-  if (hours > 0) return \`\${hours}h ago\`;
-  if (minutes > 0) return \`\${minutes}m ago\`;
-  return 'just now';
+  if (days > 0)
+    return \`\${days}d ago\`;
+  if (hours > 0)
+    return \`\${hours}h ago\`;
+  if (minutes > 0)
+    return \`\${minutes}m ago\`;
+  return "just now";
 };
-const isActivityFeed = (value) =>
-  !!value &&
-  typeof value === 'object' &&
-  Array.isArray(value.entries) &&
-  !!value.counts &&
-  typeof value.counts === 'object';
-const agentLabels = __CC_SAFETY_NET_AGENT_LABELS__;
-const tierCountHtml = (segments) => {
-  const parts = segments
-    .filter(([count]) => count > 0)
-    .map(([count, label, tone]) =>
-      tone ? \`<span class="count-\${tone}">\${count} \${label}</span>\` : \`\${count} \${label}\`,
-    );
-  return parts.length > 0 ? parts.join(' · ') : '0 on';
+var isActivityFeed = (value) => !!value && typeof value === "object" && Array.isArray(value.entries) && !!value.counts && typeof value.counts === "object";
+var agentLabels = __CC_SAFETY_NET_AGENT_LABELS__;
+var tierCountHtml = (segments) => {
+  const parts = segments.filter(([count]) => count > 0).map(([count, label, tone]) => tone ? \`<span class="count-\${tone}">\${count} \${label}</span>\` : \`\${count} \${label}\`);
+  return parts.length > 0 ? parts.join(" · ") : "0 on";
 };
-const feedItemHtml = (entry, index) => {
-  const deny = entry.decision !== 'allow';
-  const badgeClass = entry.failureStage ? 'error' : deny ? 'deny' : 'allow';
-  const badgeLabel = entry.failureStage ? 'Error' : deny ? 'Blocked' : 'Allowed';
+var feedItemHtml = (entry, index) => {
+  const deny = entry.decision !== "allow";
+  const badgeClass = entry.failureStage ? "error" : deny ? "deny" : "allow";
+  const badgeLabel = entry.failureStage ? "Error" : deny ? "Blocked" : "Allowed";
   return \`<article class="feed-item">
     <div class="feed-meta">
       <span class="decision-badge \${badgeClass}">\${badgeLabel}</span>
-      \${entry.agent && entry.agent !== 'unknown' ? \`<span class="agent-badge">\${escapeHtml(agentLabels[entry.agent] ?? entry.agent)}</span>\` : ''}
-      \${entry.ruleId ? (knownRuleIds.has(entry.ruleId) ? \`<button type="button" class="rule-id" data-jump-rule="\${escapeHtml(entry.ruleId)}" title="Show this rule in Policy">\${escapeHtml(entry.ruleId)}</button>\` : \`<code class="rule-id">\${escapeHtml(entry.ruleId)}</code>\`) : ''}
+      \${entry.agent && entry.agent !== "unknown" ? \`<span class="agent-badge">\${escapeHtml(agentLabels[entry.agent] ?? entry.agent)}</span>\` : ""}
+      \${entry.ruleId ? knownRuleIds.has(entry.ruleId) ? \`<button type="button" class="rule-id" data-jump-rule="\${escapeHtml(entry.ruleId)}" title="Show this rule in Policy">\${escapeHtml(entry.ruleId)}</button>\` : \`<code class="rule-id">\${escapeHtml(entry.ruleId)}</code>\` : ""}
       <time datetime="\${escapeHtml(entry.ts)}" title="\${escapeHtml(entry.ts)}">\${relativeTime(entry.ts)}</time>
       <button type="button" class="icon-button feed-copy" data-log-copy="\${index}" aria-label="Copy log entry as JSON">\${rawCopyIcons.copy}</button>
       \${deny ? \`<button type="button" class="icon-button feed-report" data-report-fp="\${index}" aria-label="Report false positive" title="Report false positive">\${reportIcon}</button>\` : \`<button type="button" class="feed-toggle feed-block" data-block-future="\${index}">Block this in future</button>\`}
     </div>
-    <code class="feed-command">\${escapeHtml(entry.segment || entry.command || '(no command recorded)')}</code>
-    \${entry.reason && entry.reason !== 'allowed' ? \`<p class="feed-reason muted">\${escapeHtml(entry.reason)}</p>\` : ''}
+    <code class="feed-command">\${escapeHtml(entry.segment || entry.command || "(no command recorded)")}</code>
+    \${entry.reason && entry.reason !== "allowed" ? \`<p class="feed-reason muted">\${escapeHtml(entry.reason)}</p>\` : ""}
   </article>\`;
 };
-// Every measurement runs before the first write: interleaving them invalidates
-// layout on each entry, which costs ~570ms over a full 500-entry feed.
-const applyFeedClamps = (root) => {
-  const overflowing = [...root.querySelectorAll('.feed-command')].filter(
-    (command) =>
-      !command.classList.contains('clamped') && command.scrollHeight > command.clientHeight + 1,
-  );
+var applyFeedClamps = (root) => {
+  const overflowing = [...root.querySelectorAll(".feed-command")].filter((command) => !command.classList.contains("clamped") && command.scrollHeight > command.clientHeight + 1);
   overflowing.forEach((command) => {
-    command.classList.add('clamped');
-    command.insertAdjacentHTML(
-      'afterend',
-      '<button type="button" class="feed-toggle" data-feed-toggle aria-expanded="false">Show more</button>',
-    );
+    command.classList.add("clamped");
+    command.insertAdjacentHTML("afterend", '<button type="button" class="feed-toggle" data-feed-toggle aria-expanded="false">Show more</button>');
   });
 };
-const dayLabel = (ts) => {
+var dayLabel = (ts) => {
   const date = new Date(ts);
-  if (date.toDateString() === new Date().toDateString()) return 'Today';
-  if (date.toDateString() === new Date(Date.now() - 86400000).toDateString()) return 'Yesterday';
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  if (date.toDateString() === new Date().toDateString())
+    return "Today";
+  if (date.toDateString() === new Date(Date.now() - 86400000).toDateString())
+    return "Yesterday";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 };
-const renderOverviewActivity = () => {
-  const tile = (value, label, extra) =>
-    \`<div class="tile"><strong>\${escapeHtml(value.toLocaleString('en-US'))}</strong><span>\${escapeHtml(label)}</span>\${extra}</div>\`;
-  // Buckets run oldest-first, so the last one is today. Each column carries its
-  // own count: the tooltip is a pointer affordance and cannot be the only way
-  // to read the series.
-  const dayAgoLabel = (daysAgo) =>
-    daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : \`\${daysAgo} days ago\`;
-  // Each series scales to its own maximum, so bar heights read as shape over
-  // time within one tile and never as a comparison between the two.
+var renderOverviewActivity = () => {
+  const tile = (value, label, extra) => \`<div class="tile"><strong>\${escapeHtml(value.toLocaleString("en-US"))}</strong><span>\${escapeHtml(label)}</span>\${extra}</div>\`;
+  const dayAgoLabel = (daysAgo) => daysAgo === 0 ? "Today" : daysAgo === 1 ? "Yesterday" : \`\${daysAgo} days ago\`;
   const sparkline = (byDay, noun) => {
     const max = Math.max(...byDay, 1);
-    return \`<div class="tile-spark" role="group" aria-label="Commands \${noun} per day, most recent \${dayCount(byDay.length)}">\${byDay
-      .map((count, index) => {
-        const label = \`\${dayAgoLabel(byDay.length - 1 - index)}: \${count.toLocaleString('en-US')} \${noun}\`;
-        return \`<div class="spark-col" role="img" tabindex="0" data-count="\${count.toLocaleString('en-US')}" aria-label="\${escapeHtml(label)}"><div class="spark-bar\${count === 0 ? ' spark-zero' : ''}" aria-hidden="true" style="height:\${count === 0 ? 2 : Math.max(2, Math.round((count / max) * 40))}px"></div></div>\`;
-      })
-      .join('')}</div>\`;
+    return \`<div class="tile-spark" role="group" aria-label="Commands \${noun} per day, most recent \${dayCount(byDay.length)}">\${byDay.map((count, index) => {
+      const label = \`\${dayAgoLabel(byDay.length - 1 - index)}: \${count.toLocaleString("en-US")} \${noun}\`;
+      return \`<div class="spark-col" role="img" tabindex="0" data-count="\${count.toLocaleString("en-US")}" aria-label="\${escapeHtml(label)}"><div class="spark-bar\${count === 0 ? " spark-zero" : ""}" aria-hidden="true" style="height:\${count === 0 ? 2 : Math.max(2, Math.round(count / max * 40))}px"></div></div>\`;
+    }).join("")}</div>\`;
   };
-  qs('overview-window').textContent = \`Last \${dayCount(overview.days)}\`;
-  qs('overview-tiles').innerHTML = [
-    tile(overview.counts.blocked, 'Blocked', sparkline(overview.counts.blockedByDay, 'blocked')),
-    tile(overview.totalInWindow, 'Analyzed', sparkline(overview.counts.analyzedByDay, 'analyzed')),
-  ].join('');
+  qs("overview-window").textContent = \`Last \${dayCount(overview.days)}\`;
+  qs("overview-tiles").innerHTML = [
+    tile(overview.counts.blocked, "Blocked", sparkline(overview.counts.blockedByDay, "blocked")),
+    tile(overview.totalInWindow, "Analyzed", sparkline(overview.counts.analyzedByDay, "analyzed"))
+  ].join("");
 };
-const retentionDays = () => state?.policy?.audit?.retention_days ?? DEFAULT_RETENTION_DAYS;
-// A retention set below the Overview's fixed window would make its request a 400.
-const overviewDays = () => Math.min(OVERVIEW_DAYS, retentionDays());
-const renderRetention = () => {
-  qs('retention-days').value = String(state.policy.audit.retention_days);
-  qs('retention-unit').textContent = state.policy.audit.retention_days === 1 ? 'day' : 'days';
-  qs('retention-note').textContent =
-    'Saved on change. Lowering this deletes anything already older than the new window; the Activity tab can only look back as far as it.';
+var retentionDays = () => state?.policy?.audit?.retention_days ?? DEFAULT_RETENTION_DAYS;
+var overviewDays = () => Math.min(OVERVIEW_DAYS, retentionDays());
+var renderRetention = () => {
+  qs("retention-days").value = String(state.policy.audit.retention_days);
+  qs("retention-unit").textContent = state.policy.audit.retention_days === 1 ? "day" : "days";
+  qs("retention-note").textContent = "Saved on change. Lowering this deletes anything already older than the new window; the Activity tab can only look back as far as it.";
 };
-// Windows the Activity tab offers. Anything wider than retention would promise
-// history the sweep has already deleted, and the retention value itself is
-// always offered so the whole log stays reachable.
-const activityWindowOptions = () => {
+var activityWindowOptions = () => {
   const retained = retentionDays();
   const windows = [7, 30, 90, 180, 365].filter((days) => days < retained);
   return [...windows, retained];
 };
-// The snapshot reason already names the failing source, what is not active, that
-// the rejected candidate is not active, and the repair.
-const configStateNotice = () => {
+var configStateNotice = () => {
   const configState = state?.configState;
-  if (!configState || configState.state === 'ready') return null;
+  if (!configState || configState.state === "ready")
+    return null;
   return \`A fallback configuration is being enforced: \${configState.reason}\`;
 };
-const setProtectionBanner = (notices) => {
-  const text = notices.filter(Boolean).join(' ');
-  qs('protection-banner').textContent = text;
-  qs('protection-banner').hidden = text === '';
+var setProtectionBanner = (notices) => {
+  const text = notices.filter(Boolean).join(" ");
+  qs("protection-banner").textContent = text;
+  qs("protection-banner").hidden = text === "";
 };
-const renderProtectionCard = () => {
-  // Saved state only: state.policy/state.preview are server-confirmed; draftPolicy is not,
-  // so unsaved toggles do not flip the posture card.
+var renderProtectionCard = () => {
   const configNotice = configStateNotice();
   if (!state || !state.preview) {
-    qs('protection-card').hidden = true;
+    qs("protection-card").hidden = true;
     setProtectionBanner([configNotice]);
     return;
   }
   const policy = state.policy;
-  const customized =
-    state.preview.counts.effectiveCustomizations > 0 ||
-    Object.entries(policy.safety.overrides).some(
-      ([key, value]) => value !== levelCapabilities(policy.safety.level)[key],
-    );
+  const customized = state.preview.counts.effectiveCustomizations > 0 || Object.entries(policy.safety.overrides).some(([key, value]) => value !== levelCapabilities(policy.safety.level)[key]);
   const commandsOn = policy.destructive_command_protection.enabled;
   const secretsOn = policy.secret_protection.enabled;
   const off = [
-    commandsOn
-      ? null
-      : 'Destructive command protection is off — configurable destructive command rules are not being enforced (catastrophic and custom rules remain active)',
-    secretsOn
-      ? null
-      : 'Secret protection is off — sensitive paths and deny paths are not being blocked',
+    commandsOn ? null : "Destructive command protection is off — configurable destructive command rules are not being enforced (catastrophic and custom rules remain active)",
+    secretsOn ? null : "Secret protection is off — sensitive paths and deny paths are not being blocked"
   ].filter(Boolean);
   setProtectionBanner([
-    off.length > 0
-      ? \`\${off.join('. ')}. Re-enable \${off.length > 1 ? 'them' : 'it'} in Policy.\`
-      : null,
-    configNotice,
+    off.length > 0 ? \`\${off.join(". ")}. Re-enable \${off.length > 1 ? "them" : "it"} in Policy.\` : null,
+    configNotice
   ]);
-  qs('protection-card').hidden = false;
-  qs('protection-card').classList.toggle('protection-warning', !commandsOn || !secretsOn);
-  qs('protection-card').innerHTML =
-    \`<div class="panel-head"><div class="panel-title"><h2>Protection status</h2></div><a class="panel-head-action view-all-link" href="#policy">Configure</a></div>\` +
-    \`<p>\${escapeHtml(safetyLevels[policy.safety.level][0])}\${customized ? ' · Customized' : ''}</p>\` +
-    \`<p\${commandsOn ? '' : ' class="state-disabled"'}>\${commandsOn ? \`\${state.preview.counts.enabled} rules active\` : 'Destructive command protection is OFF'}</p>\` +
-    \`<p\${secretsOn ? '' : ' class="state-disabled"'}>\${secretsOn ? 'Secret protection on' : 'Secret protection is OFF'}</p>\`;
+  qs("protection-card").hidden = false;
+  qs("protection-card").classList.toggle("protection-warning", !commandsOn || !secretsOn);
+  qs("protection-card").innerHTML = \`<div class="panel-head"><div class="panel-title"><h2>Protection status</h2></div><a class="panel-head-action view-all-link" href="#policy">Configure</a></div>\` + \`<p>\${escapeHtml(safetyLevels[policy.safety.level][0])}\${customized ? " · Customized" : ""}</p>\` + \`<p\${commandsOn ? "" : ' class="state-disabled"'}>\${commandsOn ? \`\${state.preview.counts.enabled} rules active\` : "Destructive command protection is OFF"}</p>\` + \`<p\${secretsOn ? "" : ' class="state-disabled"'}>\${secretsOn ? "Secret protection on" : "Secret protection is OFF"}</p>\`;
 };
-// Renders a top-5 ranked list as label + count rows.
-const renderTopList = (containerId, counts, className, dataAttr) => {
-  const top = Object.entries(counts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  qs(containerId).innerHTML =
-    top.length === 0
-      ? '<p class="empty">No blocked commands in this window.</p>'
-      : top
-          .map(
-            ([key, count]) =>
-              \`<button type="button" class="\${className}" \${dataAttr}="\${escapeHtml(key)}"><code class="rule-id">\${escapeHtml(key)}</code><span class="chip-count">\${count.toLocaleString('en-US')}</span></button>\`,
-          )
-          .join('');
+var renderTopList = (containerId, counts, className, dataAttr) => {
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  qs(containerId).innerHTML = top.length === 0 ? '<p class="empty">No blocked commands in this window.</p>' : top.map(([key, count]) => \`<button type="button" class="\${className}" \${dataAttr}="\${escapeHtml(key)}"><code class="rule-id">\${escapeHtml(key)}</code><span class="chip-count">\${count.toLocaleString("en-US")}</span></button>\`).join("");
 };
-const renderTopRules = () =>
-  renderTopList('top-rules', overview.counts.rules, 'top-rule', 'data-rule-id');
-// Mirrors commandSignature in activity.ts so the drill-down can match the same
-// blocked entries the Top blocked commands count is built from.
-const commandSignature = (source) => {
-  const tokens = source
-    .trim()
-    .split(/\\s+/)
-    .filter((token) => token && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token));
-  const binary = tokens[0]?.split('/').pop();
-  if (!binary) return null;
+var renderTopRules = () => renderTopList("top-rules", overview.counts.rules, "top-rule", "data-rule-id");
+var commandSignature = (source) => {
+  const tokens = source.trim().split(/\\s+/).filter((token2) => token2 && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token2));
+  const binary = tokens[0]?.split("/").pop();
+  if (!binary)
+    return null;
   const next = tokens[1];
   return next && /^[a-z][a-z0-9-]*$/.test(next) ? \`\${binary} \${next}\` : binary;
 };
-// Blocks that look like false positives rather than catches: a fail-closed
-// denial reports that analysis failed, not that the command was dangerous, and
-// a signature one session was blocked on twice is a workload that kept wanting
-// the command. Computed from the loaded entries, so it follows the entry cap.
-const findSuspects = (entries) => {
-  const signatureKey = (entry) =>
-    \`\${entry.sessionId}\\n\${commandSignature(entry.segment || entry.command)}\`;
-  const repeats = entries
-    .filter((entry) => entry.decision !== 'allow' && entry.sessionId)
-    .reduce((counts, entry) => {
-      const key = signatureKey(entry);
-      return counts.set(key, (counts.get(key) ?? 0) + 1);
-    }, new Map());
-  return new Set(
-    entries.filter(
-      (entry) =>
-        entry.decision !== 'allow' && (entry.failureStage || repeats.get(signatureKey(entry)) >= 2),
-    ),
-  );
+var findSuspects = (entries) => {
+  const signatureKey = (entry) => \`\${entry.sessionId}
+\${commandSignature(entry.segment || entry.command)}\`;
+  const repeats = entries.filter((entry) => entry.decision !== "allow" && entry.sessionId).reduce((counts, entry) => {
+    const key = signatureKey(entry);
+    return counts.set(key, (counts.get(key) ?? 0) + 1);
+  }, new Map);
+  return new Set(entries.filter((entry) => entry.decision !== "allow" && (entry.failureStage || repeats.get(signatureKey(entry)) >= 2)));
 };
-// Returns true when an exact command filter was actually cleared, so callers
-// can skip re-rendering the controls when nothing changed.
-const clearCommandFilter = () => {
-  if (!activityFilters.command) return false;
-  activityFilters.command = '';
+var clearCommandFilter = () => {
+  if (!activityFilters.command)
+    return false;
+  activityFilters.command = "";
   return true;
 };
-const jumpToActivityRule = (ruleId) => {
-  activityFilters.command = '';
+var jumpToActivityRule = (ruleId) => {
+  activityFilters.command = "";
   activityFilters.query = ruleId.toLowerCase();
-  qs('activity-search').value = ruleId;
+  qs("activity-search").value = ruleId;
   if (activity) {
     renderActivityControls();
     renderActivityFeed();
   }
-  location.hash = 'activity';
+  location.hash = "activity";
 };
-const renderTopCommands = () =>
-  renderTopList('top-commands', overview.counts.commands, 'top-command', 'data-command');
-const renderTopLists = () => {
+var renderTopCommands = () => renderTopList("top-commands", overview.counts.commands, "top-command", "data-command");
+var renderTopLists = () => {
   renderTopCommands();
   renderTopRules();
 };
-const renderGuardErrors = () => {
-  qs('guard-errors').hidden = overview.counts.errors === 0;
-  if (overview.counts.errors === 0) return;
-  qs('guard-errors').textContent =
-    \`\${overview.counts.errors.toLocaleString('en-US')} guard error\${overview.counts.errors === 1 ? '' : 's'} in the last \${dayCount(overview.days)} — commands blocked because evaluation failed, not by policy. Click to view.\`;
+var renderGuardErrors = () => {
+  qs("guard-errors").hidden = overview.counts.errors === 0;
+  if (overview.counts.errors === 0)
+    return;
+  qs("guard-errors").textContent = \`\${overview.counts.errors.toLocaleString("en-US")} guard error\${overview.counts.errors === 1 ? "" : "s"} in the last \${dayCount(overview.days)} — commands blocked because evaluation failed, not by policy. Click to view.\`;
 };
-const renderActivityControls = () => {
-  const chipHtml = (kind, value, label, count) =>
-    \`<button type="button" class="chip" data-activity-chip="\${kind}" data-chip-value="\${escapeHtml(value)}" aria-pressed="\${activityFilters[kind] === value}">\${escapeHtml(label)}\${count === undefined ? '' : \` <span class="chip-count">\${count.toLocaleString('en-US')}</span>\`}</button>\`;
-  qs('activity-decision').innerHTML = [
-    chipHtml('decision', 'all', 'All', activity.totalInWindow),
-    chipHtml('decision', 'deny', 'Blocked', activity.counts.blocked),
-    chipHtml('decision', 'allow', 'Allowed', activity.counts.allowed),
-    ...(activity.counts.errors > 0
-      ? [chipHtml('decision', 'error', 'Errors', activity.counts.errors)]
-      : []),
-    ...(suspects.size > 0
-      ? [chipHtml('decision', 'suspect', 'Likely false positive', suspects.size)]
-      : []),
-  ].join('');
-  const agentNames = Object.keys(activity.counts.agents)
-    .filter((name) => name !== 'unknown')
-    .sort();
-  qs('activity-agents').innerHTML =
-    agentNames.length < 2
-      ? ''
-      : [
-          chipHtml('agent', 'all', 'All agents'),
-          ...agentNames.map((name) =>
-            chipHtml('agent', name, agentLabels[name] ?? name, activity.counts.agents[name]),
-          ),
-        ].join('');
-  qs('activity-command-filter').innerHTML = activityFilters.command
-    ? \`<button type="button" class="filter-pill" data-clear-command aria-label="Clear command filter">Command: <code>\${escapeHtml(activityFilters.command)}</code><span class="filter-pill-x" aria-hidden="true">✕</span></button>\`
-    : '';
-  qs('activity-days').innerHTML = activityWindowOptions()
-    .map((days) => \`<option value="\${days}">Last \${dayCount(days)}</option>\`)
-    .join('');
-  qs('activity-days').value = String(activity.days);
+var renderActivityControls = () => {
+  const chipHtml = (kind, value, label, count) => \`<button type="button" class="chip" data-activity-chip="\${kind}" data-chip-value="\${escapeHtml(value)}" aria-pressed="\${activityFilters[kind] === value}">\${escapeHtml(label)}\${count === undefined ? "" : \` <span class="chip-count">\${count.toLocaleString("en-US")}</span>\`}</button>\`;
+  qs("activity-decision").innerHTML = [
+    chipHtml("decision", "all", "All", activity.totalInWindow),
+    chipHtml("decision", "deny", "Blocked", activity.counts.blocked),
+    chipHtml("decision", "allow", "Allowed", activity.counts.allowed),
+    ...activity.counts.errors > 0 ? [chipHtml("decision", "error", "Errors", activity.counts.errors)] : [],
+    ...suspects.size > 0 ? [chipHtml("decision", "suspect", "Likely false positive", suspects.size)] : []
+  ].join("");
+  const agentNames = Object.keys(activity.counts.agents).filter((name) => name !== "unknown").sort();
+  qs("activity-agents").innerHTML = agentNames.length < 2 ? "" : [
+    chipHtml("agent", "all", "All agents"),
+    ...agentNames.map((name) => chipHtml("agent", name, agentLabels[name] ?? name, activity.counts.agents[name]))
+  ].join("");
+  qs("activity-command-filter").innerHTML = activityFilters.command ? \`<button type="button" class="filter-pill" data-clear-command aria-label="Clear command filter">Command: <code>\${escapeHtml(activityFilters.command)}</code><span class="filter-pill-x" aria-hidden="true">✕</span></button>\` : "";
+  qs("activity-days").innerHTML = activityWindowOptions().map((days) => \`<option value="\${days}">Last \${dayCount(days)}</option>\`).join("");
+  qs("activity-days").value = String(activity.days);
 };
-const renderActivityFeed = () => {
+var renderActivityFeed = () => {
   const matchesFilters = (entry) => {
-    if (activityFilters.decision === 'deny' && entry.decision === 'allow') return false;
-    if (activityFilters.decision === 'allow' && entry.decision !== 'allow') return false;
-    if (activityFilters.decision === 'error' && !entry.failureStage) return false;
-    if (activityFilters.decision === 'suspect' && !suspects.has(entry)) return false;
-    if (activityFilters.agent !== 'all' && (entry.agent || 'unknown') !== activityFilters.agent)
+    if (activityFilters.decision === "deny" && entry.decision === "allow")
+      return false;
+    if (activityFilters.decision === "allow" && entry.decision !== "allow")
+      return false;
+    if (activityFilters.decision === "error" && !entry.failureStage)
+      return false;
+    if (activityFilters.decision === "suspect" && !suspects.has(entry))
+      return false;
+    if (activityFilters.agent !== "all" && (entry.agent || "unknown") !== activityFilters.agent)
       return false;
     if (activityFilters.command) {
-      if (entry.decision === 'allow') return false;
+      if (entry.decision === "allow")
+        return false;
       return commandSignature(entry.segment || entry.command) === activityFilters.command;
     }
-    if (!activityFilters.query) return true;
-    return [entry.ruleId, entry.segment || entry.command]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase()
-      .includes(activityFilters.query);
+    if (!activityFilters.query)
+      return true;
+    return [entry.ruleId, entry.segment || entry.command].filter(Boolean).join(" ").toLowerCase().includes(activityFilters.query);
   };
   const entries = activity.entries.filter(matchesFilters);
   renderedFeedEntries = entries;
-  qs('activity-feed').innerHTML =
-    entries.length === 0
-      ? '<p class="empty">No audit log entries match.</p>'
-      : \`<div class="feed-list">\${entries
-          .map((entry, index) => {
-            const label = dayLabel(entry.ts);
-            const separator =
-              index > 0 && label === dayLabel(entries[index - 1].ts)
-                ? ''
-                : \`<div class="feed-day-sep">\${escapeHtml(label)}</div>\`;
-            return separator + feedItemHtml(entry, index);
-          })
-          .join('')}</div>\`;
-  applyFeedClamps(qs('activity-feed'));
-  qs('activity-count').textContent =
-    \`Showing \${entries.length.toLocaleString('en-US')} of \${activity.totalInWindow.toLocaleString('en-US')} entries from the last \${dayCount(activity.days)}\${activity.truncated ? ' (capped at 500, newest of each decision)' : ''}.\${activity.unreadable > 0 ? \` \${activity.unreadable.toLocaleString('en-US')} audit log source\${activity.unreadable === 1 ? '' : 's'} could not be read, so this list is incomplete.\` : ''}\`;
+  qs("activity-feed").innerHTML = entries.length === 0 ? '<p class="empty">No audit log entries match.</p>' : \`<div class="feed-list">\${entries.map((entry, index) => {
+    const label = dayLabel(entry.ts);
+    const separator = index > 0 && label === dayLabel(entries[index - 1].ts) ? "" : \`<div class="feed-day-sep">\${escapeHtml(label)}</div>\`;
+    return separator + feedItemHtml(entry, index);
+  }).join("")}</div>\`;
+  applyFeedClamps(qs("activity-feed"));
+  qs("activity-count").textContent = \`Showing \${entries.length.toLocaleString("en-US")} of \${activity.totalInWindow.toLocaleString("en-US")} entries from the last \${dayCount(activity.days)}\${activity.truncated ? " (capped at 500, newest of each decision)" : ""}.\${activity.unreadable > 0 ? \` \${activity.unreadable.toLocaleString("en-US")} audit log source\${activity.unreadable === 1 ? "" : "s"} could not be read, so this list is incomplete.\` : ""}\`;
 };
-const loadOverview = async () => {
+var loadOverview = async () => {
   const result = await requestJson(\`/api/activity?days=\${overviewDays()}\`);
   if (!result.ok || !isActivityFeed(result.data)) {
     const message = \`<p class="empty">Could not load activity: \${escapeHtml(errorText(result))}</p>\`;
-    qs('overview-window').textContent = '';
-    qs('overview-tiles').innerHTML = '';
-    qs('top-rules').innerHTML = message;
-    qs('guard-errors').hidden = true;
+    qs("overview-window").textContent = "";
+    qs("overview-tiles").innerHTML = "";
+    qs("top-rules").innerHTML = message;
+    qs("guard-errors").hidden = true;
     return;
   }
   overview = result.data;
-  qs('logs-path').textContent = overview.logsDir ?? 'Not available';
+  qs("logs-path").textContent = overview.logsDir ?? "Not available";
   renderOverviewActivity();
   renderTopLists();
   renderGuardErrors();
 };
-const loadActivity = async () => {
+var loadActivity = async () => {
   const result = await requestJson(\`/api/activity?days=\${activityFilters.days}\`);
   if (!result.ok || !isActivityFeed(result.data)) {
     const message = \`<p class="empty">Could not load activity: \${escapeHtml(errorText(result))}</p>\`;
-    qs('activity-feed').innerHTML = message;
-    qs('activity-count').textContent = '';
+    qs("activity-feed").innerHTML = message;
+    qs("activity-count").textContent = "";
     return;
   }
   activity = result.data;
   suspects = findSuspects(activity.entries);
-  if (activityFilters.agent !== 'all' && !(activityFilters.agent in activity.counts.agents)) {
-    activityFilters.agent = 'all';
+  if (activityFilters.agent !== "all" && !(activityFilters.agent in activity.counts.agents)) {
+    activityFilters.agent = "all";
   }
-  if (activityFilters.decision === 'error' && activity.counts.errors === 0) {
-    activityFilters.decision = 'all';
+  if (activityFilters.decision === "error" && activity.counts.errors === 0) {
+    activityFilters.decision = "all";
   }
-  if (activityFilters.decision === 'suspect' && suspects.size === 0) {
-    activityFilters.decision = 'all';
+  if (activityFilters.decision === "suspect" && suspects.size === 0) {
+    activityFilters.decision = "all";
   }
   renderActivityControls();
   renderActivityFeed();
 };
-const refreshActivity = async () => {
-  const button = qs('activity-refresh');
-  if (button.disabled) return;
+var refreshActivity = async () => {
+  const button = qs("activity-refresh");
+  if (button.disabled)
+    return;
   button.disabled = true;
-  button.classList.add('spinning');
-  // Spin for a minimum duration so a fast local refresh still reads as an action.
+  button.classList.add("spinning");
   await Promise.all([
     loadOverview(),
     loadActivity(),
-    new Promise((resolve) => setTimeout(resolve, 600)),
+    new Promise((resolve) => setTimeout(resolve, 600))
   ]);
-  button.classList.remove('spinning');
+  button.classList.remove("spinning");
   button.disabled = false;
 };
-const renderIntegrations = () => {
-  qs('integrations-list').innerHTML = integrations.targets
-    .map((row) => {
-      const busy = integrationBusy.has(row.target);
-      const version =
-        row.version === null
-          ? '<span class="muted">not detected</span>'
-          : \`<span class="agent-badge">v\${escapeHtml(row.version)}</span>\`;
-      const status =
-        row.status === 'active'
-          ? '<span class="state-active">Installed</span>'
-          : row.status === 'disabled'
-            ? '<span class="state-disabled">Disabled</span>'
-            : row.status === 'not-inspected'
-              ? '<span class="muted" title="This runtime\\'s state file could not be read, so its status is unknown.">Not inspected</span>'
-              : '<span class="muted">Not installed</span>';
-      const uninstall = row.status === 'active';
-      const busyLabel = uninstall ? 'Uninstalling…' : 'Installing…';
-      const action =
-        row.version === null
-          ? ''
-          : \`<button type="button" class="\${uninstall ? 'danger' : 'primary'}" data-integration-action="\${uninstall ? 'uninstall' : 'install'}" data-integration-target="\${escapeHtml(row.target)}"\${busy ? ' disabled' : ''}>\${busy ? busyLabel : uninstall ? 'Uninstall' : row.status === 'disabled' ? 'Enable' : 'Install'}</button>\`;
-      const note = row.note
-        ? \`<div class="status \${row.note.kind}">\${escapeHtml(row.note.text)}</div>\`
-        : '';
-      return \`<div class="integration-row">
+var renderIntegrations = () => {
+  qs("integrations-list").innerHTML = integrations.targets.map((row) => {
+    const busy2 = integrationBusy.has(row.target);
+    const version = row.version === null ? '<span class="muted">not detected</span>' : \`<span class="agent-badge">v\${escapeHtml(row.version)}</span>\`;
+    const status = row.status === "active" ? '<span class="state-active">Installed</span>' : row.status === "disabled" ? '<span class="state-disabled">Disabled</span>' : row.status === "not-inspected" ? \`<span class="muted" title="This runtime's state file could not be read, so its status is unknown.">Not inspected</span>\` : '<span class="muted">Not installed</span>';
+    const uninstall = row.status === "active";
+    const busyLabel = uninstall ? "Uninstalling…" : "Installing…";
+    const action = row.version === null ? "" : \`<button type="button" class="\${uninstall ? "danger" : "primary"}" data-integration-action="\${uninstall ? "uninstall" : "install"}" data-integration-target="\${escapeHtml(row.target)}"\${busy2 ? " disabled" : ""}>\${busy2 ? busyLabel : uninstall ? "Uninstall" : row.status === "disabled" ? "Enable" : "Install"}</button>\`;
+    const note = row.note ? \`<div class="status \${row.note.kind}">\${escapeHtml(row.note.text)}</div>\` : "";
+    return \`<div class="integration-row">
         <span class="integration-info"><strong>\${escapeHtml(row.label)}</strong> \${version} \${status}</span>
         \${action}
         \${note}
       </div>\`;
-    })
-    .join('');
+  }).join("");
 };
-const loadHealth = async () => {
-  const result = await requestJson('/api/health');
-  if (!result.ok || !Array.isArray(result.data?.hooks)) return;
+var loadHealth = async () => {
+  const result = await requestJson("/api/health");
+  if (!result.ok || !Array.isArray(result.data?.hooks))
+    return;
   const active = result.data.hooks.filter((hook) => hook.configured);
   const inactive = result.data.hooks.filter((hook) => !hook.configured);
   const attention = inactive.length > 0 || active.length === 0;
   const parts = [];
   const labelHtml = (hook) => \`<strong>\${escapeHtml(hook.label)}</strong>\`;
-  if (active.length) parts.push(\`Hook active in \${active.map(labelHtml).join(', ')}\`);
+  if (active.length)
+    parts.push(\`Hook active in \${active.map(labelHtml).join(", ")}\`);
   if (inactive.length)
-    parts.push(\`\${inactive.map(labelHtml).join(', ')} detected without an active hook\`);
-  if (!parts.length) parts.push('No agent hooks detected');
+    parts.push(\`\${inactive.map(labelHtml).join(", ")} detected without an active hook\`);
+  if (!parts.length)
+    parts.push("No agent hooks detected");
   if (result.data.update?.updateAvailable)
     parts.push(\`v\${escapeHtml(result.data.update.latestVersion)} available\`);
-  const link = attention
-    ? ' <a class="view-all-link" href="#integrations">Fix in Integrations</a>'
-    : '';
-  const el = qs('health-strip');
-  el.className = attention ? 'status health-strip error' : 'status health-strip ok';
-  el.innerHTML = parts.join(' · ') + link;
+  const link = attention ? ' <a class="view-all-link" href="#integrations">Fix in Integrations</a>' : "";
+  const el = qs("health-strip");
+  el.className = attention ? "status health-strip error" : "status health-strip ok";
+  el.innerHTML = parts.join(" · ") + link;
   el.hidden = false;
 };
-const loadIntegrations = async () => {
-  const result = await requestJson('/api/integrations');
+var loadIntegrations = async () => {
+  const result = await requestJson("/api/integrations");
   if (!result.ok || !Array.isArray(result.data?.targets)) {
-    qs('integrations-list').innerHTML =
-      \`<p class="empty">Could not load integrations: \${escapeHtml(errorText(result))}</p>\`;
+    qs("integrations-list").innerHTML = \`<p class="empty">Could not load integrations: \${escapeHtml(errorText(result))}</p>\`;
     integrationsRequested = false;
     return;
   }
   integrations = result.data;
   renderIntegrations();
-  qs('integrations-pkg-version').textContent = integrations.system.version;
-  qs('integrations-node-version').textContent = integrations.system.nodeVersion ?? 'unknown';
-  qs('integrations-platform').textContent = integrations.system.platform;
-  qs('integrations-system').hidden = false;
+  qs("integrations-pkg-version").textContent = integrations.system.version;
+  qs("integrations-node-version").textContent = integrations.system.nodeVersion ?? "unknown";
+  qs("integrations-platform").textContent = integrations.system.platform;
+  qs("integrations-system").hidden = false;
 };
-const refreshIntegrations = async () => {
-  const button = qs('integrations-refresh');
-  if (button.disabled) return;
+var refreshIntegrations = async () => {
+  const button = qs("integrations-refresh");
+  if (button.disabled)
+    return;
   button.disabled = true;
-  button.classList.add('spinning');
+  button.classList.add("spinning");
   integrationsRequested = true;
   await Promise.all([loadIntegrations(), new Promise((resolve) => setTimeout(resolve, 600))]);
-  button.classList.remove('spinning');
+  button.classList.remove("spinning");
   button.disabled = false;
 };
-const renderRules = () => {
-  // Prefill only while untouched, so a refresh cannot discard a path already
-  // chosen for a project other than the launch directory.
-  if (!qs('rules-project-path').value) qs('rules-project-path').value = rulesData.projectPath;
-  // Typing an absolute path by hand is the error-prone half of this field, so
-  // it stays read-only wherever a real dialog can replace it.
+var renderRules = () => {
+  if (!qs("rules-project-path").value)
+    qs("rules-project-path").value = rulesData.projectPath;
   const canPick = rulesData.canPickDirectory && !directoryPickerFailed;
-  qs('rules-project-path').readOnly = canPick;
-  qs('rules-choose-directory').hidden = !canPick;
-  qs('rules-list').innerHTML =
-    rulesData.rulebooks.length === 0
-      ? // A dropped source is the failure users are least likely to notice, so
-        // it owns the empty state instead of the first-run copy below it.
-        rulesData.errors.length > 0
-        ? '<p class="empty">Every configured rulebook was dropped, so no custom rule is enforced. See Diagnostics below.</p>'
-        : '<p class="empty">No custom rulebooks. Run <code>npx -y cc-safety-net rule init</code> to create one, or see the <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">documentation</a>.</p>'
-      : rulesData.rulebooks
-          .map(
-            (rulebook) => \`<div class="rulebook-card">
+  qs("rules-project-path").readOnly = canPick;
+  qs("rules-choose-directory").hidden = !canPick;
+  qs("rules-list").innerHTML = rulesData.rulebooks.length === 0 ? rulesData.errors.length > 0 ? '<p class="empty">Every configured rulebook was dropped, so no custom rule is enforced. See Diagnostics below.</p>' : '<p class="empty">No custom rulebooks. Run <code>npx -y cc-safety-net rule init</code> to create one, or see the <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">documentation</a>.</p>' : rulesData.rulebooks.map((rulebook) => \`<div class="rulebook-card">
     <div class="rulebook-head">
       <strong>\${escapeHtml(rulebook.name)}</strong>
       <span class="agent-badge">v\${escapeHtml(rulebook.version)}</span>
-      \${rulebook.spec === rulebook.name ? '' : \`<code>\${escapeHtml(rulebook.spec)}</code>\`}
-      <span>\${rulebook.source === 'user' ? 'All projects' : 'This project'}</span>
-      <span>\${rulebook.rules.length} rule\${rulebook.rules.length === 1 ? '' : 's'}</span>
+      \${rulebook.spec === rulebook.name ? "" : \`<code>\${escapeHtml(rulebook.spec)}</code>\`}
+      <span>\${rulebook.source === "user" ? "All projects" : "This project"}</span>
+      <span>\${rulebook.rules.length} rule\${rulebook.rules.length === 1 ? "" : "s"}</span>
     </div>
-    \${rulebook.rules
-      .map(
-        // block_args is an OR set, not a command line: any one of these tokens
-        // anywhere in the command matches, so they cannot be joined onto it.
-        (
-          rule,
-        ) => \`<div class="rulebook-rule\${pendingRuleFocus === rule.name ? ' rules-focus' : ''}">
+    \${rulebook.rules.map((rule) => \`<div class="rulebook-rule\${pendingRuleFocus === rule.name ? " rules-focus" : ""}">
       <code class="rule-id">custom.\${escapeHtml(rule.name)}</code>
-      <code>\${escapeHtml([rule.command, rule.subcommand].filter(Boolean).join(' '))}</code>
-      <p>Blocked arguments (any one matches): \${rule.block_args.map((arg) => \`<code>\${escapeHtml(arg)}</code>\`).join(' ')}</p>
+      <code>\${escapeHtml([rule.command, rule.subcommand].filter(Boolean).join(" "))}</code>
+      <p>Blocked arguments (any one matches): \${rule.block_args.map((arg) => \`<code>\${escapeHtml(arg)}</code>\`).join(" ")}</p>
       <p>\${escapeHtml(rule.reason)}</p>
-    </div>\`,
-      )
-      .join('')}
-  </div>\`,
-          )
-          .join('');
+    </div>\`).join("")}
+  </div>\`).join("");
   const diagnostics = [
     ...rulesData.errors.map((text) => \`<div class="status error">\${escapeHtml(text)}</div>\`),
-    ...rulesData.warnings.map((text) => \`<div class="status">\${escapeHtml(text)}</div>\`),
+    ...rulesData.warnings.map((text) => \`<div class="status">\${escapeHtml(text)}</div>\`)
   ];
-  qs('rules-diagnostics').innerHTML = diagnostics.join('');
-  qs('rules-diagnostics-panel').hidden = diagnostics.length === 0;
-  if (!pendingRuleFocus) return;
-  const focused = qs('rules-list').querySelector('.rules-focus');
-  if (focused) focused.scrollIntoView({ block: 'center' });
-  // Top blocked rules names rules from audit history that a rulebook may no
-  // longer contain, and landing on an unchanged tab reads as a dead link.
-  if (!focused) setAppStatus(\`custom.\${pendingRuleFocus} is not in any rulebook\`, 'error');
+  qs("rules-diagnostics").innerHTML = diagnostics.join("");
+  qs("rules-diagnostics-panel").hidden = diagnostics.length === 0;
+  if (!pendingRuleFocus)
+    return;
+  const focused = qs("rules-list").querySelector(".rules-focus");
+  if (focused)
+    focused.scrollIntoView({ block: "center" });
+  if (!focused)
+    setAppStatus(\`custom.\${pendingRuleFocus} is not in any rulebook\`, "error");
   pendingRuleFocus = null;
 };
-const loadRules = async () => {
-  const result = await requestJson('/api/rules');
+var loadRules = async () => {
+  const result = await requestJson("/api/rules");
   if (!result.ok || !Array.isArray(result.data?.rulebooks)) {
-    qs('rules-list').innerHTML =
-      \`<p class="empty">Could not load rules: \${escapeHtml(errorText(result))}</p>\`;
-    // Dropping the previous payload keeps a stale rulebook list from being
-    // repainted over this message by a later render.
+    qs("rules-list").innerHTML = \`<p class="empty">Could not load rules: \${escapeHtml(errorText(result))}</p>\`;
     rulesData = null;
-    qs('rules-diagnostics-panel').hidden = true;
+    qs("rules-diagnostics-panel").hidden = true;
     rulesRequested = false;
     return;
   }
   rulesData = result.data;
   renderRules();
 };
-const refreshRules = async () => {
-  const button = qs('rules-refresh');
-  if (button.disabled) return;
+var refreshRules = async () => {
+  const button = qs("rules-refresh");
+  if (button.disabled)
+    return;
   button.disabled = true;
-  button.classList.add('spinning');
+  button.classList.add("spinning");
   rulesRequested = true;
   await Promise.all([loadRules(), new Promise((resolve) => setTimeout(resolve, 600))]);
-  button.classList.remove('spinning');
+  button.classList.remove("spinning");
   button.disabled = false;
 };
-const jumpToRulesRule = (ruleId) => {
-  pendingRuleFocus = ruleId.replace(/^custom\\./, '');
-  location.hash = 'rules';
+var jumpToRulesRule = (ruleId) => {
+  pendingRuleFocus = ruleId.replace(/^custom\\./, "");
+  location.hash = "rules";
 };
-const openRuleComposer = (command) => {
-  qs('rules-composer-input').value = command;
-  location.hash = 'rules';
+var openRuleComposer = (command) => {
+  qs("rules-composer-input").value = command;
+  location.hash = "rules";
 };
-const setRulesScope = (scope) => {
+var setRulesScope = (scope) => {
   rulesScope = scope;
-  document.querySelectorAll('[data-rules-scope]').forEach((chip) => {
-    chip.setAttribute('aria-pressed', String(chip.dataset.rulesScope === scope));
+  document.querySelectorAll("[data-rules-scope]").forEach((chip) => {
+    chip.setAttribute("aria-pressed", String(chip.dataset.rulesScope === scope));
   });
-  qs('rules-project-path-field').hidden = scope !== 'project';
+  qs("rules-project-path-field").hidden = scope !== "project";
 };
-const rulePromptText = () => {
-  // Rulebook names are claimed globally across both scopes: a project rulebook
-  // reusing a user-scope name is dropped whole and enforces nothing, so the
-  // agent has to see every existing name, not just this scope's.
+var rulePromptText = () => {
   const names = rulesData.rulebooks.map((rulebook) => rulebook.name);
   return [
-    'Use the cc-safety-net skill for this request.',
-    'If that skill is not available, run \`npx -y cc-safety-net rule doc\` first and treat its output as the source of truth for schema, paths, and validation.',
-    '',
-    rulesScope === 'project'
-      ? \`Scope: this project - \${qs('rules-project-path').value.trim()}\`
-      : 'Scope: all projects (user scope)',
-    \`Existing rulebooks (names must stay unique across both scopes): \${names.length > 0 ? names.join(', ') : 'none'}\`,
-    '',
-    qs('rules-composer-input').value.trim(),
-  ].join('\\n');
+    "Use the cc-safety-net skill for this request.",
+    "If that skill is not available, run \`npx -y cc-safety-net rule doc\` first and treat its output as the source of truth for schema, paths, and validation.",
+    "",
+    rulesScope === "project" ? \`Scope: this project - \${qs("rules-project-path").value.trim()}\` : "Scope: all projects (user scope)",
+    \`Existing rulebooks (names must stay unique across both scopes): \${names.length > 0 ? names.join(", ") : "none"}\`,
+    "",
+    qs("rules-composer-input").value.trim()
+  ].join(\`
+\`);
 };
-const chooseProjectDirectory = async () => {
-  const button = qs('rules-choose-directory');
-  if (button.disabled) return;
+var chooseProjectDirectory = async () => {
+  const button = qs("rules-choose-directory");
+  if (button.disabled)
+    return;
   button.disabled = true;
-  const result = await requestJson('/api/rules/choose-directory', { method: 'POST' });
+  const result = await requestJson("/api/rules/choose-directory", { method: "POST" });
   button.disabled = false;
   if (result.ok && result.data.path) {
-    qs('rules-project-path').value = result.data.path;
+    qs("rules-project-path").value = result.data.path;
     return;
   }
-  if (result.ok && result.data.cancelled) return;
-  // Detection cannot prove the dialog will actually open, so a failure has to
-  // hand the field back rather than leave a read-only box and a dead button.
+  if (result.ok && result.data.cancelled)
+    return;
   directoryPickerFailed = true;
-  qs('rules-project-path').readOnly = false;
+  qs("rules-project-path").readOnly = false;
   button.hidden = true;
-  setAppStatus(
-    \`\${result.ok ? result.data.error : errorText(result)} - type the project path instead\`,
-    'error',
-  );
+  setAppStatus(\`\${result.ok ? result.data.error : errorText(result)} - type the project path instead\`, "error");
 };
-const copyRulePrompt = async () => {
+var copyRulePrompt = async () => {
   if (!rulesData) {
-    setAppStatus('Rules have not loaded yet - refresh the Rulebooks panel', 'error');
+    setAppStatus("Rules have not loaded yet - refresh the Rulebooks panel", "error");
     return;
   }
-  if (!qs('rules-composer-input').value.trim()) {
-    setAppStatus('Describe what you want first', 'error');
+  if (!qs("rules-composer-input").value.trim()) {
+    setAppStatus("Describe what you want first", "error");
     return;
   }
-  // An empty path would hand the agent "Scope: this project - " and let it pick
-  // a directory itself, which is the guess this field exists to remove.
-  if (rulesScope === 'project' && !qs('rules-project-path').value.trim()) {
-    setAppStatus('Enter the project path the rule belongs to', 'error');
+  if (rulesScope === "project" && !qs("rules-project-path").value.trim()) {
+    setAppStatus("Enter the project path the rule belongs to", "error");
     return;
   }
-  qs('rules-copy-prompt').disabled = true;
+  qs("rules-copy-prompt").disabled = true;
   try {
     await navigator.clipboard.writeText(rulePromptText());
-    qs('rules-composer-input').value = '';
-    setAppStatus('Prompt copied - paste it into your coding CLI', 'ok');
+    qs("rules-composer-input").value = "";
+    setAppStatus("Prompt copied - paste it into your coding CLI", "ok");
   } catch {
-    setAppStatus('Copy failed', 'error');
+    setAppStatus("Copy failed", "error");
   } finally {
-    qs('rules-copy-prompt').disabled = false;
+    qs("rules-copy-prompt").disabled = false;
   }
 };
-const runIntegrationAction = async (button) => {
+var runIntegrationAction = async (button) => {
   const target = button.dataset.integrationTarget;
-  if (integrationBusy.has(target)) return;
+  if (integrationBusy.has(target))
+    return;
   integrationBusy.add(target);
   const action = button.dataset.integrationAction;
   renderIntegrations();
   const result = await requestJson(\`/api/\${action}\`, {
-    method: 'POST',
-    body: JSON.stringify({ target }),
+    method: "POST",
+    body: JSON.stringify({ target })
   });
   integrationBusy.delete(target);
   const row = integrations.targets.find((entry) => entry.target === target);
   const ok = result.ok && result.data.ok === true;
-  if (ok) row.status = action === 'install' ? 'active' : 'not-installed';
+  if (ok)
+    row.status = action === "install" ? "active" : "not-installed";
   row.note = {
-    kind: ok ? 'ok' : 'error',
-    text: ok ? result.data.output : result.data?.output || errorText(result),
+    kind: ok ? "ok" : "error",
+    text: ok ? result.data.output : result.data?.output || errorText(result)
   };
-  if (!ok) setAppStatus(action === 'install' ? 'Install failed' : 'Uninstall failed', 'error');
+  if (!ok)
+    setAppStatus(action === "install" ? "Install failed" : "Uninstall failed", "error");
   renderIntegrations();
 };
-const confirmDialog = (() => {
-  const dialog = qs('confirm-dialog');
-  const confirm = qs('confirm-dialog-confirm');
-  const cancel = qs('confirm-dialog-cancel');
+var confirmDialog = (() => {
+  const dialog = qs("confirm-dialog");
+  const confirm = qs("confirm-dialog-confirm");
+  const cancel = qs("confirm-dialog-cancel");
   let resolvePending = null;
-  dialog.addEventListener('close', () => {
-    if (!resolvePending) return;
-    resolvePending(dialog.returnValue === 'confirm');
+  dialog.addEventListener("close", () => {
+    if (!resolvePending)
+      return;
+    resolvePending(dialog.returnValue === "confirm");
     resolvePending = null;
   });
-  dialog.addEventListener('cancel', () => {
-    dialog.returnValue = 'cancel';
+  dialog.addEventListener("cancel", () => {
+    dialog.returnValue = "cancel";
   });
-  return (options) =>
-    new Promise((resolve) => {
-      if (resolvePending) {
-        resolve(false);
-        return;
-      }
-      qs('confirm-dialog-title').textContent = options.title;
-      qs('confirm-dialog-body').textContent = options.body;
-      qs('confirm-dialog-detail').textContent = options.detail ?? '';
-      qs('confirm-dialog-detail').parentElement.hidden = !options.detail;
-      confirm.textContent = options.confirmLabel;
-      confirm.className = options.confirmClass ?? 'danger';
-      dialog.returnValue = 'cancel';
-      resolvePending = resolve;
-      dialog.showModal();
-      cancel.focus();
-    });
+  return (options) => new Promise((resolve) => {
+    if (resolvePending) {
+      resolve(false);
+      return;
+    }
+    qs("confirm-dialog-title").textContent = options.title;
+    qs("confirm-dialog-body").textContent = options.body;
+    qs("confirm-dialog-detail").textContent = options.detail ?? "";
+    qs("confirm-dialog-detail").parentElement.hidden = !options.detail;
+    confirm.textContent = options.confirmLabel;
+    confirm.className = options.confirmClass ?? "danger";
+    dialog.returnValue = "cancel";
+    resolvePending = resolve;
+    dialog.showModal();
+    cancel.focus();
+  });
 })();
-const confirmProtectionDisable = (options) =>
-  confirmDialog({
-    title: options.title,
-    body: options.body,
-    detail: options.detail,
-    confirmLabel: 'Disable protection',
-  });
-const togglePanel = (button) => {
-  const expanded = button.getAttribute('aria-expanded') !== 'true';
-  button.setAttribute('aria-expanded', String(expanded));
-  qs(button.getAttribute('aria-controls')).hidden = !expanded;
+var confirmProtectionDisable = (options) => confirmDialog({
+  title: options.title,
+  body: options.body,
+  detail: options.detail,
+  confirmLabel: "Disable protection"
+});
+var togglePanel = (button) => {
+  const expanded = button.getAttribute("aria-expanded") !== "true";
+  button.setAttribute("aria-expanded", String(expanded));
+  qs(button.getAttribute("aria-controls")).hidden = !expanded;
 };
-const syncSearchState = () => {
-  const active = qs('policy-search').value.trim().length > 0;
-  if (active === searchActive) return;
+var syncSearchState = () => {
+  const active = qs("policy-search").value.trim().length > 0;
+  if (active === searchActive)
+    return;
   searchActive = active;
-  if (active) return;
+  if (active)
+    return;
   searchCollapsedTiers.clear();
   searchCollapsedSecretGroups.clear();
 };
-const updateRawSource = () => {
-  qs('raw-source').textContent = state?.errors.length
-    ? 'Read-only original policy JSON. Repair preserves valid settings and writes canonical JSON.'
-    : 'Read-only mirror of the controls.';
+var updateRawSource = () => {
+  qs("raw-source").textContent = state?.errors.length ? "Read-only original policy JSON. Repair preserves valid settings and writes canonical JSON." : "Read-only mirror of the controls.";
 };
-const setRawCopyCopied = (copied) => {
-  qs('raw-copy').innerHTML = copied ? rawCopyIcons.check : rawCopyIcons.copy;
-  qs('raw-copy').classList.toggle('copied', copied);
-  qs('raw-copy').setAttribute(
-    'aria-label',
-    copied ? 'Copied raw JSON' : 'Copy raw JSON to clipboard',
-  );
+var setRawCopyCopied = (copied) => {
+  qs("raw-copy").innerHTML = copied ? rawCopyIcons.check : rawCopyIcons.copy;
+  qs("raw-copy").classList.toggle("copied", copied);
+  qs("raw-copy").setAttribute("aria-label", copied ? "Copied raw JSON" : "Copy raw JSON to clipboard");
 };
-const resetFeedCopy = () => {
-  document.querySelectorAll('.feed-copy.copied').forEach((button) => {
-    button.classList.remove('copied');
+var resetFeedCopy = () => {
+  document.querySelectorAll(".feed-copy.copied").forEach((button) => {
+    button.classList.remove("copied");
     button.innerHTML = rawCopyIcons.copy;
-    button.setAttribute('aria-label', 'Copy log entry as JSON');
+    button.setAttribute("aria-label", "Copy log entry as JSON");
   });
 };
-const reportIssueUrl =
-  'https://github.com/kenryu42/cc-safety-net/issues/new?template=false_positive.yml';
-// GitHub rejects issue links past roughly 8k characters.
-const reportUrlLimit = 8000;
-// Audit entries have secrets redacted at write time but not paths, and the issue
-// tracker is public. The entry's own cwd goes first so the most specific prefix
-// wins when the project sits inside the home directory. A prefix only counts when
-// the match ends at a path boundary, so a sibling directory (\`<cwd>-backup\`) or an
-// unrelated path that merely starts with it (\`/app\` inside \`/var/lib/appdata\`) is
-// left intact instead of being mangled mid-segment.
-const endsAtPathBoundary = (following) => following === '' || /^[/\\\\\\s'"]/.test(following);
-const scrubReportPaths = (text, cwd, home) =>
-  [
-    [cwd, '<project>'],
-    [home, '~'],
-  ].reduce(
-    (scrubbed, [from, to]) =>
-      from
-        ? scrubbed
-            .split(from)
-            .reduce((joined, part) => joined + (endsAtPathBoundary(part) ? to : from) + part)
-        : scrubbed,
-    text,
-  );
-const buildReportUrl = (fields) => {
+var reportIssueUrl = "https://github.com/kenryu42/cc-safety-net/issues/new?template=false_positive.yml";
+var reportUrlLimit = 8000;
+var endsAtPathBoundary = (following) => following === "" || /^[/\\\\\\s'"]/.test(following);
+var scrubReportPaths = (text, cwd, home) => [
+  [cwd, "<project>"],
+  [home, "~"]
+].reduce((scrubbed, [from, to]) => from ? scrubbed.split(from).reduce((joined, part) => joined + (endsAtPathBoundary(part) ? to : from) + part) : scrubbed, text);
+var buildReportUrl = (fields) => {
   const url = new URL(reportIssueUrl);
-  Object.entries(fields)
-    .filter(([, value]) => value)
-    .forEach(([field, value]) => {
-      url.searchParams.set(field, value);
-    });
+  Object.entries(fields).filter(([, value]) => value).forEach(([field, value]) => {
+    url.searchParams.set(field, value);
+  });
   return url.toString();
 };
-// GitHub rejects the entire link past the cap, so the largest field is dropped
-// until the rest fits. Dropping one is not always enough: \`entry\` embeds the
-// command, so a long command still overflows once the entry is gone.
-const buildReportRequest = (fields, dropped = []) => {
+var buildReportRequest = (fields, dropped = []) => {
   const url = buildReportUrl(fields);
-  if (url.length <= reportUrlLimit) return { url, dropped };
-  const largest = Object.entries(fields)
-    .filter(([, value]) => value)
-    .sort((left, right) => right[1].length - left[1].length)[0];
-  if (!largest) return { url, dropped };
-  return buildReportRequest({ ...fields, [largest[0]]: '' }, [...dropped, largest[0]]);
+  if (url.length <= reportUrlLimit)
+    return { url, dropped };
+  const largest = Object.entries(fields).filter(([, value]) => value).sort((left, right) => right[1].length - left[1].length)[0];
+  if (!largest)
+    return { url, dropped };
+  return buildReportRequest({ ...fields, [largest[0]]: "" }, [...dropped, largest[0]]);
 };
-const openReportDialog = (button) => {
+var openReportDialog = (button) => {
   const entry = renderedFeedEntries[Number(button.dataset.reportFp)];
-  if (!entry) return;
+  if (!entry)
+    return;
   const scrub = (text) => scrubReportPaths(text, entry.cwd, activity.homeDir);
-  qs('report-command').value = scrub(entry.command || entry.segment || '');
-  // Scrub each string value before serialising, not the serialised text: on
-  // Windows JSON.stringify doubles every backslash, so a cwd of C:\\Users\\... would
-  // never match its own needle and the entry would ship unscrubbed.
-  qs('report-entry').value = JSON.stringify(
-    entry,
-    (_key, value) => (typeof value === 'string' ? scrub(value) : value),
-    2,
-  );
-  qs('report-dialog').returnValue = 'cancel';
-  qs('report-dialog').showModal();
+  qs("report-command").value = scrub(entry.command || entry.segment || "");
+  qs("report-entry").value = JSON.stringify(entry, (_key, value) => typeof value === "string" ? scrub(value) : value, 2);
+  qs("report-dialog").returnValue = "cancel";
+  qs("report-dialog").showModal();
 };
-const openFalsePositiveForm = async () => {
+var openFalsePositiveForm = async () => {
   const fields = {
-    command: qs('report-command').value,
-    entry: qs('report-entry').value,
+    command: qs("report-command").value,
+    entry: qs("report-entry").value
   };
   const request = buildReportRequest(fields);
-  // Start the copy before the new tab takes focus, and open in the same task so
-  // the click that submitted the dialog still counts as user activation.
-  const copying = request.dropped.length
-    ? navigator.clipboard.writeText(
-        request.dropped.map((field) => \`### \${field}\\n\${fields[field]}\`).join('\\n\\n'),
-      )
-    : null;
-  window.open(request.url, '_blank', 'noopener');
-  if (!copying) return;
-  const names = request.dropped.join(' and ');
-  setAppStatus(
-    (await copying.then(() => true).catch(() => false))
-      ? \`Report too long to prefill — \${names} copied to your clipboard. Paste into the form on GitHub.\`
-      : \`Report too long to prefill — \${names} left out. Copy the entry from the feed and paste it into the form on GitHub.\`,
-    'error',
-  );
+  const copying = request.dropped.length ? navigator.clipboard.writeText(request.dropped.map((field) => \`### \${field}
+\${fields[field]}\`).join(\`
+
+\`)) : null;
+  window.open(request.url, "_blank", "noopener");
+  if (!copying)
+    return;
+  const names = request.dropped.join(" and ");
+  setAppStatus(await copying.then(() => true).catch(() => false) ? \`Report too long to prefill — \${names} copied to your clipboard. Paste into the form on GitHub.\` : \`Report too long to prefill — \${names} left out. Copy the entry from the feed and paste it into the form on GitHub.\`, "error");
 };
-qs('report-dialog').addEventListener('close', () => {
-  if (qs('report-dialog').returnValue === 'report') void openFalsePositiveForm();
+qs("report-dialog").addEventListener("close", () => {
+  if (qs("report-dialog").returnValue === "report")
+    openFalsePositiveForm();
 });
-const copyFeedEntry = async (button) => {
+var copyFeedEntry = async (button) => {
   const entry = renderedFeedEntries[Number(button.dataset.logCopy)];
-  if (!entry) return;
+  if (!entry)
+    return;
   try {
     await navigator.clipboard.writeText(JSON.stringify(entry, null, 2));
-    if (feedCopyResetTimer) clearTimeout(feedCopyResetTimer);
+    if (feedCopyResetTimer)
+      clearTimeout(feedCopyResetTimer);
     resetFeedCopy();
-    button.classList.add('copied');
+    button.classList.add("copied");
     button.innerHTML = rawCopyIcons.check;
-    button.setAttribute('aria-label', 'Copied log entry');
+    button.setAttribute("aria-label", "Copied log entry");
     feedCopyResetTimer = setTimeout(resetFeedCopy, 2000);
   } catch {
-    setAppStatus('Copy failed', 'error');
+    setAppStatus("Copy failed", "error");
   }
 };
-const copyRawToClipboard = async () => {
-  qs('raw-copy').disabled = true;
+var copyRawToClipboard = async () => {
+  qs("raw-copy").disabled = true;
   try {
-    await navigator.clipboard.writeText(qs('raw').value);
+    await navigator.clipboard.writeText(qs("raw").value);
     setRawCopyCopied(true);
-    if (rawCopyResetTimer) clearTimeout(rawCopyResetTimer);
+    if (rawCopyResetTimer)
+      clearTimeout(rawCopyResetTimer);
     rawCopyResetTimer = setTimeout(() => setRawCopyCopied(false), 2000);
   } catch (error) {
-    setAppStatus('Copy failed', 'error');
-    setDetailStatus(
-      \`Error: Could not copy Raw JSON: \${error instanceof Error ? error.message : String(error)}\`,
-      'error',
-    );
+    setAppStatus("Copy failed", "error");
+    setDetailStatus(\`Error: Could not copy Raw JSON: \${error instanceof Error ? error.message : String(error)}\`, "error");
   } finally {
-    qs('raw-copy').disabled = false;
+    qs("raw-copy").disabled = false;
   }
 };
-const formatStarCount = (count) => {
-  if (typeof count !== 'number') return '';
-  if (count >= 1000) return \`\${(count / 1000).toFixed(1).replace(/\\.0$/, '')}k\`;
+var formatStarCount = (count) => {
+  if (typeof count !== "number")
+    return "";
+  if (count >= 1000)
+    return \`\${(count / 1000).toFixed(1).replace(/\\.0$/, "")}k\`;
   return String(count);
 };
-const starCountHtml = (count) => {
+var starCountHtml = (count) => {
   const formatted = formatStarCount(count);
-  return formatted ? \`<span class="star-count">\${escapeHtml(formatted)}</span>\` : '';
+  return formatted ? \`<span class="star-count">\${escapeHtml(formatted)}</span>\` : "";
 };
-const hideStarCta = () => {
-  qs('star-row').hidden = true;
-  qs('star-slot').innerHTML = '';
+var hideStarCta = () => {
+  qs("star-row").hidden = true;
+  qs("star-slot").innerHTML = "";
 };
-const renderStarPitch = (context, starred = false) => {
-  const evidence =
-    context.blockedTotal > 0
-      ? \`CC Safety Net has blocked <strong>\${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command\${context.blockedTotal === 1 ? '' : 's'} on this machine in its retained \${escapeHtml(dayCount(retentionDays()))} history.\`
-      : '';
+var renderStarPitch = (context, starred = false) => {
+  const evidence = context.blockedTotal > 0 ? \`CC Safety Net has blocked <strong>\${escapeHtml(context.blockedTotal.toLocaleString("en-US"))}</strong> risky command\${context.blockedTotal === 1 ? "" : "s"} on this machine in its retained \${escapeHtml(dayCount(retentionDays()))} history.\` : "";
   if (starred) {
-    qs('star-pitch-text').innerHTML = evidence;
+    qs("star-pitch-text").innerHTML = evidence;
     return;
   }
-  qs('star-pitch-text').innerHTML = evidence
-    ? \`\${evidence} If it saved your work, star it on GitHub.\`
-    : 'If CC Safety Net is useful to you, star it on GitHub.';
+  qs("star-pitch-text").innerHTML = evidence ? \`\${evidence} If it saved your work, star it on GitHub.\` : "If CC Safety Net is useful to you, star it on GitHub.";
 };
-const renderStarLink = (context, href = fallbackRepoUrl) => {
-  qs('star-slot').innerHTML =
-    \`<a class="star-cta" href="\${escapeHtml(href)}" target="_blank" rel="noopener" aria-label="Star CC Safety Net on GitHub (opens github.com)">
+var renderStarLink = (context, href = fallbackRepoUrl) => {
+  qs("star-slot").innerHTML = \`<a class="star-cta" href="\${escapeHtml(href)}" target="_blank" rel="noopener" aria-label="Star CC Safety Net on GitHub (opens github.com)">
       <span class="star-icon" aria-hidden="true">\${starIcons.outline}</span>
       <span class="star-label">Star on GitHub</span>
       \${starCountHtml(context.starCount)}
     </a>\`;
-  qs('star-row').hidden = false;
+  qs("star-row").hidden = false;
 };
-const renderStarCta = (context) => {
+var renderStarCta = (context) => {
   activeStarContext = context;
   if (context.starred === true) {
     hideStarCta();
     return;
   }
   renderStarPitch(context);
-  qs('star-mechanism').hidden = context.starred !== false;
+  qs("star-mechanism").hidden = context.starred !== false;
   if (context.starred === null) {
     renderStarLink(context);
     return;
   }
-  qs('star-slot').innerHTML =
-    \`<button type="button" class="star-cta" aria-label="Star CC Safety Net on GitHub. One click via your GitHub CLI.">
+  qs("star-slot").innerHTML = \`<button type="button" class="star-cta" aria-label="Star CC Safety Net on GitHub. One click via your GitHub CLI.">
       <span class="star-icon" aria-hidden="true">\${starIcons.outline}</span>
       <span class="star-label">Star on GitHub</span>
       \${starCountHtml(context.starCount)}
     </button>\`;
-  qs('star-row').hidden = false;
+  qs("star-row").hidden = false;
 };
-const starRepo = async (button) => {
+var starRepo = async (button) => {
   button.disabled = true;
-  const result = await requestJson('/api/star', { method: 'POST' });
+  const result = await requestJson("/api/star", { method: "POST" });
   if (result.ok && result.data?.ok === true) {
-    button.querySelector('.star-icon').innerHTML = starIcons.filled;
-    button.querySelector('.star-label').textContent = 'Starred. Thank you.';
-    button.setAttribute('aria-label', 'CC Safety Net starred on GitHub');
-    button.classList.add('starred');
-    qs('star-mechanism').hidden = true;
+    button.querySelector(".star-icon").innerHTML = starIcons.filled;
+    button.querySelector(".star-label").textContent = "Starred. Thank you.";
+    button.setAttribute("aria-label", "CC Safety Net starred on GitHub");
+    button.classList.add("starred");
+    qs("star-mechanism").hidden = true;
     renderStarPitch(activeStarContext, true);
-    setAppStatus('Starred on GitHub', 'ok');
-    setDetailStatus('');
+    setAppStatus("Starred on GitHub", "ok");
+    setDetailStatus("");
     return;
   }
-  qs('star-mechanism').hidden = true;
+  qs("star-mechanism").hidden = true;
   renderStarLink(activeStarContext, result.data?.fallbackUrl ?? fallbackRepoUrl);
 };
-const loadStarContext = async () => {
-  const result = await requestJson('/api/star/context');
-  renderStarCta(
-    result.ok && result.data ? result.data : { starred: null, starCount: null, blockedTotal: 0 },
-  );
+var loadStarContext = async () => {
+  const result = await requestJson("/api/star/context");
+  renderStarCta(result.ok && result.data ? result.data : { starred: null, starCount: null, blockedTotal: 0 });
 };
-const syncRawFromForm = () => {
-  if (state?.errors.length) return;
-  qs('raw').value = formatPolicy(collectFormPolicy());
+var syncRawFromForm = () => {
+  if (state?.errors.length)
+    return;
+  qs("raw").value = formatPolicy(collectFormPolicy());
   updateRawSource();
 };
-const updateDirtyStatus = () => {
-  if (state?.errors.length) return;
+var updateDirtyStatus = () => {
+  if (state?.errors.length)
+    return;
   const draftJson = JSON.stringify(collectFormPolicy());
   dirty = draftJson !== JSON.stringify(state.policy);
-  qs('policy-savebar').hidden = !dirty;
-  qs('dirty-chip').hidden = !dirty || currentView() === 'policy';
-  if (dirty) sessionStorage.setItem('cc-safety-net-draft', draftJson);
-  if (!dirty) sessionStorage.removeItem('cc-safety-net-draft');
-  setDetailStatus('');
+  qs("policy-savebar").hidden = !dirty;
+  qs("dirty-chip").hidden = !dirty || currentView() === "policy";
+  if (dirty)
+    sessionStorage.setItem("cc-safety-net-draft", draftJson);
+  if (!dirty)
+    sessionStorage.removeItem("cc-safety-net-draft");
+  setDetailStatus("");
   updateActions();
 };
-const createPathList = (prefix, config) => {
+var createPathList = (prefix, config) => {
   const setHint = (text) => {
     qs(\`\${prefix}-hint\`).textContent = text;
     qs(\`\${prefix}-hint\`).hidden = !text;
@@ -4170,26 +3963,21 @@ const createPathList = (prefix, config) => {
   const render = () => {
     const paths = config.getPaths();
     const disabled = config.isDisabled();
-    qs(\`\${prefix}-count\`).textContent = \`\${paths.length} path\${paths.length === 1 ? '' : 's'}\`;
+    qs(\`\${prefix}-count\`).textContent = \`\${paths.length} path\${paths.length === 1 ? "" : "s"}\`;
     qs(\`\${prefix}-input\`).disabled = disabled;
     qs(\`\${prefix}-add-button\`).disabled = disabled;
-    qs(\`\${prefix}-list\`).innerHTML =
-      paths.length === 0
-        ? \`<li class="empty">No \${config.itemLabel}s configured.</li>\`
-        : paths
-            .map(
-              (path, index) => \`<li class="path-item \${disabled ? 'row-disabled' : ''}">
+    qs(\`\${prefix}-list\`).innerHTML = paths.length === 0 ? \`<li class="empty">No \${config.itemLabel}s configured.</li>\` : paths.map((path, index) => \`<li class="path-item \${disabled ? "row-disabled" : ""}">
           <code>\${escapeHtml(path)}</code>
-          <button type="button" class="icon-button" data-path-list="\${prefix}" data-path-remove="\${index}" \${disabled ? 'disabled' : ''} aria-label="Remove \${config.itemLabel} \${escapeHtml(path)}">\${pathListIcons.remove}</button>
-        </li>\`,
-            )
-            .join('');
+          <button type="button" class="icon-button" data-path-list="\${prefix}" data-path-remove="\${index}" \${disabled ? "disabled" : ""} aria-label="Remove \${config.itemLabel} \${escapeHtml(path)}">\${pathListIcons.remove}</button>
+        </li>\`).join("");
   };
   let adding = false;
   const add = async (value) => {
-    if (adding) return;
+    if (adding)
+      return;
     const entries = [...new Set(pathLines(value))];
-    if (entries.length === 0) return;
+    if (entries.length === 0)
+      return;
     const submitted = qs(\`\${prefix}-input\`).value;
     const additions = entries.filter((entry) => !config.getPaths().includes(entry));
     if (config.validateAdditions && additions.length) {
@@ -4197,20 +3985,19 @@ const createPathList = (prefix, config) => {
       try {
         const error = await config.validateAdditions([...config.getPaths(), ...additions]);
         if (error) {
-          setHint(\`Not added: \${additions.join(', ')} — \${error}\`);
+          setHint(\`Not added: \${additions.join(", ")} — \${error}\`);
           return;
         }
       } finally {
         adding = false;
       }
     }
-    // Recommit only the initially absent additions against current state, so
-    // entries removed during validation stay removed.
     const current = config.getPaths();
     const duplicates = entries.filter((entry) => current.includes(entry));
     config.setPaths([...current, ...additions.filter((entry) => !current.includes(entry))]);
-    if (qs(\`\${prefix}-input\`).value === submitted) qs(\`\${prefix}-input\`).value = '';
-    setHint(duplicates.length ? \`Already listed: \${duplicates.join(', ')}\` : '');
+    if (qs(\`\${prefix}-input\`).value === submitted)
+      qs(\`\${prefix}-input\`).value = "";
+    setHint(duplicates.length ? \`Already listed: \${duplicates.join(", ")}\` : "");
     render();
     syncRawFromForm();
     updateDirtyStatus();
@@ -4218,300 +4005,237 @@ const createPathList = (prefix, config) => {
   };
   const remove = (index) => {
     config.setPaths(config.getPaths().filter((_, position) => position !== index));
-    setHint('');
+    setHint("");
     render();
     syncRawFromForm();
     updateDirtyStatus();
   };
   return { render, add, remove };
 };
-const pathLists = {
-  'deny-paths': createPathList('deny-paths', {
+var pathLists = {
+  "deny-paths": createPathList("deny-paths", {
     getPaths: () => draftPolicy.secret_protection.deny_paths,
     setPaths: (paths) => {
       draftPolicy.secret_protection.deny_paths = paths;
     },
     isDisabled: () => !draftPolicy.secret_protection.enabled,
-    itemLabel: 'deny path',
+    itemLabel: "deny path",
     validateAdditions: async (paths) => {
       const candidate = collectFormPolicy();
       candidate.secret_protection = {
         ...candidate.secret_protection,
-        deny_paths: paths,
+        deny_paths: paths
       };
-      const result = await requestJson('/api/policy/preview', {
-        method: 'POST',
-        body: JSON.stringify(candidate),
+      const result = await requestJson("/api/policy/preview", {
+        method: "POST",
+        body: JSON.stringify(candidate)
       });
-      if (result.ok && result.data?.preview) return null;
+      if (result.ok && result.data?.preview)
+        return null;
       return errorText(result);
-    },
+    }
   }),
-  'allow-paths': createPathList('allow-paths', {
+  "allow-paths": createPathList("allow-paths", {
     getPaths: () => draftPolicy.destructive_command_protection.allow_paths,
     setPaths: (paths) => {
       draftPolicy.destructive_command_protection.allow_paths = paths;
     },
     isDisabled: () => !draftPolicy.destructive_command_protection.enabled,
-    itemLabel: 'allow path',
+    itemLabel: "allow path",
     validateAdditions: async (paths) => {
       const candidate = collectFormPolicy();
       candidate.destructive_command_protection = {
         ...candidate.destructive_command_protection,
-        allow_paths: paths,
+        allow_paths: paths
       };
-      const result = await requestJson('/api/policy/preview', {
-        method: 'POST',
-        body: JSON.stringify(candidate),
+      const result = await requestJson("/api/policy/preview", {
+        method: "POST",
+        body: JSON.stringify(candidate)
       });
-      if (result.ok && result.data?.preview) return null;
+      if (result.ok && result.data?.preview)
+        return null;
       return errorText(result);
-    },
-  }),
+    }
+  })
 };
-// A default-off rule needs an explicit 'on' override to become active, so the switch state
-// cannot be read from the presence of an override alone.
-const secretRuleIsActive = (rule, overrides) =>
-  overrides[rule.id] ? overrides[rule.id] === 'on' : !rule.defaultOff;
-// A rule that already matches its default keeps no override, so the saved file stays small
-// and a later default change still reaches the user.
-const setSecretOverride = (rule, active) => {
+var secretRuleIsActive = (rule, overrides) => overrides[rule.id] ? overrides[rule.id] === "on" : !rule.defaultOff;
+var setSecretOverride = (rule, active) => {
   if (active === !rule.defaultOff) {
     delete draftPolicy.secret_protection.overrides[rule.id];
     return;
   }
-  draftPolicy.secret_protection.overrides[rule.id] = active ? 'on' : 'off';
+  draftPolicy.secret_protection.overrides[rule.id] = active ? "on" : "off";
 };
-const groupRules = (rules) =>
-  rules.reduce((groups, rule) => {
-    const group = groups.find((item) => item.category === rule.category);
-    if (group) {
-      group.rules.push(rule);
-      return groups;
-    }
-    groups.push({ category: rule.category, rules: [rule] });
+var groupRules = (rules) => rules.reduce((groups, rule) => {
+  const group = groups.find((item) => item.category === rule.category);
+  if (group) {
+    group.rules.push(rule);
     return groups;
-  }, []);
-const renderSecretPatterns = () => {
-  const query = qs('policy-search').value.trim().toLowerCase();
-  const rules = state.secretPatterns.filter((rule) =>
-    [rule.category, rule.label, rule.id, rule.description, ...(rule.paths ?? [])]
-      .join(' ')
-      .toLowerCase()
-      .includes(query),
-  );
+  }
+  groups.push({ category: rule.category, rules: [rule] });
+  return groups;
+}, []);
+var renderSecretPatterns = () => {
+  const query = qs("policy-search").value.trim().toLowerCase();
+  const rules = state.secretPatterns.filter((rule) => [rule.category, rule.label, rule.id, rule.description, ...rule.paths ?? []].join(" ").toLowerCase().includes(query));
   const overrides = draftPolicy.secret_protection.overrides;
   const disabled = !draftPolicy.secret_protection.enabled;
-  const disabledCount = state.secretPatterns.filter(
-    (rule) => !secretRuleIsActive(rule, overrides),
-  ).length;
-  qs('secret-summary').textContent = disabled
-    ? 'Protection disabled. Saved rule settings and deny paths are preserved.'
-    : \`\${state.secretPatterns.length - disabledCount} active, \${disabledCount} disabled\`;
-  qs('secret-patterns').innerHTML =
-    rules.length === 0
-      ? '<p class="empty">No secret protections match the search.</p>'
-      : groupRules(rules)
-          .map((group) => {
-            const expanded =
-              secretGroupExpanded.get(group.category) ||
-              (searchActive && !searchCollapsedSecretGroups.has(group.category));
-            const contentId = \`secret-group-\${group.category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}\`;
-            const allGroupRules = state.secretPatterns.filter(
-              (rule) => rule.category === group.category,
-            );
-            const onCount = disabled
-              ? 0
-              : allGroupRules.filter((rule) => secretRuleIsActive(rule, overrides)).length;
-            return \`
+  const disabledCount = state.secretPatterns.filter((rule) => !secretRuleIsActive(rule, overrides)).length;
+  qs("secret-summary").textContent = disabled ? "Protection disabled. Saved rule settings and deny paths are preserved." : \`\${state.secretPatterns.length - disabledCount} active, \${disabledCount} disabled\`;
+  qs("secret-patterns").innerHTML = rules.length === 0 ? '<p class="empty">No secret protections match the search.</p>' : groupRules(rules).map((group) => {
+    const expanded = secretGroupExpanded.get(group.category) || searchActive && !searchCollapsedSecretGroups.has(group.category);
+    const contentId = \`secret-group-\${group.category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}\`;
+    const allGroupRules = state.secretPatterns.filter((rule) => rule.category === group.category);
+    const onCount = disabled ? 0 : allGroupRules.filter((rule) => secretRuleIsActive(rule, overrides)).length;
+    return \`
       <section class="rule-tier">
         <div class="rule-tier-head">
           <button type="button" class="tier-collapse" data-secret-group-toggle="\${escapeHtml(group.category)}" aria-expanded="\${expanded}" aria-controls="\${contentId}">
             <span class="panel-chevron" aria-hidden="true"></span>
             <span class="tier-label"><strong>\${escapeHtml(group.category)}</strong></span>
             <span class="tier-counts">\${tierCountHtml([
-              [onCount, 'on'],
-              [allGroupRules.length - onCount, 'off', 'off'],
-            ])}</span>
+      [onCount, "on"],
+      [allGroupRules.length - onCount, "off", "off"]
+    ])}</span>
           </button>
-          <input type="checkbox" class="tier-switch" data-secret-group-active="\${escapeHtml(group.category)}" \${checkbox(allGroupRules.some((rule) => secretRuleIsActive(rule, overrides)))} \${disabled ? 'disabled' : ''} aria-label="\${escapeHtml(\`All \${group.category} protections\`)}">
+          <input type="checkbox" class="tier-switch" data-secret-group-active="\${escapeHtml(group.category)}" \${checkbox(allGroupRules.some((rule) => secretRuleIsActive(rule, overrides)))} \${disabled ? "disabled" : ""} aria-label="\${escapeHtml(\`All \${group.category} protections\`)}">
         </div>
-        <div id="\${contentId}" class="tier-content" \${expanded ? '' : 'hidden'}>
-        <div class="grid">\${group.rules
-          .map((rule) => {
-            const active = secretRuleIsActive(rule, overrides);
-            const ruleState =
-              active && !disabled
-                ? { label: 'Active', className: 'state-active' }
-                : { label: 'Disabled', className: 'state-disabled' };
-            const control = \`<input type="checkbox" data-secret-active="\${escapeHtml(rule.id)}" \${checkbox(active)} \${disabled ? 'disabled' : ''}>
+        <div id="\${contentId}" class="tier-content" \${expanded ? "" : "hidden"}>
+        <div class="grid">\${group.rules.map((rule) => {
+      const active = secretRuleIsActive(rule, overrides);
+      const ruleState = active && !disabled ? { label: "Active", className: "state-active" } : { label: "Disabled", className: "state-disabled" };
+      const control = \`<input type="checkbox" data-secret-active="\${escapeHtml(rule.id)}" \${checkbox(active)} \${disabled ? "disabled" : ""}>
             <span>
               <strong>\${escapeHtml(rule.label)}</strong>
               <button type="button" class="rule-id" data-rule-activity="\${escapeHtml(rule.id)}" title="Show recent blocks in Activity">\${escapeHtml(rule.id)}</button>
-              <small><span class="\${ruleState.className}">\${ruleState.label}</span> \${escapeHtml(rule.description ?? '')}</small>
+              <small><span class="\${ruleState.className}">\${ruleState.label}</span> \${escapeHtml(rule.description ?? "")}</small>
             </span>\`;
-            if (!rule.paths) {
-              return \`<label class="row \${disabled ? 'row-disabled' : ''}">\${control}</label>\`;
-            }
-            return \`<div class="row rule-row \${disabled ? 'row-disabled' : ''}">
+      if (!rule.paths) {
+        return \`<label class="row \${disabled ? "row-disabled" : ""}">\${control}</label>\`;
+      }
+      return \`<div class="row rule-row \${disabled ? "row-disabled" : ""}">
             <label class="rule-control">\${control}</label>
             <button type="button" class="rule-example-button" data-secret-paths="\${escapeHtml(rule.id)}" aria-label="\${escapeHtml(\`Show protected paths for \${rule.label}\`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
           </div>\`;
-          })
-          .join('')}</div>
+    }).join("")}</div>
         </div>
       </section>
     \`;
-          })
-          .join('');
+  }).join("");
 };
-const levelCapabilities = (level) => ({
-  fail_closed: level === 'strict' || level === 'paranoid',
-  paranoid_rm: level === 'paranoid',
-  paranoid_interpreters: level === 'paranoid',
+var levelCapabilities = (level) => ({
+  fail_closed: level === "strict" || level === "paranoid",
+  paranoid_rm: level === "paranoid",
+  paranoid_interpreters: level === "paranoid"
 });
-const presetName = () => safetyLevels[draftPolicy.safety.level][0];
-const renderPresetStatus = () => {
-  if (!preview) return;
-  const customized =
-    preview.counts.effectiveCustomizations > 0 ||
-    Object.entries(draftPolicy.safety.overrides).some(
-      ([key, value]) => value !== levelCapabilities(draftPolicy.safety.level)[key],
-    );
-  qs('safety-preset-status').textContent = customized ? \`\${presetName()} · Customized\` : '';
-  qs('safety-preset-status').classList.toggle('customized', customized);
+var presetName = () => safetyLevels[draftPolicy.safety.level][0];
+var renderPresetStatus = () => {
+  if (!preview)
+    return;
+  const customized = preview.counts.effectiveCustomizations > 0 || Object.entries(draftPolicy.safety.overrides).some(([key, value]) => value !== levelCapabilities(draftPolicy.safety.level)[key]);
+  qs("safety-preset-status").textContent = customized ? \`\${presetName()} · Customized\` : "";
+  qs("safety-preset-status").classList.toggle("customized", customized);
 };
-const renderSafety = () => {
-  const environmentSources = preview
-    ? [
-        ...new Set(
-          Object.values(preview.capabilities)
-            .filter((capability) => capability.source === 'environment')
-            .flatMap((capability) =>
-              capability.sources.filter((source) => source.startsWith('env ')),
-            ),
-        ),
-      ]
-    : [];
-  qs('environment-overrides').hidden = environmentSources.length === 0;
-  qs('environment-overrides').textContent = environmentSources.length
-    ? \`Environment-raised protection: \${environmentSources.join(', ')}\`
-    : '';
-  qs('safety-level').innerHTML = Object.entries(safetyLevels)
-    .map(
-      ([level, meta]) =>
-        \`<label class="row preset-\${level}"><input type="radio" name="safety-level" value="\${level}" \${checkbox(draftPolicy.safety.level === level)}><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span></label>\`,
-    )
-    .join('');
+var renderSafety = () => {
+  const environmentSources = preview ? [
+    ...new Set(Object.values(preview.capabilities).filter((capability) => capability.source === "environment").flatMap((capability) => capability.sources.filter((source) => source.startsWith("env "))))
+  ] : [];
+  qs("environment-overrides").hidden = environmentSources.length === 0;
+  qs("environment-overrides").textContent = environmentSources.length ? \`Environment-raised protection: \${environmentSources.join(", ")}\` : "";
+  qs("safety-level").innerHTML = Object.entries(safetyLevels).map(([level, meta]) => \`<label class="row preset-\${level}"><input type="radio" name="safety-level" value="\${level}" \${checkbox(draftPolicy.safety.level === level)}><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span></label>\`).join("");
   const inherited = levelCapabilities(draftPolicy.safety.level);
-  qs('safety-overrides').innerHTML = Object.entries(safetyOverrides)
-    .map(([key, meta]) => {
-      const value = draftPolicy.safety.overrides[key];
-      const inheritedText = inherited[key] ? 'on' : 'off';
-      return \`<label class="row safety-override-row"><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span><select data-safety-override="\${key}">
-      <option value="inherit" \${value === undefined ? 'selected' : ''}>Inherit from preset (\${inheritedText})</option>
-      <option value="true" \${value === true ? 'selected' : ''}>Force on</option>
-      <option value="false" \${value === false ? 'selected' : ''}>Force off</option>
+  qs("safety-overrides").innerHTML = Object.entries(safetyOverrides).map(([key, meta]) => {
+    const value = draftPolicy.safety.overrides[key];
+    const inheritedText = inherited[key] ? "on" : "off";
+    return \`<label class="row safety-override-row"><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span><select data-safety-override="\${key}">
+      <option value="inherit" \${value === undefined ? "selected" : ""}>Inherit from preset (\${inheritedText})</option>
+      <option value="true" \${value === true ? "selected" : ""}>Force on</option>
+      <option value="false" \${value === false ? "selected" : ""}>Force off</option>
     </select></label>\`;
-    })
-    .join('');
-  qs('workflow').innerHTML =
-    \`<label class="row"><input type="checkbox" data-workflow-worktree \${checkbox(draftPolicy.workflow.worktree_mode)}><span><strong>Allow discarding local changes in linked git worktrees</strong><small>Only relaxes linked worktree discard checks.</small></span></label>\`;
+  }).join("");
+  qs("workflow").innerHTML = \`<label class="row"><input type="checkbox" data-workflow-worktree \${checkbox(draftPolicy.workflow.worktree_mode)}><span><strong>Allow discarding local changes in linked git worktrees</strong><small>Only relaxes linked worktree discard checks.</small></span></label>\`;
   renderPresetStatus();
 };
-const tierForRule = (rule) => {
-  if (!rule.activationCapability) return 'normal';
-  return rule.activationCapability === 'fail_closed' ? 'strict' : 'paranoid';
+var tierForRule = (rule) => {
+  if (!rule.activationCapability)
+    return "normal";
+  return rule.activationCapability === "fail_closed" ? "strict" : "paranoid";
 };
-const tierMeta = {
-  normal: ['Available in every preset', 'No additional capability required'],
-  strict: ['Strict tier', 'Inherits from Fail closed'],
-  paranoid: ['Paranoid tier', 'Inherits from Paranoid rm or Paranoid interpreters'],
+var tierMeta = {
+  normal: ["Available in every preset", "No additional capability required"],
+  strict: ["Strict tier", "Inherits from Fail closed"],
+  paranoid: ["Paranoid tier", "Inherits from Paranoid rm or Paranoid interpreters"]
 };
-const ruleStateText = (rule, effective) => {
-  if (effective.source === 'master_disabled')
-    return 'Off — destructive-command protection disabled';
-  if (effective.source === 'rule_override')
-    return \`\${effective.enabled ? 'On' : 'Off'} — user rule override\`;
-  if (effective.source === 'built_in_default') return 'On — available in every preset';
-  if (effective.source === 'environment') {
+var ruleStateText = (rule, effective) => {
+  if (effective.source === "master_disabled")
+    return "Off — destructive-command protection disabled";
+  if (effective.source === "rule_override")
+    return \`\${effective.enabled ? "On" : "Off"} — user rule override\`;
+  if (effective.source === "built_in_default")
+    return "On — available in every preset";
+  if (effective.source === "environment") {
     const capability = preview.capabilities[rule.activationCapability];
-    const source = [...capability.sources].reverse().find((item) => item.startsWith('env '));
-    return \`\${effective.enabled ? 'On' : 'Off'} — environment\${source ? \`; \${source.slice(4)}\` : ''}\`;
+    const source = [...capability.sources].reverse().find((item) => item.startsWith("env "));
+    return \`\${effective.enabled ? "On" : "Off"} — environment\${source ? \`; \${source.slice(4)}\` : ""}\`;
   }
-  if (effective.source === 'capability_override') {
-    return \`\${effective.enabled ? 'On' : 'Off'} — capability override; \${safetyOverrides[rule.activationCapability][0]} forced \${effective.enabled ? 'on' : 'off'}\`;
+  if (effective.source === "capability_override") {
+    return \`\${effective.enabled ? "On" : "Off"} — capability override; \${safetyOverrides[rule.activationCapability][0]} forced \${effective.enabled ? "on" : "off"}\`;
   }
-  if (effective.enabled) return \`On — \${presetName()} preset\`;
-  return \`Off — \${presetName()} preset; requires \${tierForRule(rule) === 'strict' ? 'Strict' : 'Paranoid'}\`;
+  if (effective.enabled)
+    return \`On — \${presetName()} preset\`;
+  return \`Off — \${presetName()} preset; requires \${tierForRule(rule) === "strict" ? "Strict" : "Paranoid"}\`;
 };
-const showRulePopover = (button, label, title, body) => {
-  const popover = qs('rule-example-popover');
-  qs('rule-example-label').textContent = label;
-  qs('rule-example-title').textContent = title;
-  qs('rule-example-command').textContent = body;
-  if (!popover.matches(':popover-open')) popover.showPopover();
+var showRulePopover = (button, label, title, body) => {
+  const popover = qs("rule-example-popover");
+  qs("rule-example-label").textContent = label;
+  qs("rule-example-title").textContent = title;
+  qs("rule-example-command").textContent = body;
+  if (!popover.matches(":popover-open"))
+    popover.showPopover();
   const buttonRect = button.getBoundingClientRect();
   const popoverRect = popover.getBoundingClientRect();
   const gap = 8;
   const edge = 12;
   const below = buttonRect.bottom + gap;
-  const top =
-    below + popoverRect.height <= window.innerHeight - edge
-      ? below
-      : Math.max(edge, buttonRect.top - gap - popoverRect.height);
-  const left = Math.min(
-    window.innerWidth - popoverRect.width - edge,
-    Math.max(edge, buttonRect.right - popoverRect.width),
-  );
+  const top = below + popoverRect.height <= window.innerHeight - edge ? below : Math.max(edge, buttonRect.top - gap - popoverRect.height);
+  const left = Math.min(window.innerWidth - popoverRect.width - edge, Math.max(edge, buttonRect.right - popoverRect.width));
   popover.style.top = \`\${top}px\`;
   popover.style.left = \`\${left}px\`;
 };
-const openRuleExample = (button) => {
+var openRuleExample = (button) => {
   const rule = state.destructiveCommandRules.find((item) => item.id === button.dataset.ruleExample);
-  if (!rule) return;
-  showRulePopover(button, 'Blocked command example', rule.label, rule.example);
+  if (!rule)
+    return;
+  showRulePopover(button, "Blocked command example", rule.label, rule.example);
 };
-const openSecretPaths = (button) => {
+var openSecretPaths = (button) => {
   const rule = state.secretPatterns.find((item) => item.id === button.dataset.secretPaths);
-  if (!rule) return;
-  showRulePopover(button, 'Protected paths', rule.label, rule.paths.join('\\n'));
+  if (!rule)
+    return;
+  showRulePopover(button, "Protected paths", rule.label, rule.paths.join(\`
+\`));
 };
-const renderDestructiveCommands = () => {
-  if (!preview) return;
-  const query = qs('policy-search').value.trim().toLowerCase();
-  const matchingRules = state.destructiveCommandRules.filter((rule) =>
-    [rule.category, rule.label, rule.id, rule.description, tierMeta[tierForRule(rule)][0]]
-      .join(' ')
-      .toLowerCase()
-      .includes(query),
-  );
-  qs('destructive-command-summary').textContent = draftPolicy.destructive_command_protection.enabled
-    ? \`\${preview.counts.enabled} active, \${preview.counts.disabled} disabled\`
-    : 'Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.';
+var renderDestructiveCommands = () => {
+  if (!preview)
+    return;
+  const query = qs("policy-search").value.trim().toLowerCase();
+  const matchingRules = state.destructiveCommandRules.filter((rule) => [rule.category, rule.label, rule.id, rule.description, tierMeta[tierForRule(rule)][0]].join(" ").toLowerCase().includes(query));
+  qs("destructive-command-summary").textContent = draftPolicy.destructive_command_protection.enabled ? \`\${preview.counts.enabled} active, \${preview.counts.disabled} disabled\` : "Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.";
   const enforcedRules = matchingRules.filter((rule) => rule.catastrophic);
   const configurableRules = matchingRules.filter((rule) => !rule.catastrophic);
-  const enforcedExpanded =
-    tierExpanded.get('enforced') || (searchActive && !searchCollapsedTiers.has('enforced'));
-  const enforcedSection =
-    enforcedRules.length === 0
-      ? ''
-      : \`<section class="rule-tier rule-tier-enforced">
+  const enforcedExpanded = tierExpanded.get("enforced") || searchActive && !searchCollapsedTiers.has("enforced");
+  const enforcedSection = enforcedRules.length === 0 ? "" : \`<section class="rule-tier rule-tier-enforced">
         <div class="rule-tier-head">
           <button type="button" class="tier-collapse" data-tier-toggle="enforced" aria-expanded="\${enforcedExpanded}" aria-controls="destructive-tier-enforced">
             <span class="panel-chevron" aria-hidden="true"></span>
             <span class="tier-label"><strong>Always enforced</strong><small>Cannot be disabled by any preset, rule override, or allow path</small></span>
-            <span class="tier-counts">\${enforcedRules.length} protection\${enforcedRules.length === 1 ? '' : 's'}</span>
+            <span class="tier-counts">\${enforcedRules.length} protection\${enforcedRules.length === 1 ? "" : "s"}</span>
           </button>
         </div>
-        <div id="destructive-tier-enforced" class="tier-content" \${enforcedExpanded ? '' : 'hidden'}>
-          \${groupRules(enforcedRules)
-            .map(
-              (group) => \`<section class="destructive-command-group">
+        <div id="destructive-tier-enforced" class="tier-content" \${enforcedExpanded ? "" : "hidden"}>
+          \${groupRules(enforcedRules).map((group) => \`<section class="destructive-command-group">
             <h3>\${escapeHtml(group.category)}</h3>
-            <div class="grid">\${group.rules
-              .map(
-                (rule) => \`<div class="row rule-row">
+            <div class="grid">\${group.rules.map((rule) => \`<div class="row rule-row">
                 <span class="rule-control">
                   <span>
                     <strong>\${escapeHtml(rule.label)}</strong>
@@ -4520,202 +4244,149 @@ const renderDestructiveCommands = () => {
                   </span>
                 </span>
                 <button type="button" class="rule-example-button" data-rule-example="\${escapeHtml(rule.id)}" aria-label="\${escapeHtml(\`Show blocked example for \${rule.label}\`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
-              </div>\`,
-              )
-              .join('')}</div>
-          </section>\`,
-            )
-            .join('')}
+              </div>\`).join("")}</div>
+          </section>\`).join("")}
         </div>
       </section>\`;
-  qs('destructive-command-rules').innerHTML =
-    matchingRules.length === 0
-      ? '<p class="empty">No built-in protections match the search.</p>'
-      : enforcedSection +
-        Object.keys(tierMeta)
-          .map((tier) => {
-            const rules = configurableRules.filter((rule) => tierForRule(rule) === tier);
-            if (rules.length === 0) return '';
-            const allTierRules = state.destructiveCommandRules.filter(
-              (rule) => !rule.catastrophic && tierForRule(rule) === tier,
-            );
-            const tierStates = allTierRules.map((rule) => preview.rules[rule.id]);
-            const expanded =
-              tierExpanded.get(tier) || (searchActive && !searchCollapsedTiers.has(tier));
-            const contentId = \`destructive-tier-\${tier}\`;
-            return \`<section class="rule-tier rule-tier-\${tier}">
+  qs("destructive-command-rules").innerHTML = matchingRules.length === 0 ? '<p class="empty">No built-in protections match the search.</p>' : enforcedSection + Object.keys(tierMeta).map((tier) => {
+    const rules = configurableRules.filter((rule) => tierForRule(rule) === tier);
+    if (rules.length === 0)
+      return "";
+    const allTierRules = state.destructiveCommandRules.filter((rule) => !rule.catastrophic && tierForRule(rule) === tier);
+    const tierStates = allTierRules.map((rule) => preview.rules[rule.id]);
+    const expanded = tierExpanded.get(tier) || searchActive && !searchCollapsedTiers.has(tier);
+    const contentId = \`destructive-tier-\${tier}\`;
+    return \`<section class="rule-tier rule-tier-\${tier}">
         <div class="rule-tier-head">
           <button type="button" class="tier-collapse" data-tier-toggle="\${tier}" aria-expanded="\${expanded}" aria-controls="\${contentId}">
             <span class="panel-chevron" aria-hidden="true"></span>
             <span class="tier-label"><strong>\${tierMeta[tier][0]}</strong><small>\${tierMeta[tier][1]}</small></span>
             <span class="tier-counts">\${tierCountHtml([
-              [tierStates.filter((item) => item.enabled).length, 'on'],
-              [tierStates.filter((item) => !item.enabled).length, 'off', 'off'],
-            ])}</span>
+      [tierStates.filter((item) => item.enabled).length, "on"],
+      [tierStates.filter((item) => !item.enabled).length, "off", "off"]
+    ])}</span>
           </button>
-          <input type="checkbox" class="tier-switch" data-destructive-tier-active="\${tier}" \${checkbox(tierStates.some((item) => item.enabled))} \${!draftPolicy.destructive_command_protection.enabled ? 'disabled' : ''} aria-label="\${escapeHtml(\`All \${tierMeta[tier][0]} protections\`)}">
+          <input type="checkbox" class="tier-switch" data-destructive-tier-active="\${tier}" \${checkbox(tierStates.some((item) => item.enabled))} \${!draftPolicy.destructive_command_protection.enabled ? "disabled" : ""} aria-label="\${escapeHtml(\`All \${tierMeta[tier][0]} protections\`)}">
         </div>
-        <div id="\${contentId}" class="tier-content" \${expanded ? '' : 'hidden'}>
-          \${groupRules(rules)
-            .map(
-              (group) => \`<section class="destructive-command-group">
+        <div id="\${contentId}" class="tier-content" \${expanded ? "" : "hidden"}>
+          \${groupRules(rules).map((group) => \`<section class="destructive-command-group">
             <h3>\${escapeHtml(group.category)}</h3>
-            <div class="grid">\${group.rules
-              .map((rule) => {
-                const effective = preview.rules[rule.id];
-                const override = draftPolicy.destructive_command_protection.overrides[rule.id];
-                const status = ruleStateText(rule, effective);
-                const disabled = !draftPolicy.destructive_command_protection.enabled;
-                return \`<div class="row rule-row \${disabled ? 'row-disabled' : ''}">
+            <div class="grid">\${group.rules.map((rule) => {
+      const effective = preview.rules[rule.id];
+      const override = draftPolicy.destructive_command_protection.overrides[rule.id];
+      const status = ruleStateText(rule, effective);
+      const disabled = !draftPolicy.destructive_command_protection.enabled;
+      return \`<div class="row rule-row \${disabled ? "row-disabled" : ""}">
                 <label class="rule-control">
-                  <input type="checkbox" data-destructive-command-active="\${escapeHtml(rule.id)}" \${checkbox(effective.enabled)} \${disabled ? 'disabled' : ''} aria-label="\${escapeHtml(\`\${rule.label}: \${status}\`)}">
+                  <input type="checkbox" data-destructive-command-active="\${escapeHtml(rule.id)}" \${checkbox(effective.enabled)} \${disabled ? "disabled" : ""} aria-label="\${escapeHtml(\`\${rule.label}: \${status}\`)}">
                   <span>
                     <strong>\${escapeHtml(rule.label)}</strong>
                     <button type="button" class="rule-id" data-rule-activity="\${escapeHtml(rule.id)}" title="Show recent blocks in Activity">\${escapeHtml(rule.id)}</button>
-                    <small><span class="\${effective.enabled ? 'state-active' : 'state-disabled'}">\${escapeHtml(status)}</span> \${escapeHtml(rule.description)}</small>
+                    <small><span class="\${effective.enabled ? "state-active" : "state-disabled"}">\${escapeHtml(status)}</span> \${escapeHtml(rule.description)}</small>
                   </span>
                 </label>
                 <button type="button" class="rule-example-button" data-rule-example="\${escapeHtml(rule.id)}" aria-label="\${escapeHtml(\`Show blocked example for \${rule.label}\`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
-                \${override && !effective.changesInherited ? \`<button type="button" class="inherit-button" data-use-inherited="\${escapeHtml(rule.id)}">Use inherited setting</button>\` : ''}
+                \${override && !effective.changesInherited ? \`<button type="button" class="inherit-button" data-use-inherited="\${escapeHtml(rule.id)}">Use inherited setting</button>\` : ""}
               </div>\`;
-              })
-              .join('')}</div>
-          </section>\`,
-            )
-            .join('')}
+    }).join("")}</div>
+          </section>\`).join("")}
         </div>
       </section>\`;
-          })
-          .join('');
+  }).join("");
 };
-const refreshPolicyPreview = async () => {
+var refreshPolicyPreview = async () => {
   const requestId = ++previewRequestId;
-  const result = await requestJson('/api/policy/preview', {
-    method: 'POST',
-    body: JSON.stringify(collectFormPolicy()),
+  const result = await requestJson("/api/policy/preview", {
+    method: "POST",
+    body: JSON.stringify(collectFormPolicy())
   });
-  if (requestId !== previewRequestId) return false;
+  if (requestId !== previewRequestId)
+    return false;
   if (!result.ok || !result.data?.preview) {
-    setAppStatus('Preview failed', 'error');
-    setDetailStatus(\`Error: \${errorText(result)}\`, 'error');
+    setAppStatus("Preview failed", "error");
+    setDetailStatus(\`Error: \${errorText(result)}\`, "error");
     return false;
   }
   preview = result.data.preview;
   renderProtectionCard();
   renderSafety();
   renderDestructiveCommands();
-  void runCommandTest();
+  runCommandTest();
   return true;
 };
-let testerRequestId = 0;
-const runCommandTest = async () => {
-  const command = qs('tester-input').value.trim();
+var testerRequestId = 0;
+var runCommandTest = async () => {
+  const command = qs("tester-input").value.trim();
   if (!command) {
-    qs('tester-result').hidden = true;
+    qs("tester-result").hidden = true;
     return;
   }
   const requestId = ++testerRequestId;
-  const result = await requestJson('/api/policy/explain', {
-    method: 'POST',
-    body: JSON.stringify({ command, policy: collectFormPolicy() }),
+  const result = await requestJson("/api/policy/explain", {
+    method: "POST",
+    body: JSON.stringify({ command, policy: collectFormPolicy() })
   });
-  if (requestId !== testerRequestId) return;
-  const el = qs('tester-result');
+  if (requestId !== testerRequestId)
+    return;
+  const el = qs("tester-result");
   el.hidden = false;
   if (!result.ok) {
-    el.className = 'status error';
+    el.className = "status error";
     el.textContent = \`Could not evaluate: \${errorText(result)}\`;
     return;
   }
-  if (result.data.result === 'allowed') {
-    el.className = 'status ok';
-    // Carries the command that was actually evaluated: the input is editable
-    // after the result renders, so reading it back would prefill a different one.
+  if (result.data.result === "allowed") {
+    el.className = "status ok";
     el.innerHTML = \`Allowed — no rule blocks this command under the current draft policy. <button type="button" class="feed-toggle" data-create-rule="\${escapeHtml(command)}">Create a rule for this</button>\`;
     return;
   }
   const ruleId = result.data.customRule?.id ?? result.data.ruleId;
-  const ruleIdHtml = result.data.customRule
-    ? \`<button type="button" class="rule-id" data-jump-custom-rule="\${escapeHtml(ruleId)}" title="Show this rule in Rules">\${escapeHtml(ruleId)}</button>\`
-    : \`<code class="rule-id">\${escapeHtml(ruleId)}</code>\`;
-  const segment =
-    result.data.segment && result.data.segment !== command
-      ? \`<div class="tester-segment">Segment: <code>\${escapeHtml(result.data.segment)}</code></div>\`
-      : '';
-  el.className = 'status error';
-  el.innerHTML = \`Blocked\${ruleId ? \` by \${ruleIdHtml}\` : ''} — \${escapeHtml(result.data.reason || '')}\${segment}\`;
+  const ruleIdHtml = result.data.customRule ? \`<button type="button" class="rule-id" data-jump-custom-rule="\${escapeHtml(ruleId)}" title="Show this rule in Rules">\${escapeHtml(ruleId)}</button>\` : \`<code class="rule-id">\${escapeHtml(ruleId)}</code>\`;
+  const segment = result.data.segment && result.data.segment !== command ? \`<div class="tester-segment">Segment: <code>\${escapeHtml(result.data.segment)}</code></div>\` : "";
+  el.className = "status error";
+  el.innerHTML = \`Blocked\${ruleId ? \` by \${ruleIdHtml}\` : ""} — \${escapeHtml(result.data.reason || "")}\${segment}\`;
 };
 function render() {
   draftPolicy = clonePolicy(state.policy);
   preview = state.preview;
-  knownRuleIds = new Set(
-    [...state.destructiveCommandRules, ...state.secretPatterns].map((rule) => rule.id),
-  );
+  knownRuleIds = new Set([...state.destructiveCommandRules, ...state.secretPatterns].map((rule) => rule.id));
   dirty = false;
-  qs('policy-savebar').hidden = true;
-  qs('dirty-chip').hidden = true;
-  qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
-  qs('app-version').textContent = state.version;
+  qs("policy-savebar").hidden = true;
+  qs("dirty-chip").hidden = true;
+  qs("policy-path").textContent = state.path + (state.exists ? "" : " (not created yet)");
+  qs("app-version").textContent = state.version;
   renderSafety();
-  qs('destructive-command').innerHTML =
-    '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' +
-    checkbox(state.policy.destructive_command_protection.enabled) +
-    '><span><strong>Destructive command protection</strong><small>Block configurable destructive git, filesystem, and execution patterns. Catastrophic and custom rules remain active when disabled.</small></span><span class="master-badge">' +
-    (state.policy.destructive_command_protection.enabled ? 'On' : 'Off') +
-    '</span></label>' +
-    '<div id="destructive-command-rules"></div>' +
-    '<section class="rule-tier">' +
-    '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="allow-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="allow-paths-label">Allow paths</strong><small>Recursive deletes targeting these paths are not blocked, like /tmp. The home directory, or any path containing it, is rejected.</small></span><span class="tier-counts" id="allow-paths-count"></span></button>' +
-    '<div class="tier-content paths-content" id="allow-paths-content" hidden>' +
-    '<p class="muted">Use an absolute path or a ~/ path. Paste multiple lines to add several paths at once.</p>' +
-    '<div class="paths-add"><input type="text" id="allow-paths-input" data-path-input="allow-paths" autocomplete="off" spellcheck="false" placeholder="/absolute/path or ~/path" aria-labelledby="allow-paths-label"><button type="button" class="icon-button" id="allow-paths-add-button" data-path-add="allow-paths" aria-label="Add allow path">' +
-    pathListIcons.add +
-    '</button></div>' +
-    '<p class="paths-hint" id="allow-paths-hint" hidden></p>' +
-    '<ul class="paths-list" id="allow-paths-list"></ul>' +
-    '</div></section>';
-  qs('secret').innerHTML =
-    '<label class="row master"><input type="checkbox" id="secret-enabled" ' +
-    checkbox(state.policy.secret_protection.enabled) +
-    '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge">' +
-    (state.policy.secret_protection.enabled ? 'On' : 'Off') +
-    '</span></label>' +
-    '<div id="secret-patterns"></div>' +
-    '<section class="rule-tier">' +
-    '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="deny-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="deny-paths-label">Deny paths</strong><small>Configured paths and everything inside them are blocked while Secret protection is on.</small></span><span class="tier-counts" id="deny-paths-count"></span></button>' +
-    '<div class="tier-content paths-content" id="deny-paths-content" hidden>' +
-    '<p class="muted">Paste multiple lines to add several paths at once.</p>' +
-    '<div class="paths-add"><input type="text" id="deny-paths-input" data-path-input="deny-paths" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" data-path-add="deny-paths" aria-label="Add deny path">' +
-    pathListIcons.add +
-    '</button></div>' +
-    '<p class="paths-hint" id="deny-paths-hint" hidden></p>' +
-    '<ul class="paths-list" id="deny-paths-list"></ul>' +
-    '</div></section>';
-  qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
-  qs('policy-search').value = '';
+  qs("destructive-command").innerHTML = '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block configurable destructive git, filesystem, and execution patterns. Catastrophic and custom rules remain active when disabled.</small></span><span class="master-badge">' + (state.policy.destructive_command_protection.enabled ? "On" : "Off") + "</span></label>" + '<div id="destructive-command-rules"></div>' + '<section class="rule-tier">' + '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="allow-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="allow-paths-label">Allow paths</strong><small>Recursive deletes targeting these paths are not blocked, like /tmp. The home directory, or any path containing it, is rejected.</small></span><span class="tier-counts" id="allow-paths-count"></span></button>' + '<div class="tier-content paths-content" id="allow-paths-content" hidden>' + '<p class="muted">Use an absolute path or a ~/ path. Paste multiple lines to add several paths at once.</p>' + '<div class="paths-add"><input type="text" id="allow-paths-input" data-path-input="allow-paths" autocomplete="off" spellcheck="false" placeholder="/absolute/path or ~/path" aria-labelledby="allow-paths-label"><button type="button" class="icon-button" id="allow-paths-add-button" data-path-add="allow-paths" aria-label="Add allow path">' + pathListIcons.add + "</button></div>" + '<p class="paths-hint" id="allow-paths-hint" hidden></p>' + '<ul class="paths-list" id="allow-paths-list"></ul>' + "</div></section>";
+  qs("secret").innerHTML = '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge">' + (state.policy.secret_protection.enabled ? "On" : "Off") + "</span></label>" + '<div id="secret-patterns"></div>' + '<section class="rule-tier">' + '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="deny-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="deny-paths-label">Deny paths</strong><small>Configured paths and everything inside them are blocked while Secret protection is on.</small></span><span class="tier-counts" id="deny-paths-count"></span></button>' + '<div class="tier-content paths-content" id="deny-paths-content" hidden>' + '<p class="muted">Paste multiple lines to add several paths at once.</p>' + '<div class="paths-add"><input type="text" id="deny-paths-input" data-path-input="deny-paths" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" data-path-add="deny-paths" aria-label="Add deny path">' + pathListIcons.add + "</button></div>" + '<p class="paths-hint" id="deny-paths-hint" hidden></p>' + '<ul class="paths-list" id="deny-paths-list"></ul>' + "</div></section>";
+  qs("raw").value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
+  qs("policy-search").value = "";
   syncSearchState();
   renderDestructiveCommands();
   renderSecretPatterns();
-  pathLists['deny-paths'].render();
-  pathLists['allow-paths'].render();
+  pathLists["deny-paths"].render();
+  pathLists["allow-paths"].render();
   updateRawSource();
   renderRetention();
-  qs('recovery').hidden = state.errors.length === 0;
+  qs("recovery").hidden = state.errors.length === 0;
   updateActions();
   renderProtectionCard();
   if (state.errors.length) {
-    if (currentView() !== 'policy') location.hash = 'policy';
-    setAppStatus('Repair required', 'error');
-    setDetailStatus(\`Error: \${state.errors.join('\\n')}\`, 'error');
+    if (currentView() !== "policy")
+      location.hash = "policy";
+    setAppStatus("Repair required", "error");
+    setDetailStatus(\`Error: \${state.errors.join(\`
+\`)}\`, "error");
     return;
   }
-  setAppStatus('');
-  setDetailStatus('');
+  setAppStatus("");
+  setDetailStatus("");
 }
-const restoreDraft = () => {
-  if (state.errors.length) return;
-  const stored = sessionStorage.getItem('cc-safety-net-draft');
-  if (!stored) return;
+var restoreDraft = () => {
+  if (state.errors.length)
+    return;
+  const stored = sessionStorage.getItem("cc-safety-net-draft");
+  if (!stored)
+    return;
   const parsed = (() => {
     try {
       return JSON.parse(stored);
@@ -4723,41 +4394,36 @@ const restoreDraft = () => {
       return null;
     }
   })();
-  // 'audit' is listed so a draft stored before the field existed is discarded
-  // rather than restored and saved back over the configured retention.
   const isPolicyShape = [
-    'safety',
-    'workflow',
-    'destructive_command_protection',
-    'secret_protection',
-    'audit',
-  ].every((key) => parsed && typeof parsed[key] === 'object' && parsed[key] !== null);
+    "safety",
+    "workflow",
+    "destructive_command_protection",
+    "secret_protection",
+    "audit"
+  ].every((key) => parsed && typeof parsed[key] === "object" && parsed[key] !== null);
   if (!isPolicyShape || stored === JSON.stringify(state.policy)) {
-    sessionStorage.removeItem('cc-safety-net-draft');
+    sessionStorage.removeItem("cc-safety-net-draft");
     return;
   }
   draftPolicy = parsed;
-  // render() builds the two master-toggle checkboxes from state.policy and the
-  // sub-renders below do not rebuild them, so sync them from the restored draft.
-  document.querySelector('[data-destructive-command-enabled]').checked =
-    draftPolicy.destructive_command_protection.enabled;
-  qs('secret-enabled').checked = draftPolicy.secret_protection.enabled;
+  document.querySelector("[data-destructive-command-enabled]").checked = draftPolicy.destructive_command_protection.enabled;
+  qs("secret-enabled").checked = draftPolicy.secret_protection.enabled;
   syncMasterBadges();
   renderSafety();
   renderDestructiveCommands();
   renderSecretPatterns();
-  pathLists['deny-paths'].render();
-  pathLists['allow-paths'].render();
+  pathLists["deny-paths"].render();
+  pathLists["allow-paths"].render();
   syncRawFromForm();
   updateDirtyStatus();
-  void refreshPolicyPreview();
-  setAppStatus('Restored unsaved draft', 'ok');
+  refreshPolicyPreview();
+  setAppStatus("Restored unsaved draft", "ok");
 };
 async function load() {
-  const result = await requestJson('/api/policy');
+  const result = await requestJson("/api/policy");
   if (!isPolicyState(result.data)) {
-    setAppStatus('Load failed', 'error');
-    setDetailStatus(\`Error: Could not load policy: \${errorText(result)}\`, 'error');
+    setAppStatus("Load failed", "error");
+    setDetailStatus(\`Error: Could not load policy: \${errorText(result)}\`, "error");
     return false;
   }
   state = result.data;
@@ -4765,177 +4431,162 @@ async function load() {
   restoreDraft();
   return true;
 }
-document.addEventListener('input', (event) => {
+document.addEventListener("input", (event) => {
   const input = event.target;
-  if (input.id === 'policy-search') {
+  if (input.id === "policy-search") {
     syncSearchState();
     renderDestructiveCommands();
     renderSecretPatterns();
     return;
   }
-  if (input.id === 'activity-search' && activity) {
-    if (clearCommandFilter()) renderActivityControls();
+  if (input.id === "activity-search" && activity) {
+    if (clearCommandFilter())
+      renderActivityControls();
     activityFilters.query = input.value.trim().toLowerCase();
-    // Rebuilding a windowed feed costs ~250ms, so coalesce a burst of typing
-    // into one render rather than blocking the keystroke that triggered it.
     clearTimeout(activityQueryTimer);
     activityQueryTimer = setTimeout(renderActivityFeed, 120);
   }
 });
-document.addEventListener('keydown', (event) => {
-  if (event.target?.id === 'tester-input' && event.key === 'Enter') {
+document.addEventListener("keydown", (event) => {
+  if (event.target?.id === "tester-input" && event.key === "Enter") {
     event.preventDefault();
-    void runCommandTest();
+    runCommandTest();
     return;
   }
   const list = pathLists[event.target?.dataset?.pathInput];
-  if (!list || event.key !== 'Enter') return;
+  if (!list || event.key !== "Enter")
+    return;
   event.preventDefault();
-  void list.add(event.target.value);
+  list.add(event.target.value);
 });
-document.addEventListener('paste', (event) => {
+document.addEventListener("paste", (event) => {
   const list = pathLists[event.target?.dataset?.pathInput];
-  if (!list) return;
-  const text = event.clipboardData?.getData('text') ?? '';
-  if (!text.includes('\\n')) return;
+  if (!list)
+    return;
+  const text = event.clipboardData?.getData("text") ?? "";
+  if (!text.includes(\`
+\`))
+    return;
   event.preventDefault();
-  void list.add(\`\${event.target.value}\\n\${text}\`);
+  list.add(\`\${event.target.value}
+\${text}\`);
 });
-// Saves on its own rather than through the policy savebar, which lives in the
-// Policy view and cannot be reached from Settings. It writes the saved policy
-// with only this field changed, so unsaved Policy edits are not committed by
-// touching a Settings control.
-const saveRetentionDays = async (days) => {
+var saveRetentionDays = async (days) => {
   const current = state?.policy.audit.retention_days;
-  if (current === undefined) return;
+  if (current === undefined)
+    return;
   if (!Number.isInteger(days) || days < 1 || days > MAX_RETENTION_DAYS) {
-    qs('retention-days').value = String(current);
-    setAppStatus('Retention unchanged', 'error');
-    setDetailStatus(
-      \`Error: retention must be a whole number of days from 1 to \${MAX_RETENTION_DAYS}.\`,
-      'error',
-    );
+    qs("retention-days").value = String(current);
+    setAppStatus("Retention unchanged", "error");
+    setDetailStatus(\`Error: retention must be a whole number of days from 1 to \${MAX_RETENTION_DAYS}.\`, "error");
     return;
   }
-  if (days === current) return;
-  // Saving reloads the policy, and the reload restores the stored draft — whose
-  // retention is the old value, so the next Policy save would undo this one.
+  if (days === current)
+    return;
   if (dirty) {
-    qs('retention-days').value = String(current);
-    setAppStatus('Retention unchanged', 'error');
-    setDetailStatus('Error: save or discard your unsaved Policy changes first.', 'error');
+    qs("retention-days").value = String(current);
+    setAppStatus("Retention unchanged", "error");
+    setDetailStatus("Error: save or discard your unsaved Policy changes first.", "error");
     return;
   }
-  if (
-    days < current &&
-    !(await confirmDialog({
-      title: \`Shorten retention to \${dayCount(days)}?\`,
-      body: \`Audit entries older than \${dayCount(days)} are deleted on the next sweep and cannot be recovered. The Activity tab will only look back \${dayCount(days)}.\`,
-      detail: overview?.logsDir ?? '',
-      confirmLabel: 'Shorten',
-      confirmClass: 'danger',
-    }))
-  ) {
-    qs('retention-days').value = String(current);
+  if (days < current && !await confirmDialog({
+    title: \`Shorten retention to \${dayCount(days)}?\`,
+    body: \`Audit entries older than \${dayCount(days)} are deleted on the next sweep and cannot be recovered. The Activity tab will only look back \${dayCount(days)}.\`,
+    detail: overview?.logsDir ?? "",
+    confirmLabel: "Shorten",
+    confirmClass: "danger"
+  })) {
+    qs("retention-days").value = String(current);
     return;
   }
-  await runExclusive('Saving...', async () => {
+  await runExclusive("Saving...", async () => {
     const policy = clonePolicy(state.policy);
     policy.audit.retention_days = days;
-    const result = await requestJson('/api/policy', {
-      method: 'POST',
-      body: JSON.stringify(policy),
+    const result = await requestJson("/api/policy", {
+      method: "POST",
+      body: JSON.stringify(policy)
     });
     if (!isWriteSuccess(result)) {
-      qs('retention-days').value = String(current);
-      setAppStatus('Save failed', 'error');
-      setDetailStatus(\`Error: \${errorText(result)}\`, 'error');
+      qs("retention-days").value = String(current);
+      setAppStatus("Save failed", "error");
+      setDetailStatus(\`Error: \${errorText(result)}\`, "error");
       return;
     }
-    if (!(await load())) return;
-    // A narrower window may no longer offer the selected one.
+    if (!await load())
+      return;
     activityFilters.days = Math.min(activityFilters.days, days);
     await Promise.all([loadOverview(), loadActivity()]);
-    setAppStatus(\`Retention set to \${dayCount(days)}.\`, 'ok');
-    setDetailStatus('');
+    setAppStatus(\`Retention set to \${dayCount(days)}.\`, "ok");
+    setDetailStatus("");
   });
 };
-document.addEventListener('change', (event) => {
+document.addEventListener("change", (event) => {
   const input = event.target;
-  if (input.id === 'activity-days') {
+  if (input.id === "activity-days") {
     activityFilters.days = Number(input.value);
-    void loadActivity();
+    loadActivity();
     return;
   }
-  if (input.id === 'retention-days') {
-    void saveRetentionDays(Number(input.value));
+  if (input.id === "retention-days") {
+    saveRetentionDays(Number(input.value));
     return;
   }
-  if (input.name === 'safety-level') {
+  if (input.name === "safety-level") {
     draftPolicy.safety.level = input.value;
     renderSafety();
     syncRawFromForm();
     updateDirtyStatus();
-    void refreshPolicyPreview();
+    refreshPolicyPreview();
     return;
   }
   if (input.dataset?.safetyOverride) {
-    if (input.value === 'inherit')
+    if (input.value === "inherit")
       delete draftPolicy.safety.overrides[input.dataset.safetyOverride];
-    if (input.value === 'true') draftPolicy.safety.overrides[input.dataset.safetyOverride] = true;
-    if (input.value === 'false') draftPolicy.safety.overrides[input.dataset.safetyOverride] = false;
+    if (input.value === "true")
+      draftPolicy.safety.overrides[input.dataset.safetyOverride] = true;
+    if (input.value === "false")
+      draftPolicy.safety.overrides[input.dataset.safetyOverride] = false;
     syncRawFromForm();
     updateDirtyStatus();
-    void refreshPolicyPreview();
+    refreshPolicyPreview();
     return;
   }
-  if ('workflowWorktree' in input.dataset) {
+  if ("workflowWorktree" in input.dataset) {
     draftPolicy.workflow.worktree_mode = input.checked;
     syncRawFromForm();
     updateDirtyStatus();
     return;
   }
-  if ('destructiveCommandEnabled' in input.dataset) {
-    void (async () => {
-      if (
-        !input.checked &&
-        !(await confirmProtectionDisable({
-          title: 'Disable destructive command protection?',
-          body: 'Built-in destructive git, filesystem, and execution protections will stop blocking commands until you turn this back on.',
-          detail: 'Custom rules remain active.',
-        }))
-      ) {
+  if ("destructiveCommandEnabled" in input.dataset) {
+    (async () => {
+      if (!input.checked && !await confirmProtectionDisable({
+        title: "Disable destructive command protection?",
+        body: "Built-in destructive git, filesystem, and execution protections will stop blocking commands until you turn this back on.",
+        detail: "Custom rules remain active."
+      })) {
         input.checked = true;
         return;
       }
       draftPolicy.destructive_command_protection.enabled = input.checked;
       syncMasterBadges();
-      pathLists['allow-paths'].render();
+      pathLists["allow-paths"].render();
       syncRawFromForm();
       updateDirtyStatus();
-      void refreshPolicyPreview();
+      refreshPolicyPreview();
     })();
     return;
   }
   if (input.dataset?.destructiveTierActive) {
-    // A bulk write over the same per-rule overrides the individual switches
-    // use, so a rule that already matches what it inherits keeps no override.
-    state.destructiveCommandRules
-      .filter(
-        (rule) => !rule.catastrophic && tierForRule(rule) === input.dataset.destructiveTierActive,
-      )
-      .forEach((rule) => {
-        if (input.checked === preview.rules[rule.id].inheritedEnabled) {
-          delete draftPolicy.destructive_command_protection.overrides[rule.id];
-          return;
-        }
-        draftPolicy.destructive_command_protection.overrides[rule.id] = input.checked
-          ? 'on'
-          : 'off';
-      });
+    state.destructiveCommandRules.filter((rule) => !rule.catastrophic && tierForRule(rule) === input.dataset.destructiveTierActive).forEach((rule) => {
+      if (input.checked === preview.rules[rule.id].inheritedEnabled) {
+        delete draftPolicy.destructive_command_protection.overrides[rule.id];
+        return;
+      }
+      draftPolicy.destructive_command_protection.overrides[rule.id] = input.checked ? "on" : "off";
+    });
     syncRawFromForm();
     updateDirtyStatus();
-    void refreshPolicyPreview();
+    refreshPolicyPreview();
     return;
   }
   if (input.dataset?.destructiveCommandActive) {
@@ -4943,149 +4594,135 @@ document.addEventListener('change', (event) => {
     if (input.checked === preview.rules[ruleId].inheritedEnabled)
       delete draftPolicy.destructive_command_protection.overrides[ruleId];
     else
-      draftPolicy.destructive_command_protection.overrides[ruleId] = input.checked ? 'on' : 'off';
+      draftPolicy.destructive_command_protection.overrides[ruleId] = input.checked ? "on" : "off";
     syncRawFromForm();
     updateDirtyStatus();
-    void refreshPolicyPreview();
+    refreshPolicyPreview();
     return;
   }
   if (input.dataset?.secretGroupActive) {
-    // A bulk write over the same per-rule overrides the individual switches
-    // use, not a stored group setting.
-    state.secretPatterns
-      .filter((rule) => rule.category === input.dataset.secretGroupActive)
-      .forEach((rule) => {
-        setSecretOverride(rule, input.checked);
-      });
+    state.secretPatterns.filter((rule) => rule.category === input.dataset.secretGroupActive).forEach((rule) => {
+      setSecretOverride(rule, input.checked);
+    });
     renderSecretPatterns();
     syncRawFromForm();
     updateDirtyStatus();
     return;
   }
   if (input.dataset?.secretActive) {
-    setSecretOverride(
-      state.secretPatterns.find((rule) => rule.id === input.dataset.secretActive),
-      input.checked,
-    );
+    setSecretOverride(state.secretPatterns.find((rule) => rule.id === input.dataset.secretActive), input.checked);
     renderSecretPatterns();
     syncRawFromForm();
     updateDirtyStatus();
     return;
   }
-  if (input.id === 'secret-enabled') {
-    void (async () => {
-      if (
-        !input.checked &&
-        !(await confirmProtectionDisable({
-          title: 'Disable secret protection?',
-          body: 'Default sensitive paths, coding CLI credential locations, and deny paths will stop blocking access until you turn this back on.',
-        }))
-      ) {
+  if (input.id === "secret-enabled") {
+    (async () => {
+      if (!input.checked && !await confirmProtectionDisable({
+        title: "Disable secret protection?",
+        body: "Default sensitive paths, coding CLI credential locations, and deny paths will stop blocking access until you turn this back on."
+      })) {
         input.checked = true;
         return;
       }
       draftPolicy.secret_protection.enabled = input.checked;
       syncMasterBadges();
       renderSecretPatterns();
-      pathLists['deny-paths'].render();
+      pathLists["deny-paths"].render();
       syncRawFromForm();
       updateDirtyStatus();
     })();
   }
 });
-document.addEventListener('click', (event) => {
-  if (event.target.closest?.('#tester-run')) {
-    void runCommandTest();
+document.addEventListener("click", (event) => {
+  if (event.target.closest?.("#tester-run")) {
+    runCommandTest();
     return;
   }
-  const createRule = event.target.closest?.('[data-create-rule]');
+  const createRule = event.target.closest?.("[data-create-rule]");
   if (createRule) {
     openRuleComposer(createRule.dataset.createRule);
     return;
   }
-  const feedToggle = event.target.closest?.('[data-feed-toggle]');
+  const feedToggle = event.target.closest?.("[data-feed-toggle]");
   if (feedToggle) {
-    const expanded = feedToggle.previousElementSibling.classList.toggle('expanded');
-    feedToggle.setAttribute('aria-expanded', String(expanded));
-    feedToggle.textContent = expanded ? 'Show less' : 'Show more';
+    const expanded = feedToggle.previousElementSibling.classList.toggle("expanded");
+    feedToggle.setAttribute("aria-expanded", String(expanded));
+    feedToggle.textContent = expanded ? "Show less" : "Show more";
     return;
   }
-  const feedCopy = event.target.closest?.('[data-log-copy]');
+  const feedCopy = event.target.closest?.("[data-log-copy]");
   if (feedCopy) {
     copyFeedEntry(feedCopy);
     return;
   }
-  const feedReport = event.target.closest?.('[data-report-fp]');
+  const feedReport = event.target.closest?.("[data-report-fp]");
   if (feedReport) {
     openReportDialog(feedReport);
     return;
   }
-  const blockFuture = event.target.closest?.('[data-block-future]');
+  const blockFuture = event.target.closest?.("[data-block-future]");
   if (blockFuture) {
     const entry = renderedFeedEntries[Number(blockFuture.dataset.blockFuture)];
-    // With no recorded command there is nothing to prefill, and opening anyway
-    // would clear whatever the user had already typed into the composer.
-    if (entry?.segment || entry?.command) openRuleComposer(entry.segment || entry.command);
+    if (entry?.segment || entry?.command)
+      openRuleComposer(entry.segment || entry.command);
     return;
   }
-  const topRule = event.target.closest?.('.top-rule');
+  const topRule = event.target.closest?.(".top-rule");
   if (topRule) {
     const ruleId = topRule.dataset.ruleId;
-    (ruleId.startsWith('custom.') ? jumpToRulesRule : jumpToActivityRule)(ruleId);
+    (ruleId.startsWith("custom.") ? jumpToRulesRule : jumpToActivityRule)(ruleId);
     return;
   }
-  const ruleActivity = event.target.closest?.('[data-rule-activity]');
+  const ruleActivity = event.target.closest?.("[data-rule-activity]");
   if (ruleActivity) {
     jumpToActivityRule(ruleActivity.dataset.ruleActivity);
     return;
   }
-  const jumpRule = event.target.closest?.('[data-jump-rule]');
+  const jumpRule = event.target.closest?.("[data-jump-rule]");
   if (jumpRule) {
-    qs('policy-search').value = jumpRule.dataset.jumpRule;
+    qs("policy-search").value = jumpRule.dataset.jumpRule;
     syncSearchState();
     renderDestructiveCommands();
     renderSecretPatterns();
-    location.hash = 'policy';
+    location.hash = "policy";
     return;
   }
-  const jumpCustom = event.target.closest?.('[data-jump-custom-rule]');
+  const jumpCustom = event.target.closest?.("[data-jump-custom-rule]");
   if (jumpCustom) {
     jumpToRulesRule(jumpCustom.dataset.jumpCustomRule);
     return;
   }
-  const topCommand = event.target.closest?.('.top-command');
+  const topCommand = event.target.closest?.(".top-command");
   if (topCommand) {
-    // Exact, blocked-only match on the signature so the feed count reconciles
-    // with the Top blocked commands tally; shown as a removable pill, not search
-    // text, since a substring query would over-match.
     activityFilters.command = topCommand.dataset.command;
-    activityFilters.decision = 'deny';
-    activityFilters.query = '';
-    qs('activity-search').value = '';
+    activityFilters.decision = "deny";
+    activityFilters.query = "";
+    qs("activity-search").value = "";
     if (activity) {
       renderActivityControls();
       renderActivityFeed();
     }
-    location.hash = 'activity';
+    location.hash = "activity";
     return;
   }
-  if (event.target.closest?.('[data-clear-command]')) {
+  if (event.target.closest?.("[data-clear-command]")) {
     clearCommandFilter();
     renderActivityControls();
     renderActivityFeed();
     return;
   }
-  if (event.target.closest?.('#guard-errors')) {
+  if (event.target.closest?.("#guard-errors")) {
     clearCommandFilter();
-    activityFilters.decision = 'error';
+    activityFilters.decision = "error";
     if (activity) {
       renderActivityControls();
       renderActivityFeed();
     }
-    location.hash = 'activity';
+    location.hash = "activity";
     return;
   }
-  const chip = event.target.closest?.('[data-activity-chip]');
+  const chip = event.target.closest?.("[data-activity-chip]");
   if (chip && activity) {
     clearCommandFilter();
     activityFilters[chip.dataset.activityChip] = chip.dataset.chipValue;
@@ -5093,323 +4730,311 @@ document.addEventListener('click', (event) => {
     renderActivityFeed();
     return;
   }
-  if (event.target.closest?.('#activity-refresh')) {
-    void refreshActivity();
+  if (event.target.closest?.("#activity-refresh")) {
+    refreshActivity();
     return;
   }
-  if (event.target.closest?.('#integrations-refresh')) {
-    void refreshIntegrations();
+  if (event.target.closest?.("#integrations-refresh")) {
+    refreshIntegrations();
     return;
   }
-  if (event.target.closest?.('#rules-refresh')) {
-    void refreshRules();
+  if (event.target.closest?.("#rules-refresh")) {
+    refreshRules();
     return;
   }
-  const scopeChip = event.target.closest?.('[data-rules-scope]');
+  const scopeChip = event.target.closest?.("[data-rules-scope]");
   if (scopeChip) {
     setRulesScope(scopeChip.dataset.rulesScope);
     return;
   }
-  const exampleChip = event.target.closest?.('[data-rules-example]');
+  const exampleChip = event.target.closest?.("[data-rules-example]");
   if (exampleChip) {
-    qs('rules-composer-input').value = exampleChip.dataset.rulesExample;
+    qs("rules-composer-input").value = exampleChip.dataset.rulesExample;
     return;
   }
-  if (event.target.closest?.('#rules-choose-directory')) {
-    void chooseProjectDirectory();
+  if (event.target.closest?.("#rules-choose-directory")) {
+    chooseProjectDirectory();
     return;
   }
-  if (event.target.closest?.('#rules-copy-prompt')) {
-    void copyRulePrompt();
+  if (event.target.closest?.("#rules-copy-prompt")) {
+    copyRulePrompt();
     return;
   }
-  const integrationButton = event.target.closest?.('[data-integration-action]');
+  const integrationButton = event.target.closest?.("[data-integration-action]");
   if (integrationButton) {
-    void runIntegrationAction(integrationButton);
+    runIntegrationAction(integrationButton);
     return;
   }
-  const ruleExampleButton = event.target.closest?.('[data-rule-example]');
+  const ruleExampleButton = event.target.closest?.("[data-rule-example]");
   if (ruleExampleButton) {
     openRuleExample(ruleExampleButton);
     return;
   }
-  const secretPathsButton = event.target.closest?.('[data-secret-paths]');
+  const secretPathsButton = event.target.closest?.("[data-secret-paths]");
   if (secretPathsButton) {
     openSecretPaths(secretPathsButton);
     return;
   }
-  const tierButton = event.target.closest?.('[data-tier-toggle]');
+  const tierButton = event.target.closest?.("[data-tier-toggle]");
   if (tierButton) {
     const tier = tierButton.dataset.tierToggle;
-    const expanded = tierButton.getAttribute('aria-expanded') === 'true';
+    const expanded = tierButton.getAttribute("aria-expanded") === "true";
     tierExpanded.set(tier, !expanded);
-    if (searchActive && expanded) searchCollapsedTiers.add(tier);
-    if (!expanded) searchCollapsedTiers.delete(tier);
+    if (searchActive && expanded)
+      searchCollapsedTiers.add(tier);
+    if (!expanded)
+      searchCollapsedTiers.delete(tier);
     renderDestructiveCommands();
     return;
   }
-  const secretGroupButton = event.target.closest?.('[data-secret-group-toggle]');
+  const secretGroupButton = event.target.closest?.("[data-secret-group-toggle]");
   if (secretGroupButton) {
     const category = secretGroupButton.dataset.secretGroupToggle;
-    const expanded = secretGroupButton.getAttribute('aria-expanded') === 'true';
+    const expanded = secretGroupButton.getAttribute("aria-expanded") === "true";
     secretGroupExpanded.set(category, !expanded);
-    if (searchActive && expanded) searchCollapsedSecretGroups.add(category);
-    if (!expanded) searchCollapsedSecretGroups.delete(category);
+    if (searchActive && expanded)
+      searchCollapsedSecretGroups.add(category);
+    if (!expanded)
+      searchCollapsedSecretGroups.delete(category);
     renderSecretPatterns();
     return;
   }
-  // The group switches sit inside .rule-tier-head, which is no longer the
-  // collapse control there; togglePanel would read an aria-controls it lacks.
-  if (event.target.closest?.('[data-secret-group-active], [data-destructive-tier-active]')) return;
-  const button = event.target.closest?.('.panel-toggle, .rule-tier-head');
+  if (event.target.closest?.("[data-secret-group-active], [data-destructive-tier-active]"))
+    return;
+  const button = event.target.closest?.(".panel-toggle, .rule-tier-head");
   if (button) {
     togglePanel(button);
     return;
   }
-  const inheritedButton = event.target.closest?.('[data-use-inherited]');
+  const inheritedButton = event.target.closest?.("[data-use-inherited]");
   if (inheritedButton) {
-    delete draftPolicy.destructive_command_protection.overrides[
-      inheritedButton.dataset.useInherited
-    ];
+    delete draftPolicy.destructive_command_protection.overrides[inheritedButton.dataset.useInherited];
     syncRawFromForm();
     updateDirtyStatus();
-    void refreshPolicyPreview();
+    refreshPolicyPreview();
     return;
   }
-  if (event.target.closest?.('#reset-rule-customizations')) {
+  if (event.target.closest?.("#reset-rule-customizations")) {
     if (Object.keys(draftPolicy.destructive_command_protection.overrides).length === 0) {
-      setAppStatus('No customizations to reset', 'ok');
+      setAppStatus("No customizations to reset", "ok");
       return;
     }
-    void (async () => {
-      if (
-        !(await confirmDialog({
-          title: 'Restore defaults?',
-          body: 'All built-in destructive-command rules will return to their inherited preset settings.',
-          confirmLabel: 'Restore defaults',
-        }))
-      )
+    (async () => {
+      if (!await confirmDialog({
+        title: "Restore defaults?",
+        body: "All built-in destructive-command rules will return to their inherited preset settings.",
+        confirmLabel: "Restore defaults"
+      }))
         return;
       draftPolicy.destructive_command_protection.overrides = {};
       syncRawFromForm();
       updateDirtyStatus();
-      void refreshPolicyPreview();
+      refreshPolicyPreview();
     })();
     return;
   }
-  if (event.target.closest?.('#reset-secret-customizations')) {
+  if (event.target.closest?.("#reset-secret-customizations")) {
     if (Object.keys(draftPolicy.secret_protection.overrides).length === 0) {
-      setAppStatus('No customizations to reset', 'ok');
+      setAppStatus("No customizations to reset", "ok");
       return;
     }
-    void (async () => {
-      if (
-        !(await confirmDialog({
-          title: 'Restore defaults?',
-          body: 'All built-in secret rules will return to their inherited preset settings.',
-          confirmLabel: 'Restore defaults',
-        }))
-      )
+    (async () => {
+      if (!await confirmDialog({
+        title: "Restore defaults?",
+        body: "All built-in secret rules will return to their inherited preset settings.",
+        confirmLabel: "Restore defaults"
+      }))
         return;
       draftPolicy.secret_protection.overrides = {};
       renderSecretPatterns();
       syncRawFromForm();
       updateDirtyStatus();
-      void refreshPolicyPreview();
+      refreshPolicyPreview();
     })();
     return;
   }
-  if (event.target.closest?.('#discard-changes')) {
-    void (async () => {
-      if (
-        !(await confirmDialog({
-          title: 'Discard unsaved changes?',
-          body: 'All changes since your last save will be reverted.',
-          confirmLabel: 'Discard changes',
-          confirmClass: '',
-        }))
-      )
+  if (event.target.closest?.("#discard-changes")) {
+    (async () => {
+      if (!await confirmDialog({
+        title: "Discard unsaved changes?",
+        body: "All changes since your last save will be reverted.",
+        confirmLabel: "Discard changes",
+        confirmClass: ""
+      }))
         return;
-      void runExclusive('Discarding...', async () => {
-        sessionStorage.removeItem('cc-safety-net-draft');
-        if (await load()) setAppStatus('Changes discarded.', 'ok');
+      runExclusive("Discarding...", async () => {
+        sessionStorage.removeItem("cc-safety-net-draft");
+        if (await load())
+          setAppStatus("Changes discarded.", "ok");
       });
     })();
     return;
   }
-  const addButton = event.target.closest?.('[data-path-add]');
+  const addButton = event.target.closest?.("[data-path-add]");
   if (addButton) {
-    void pathLists[addButton.dataset.pathAdd].add(qs(\`\${addButton.dataset.pathAdd}-input\`).value);
+    pathLists[addButton.dataset.pathAdd].add(qs(\`\${addButton.dataset.pathAdd}-input\`).value);
     return;
   }
-  const removeButton = event.target.closest?.('[data-path-remove]');
+  const removeButton = event.target.closest?.("[data-path-remove]");
   if (removeButton)
     pathLists[removeButton.dataset.pathList].remove(Number(removeButton.dataset.pathRemove));
-  const starButton = event.target.closest?.('.star-cta');
-  if (starButton?.tagName === 'BUTTON') {
-    void starRepo(starButton);
+  const starButton = event.target.closest?.(".star-cta");
+  if (starButton?.tagName === "BUTTON") {
+    starRepo(starButton);
     return;
   }
 });
-qs('dirty-chip').onclick = () => {
-  location.hash = 'policy';
+qs("dirty-chip").onclick = () => {
+  location.hash = "policy";
 };
-qs('save').onclick = () => {
+qs("save").onclick = () => {
   if (!state) {
-    setAppStatus('Load failed', 'error');
-    setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error');
+    setAppStatus("Load failed", "error");
+    setDetailStatus("Error: Policy is not loaded yet. Reload the page.", "error");
     return;
   }
   if (state.errors.length) {
-    setAppStatus('Repair required', 'error');
-    setDetailStatus('Error: Repair policy before saving changes.', 'error');
+    setAppStatus("Repair required", "error");
+    setDetailStatus("Error: Repair policy before saving changes.", "error");
     return;
   }
   if (!dirty) {
-    setAppStatus('No changes to save', 'ok');
-    setDetailStatus('');
+    setAppStatus("No changes to save", "ok");
+    setDetailStatus("");
     return;
   }
   const policy = collectFormPolicy();
-  void runExclusive('Saving...', async () => {
-    const result = await requestJson('/api/policy', {
-      method: 'POST',
-      body: JSON.stringify(policy),
+  runExclusive("Saving...", async () => {
+    const result = await requestJson("/api/policy", {
+      method: "POST",
+      body: JSON.stringify(policy)
     });
     if (!isWriteSuccess(result)) {
-      setAppStatus('Save failed', 'error');
-      setDetailStatus(\`Error: \${errorText(result)}\`, 'error');
+      setAppStatus("Save failed", "error");
+      setDetailStatus(\`Error: \${errorText(result)}\`, "error");
       return;
     }
     const savedPath = result.data.path;
-    sessionStorage.removeItem('cc-safety-net-draft');
+    sessionStorage.removeItem("cc-safety-net-draft");
     if (await load()) {
       dirty = false;
-      setAppStatus(\`Saved \${savedPath}.\`, 'ok');
-      setDetailStatus('');
+      setAppStatus(\`Saved \${savedPath}.\`, "ok");
+      setDetailStatus("");
     }
   });
 };
-qs('repair').onclick = async () => {
+qs("repair").onclick = async () => {
   if (!state) {
-    setAppStatus('Load failed', 'error');
-    setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error');
+    setAppStatus("Load failed", "error");
+    setDetailStatus("Error: Policy is not loaded yet. Reload the page.", "error");
     return;
   }
   if (state.errors.length === 0) {
-    setAppStatus('');
-    setDetailStatus('');
+    setAppStatus("");
+    setDetailStatus("");
     return;
   }
-  if (
-    !(await confirmDialog({
-      title: 'Repair policy?',
-      body: 'This will write canonical policy JSON. Valid settings are preserved; invalid fields are discarded. If the JSON cannot be parsed, defaults are restored.',
-      detail: state.path,
-      confirmLabel: 'Repair',
-      confirmClass: 'primary',
-    }))
-  ) {
+  if (!await confirmDialog({
+    title: "Repair policy?",
+    body: "This will write canonical policy JSON. Valid settings are preserved; invalid fields are discarded. If the JSON cannot be parsed, defaults are restored.",
+    detail: state.path,
+    confirmLabel: "Repair",
+    confirmClass: "primary"
+  })) {
     return;
   }
-  void runExclusive('Repairing...', async () => {
-    const result = await requestJson('/api/repair', { method: 'POST', body: '{}' });
+  runExclusive("Repairing...", async () => {
+    const result = await requestJson("/api/repair", { method: "POST", body: "{}" });
     if (!isWriteSuccess(result)) {
-      setAppStatus('Repair failed', 'error');
-      setDetailStatus(\`Error: \${errorText(result)}\`, 'error');
+      setAppStatus("Repair failed", "error");
+      setDetailStatus(\`Error: \${errorText(result)}\`, "error");
       return;
     }
     const repairedPath = result.data.path;
-    sessionStorage.removeItem('cc-safety-net-draft');
+    sessionStorage.removeItem("cc-safety-net-draft");
     if (await load()) {
       dirty = false;
-      setAppStatus(\`Repaired \${repairedPath}.\`, 'ok');
-      setDetailStatus('');
+      setAppStatus(\`Repaired \${repairedPath}.\`, "ok");
+      setDetailStatus("");
     }
   });
 };
-qs('reset').onclick = async () => {
+qs("reset").onclick = async () => {
   if (!state) {
-    setAppStatus('Load failed', 'error');
-    setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error');
+    setAppStatus("Load failed", "error");
+    setDetailStatus("Error: Policy is not loaded yet. Reload the page.", "error");
     return;
   }
-  if (
-    !(await confirmDialog({
-      title: 'Reset policy?',
-      body: 'This will restore the default policy JSON at this path.',
-      detail: state.path,
-      confirmLabel: 'Reset policy',
-    }))
-  ) {
+  if (!await confirmDialog({
+    title: "Reset policy?",
+    body: "This will restore the default policy JSON at this path.",
+    detail: state.path,
+    confirmLabel: "Reset policy"
+  })) {
     return;
   }
-  void runExclusive('Resetting...', async () => {
-    const result = await requestJson('/api/reset', { method: 'POST', body: '{}' });
+  runExclusive("Resetting...", async () => {
+    const result = await requestJson("/api/reset", { method: "POST", body: "{}" });
     if (!isWriteSuccess(result)) {
-      setAppStatus('Reset failed', 'error');
-      setDetailStatus(\`Error: \${errorText(result)}\`, 'error');
+      setAppStatus("Reset failed", "error");
+      setDetailStatus(\`Error: \${errorText(result)}\`, "error");
       return;
     }
     const resetPath = result.data.path;
-    sessionStorage.removeItem('cc-safety-net-draft');
+    sessionStorage.removeItem("cc-safety-net-draft");
     if (await load()) {
       dirty = false;
-      setAppStatus(\`Reset \${resetPath} to defaults.\`, 'ok');
-      setDetailStatus('');
+      setAppStatus(\`Reset \${resetPath} to defaults.\`, "ok");
+      setDetailStatus("");
     }
   });
 };
 setRawCopyCopied(false);
-qs('raw-copy').onclick = () => {
-  void copyRawToClipboard();
+qs("raw-copy").onclick = () => {
+  copyRawToClipboard();
 };
-const themeOrder = ['auto', 'light', 'dark'];
-const themeIcons = {
+var themeOrder = ["auto", "light", "dark"];
+var themeIcons = {
   auto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5"></rect><path d="M8 20h8M12 16v4"></path></svg>',
-  light:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"></path></svg>',
-  dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>',
+  light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"></path></svg>',
+  dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>'
 };
-const themeLabels = { auto: 'Auto', light: 'Light', dark: 'Dark' };
-const applyTheme = (pref) => {
-  document.documentElement.style.colorScheme = pref === 'auto' ? 'light dark' : pref;
-  qs('theme-toggle').innerHTML = \`\${themeIcons[pref]}<span>\${themeLabels[pref]}</span>\`;
-  qs('theme-toggle').setAttribute(
-    'aria-label',
-    \`Color theme: \${themeLabels[pref]}. Click to change.\`,
-  );
+var themeLabels = { auto: "Auto", light: "Light", dark: "Dark" };
+var applyTheme = (pref) => {
+  document.documentElement.style.colorScheme = pref === "auto" ? "light dark" : pref;
+  qs("theme-toggle").innerHTML = \`\${themeIcons[pref]}<span>\${themeLabels[pref]}</span>\`;
+  qs("theme-toggle").setAttribute("aria-label", \`Color theme: \${themeLabels[pref]}. Click to change.\`);
 };
-let themePref = themeOrder.includes(localStorage.getItem('cc-safety-net-theme'))
-  ? localStorage.getItem('cc-safety-net-theme')
-  : 'auto';
+var themePref = themeOrder.includes(localStorage.getItem("cc-safety-net-theme")) ? localStorage.getItem("cc-safety-net-theme") : "auto";
 applyTheme(themePref);
-qs('theme-toggle').onclick = () => {
+qs("theme-toggle").onclick = () => {
   themePref = themeOrder[(themeOrder.indexOf(themePref) + 1) % themeOrder.length];
-  if (themePref === 'auto') localStorage.removeItem('cc-safety-net-theme');
-  else localStorage.setItem('cc-safety-net-theme', themePref);
+  if (themePref === "auto")
+    localStorage.removeItem("cc-safety-net-theme");
+  else
+    localStorage.setItem("cc-safety-net-theme", themePref);
   applyTheme(themePref);
 };
-window.addEventListener('beforeunload', (event) => {
-  if (!dirty) return;
+window.addEventListener("beforeunload", (event) => {
+  if (!dirty)
+    return;
   event.preventDefault();
-  event.returnValue = '';
+  event.returnValue = "";
 });
-window.addEventListener('hashchange', applyView);
+window.addEventListener("hashchange", applyView);
 applyView();
-void loadHealth();
-load()
-  .then((loaded) => {
-    if (loaded) void loadStarContext();
-    activityFilters.days = Math.min(activityFilters.days, retentionDays());
-    void loadOverview();
-    void loadActivity();
-  })
-  .catch((error) => {
-    setAppStatus('Load failed', 'error');
-    setDetailStatus(String(error), 'error');
-  });
-`;function renderPolicyGuiHtml(token){return page_default.replace("/* __CC_SAFETY_NET_CUSTOM_CSS__ */",custom_default).replace("__CC_SAFETY_NET_FAVICON__",`data:image/svg+xml,${encodeURIComponent(favicon_default)}`).replace("<!-- __CC_SAFETY_NET_LOGO__ -->",()=>logo_default).replace("/* __CC_SAFETY_NET_SCRIPT__ */",()=>page_script_default).replace("__CC_SAFETY_NET_AGENT_LABELS__",()=>JSON.stringify(integrationDisplayNames)).replace("__CC_SAFETY_NET_TOKEN__",JSON.stringify(token))}var REPO="kenryu42/cc-safety-net",REPO_URL=`https://github.com/${REPO}`,STAR_TIMEOUT_MS=1e4,DEFAULT_ACTIVITY_DAYS=7;async function runGuiCommand(args,options={}){let parsed=parseCommandArgs({label:"gui",booleans:{noOpen:["--no-open"]}},args),log=options.log??console.log,error=options.error??console.error;if(parsed.errors.length>0){for(let message of parsed.errors)error(message);return error("Usage: cc-safety-net gui [--no-open]"),1}let server=await createPolicyGuiServer(options);if(log(`CC Safety Net policy GUI: ${server.url}`),!parsed.flags.noOpen)try{await(options.openBrowser??openBrowser)(server.url)}catch(openError){error(`Failed to open browser: ${openError instanceof Error?openError.message:String(openError)}`),error(`Open this URL manually: ${server.url}`)}if(options.keepAlive===!1)return await server.close(),0;return await waitForShutdown(server),0}async function createPolicyGuiServer(options={}){let token=options.token??randomBytes(24).toString("base64url"),server=createServer((request,response)=>{handleRequest(request,response,token,options)});await new Promise((resolve5,reject)=>{server.once("error",reject),server.listen(0,"127.0.0.1",()=>{server.off("error",reject),resolve5()})});let origin=`http://127.0.0.1:${server.address().port}`;return{origin,token,url:`${origin}/?token=${encodeURIComponent(token)}`,close:()=>closeServer(server)}}async function handleRequest(request,response,token,options){let url=new URL(request.url??"/","http://127.0.0.1");if(request.method==="GET"&&url.pathname==="/favicon.ico"){response.writeHead(204,{"cache-control":"no-store"}),response.end();return}if(!requestHasValidToken(request,url,token)){sendJson(response,403,{error:"Forbidden"});return}if(request.method==="GET"&&url.pathname==="/"){sendHtml(response,renderPolicyGuiHtml(token));return}if(request.method==="GET"&&url.pathname==="/api/policy"){let result=readUserPolicyForGui(options);sendJson(response,200,{...result,configState:describeConfigState(loadPolicySnapshot(options)),destructiveCommandRules:DESTRUCTIVE_COMMAND_RULE_METADATA,secretPatterns:SECRET_PROTECTION_RULE_METADATA,version:getPackageVersion(),preview:result.errors.length>0?null:createPolicyPreview(result.policy)});return}if(request.method==="POST"&&url.pathname==="/api/policy/preview"){let body=await readJsonBody(request);if(!body.ok){sendJson(response,400,{errors:[body.error]});return}let result=previewUserPolicyForGui(body.value);sendJson(response,result.errors.length>0?400:200,result);return}if(request.method==="POST"&&url.pathname==="/api/policy/explain"){let body=await readJsonBody(request);if(!body.ok){sendJson(response,400,{errors:[body.error]});return}let payload=body.value;if(payload===null||typeof payload.command!=="string"){sendJson(response,400,{errors:["command must be a string"]});return}let errors=getUserPolicyDiagnostics(payload.policy);if(errors.length>0){sendJson(response,400,{errors});return}sendJson(response,200,explainDraftCommand(payload.command,payload.policy,options));return}if(request.method==="POST"&&url.pathname==="/api/policy"){let body=await readJsonBody(request);if(!body.ok){sendJson(response,400,{errors:[body.error]});return}let result=writeUserPolicyFromGui(body.value,options);sendJson(response,result.errors.length>0?400:200,result);return}if(request.method==="POST"&&url.pathname==="/api/reset"){sendJson(response,200,writeUserPolicyFromGui(DEFAULT_GUI_POLICY,options));return}if(request.method==="POST"&&url.pathname==="/api/repair"){sendJson(response,200,repairUserPolicyForGui(options));return}if(request.method==="GET"&&url.pathname==="/api/activity"){let retentionDays=resolveAuditRetentionDays(options),days=parseActivityDays(url.searchParams.get("days"),retentionDays);if(days===null){sendJson(response,400,{error:`days must be an integer between 1 and ${retentionDays}`});return}sendJson(response,200,getActivityFeed(days,options.activityLogsDir));return}if(request.method==="POST"&&url.pathname==="/api/rules/choose-directory"){sendJson(response,200,await chooseDirectory());return}if(request.method==="GET"&&url.pathname==="/api/rules"){let policy=loadRulesPolicy(options),enforcedByName=new Map(policy.rules.map((rule)=>[rule.name,rule]));sendJson(response,200,{projectPath:options.cwd??process.cwd(),canPickDirectory:isDirectoryPickerAvailable(process.platform,process.env),rulebooks:policy.rulebooks.map((rulebook)=>({source:rulebook.source,spec:rulebook.spec,name:rulebook.name,version:rulebook.version,rules:rulebook.rules.flatMap((ruleName)=>{let rule=enforcedByName.get(ruleName);if(!rule)return[];return[{name:rule.name,command:rule.command,subcommand:rule.subcommand,block_args:rule.block_args,reason:rule.reason}]})})),errors:policy.errors,warnings:policy.warnings});return}if(request.method==="GET"&&url.pathname==="/api/star/context"){sendJson(response,200,await(options.fetchStarContext??(()=>fetchStarContext({logsDir:options.activityLogsDir})))());return}if(request.method==="POST"&&url.pathname==="/api/star"){let result=await(options.starRepo??starRepo)();sendJson(response,200,result.ok?{ok:!0}:{ok:!1,fallbackUrl:REPO_URL});return}if(request.method==="GET"&&url.pathname==="/api/integrations"){sendJson(response,200,await(options.fetchIntegrations??fetchIntegrations)());return}if(request.method==="GET"&&url.pathname==="/api/health"){sendJson(response,200,await(options.fetchHealth??fetchHealth)());return}if(request.method==="POST"&&(url.pathname==="/api/install"||url.pathname==="/api/uninstall")){let body=await readJsonBody(request);if(!body.ok){sendJson(response,400,{errors:[body.error]});return}let target=body.value?.target;if(typeof target!=="string"||!INSTALL_TARGETS.some((entry)=>entry.target===target)){sendJson(response,400,{error:"unknown target"});return}let action=url.pathname==="/api/install"?"install":"uninstall";sendJson(response,200,await(options.runIntegration??runIntegration)(action,target));return}sendJson(response,404,{error:"Not found"})}function explainDraftCommand(command,policy,options){let draft=normalizeGuiPolicy(policy),diskSnapshot=loadPolicySnapshot(options),snapshot=createPolicySnapshot({rules:diskSnapshot.policy.rules,transparentWrappers:diskSnapshot.policy.transparentWrappers,safety:normalizeSafety(draft.safety),worktreeMode:draft.workflow.worktree_mode,destructiveCommandProtectionEnabled:draft.destructive_command_protection.enabled,destructiveCommandRuleOverrides:draft.destructive_command_protection.overrides,destructiveCommandAllowPaths:draft.destructive_command_protection.allow_paths,secretProtection:{enabled:draft.secret_protection.enabled,disabledRules:[...resolveSecretDisabledRules(draft.secret_protection.overrides)],denyPaths:draft.secret_protection.deny_paths}});return explainCommand(command,{policySnapshot:snapshot,cwd:options.cwd,userConfigDir:options.userConfigDir})}function parseActivityDays(raw,retentionDays){if(raw===null)return Math.min(DEFAULT_ACTIVITY_DAYS,retentionDays);let days=Number(raw);if(!Number.isInteger(days)||days<1||days>retentionDays)return null;return days}function requestHasValidToken(request,url,token){if(url.searchParams.get("token")!==token)return!1;if(request.method!=="POST")return!0;return request.headers["x-cc-safety-net-token"]===token}async function readJsonBody(request){let chunks=[];for await(let chunk of request)chunks.push(chunk);try{return{ok:!0,value:JSON.parse(Buffer.concat(chunks).toString("utf-8")||"{}")}}catch(error){return{ok:!1,error:`Invalid JSON: ${error instanceof Error?error.message:String(error)}`}}}function sendHtml(response,html){response.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"no-store"}),response.end(html)}function sendJson(response,status,body){response.writeHead(status,{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}),response.end(JSON.stringify(body))}function closeServer(server){return new Promise((resolve5,reject)=>{server.close((error)=>error?reject(error):resolve5())})}function waitForShutdown(server){return new Promise((resolve5)=>{let cleanup=()=>{process.off("SIGINT",shutdown),process.off("SIGTERM",shutdown)},shutdown=()=>{cleanup(),server.close().then(resolve5)};process.once("SIGINT",shutdown),process.once("SIGTERM",shutdown)})}function openBrowser(url){let command=process.platform==="darwin"?"open":process.platform==="win32"?"cmd":"xdg-open",args=process.platform==="win32"?["/c","start","",url]:[url];return new Promise((resolve5,reject)=>{let child=spawn4(command,args,{detached:!0,stdio:"ignore"}),handleError=(error)=>{child.off("spawn",handleSpawn),reject(error)},handleSpawn=()=>{child.off("error",handleError),child.unref(),resolve5()};child.once("error",handleError),child.once("spawn",handleSpawn)})}async function starRepo(command="gh",timeoutMs=STAR_TIMEOUT_MS){return{ok:await runGhCommand(command,["api","-X","PUT",`/user/starred/${REPO}`],timeoutMs)===0}}var VERSION_FIELDS={amp:"ampVersion","antigravity-cli":"antigravityCliVersion","claude-code":"claudeCodeVersion",codex:"codexCliVersion","copilot-cli":"copilotCliVersion",cursor:"cursorVersion","gemini-cli":"geminiCliVersion","kimi-code":"kimiCodeVersion",opencode:"openCodeVersion",pi:"piCliVersion"};async function fetchIntegrations(probe={}){let systemInfo=await getSystemInfo(probe.fetcher),hookStatuses=detectHooksFromSystemInfo(systemInfo,probe.homeDir);return{targets:installIntegrationMetadata.map((meta)=>{let hook=hookStatuses.find((status)=>status.platform===meta.id);return{target:meta.id,label:getIntegrationDisplayName(meta.id),version:systemInfo[VERSION_FIELDS[meta.id]],status:hook?.configured?"active":hook?.detected?"disabled":hook?.inspectionStatus==="not-inspected"?"not-inspected":"not-installed"}}),system:{version:systemInfo.version,nodeVersion:systemInfo.nodeVersion,platform:systemInfo.platform}}}function detectHooksFromSystemInfo(systemInfo,homeDir){return detectAllHooks(process.cwd(),{homeDir,codexPluginListOutput:systemInfo.codexPluginListOutput,copilotCliVersion:systemInfo.copilotCliVersion})}async function fetchHealth(probe={}){let[systemInfo,update]=await Promise.all([getSystemInfo(probe.fetcher),(probe.checkUpdates??checkForUpdates)()]);return{hooks:detectHooksFromSystemInfo(systemInfo,probe.homeDir).filter((hook)=>hook.detected).map((hook)=>({platform:hook.platform,label:getIntegrationDisplayName(hook.platform),configured:hook.configured})),update:{currentVersion:update.currentVersion,latestVersion:update.latestVersion??null,updateAvailable:update.updateAvailable}}}var integrationActionQueue=Promise.resolve();function runIntegration(action,target,overrides={}){let run=async()=>{let lines=[],originalLog=console.log,originalError=console.error;console.log=(...args)=>lines.push(args.map(String).join(" ")),console.error=console.log;try{return{ok:await runInstallCommand(action,[],{selectTargets:async()=>[target],output:new Writable({write(_chunk,_encoding,callback){callback()}}),...overrides})===0,output:lines.join(`
+loadHealth();
+load().then((loaded) => {
+  if (loaded)
+    loadStarContext();
+  activityFilters.days = Math.min(activityFilters.days, retentionDays());
+  loadOverview();
+  loadActivity();
+}).catch((error) => {
+  setAppStatus("Load failed", "error");
+  setDetailStatus(String(error), "error");
+});
+`;function renderPolicyGuiHtml(token){return pageHtml.replace("/* __CC_SAFETY_NET_CUSTOM_CSS__ */",customCss).replace("__CC_SAFETY_NET_FAVICON__",`data:image/svg+xml,${encodeURIComponent(faviconSvg)}`).replace("<!-- __CC_SAFETY_NET_LOGO__ -->",()=>logoSvg).replace("/* __CC_SAFETY_NET_SCRIPT__ */",()=>pageScriptJs).replace("__CC_SAFETY_NET_AGENT_LABELS__",()=>JSON.stringify(integrationDisplayNames)).replace("__CC_SAFETY_NET_TOKEN__",JSON.stringify(token))}var REPO="kenryu42/cc-safety-net",REPO_URL=`https://github.com/${REPO}`,STAR_TIMEOUT_MS=1e4,DEFAULT_ACTIVITY_DAYS=7;async function runGuiCommand(args,options={}){let parsed=parseCommandArgs({label:"gui",booleans:{noOpen:["--no-open"]}},args),log=options.log??console.log,error=options.error??console.error;if(parsed.errors.length>0){for(let message of parsed.errors)error(message);return error("Usage: cc-safety-net gui [--no-open]"),1}let server=await createPolicyGuiServer(options);if(log(`CC Safety Net policy GUI: ${server.url}`),!parsed.flags.noOpen)try{await(options.openBrowser??openBrowser)(server.url)}catch(openError){error(`Failed to open browser: ${openError instanceof Error?openError.message:String(openError)}`),error(`Open this URL manually: ${server.url}`)}if(options.keepAlive===!1)return await server.close(),0;return await waitForShutdown(server),0}async function createPolicyGuiServer(options={}){let token=options.token??randomBytes(24).toString("base64url"),server=createServer((request,response)=>{handleRequest(request,response,token,options)});await new Promise((resolve5,reject)=>{server.once("error",reject),server.listen(0,"127.0.0.1",()=>{server.off("error",reject),resolve5()})});let origin=`http://127.0.0.1:${server.address().port}`;return{origin,token,url:`${origin}/?token=${encodeURIComponent(token)}`,close:()=>closeServer(server)}}async function handleRequest(request,response,token,options){let url=new URL(request.url??"/","http://127.0.0.1");if(request.method==="GET"&&url.pathname==="/favicon.ico"){response.writeHead(204,{"cache-control":"no-store"}),response.end();return}if(!requestHasValidToken(request,url,token)){sendJson(response,403,{error:"Forbidden"});return}if(request.method==="GET"&&url.pathname==="/"){sendHtml(response,renderPolicyGuiHtml(token));return}if(request.method==="GET"&&url.pathname==="/api/policy"){let result=readUserPolicyForGui(options);sendJson(response,200,{...result,configState:describeConfigState(loadPolicySnapshot(options)),destructiveCommandRules:DESTRUCTIVE_COMMAND_RULE_METADATA,secretPatterns:SECRET_PROTECTION_RULE_METADATA,version:getPackageVersion(),preview:result.errors.length>0?null:createPolicyPreview(result.policy)});return}if(request.method==="POST"&&url.pathname==="/api/policy/preview"){let body=await readJsonBody(request);if(!body.ok){sendJson(response,400,{errors:[body.error]});return}let result=previewUserPolicyForGui(body.value);sendJson(response,result.errors.length>0?400:200,result);return}if(request.method==="POST"&&url.pathname==="/api/policy/explain"){let body=await readJsonBody(request);if(!body.ok){sendJson(response,400,{errors:[body.error]});return}let payload=body.value;if(payload===null||typeof payload.command!=="string"){sendJson(response,400,{errors:["command must be a string"]});return}let errors=getUserPolicyDiagnostics(payload.policy);if(errors.length>0){sendJson(response,400,{errors});return}sendJson(response,200,explainDraftCommand(payload.command,payload.policy,options));return}if(request.method==="POST"&&url.pathname==="/api/policy"){let body=await readJsonBody(request);if(!body.ok){sendJson(response,400,{errors:[body.error]});return}let result=writeUserPolicyFromGui(body.value,options);sendJson(response,result.errors.length>0?400:200,result);return}if(request.method==="POST"&&url.pathname==="/api/reset"){sendJson(response,200,writeUserPolicyFromGui(DEFAULT_GUI_POLICY,options));return}if(request.method==="POST"&&url.pathname==="/api/repair"){sendJson(response,200,repairUserPolicyForGui(options));return}if(request.method==="GET"&&url.pathname==="/api/activity"){let retentionDays=resolveAuditRetentionDays(options),days=parseActivityDays(url.searchParams.get("days"),retentionDays);if(days===null){sendJson(response,400,{error:`days must be an integer between 1 and ${retentionDays}`});return}sendJson(response,200,getActivityFeed(days,options.activityLogsDir));return}if(request.method==="POST"&&url.pathname==="/api/rules/choose-directory"){sendJson(response,200,await chooseDirectory());return}if(request.method==="GET"&&url.pathname==="/api/rules"){let policy=loadRulesPolicy(options),enforcedByName=new Map(policy.rules.map((rule)=>[rule.name,rule]));sendJson(response,200,{projectPath:options.cwd??process.cwd(),canPickDirectory:isDirectoryPickerAvailable(process.platform,process.env),rulebooks:policy.rulebooks.map((rulebook)=>({source:rulebook.source,spec:rulebook.spec,name:rulebook.name,version:rulebook.version,rules:rulebook.rules.flatMap((ruleName)=>{let rule=enforcedByName.get(ruleName);if(!rule)return[];return[{name:rule.name,command:rule.command,subcommand:rule.subcommand,block_args:rule.block_args,reason:rule.reason}]})})),errors:policy.errors,warnings:policy.warnings});return}if(request.method==="GET"&&url.pathname==="/api/star/context"){sendJson(response,200,await(options.fetchStarContext??(()=>fetchStarContext({logsDir:options.activityLogsDir})))());return}if(request.method==="POST"&&url.pathname==="/api/star"){let result=await(options.starRepo??starRepo)();sendJson(response,200,result.ok?{ok:!0}:{ok:!1,fallbackUrl:REPO_URL});return}if(request.method==="GET"&&url.pathname==="/api/integrations"){sendJson(response,200,await(options.fetchIntegrations??fetchIntegrations)());return}if(request.method==="GET"&&url.pathname==="/api/health"){sendJson(response,200,await(options.fetchHealth??fetchHealth)());return}if(request.method==="POST"&&(url.pathname==="/api/install"||url.pathname==="/api/uninstall")){let body=await readJsonBody(request);if(!body.ok){sendJson(response,400,{errors:[body.error]});return}let target=body.value?.target;if(typeof target!=="string"||!INSTALL_TARGETS.some((entry)=>entry.target===target)){sendJson(response,400,{error:"unknown target"});return}let action=url.pathname==="/api/install"?"install":"uninstall";sendJson(response,200,await(options.runIntegration??runIntegration)(action,target));return}sendJson(response,404,{error:"Not found"})}function explainDraftCommand(command,policy,options){let draft=normalizeGuiPolicy(policy),diskSnapshot=loadPolicySnapshot(options),snapshot=createPolicySnapshot({rules:diskSnapshot.policy.rules,transparentWrappers:diskSnapshot.policy.transparentWrappers,safety:normalizeSafety(draft.safety),worktreeMode:draft.workflow.worktree_mode,destructiveCommandProtectionEnabled:draft.destructive_command_protection.enabled,destructiveCommandRuleOverrides:draft.destructive_command_protection.overrides,destructiveCommandAllowPaths:draft.destructive_command_protection.allow_paths,secretProtection:{enabled:draft.secret_protection.enabled,disabledRules:[...resolveSecretDisabledRules(draft.secret_protection.overrides)],denyPaths:draft.secret_protection.deny_paths}});return explainCommand(command,{policySnapshot:snapshot,cwd:options.cwd,userConfigDir:options.userConfigDir})}function parseActivityDays(raw,retentionDays){if(raw===null)return Math.min(DEFAULT_ACTIVITY_DAYS,retentionDays);let days=Number(raw);if(!Number.isInteger(days)||days<1||days>retentionDays)return null;return days}function requestHasValidToken(request,url,token){if(url.searchParams.get("token")!==token)return!1;if(request.method!=="POST")return!0;return request.headers["x-cc-safety-net-token"]===token}async function readJsonBody(request){let chunks=[];for await(let chunk of request)chunks.push(chunk);try{return{ok:!0,value:JSON.parse(Buffer.concat(chunks).toString("utf-8")||"{}")}}catch(error){return{ok:!1,error:`Invalid JSON: ${error instanceof Error?error.message:String(error)}`}}}function sendHtml(response,html){response.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"no-store"}),response.end(html)}function sendJson(response,status,body){response.writeHead(status,{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}),response.end(JSON.stringify(body))}function closeServer(server){return new Promise((resolve5,reject)=>{server.close((error)=>error?reject(error):resolve5())})}function waitForShutdown(server){return new Promise((resolve5)=>{let cleanup=()=>{process.off("SIGINT",shutdown),process.off("SIGTERM",shutdown)},shutdown=()=>{cleanup(),server.close().then(resolve5)};process.once("SIGINT",shutdown),process.once("SIGTERM",shutdown)})}function openBrowser(url){let command=process.platform==="darwin"?"open":process.platform==="win32"?"cmd":"xdg-open",args=process.platform==="win32"?["/c","start","",url]:[url];return new Promise((resolve5,reject)=>{let child=spawn4(command,args,{detached:!0,stdio:"ignore"}),handleError=(error)=>{child.off("spawn",handleSpawn),reject(error)},handleSpawn=()=>{child.off("error",handleError),child.unref(),resolve5()};child.once("error",handleError),child.once("spawn",handleSpawn)})}async function starRepo(command="gh",timeoutMs=STAR_TIMEOUT_MS){return{ok:await runGhCommand(command,["api","-X","PUT",`/user/starred/${REPO}`],timeoutMs)===0}}var VERSION_FIELDS={amp:"ampVersion","antigravity-cli":"antigravityCliVersion","claude-code":"claudeCodeVersion",codex:"codexCliVersion","copilot-cli":"copilotCliVersion",cursor:"cursorVersion","gemini-cli":"geminiCliVersion","kimi-code":"kimiCodeVersion",opencode:"openCodeVersion",pi:"piCliVersion"};async function fetchIntegrations(probe={}){let systemInfo=await getSystemInfo(probe.fetcher),hookStatuses=detectHooksFromSystemInfo(systemInfo,probe.homeDir);return{targets:installIntegrationMetadata.map((meta)=>{let hook=hookStatuses.find((status)=>status.platform===meta.id);return{target:meta.id,label:getIntegrationDisplayName(meta.id),version:systemInfo[VERSION_FIELDS[meta.id]],status:hook?.configured?"active":hook?.detected?"disabled":hook?.inspectionStatus==="not-inspected"?"not-inspected":"not-installed"}}),system:{version:systemInfo.version,nodeVersion:systemInfo.nodeVersion,platform:systemInfo.platform}}}function detectHooksFromSystemInfo(systemInfo,homeDir){return detectAllHooks(process.cwd(),{homeDir,codexPluginListOutput:systemInfo.codexPluginListOutput,copilotCliVersion:systemInfo.copilotCliVersion})}async function fetchHealth(probe={}){let[systemInfo,update]=await Promise.all([getSystemInfo(probe.fetcher),(probe.checkUpdates??checkForUpdates)()]);return{hooks:detectHooksFromSystemInfo(systemInfo,probe.homeDir).filter((hook)=>hook.detected).map((hook)=>({platform:hook.platform,label:getIntegrationDisplayName(hook.platform),configured:hook.configured})),update:{currentVersion:update.currentVersion,latestVersion:update.latestVersion??null,updateAvailable:update.updateAvailable}}}var integrationActionQueue=Promise.resolve();function runIntegration(action,target,overrides={}){let run=async()=>{let lines=[],originalLog=console.log,originalError=console.error;console.log=(...args)=>lines.push(args.map(String).join(" ")),console.error=console.log;try{return{ok:await runInstallCommand(action,[],{selectTargets:async()=>[target],output:new Writable({write(_chunk,_encoding,callback){callback()}}),...overrides})===0,output:lines.join(`
 `)}}finally{console.log=originalLog,console.error=originalError}},result=integrationActionQueue.then(run);return integrationActionQueue=result.then(()=>{return},()=>{return}),result}async function fetchStarContext(options={}){let[starred,starCount,blockedTotal]=await Promise.all([userHasStarredRepo(options.command),fetchStarCount(options.fetchRepo),Promise.resolve(getActivitySummary(resolveAuditRetentionDays(),options.logsDir).totalBlocked)]);return{starred,starCount,blockedTotal}}async function userHasStarredRepo(command="gh",timeoutMs=STAR_TIMEOUT_MS){if(await runGhCommand(command,["auth","status"],timeoutMs)!==0)return null;let starredExitCode=await runGhCommand(command,["api",`/user/starred/${REPO}`],timeoutMs);if(starredExitCode===0)return!0;if(starredExitCode===null)return null;return!1}function runGhCommand(command,args,timeoutMs){return new Promise((resolve5)=>{let child=spawn4(command,args,{stdio:"ignore",windowsHide:!0}),settled=!1,timeout,finish=(code)=>{if(settled)return;if(settled=!0,timeout)clearTimeout(timeout);resolve5(code)};child.once("error",()=>finish(null)),child.once("close",finish),timeout=setTimeout(()=>{child.kill(),finish(null)},timeoutMs)})}async function fetchStarCount(fetchRepo=fetch){try{let response=await fetchRepo(`https://api.github.com/repos/${REPO}`,{headers:{accept:"application/vnd.github+json"},signal:AbortSignal.timeout(STAR_TIMEOUT_MS)});if(!response.ok)return null;let body=await response.json();return typeof body.stargazers_count==="number"?body.stargazers_count:null}catch{return null}}var version="1.0.6",INDENT="  ",PROGRAM_NAME="cc-safety-net";function formatOptionFlags(option){return option.argument?`${option.flags} ${option.argument}`:option.flags}function getOptionsColumnWidth(options){return Math.max(...options.map((opt)=>formatOptionFlags(opt).length))}function getSubcommandsColumnWidth(subcommands){return Math.max(...subcommands.map((subcommand)=>subcommand.usage.length))}function getCommandSummaryWidth(commands2){return Math.max(...commands2.map((cmd)=>`${PROGRAM_NAME} ${cmd.usage}`.length))}function formatCommandSummary(cmd,maxUsageWidth){let usage=`${PROGRAM_NAME} ${cmd.usage}`;return`${INDENT}${usage.padEnd(maxUsageWidth+2)}${cmd.description}`}function formatEnvironmentVariable(name,description){return`${INDENT}${name.padEnd(Math.max(40,name.length+2))}${description}`}function printCommandHelp(command,write=console.log){let lines=[];if(lines.push(`${PROGRAM_NAME} ${command.name}`),lines.push(""),lines.push(`${INDENT}${command.description}`),lines.push(""),lines.push("USAGE:"),lines.push(`${INDENT}${PROGRAM_NAME} ${command.usage}`),lines.push(""),command.subcommands&&command.subcommands.length>0){lines.push("SUBCOMMANDS:");let subcommandWidth=getSubcommandsColumnWidth(command.subcommands);for(let subcommand of command.subcommands)lines.push(`${INDENT}${subcommand.usage.padEnd(subcommandWidth+2)}${subcommand.description}`);lines.push("")}if(command.options.length>0){lines.push("OPTIONS:");let optWidth=getOptionsColumnWidth(command.options);for(let opt of command.options){let flags=formatOptionFlags(opt),description=opt.default?`${opt.description} (default: ${opt.default})`:opt.description;lines.push(`${INDENT}${flags.padEnd(optWidth+2)}${description}`)}lines.push("")}if(command.examples&&command.examples.length>0){lines.push("EXAMPLES:");for(let example of command.examples)lines.push(`${INDENT}${example}`)}write(lines.join(`
 `))}function printHelp(){let visibleCommands=getVisibleCommands(),maxUsageWidth=getCommandSummaryWidth(visibleCommands),lines=[];lines.push(`${PROGRAM_NAME} v${version}`),lines.push(""),lines.push("Blocks destructive git and filesystem commands before execution."),lines.push(""),lines.push("COMMANDS:");for(let cmd of visibleCommands)lines.push(formatCommandSummary(cmd,maxUsageWidth));lines.push(""),lines.push("GLOBAL OPTIONS:"),lines.push(`${INDENT}-h, --help       Show help (use with command for command-specific help)`),lines.push(`${INDENT}-V, --version    Show version`),lines.push(""),lines.push("HELP:"),lines.push(`${INDENT}${PROGRAM_NAME} help <command>     Show help for a specific command`),lines.push(`${INDENT}${PROGRAM_NAME} <command> --help   Show help for a specific command`),lines.push(""),lines.push("ENVIRONMENT VARIABLES:"),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.level.name}=standard|strict|paranoid`,"Set session safety level")),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.worktree.name}=1`,"Allow local git discards in linked worktrees")),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.debug.name}=1`,"Print diagnostic messages to stderr")),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.auditScope.name}=all|blocked`,"Record all command decisions, or denials only")),lines.push(formatEnvironmentVariable("CC_SAFETY_NET_HOME","Override rule config home directory")),lines.push(""),lines.push("LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):"),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.strict.name}=1`,"Force safety.overrides.fail_closed on")),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoid.name}=1`,"Force paranoid_rm and paranoid_interpreters on")),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidRm.name}=1`,"Force safety.overrides.paranoid_rm on")),lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidInterpreters.name}=1`,"Force safety.overrides.paranoid_interpreters on")),console.log(lines.join(`
 `))}function printVersion(){console.log(version)}function showCommandHelp(commandName,write=console.log){let command=findCommand(commandName);if(!command)return!1;if(command.hidden||command.name.toLowerCase()!==commandName.toLowerCase())return!1;return printCommandHelp(command,write),!0}import{join as join24}from"node:path";var RULE_DOC="# Custom Rules Reference\n\nAgent reference for generating CC Safety Net rulebook configuration.\n\n## Config Locations\n\n| Scope | Config path | Rulebook path | Cache path | Priority |\n|-------|-------------|---------------|------------|----------|\n| User | `~/.cc-safety-net/rules/rule.json` | `~/.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `~/.cc-safety-net/cache/rulebooks/` | First |\n| Project | `.cc-safety-net/rules/rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `.cc-safety-net/cache/rulebooks/` | Second |\n| GitHub source | Listed in a local `rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in the source repository | Consumer local cache | Source order |\n\nUser scope is evaluated before project scope; within a scope, sources apply in `rules` array order. A duplicate active rulebook name keeps the first claim and ignores the later rulebook with a warning, so a user-scoped name shadows a project-scoped one.\n\nUse `cc-safety-net rule init` to create an inert local config. Use `--global` for user scope. Use `cc-safety-net rule init --example` to also create an inactive example rulebook. `CC_SAFETY_NET_HOME` overrides the `~/.cc-safety-net` user root.\n\nLegacy inline `.safety-net.json` and `~/.cc-safety-net/config.json` files are not loaded at runtime. Convert them with `cc-safety-net rule migrate`.\n\n## rule.json Schema\n\n```json\n{\n  \"version\": 1,\n  \"rules\": [\"project-rules\", \"owner/repo#main/team-rules\"],\n  \"overrides\": {\n    \"project-rules/block-docker-system-prune\": {\n      \"reason\": \"Use targeted Docker cleanup commands.\"\n    },\n    \"team-rules/block-npm-global\": \"off\"\n  },\n  \"transparent_wrappers\": [\"rtk\"]\n}\n```\n\n- `version`: Required. Must be `1`.\n- `$schema`: Optional. `cc-safety-net rule verify` inserts it into a valid `rule.json` that lacks it.\n- `rules`: Optional array of rulebook source strings. Missing `rules` is treated as `[]`.\n- `overrides`: Optional object keyed by `<rulebook-name>/<rule-name>`.\n- `overrides` values are either `\"off\"` to disable a rule or an object with a required `reason` (replacement block reason) and an optional `intent` (one of `hard_stop`, `use_alternative`, `scope_down`, `manual_only`, `stop_and_explain`).\n- A project override cannot target a user-scoped rule: only that override is ignored, the user rule keeps its configured state, and `rule sync`/`rule verify` report the diagnostic as a failure.\n- `transparent_wrappers`: Optional array of command names that transparently execute a visible child command.\n- Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as `\"rtk\"`.\n- Use `cc-safety-net rule wrapper add rtk` to configure RTK without manually editing `rule.json`.\n\n## Rulebook Sources\n\n- Local sources are bare rulebook names such as `project-rules`; the rulebook file is `.cc-safety-net/rules/project-rules/rulebook.json`.\n- GitHub sources use `owner/repo#ref/<rulebook-name>`.\n- GitHub refs must be one path segment, such as a tag, SHA, or branch name without `/`.\n- The GitHub source name, the repository directory name, and the rulebook `name` must match exactly.\n- Rulebook source strings must be unique in a config.\n\n## rulebook.json Schema\n\n```json\n{\n  \"rulebook_version\": 1,\n  \"name\": \"project-rules\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Project-specific CC Safety Net rules.\",\n  \"author\": \"project\",\n  \"allowed_commands\": [\"docker\"],\n  \"rules\": [\n    {\n      \"name\": \"block-docker-system-prune\",\n      \"command\": \"docker\",\n      \"subcommand\": \"system\",\n      \"block_args\": [\"prune\"],\n      \"reason\": \"Use targeted cleanup instead.\"\n    }\n  ],\n  \"tests\": [\n    {\n      \"command\": \"docker system prune\",\n      \"expect\": \"blocked\",\n      \"rule\": \"block-docker-system-prune\"\n    },\n    {\n      \"command\": \"docker ps\",\n      \"expect\": \"allowed\"\n    }\n  ]\n}\n```\n\n### Rulebook Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `rulebook_version` | Yes | Must be `1` |\n| `name` | Yes | `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$` |\n| `version` | Yes | Non-empty string |\n| `description` | No | Free text; not type-checked at runtime |\n| `author` | No | Free text; not type-checked at runtime |\n| `allowed_commands` | Yes | Unique command names matching `^[a-zA-Z][a-zA-Z0-9_-]*$` |\n| `rules` | Yes | Array of rule objects |\n| `tests` | No | Array of fixtures |\n\n### Rule Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `name` | Yes | Unique within the rulebook (case-insensitive); same pattern as rulebook `name` |\n| `command` | Yes | Must be listed in `allowed_commands`; basename only, not path |\n| `subcommand` | No | Same pattern as `command`; omit to match any subcommand |\n| `intent` | No | One of `hard_stop`, `use_alternative`, `scope_down`, `manual_only`, `stop_and_explain` |\n| `block_args` | Yes | Non-empty array of non-empty strings |\n| `reason` | Yes | Non-empty string, max 256 chars |\n\n### Test Fixture Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `command` | Yes | Non-empty shell command string |\n| `expect` | Yes | `\"blocked\"` or `\"allowed\"` |\n| `rule` | Required for blocked fixtures | Rule name expected to block the command |\n\nFixtures are optional documentation of intended behavior. Fixtures are shape-validated only; CC Safety Net does not execute them.\n\n## Matching Behavior\n\n- **Command**: Normalized to lowercase basename with any trailing `.exe` removed (`/usr/bin/git` → `git`).\n- **Subcommand**: The first command token after recognized Git and Docker global options and their values; `--` ends option parsing. An unrecognized option without `=` may consume the following token as its value.\n- **Arguments**: Each `block_args` value is compared literally against every command token, including expanded short options. The command is blocked if **any** item matches.\n- **Short options**: Expanded (`-Ap` matches `-A`).\n- **Long options**: Exact match (`--all-files` does not match `--all`).\n- **Execution order**: Built-in rules first, then custom rulebooks. Custom rules only add restrictions.\n- **Transparent wrappers**: A configured wrapper such as `rtk` lets `rtk git commit` be analyzed as `git commit` only when `git` is protected by built-in analyzers or active custom rules. `rtk -- git commit` is also supported.\n\n## Workflow\n\n1. Run `cc-safety-net rule init` or create `rule.json` manually.\n2. Optionally run `cc-safety-net rule init --example` to create an inactive example rulebook.\n3. Use `cc-safety-net rule wrapper add rtk` for trusted transparent wrappers.\n4. Run `cc-safety-net rule add <source>` after creating or choosing a rulebook source; it adds the source and syncs it.\n5. Run `cc-safety-net rule sync` after manual `rule.json` changes or local rulebook edits.\n6. Run `cc-safety-net rule verify` to validate config, lock/cache state, local rulebooks, and shareable GitHub-source rulebook directories in the current repository (it does not fetch remote content).\n7. Run `cc-safety-net rule list` to inspect active rulebooks and transparent wrappers.\n\nAn edited or invalid local rulebook keeps its last synced, digest-verified cached version enforced until `cc-safety-net rule sync` validates the edit. A missing lock entry or cache, a cache digest mismatch, or an invalid cached rulebook makes that source inactive; a missing lockfile or an unreadable or invalid `rule.json` makes every source in its scope inactive. Inactive sources stop applying their rules while other custom rules and all built-in protections stay active. Repair the reported condition, then run `cc-safety-net rule sync`. Run `cc-safety-net status` to see degraded sources.\n";function printRuleChangeResult(result,action){if(!result.ok){printResultErrors(result);return}printResultWarnings(result),console.log(action),console.log("Rule config synced."),console.log(""),printActiveRulebookSummary(result.entries)}function printActiveRulebookSummary(entries){if(entries.length===0){console.log("Active rulebooks: (none)");return}console.log(`Active rulebooks (${entries.length}):`);for(let entry of entries)console.log(`  - ${entry.name} ${entry.version} (${formatRuleCount(entry.ruleCount??0)})`),console.log(`    Source: ${getRulebookDisplaySource(entry)}`)}function formatRuleCount(count){return`${count} ${count===1?"rule":"rules"}`}function printRulesListReport(policy,sourceDisplayMaps){printListSection("Active sources",policy.rulebooks,(rulebook)=>[`[${rulebook.source}] ${rulebook.name} ${rulebook.version}`,`  Source: ${sourceDisplayMaps[rulebook.source].get(rulebook.spec)??rulebook.spec}`]),printListSection("Active rules",policy.rules,(rule)=>[`[${getRuleSource(policy,rule.name)}] ${rule.name}`,`  Command: ${rule.subcommand?`${rule.command} ${rule.subcommand}`:rule.command}`,`  Block args: ${rule.block_args.join(", ")}`,`  Reason: ${rule.reason}`]),printListSection("Disabled rules",getMergedOverrides(policy,"off"),(override)=>[override.key]),printListSection("Reason overrides",getMergedOverrides(policy,"reason"),(override)=>[override.key,`  Reason: ${override.value.reason}`]),printListSection("Transparent wrappers",policy.transparent_wrappers,(wrapper)=>[wrapper]),printListSection("Issues",policy.errors,(error)=>[error]),printListSection("Warnings",policy.warnings,(warning)=>[warning])}function printListSection(title,items,format){if(items.length===0){console.log(`${title}: (none)`);return}console.log(`${title} (${items.length}):`);for(let item of items){let[firstLine,...detailLines]=format(item);console.log(`  - ${firstLine}`);for(let line of detailLines)console.log(`    ${line}`)}}function getRuleSource(policy,ruleName){return policy.rulebooks.find((rulebook)=>rulebook.rules.includes(ruleName))?.source??"project"}function getMergedOverrides(policy,kind){return Object.entries({...policy.userConfig?.overrides??{},...policy.projectConfig?.overrides??{}}).filter((entry)=>{if(kind==="off")return entry[1]==="off";return!!entry[1]&&typeof entry[1]==="object"}).map(([key,value])=>({key,value}))}function printResultErrors(result){for(let error of result.errors)console.error(error)}function printResultWarnings(result){if(!result.warnings||result.warnings.length===0)return;for(let warning of result.warnings)console.warn(warning)}import{dirname as dirname8,join as join21}from"node:path";var PROJECT_MIGRATED_FROM=".safety-net.json",USER_MIGRATED_FROM="~/.cc-safety-net/config.json";async function runRulesMigrate(options){return[await migrateRulesScope({legacyPath:getLegacyProjectRulesConfigPath({cwd:options.cwd}),configPath:getProjectRulesConfigPath(options.cwd),defaultRulebookName:"project-rules",migratedFrom:PROJECT_MIGRATED_FROM,cleanup:options.cleanup,syncOptions:{cwd:options.cwd}}),await migrateRulesScope({legacyPath:getLegacyUserRulesConfigPath(),configPath:getUserRulesConfigPath(),defaultRulebookName:"user-rules",migratedFrom:USER_MIGRATED_FROM,cleanup:options.cleanup,syncOptions:{cwd:options.cwd,global:!0}})].every((result)=>result)?0:1}async function migrateRulesScope(options){let scope=getScopePaths(options.syncOptions),legacyTarget=getPolicyFilesystemTargetForPath(scope.filesystemScope,options.legacyPath),legacyContent=readPolicyFile(legacyTarget);if(legacyContent===null)return console.log(`No legacy config found at ${options.legacyPath}`),!0;let legacy=readLegacyRulesConfig(legacyContent);if(!legacy.ok){for(let error of legacy.errors)console.error(error);return!1}let loaded=readRulesConfig(scope.configTarget);if(loaded.errors.length>0){for(let error of loaded.errors)console.error(error);return!1}let config=loaded.config??{version:1,rules:[],overrides:{},transparent_wrappers:[]},rulebookName=getMigratedRulebookName(dirname8(options.configPath),config.rules,options.defaultRulebookName,options.migratedFrom,scope.filesystemScope),rulebookPath=join21(dirname8(options.configPath),rulebookName,"rulebook.json"),rulebookTarget=getPolicyFilesystemTargetForPath(scope.filesystemScope,rulebookPath),snapshots=[snapshotFile(scope.configTarget),snapshotFile(rulebookTarget),snapshotFile(scope.lockTarget)],result=await writeAndSyncMigratedRulebook(options,scope.configTarget,rulebookTarget,rulebookName,legacy.config.rules,config.rules.includes(rulebookName)?config.rules:[...config.rules,rulebookName],config.overrides??{},config.transparent_wrappers??[]);if(!result.ok){restoreFiles(snapshots);for(let error of result.errors)console.error(error);return!1}if(!options.cleanup)return console.log(`Migrated legacy config at ${options.legacyPath}. Legacy file is no longer used.`),!0;if(!isCleanupVerified(scope.configTarget,rulebookTarget,rulebookName,options.migratedFrom,legacy.config.rules))return console.error(`Migration cleanup verification failed for ${options.legacyPath}`),!1;return removePolicyFile(legacyTarget),console.log(`Deleted legacy config at ${options.legacyPath}`),!0}async function writeAndSyncMigratedRulebook(options,configTarget,rulebookTarget,rulebookName,rules,configRules,overrides,transparentWrappers){try{return writeJsonAtomic(configTarget,{version:1,rules:configRules,overrides,transparent_wrappers:transparentWrappers}),writeJsonAtomic(rulebookTarget,getMigratedRulebook(rulebookName,options.migratedFrom,rules)),await syncRulesConfig(options.syncOptions)}catch(error){return{ok:!1,errors:[error instanceof Error?error.message:String(error)]}}}function readLegacyRulesConfig(content){try{let parsed=JSON.parse(content),validation=validateConfig(parsed);if(validation.errors.length>0)return{ok:!1,errors:validation.errors};return{ok:!0,config:{version:1,rules:parsed.rules??[]}}}catch{return{ok:!1,errors:["Invalid JSON"]}}}function getMigratedRulebookName(configDir,sources,defaultRulebookName,migratedFrom,filesystemScope){let existing=sources.find((source)=>getMigratedFrom(getPolicyFilesystemTargetForPath(filesystemScope,join21(configDir,source,"rulebook.json")))===migratedFrom);if(existing)return existing;if(readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope,join21(configDir,defaultRulebookName,"rulebook.json")))===null)return defaultRulebookName;for(let i=2;;i++){let name=`${defaultRulebookName}-${i}`;if(readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope,join21(configDir,name,"rulebook.json")))===null)return name}}function getMigratedRulebook(name,migratedFrom,rules){return{rulebook_version:1,name,version:"1.0.0",description:"Migrated CC Safety Net rules.",author:"project",migrated_from:migratedFrom,allowed_commands:[...new Set(rules.map((rule)=>rule.command))],rules,tests:rules.map((rule)=>({command:[rule.command,rule.subcommand,rule.block_args[0]].filter(Boolean).join(" "),expect:"blocked",rule:rule.name}))}}function isCleanupVerified(configTarget,rulebookTarget,rulebookName,migratedFrom,legacyRules){if(!readRulesConfig(configTarget).config?.rules.includes(rulebookName))return!1;try{let content=readPolicyFile(rulebookTarget);if(content===null)return!1;let rulebook=JSON.parse(content);return rulebook.migrated_from===migratedFrom&&JSON.stringify(rulebook.rules)===JSON.stringify(legacyRules)}catch{return!1}}function snapshotFile(target){return{target,content:readPolicyFile(target)}}function restoreFiles(snapshots){for(let snapshot of snapshots){if(snapshot.content===null){removePolicyFile(snapshot.target);continue}writePolicyFileAtomic(snapshot.target,snapshot.content)}}function getMigratedFrom(target){let content=readPolicyFile(target);if(content===null)return null;try{let rulebook=JSON.parse(content);return typeof rulebook.migrated_from==="string"?rulebook.migrated_from:null}catch{return null}}import{mkdir,readFile,writeFile}from"node:fs/promises";import{dirname as dirname9,join as join22}from"node:path";var CHECK_INTERVAL_MS=86400000,RENOTIFY_INTERVAL_MS=604800000;async function getUpdateNotice(now=Date.now()){if(process.env.CC_SAFETY_NET_NO_UPDATE_CHECK)return null;let home=getAuditLogHomeDir();if(!home)return null;let cachePath=join22(home,".cc-safety-net","update-check.json"),cache=await readUpdateCache(cachePath,now);if(!cache.lastCheck||now-cache.lastCheck>CHECK_INTERVAL_MS){let update=await checkForUpdates();if(cache.lastCheck=now,update.latestVersion)cache.latestVersion=update.latestVersion;if(!await writeUpdateCache(cachePath,cache))return null;if(update.error)return null}let latest=cache.latestVersion,current=getPackageVersion();if(!latest||!isNewerVersion(latest,current))return null;if(cache.notifiedVersion===latest&&cache.notifiedAt!==void 0&&now-cache.notifiedAt<RENOTIFY_INTERVAL_MS)return null;if(cache.notifiedVersion=latest,cache.notifiedAt=now,!await writeUpdateCache(cachePath,cache))return null;return`UPDATE_AVAILABLE: cc-safety-net v${latest} is available (running v${current}). Ask the user once whether to run \`npx -y cc-safety-net@latest update\`; continue the current task either way and do not raise this again.`}async function readUpdateCache(path,now){let value=await readFile(path,"utf8").then((json)=>JSON.parse(json)).catch(()=>{return});if(!value||typeof value!=="object"||Array.isArray(value))return{};let record=value,timestamp=(candidate)=>typeof candidate==="number"&&Number.isFinite(candidate)&&candidate<=now?candidate:void 0;return{lastCheck:timestamp(record.lastCheck),latestVersion:typeof record.latestVersion==="string"?record.latestVersion:void 0,notifiedVersion:typeof record.notifiedVersion==="string"?record.notifiedVersion:void 0,notifiedAt:timestamp(record.notifiedAt)}}async function writeUpdateCache(path,cache){return mkdir(dirname9(path),{recursive:!0,mode:448}).then(()=>writeFile(path,JSON.stringify(cache),{mode:384})).then(()=>!0).catch(()=>!1)}import{dirname as dirname10,join as join23,resolve as resolve5}from"node:path";var VERIFY_HEADER="CC Safety Net Config",VERIFY_SEPARATOR="═".repeat(VERIFY_HEADER.length),RULES_SCHEMA_URL="https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json",RULES_DIR_RESERVED_ENTRIES=new Set(["rule.json","rule.lock","cache"]);function runRulesVerify(options={}){try{return runRulesVerifyInternal(options)}catch(error){if(error instanceof PolicyFilesystemError)return console.error(error.message),1;throw error}}function runRulesVerifyInternal(options){let cwd=options.cwd??process.cwd(),userConfig=options.userConfigPath??getUserRulesConfigPath(),projectConfig=options.projectConfigPath??getProjectRulesConfigPath(cwd),legacyUserConfig=options.legacyUserConfigPath??getLegacyUserRulesConfigPath(),legacyProjectConfig=options.legacyProjectConfigPath??getLegacyProjectConfigPath(cwd),githubSourceRulesDir=resolve5(cwd,RULES_DIR),userConfigDir=dirname10(userConfig),paths=getPolicyPaths({cwd,userConfigPath:userConfig,projectConfigPath:projectConfig}),defaultPaths=getPolicyPaths({cwd}),userConfigTarget=getPolicyFilesystemTargetForPath(paths.userScope,userConfig),projectConfigTarget=getPolicyFilesystemTargetForPath(paths.projectScope,projectConfig),legacyUserTarget=options.legacyUserConfigPath?bindDelegatedPolicyFilesystemTarget(options.legacyUserConfigPath,"user policy"):getPolicyFilesystemTargetForPath(defaultPaths.userScope,legacyUserConfig),legacyProjectTarget=options.legacyProjectConfigPath?bindDelegatedPolicyFilesystemTarget(options.legacyProjectConfigPath,"project policy"):getPolicyFilesystemTargetForPath(defaultPaths.projectScope,legacyProjectConfig),hasErrors=!1,hasWarnings=!1,configsChecked=[],warnings=[],githubSourceRules=getGitHubSourceRulesValidation(getPolicyFilesystemTargetForPath(defaultPaths.projectScope,githubSourceRulesDir));if(printRulesVerifyHeader(),readPolicyFile(userConfigTarget)!==null){let result=validateRulesConfigFile(userConfigTarget);if(result.errors.push(...getRulesConfigRuntimeErrorsForConfig(userConfig,getUserRulesLockPath({userConfigDir}),{userConfigDir},paths.userScope)),configsChecked.push({scope:"User",path:userConfig,result,schema:"rules",sourceDisplayMap:getRulesConfigSourceDisplayMap(userConfig,paths.userScope),target:userConfigTarget}),result.errors.length>0)hasErrors=!0}if(readPolicyFile(legacyUserTarget)!==null)if(hasWarnings=!0,readPolicyFile(userConfigTarget)!==null)warnings.push(getLegacyRulesConfigWarning("user","cleanup"));else{let result=validateConfigFile(legacyUserTarget);if(configsChecked.push({scope:"User",path:legacyUserConfig,result,schema:"legacy",sourceDisplayMap:new Map,inactive:!0,target:legacyUserTarget}),warnings.push(getLegacyRulesConfigWarning("user",result.errors.length>0?"fix-or-delete":"migrate")),result.errors.length>0)hasErrors=!0}if(readPolicyFile(projectConfigTarget)!==null){let result=validateRulesConfigFile(projectConfigTarget);if(result.errors.push(...getRulesConfigRuntimeErrorsForConfig(projectConfig,getRulesLockPathForConfigPath(projectConfig),{userConfigDir},paths.projectScope)),configsChecked.push({scope:"Project",path:resolve5(projectConfig),result,schema:"rules",sourceDisplayMap:getRulesConfigSourceDisplayMap(projectConfig,paths.projectScope),target:projectConfigTarget}),result.errors.length>0)hasErrors=!0;if(readPolicyFile(legacyProjectTarget)!==null)hasWarnings=!0,warnings.push(getLegacyRulesConfigWarning("project","cleanup"))}else if(readPolicyFile(legacyProjectTarget)!==null){hasWarnings=!0,hasErrors=!0;let result=validateConfigFile(legacyProjectTarget);configsChecked.push({scope:"Project",path:resolve5(legacyProjectConfig),result,schema:"legacy",sourceDisplayMap:new Map,inactive:!0,target:legacyProjectTarget}),warnings.push(getLegacyRulesConfigWarning("project",result.errors.length>0?"fix-or-delete":"migrate"))}if(githubSourceRules?.result.errors.length)hasErrors=!0;if(configsChecked.length===0&&!githubSourceRules)return console.log(`

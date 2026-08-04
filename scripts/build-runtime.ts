@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import type { BunPlugin } from 'bun';
 import pkg from '../package.json';
 import { buildAmpArtifactHeader } from '../src/integrations/amp';
+import { guiAssetsPlugin } from './gui-assets';
 
 // The Node/Pi bundles keep zod external and resolve it from the installed
 // package's node_modules. The Amp plugin ships as a single copied file with no
@@ -44,6 +45,7 @@ export function buildRuntimeBundles(outdir: string) {
     define: {
       __PKG_VERSION__: JSON.stringify(pkg.version),
     },
+    plugins: [guiAssetsPlugin],
   });
 }
 

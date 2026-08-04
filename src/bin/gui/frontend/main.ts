@@ -1,6 +1,141 @@
+// Both identifiers are spliced into this script by src/bin/gui/page.ts: the
+// per-server token at request time, the agent labels from the integration
+// catalog. They are declared, never defined, so the bundler leaves them free.
+declare const __CC_SAFETY_NET_TOKEN__: string;
+declare const __CC_SAFETY_NET_AGENT_LABELS__: Record<string, string>;
+
+type SafetyLevel = 'standard' | 'strict' | 'paranoid';
+type Capability = 'fail_closed' | 'paranoid_rm' | 'paranoid_interpreters';
+type RuleOverrides = Record<string, 'on' | 'off'>;
+type Policy = {
+  version: number;
+  safety: { level: SafetyLevel; overrides: Record<Capability, boolean | undefined> };
+  workflow: { worktree_mode: boolean };
+  destructive_command_protection: {
+    enabled: boolean;
+    overrides: RuleOverrides;
+    allow_paths: string[];
+  };
+  secret_protection: { enabled: boolean; overrides: RuleOverrides; deny_paths: string[] };
+  audit: { retention_days: number };
+};
+type RuleState = {
+  enabled: boolean;
+  inheritedEnabled: boolean;
+  source: string;
+  changesInherited: boolean;
+};
+type Preview = {
+  counts: { enabled: number; disabled: number; effectiveCustomizations: number };
+  rules: Record<string, RuleState>;
+  capabilities: Record<string, { source: string; sources: string[] }>;
+};
+type DestructiveRule = {
+  id: string;
+  label: string;
+  description: string;
+  category: string;
+  example: string;
+  catastrophic?: boolean;
+  activationCapability?: Capability;
+};
+type SecretRule = {
+  id: string;
+  label: string;
+  description?: string;
+  category: string;
+  defaultOff?: boolean;
+  paths?: string[];
+};
+type PolicyState = {
+  policy: Policy;
+  preview: Preview | null;
+  destructiveCommandRules: DestructiveRule[];
+  secretPatterns: SecretRule[];
+  errors: string[];
+  raw: string;
+  path: string;
+  exists: boolean;
+  version: string;
+  configState?: { state: string; reason: string };
+};
+type FeedEntry = {
+  ts: string;
+  decision: string;
+  agent?: string;
+  ruleId?: string;
+  segment?: string;
+  command?: string;
+  reason?: string;
+  failureStage?: string;
+  sessionId?: string;
+  cwd?: string;
+};
+type ActivityFeed = {
+  days: number;
+  entries: FeedEntry[];
+  totalInWindow: number;
+  truncated: boolean;
+  unreadable: number;
+  logsDir?: string | null;
+  homeDir?: string | null;
+  counts: {
+    blocked: number;
+    allowed: number;
+    errors: number;
+    rules: Record<string, number>;
+    commands: Record<string, number>;
+    agents: Record<string, number>;
+    blockedByDay: number[];
+    analyzedByDay: number[];
+  };
+};
+type IntegrationRow = {
+  target: string;
+  label: string;
+  version: string | null;
+  status: 'active' | 'disabled' | 'not-installed' | 'not-inspected';
+  note?: { kind: string; text: string };
+};
+type Integrations = {
+  targets: IntegrationRow[];
+  system: { version: string; nodeVersion: string | null; platform: string };
+};
+type CustomRule = {
+  name: string;
+  command: string;
+  subcommand?: string;
+  block_args: string[];
+  reason: string;
+};
+type RulesData = {
+  projectPath: string;
+  canPickDirectory: boolean;
+  rulebooks: { name: string; version: string; spec: string; source: string; rules: CustomRule[] }[];
+  errors: string[];
+  warnings: string[];
+};
+type StarContext = { starred: boolean | null; starCount: number | null; blockedTotal: number };
+type Tier = 'normal' | 'strict' | 'paranoid';
+type ThemePref = 'auto' | 'light' | 'dark';
+type PathListConfig = {
+  getPaths: () => string[];
+  setPaths: (paths: string[]) => void;
+  isDisabled: () => boolean;
+  itemLabel: string;
+  validateAdditions?: (paths: string[]) => Promise<unknown>;
+};
+type ConfirmOptions = {
+  title: string;
+  body: string;
+  detail?: string;
+  confirmLabel: string;
+  confirmClass?: string;
+};
+
 const token = __CC_SAFETY_NET_TOKEN__;
 const fallbackRepoUrl = 'https://github.com/kenryu42/cc-safety-net';
-const safetyLevels = {
+const safetyLevels: Record<SafetyLevel, [string, string]> = {
   standard: [
     'Standard',
     'Blocks recognizable destructive commands and sensitive content access while allowing metadata-only sensitive-path checks. Recommended for normal coding.',
@@ -14,7 +149,7 @@ const safetyLevels = {
     'Strict, plus blocks rm -rf inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos.',
   ],
 };
-const safetyOverrides = {
+const safetyOverrides: Record<Capability, [string, string]> = {
   fail_closed: ['Fail closed', 'Block commands the parser cannot fully understand.'],
   paranoid_rm: ['Paranoid rm -rf checks', 'Block non-temp rm -rf inside the project.'],
   paranoid_interpreters: ['Paranoid interpreters', 'Block interpreter one-liners.'],
@@ -37,18 +172,18 @@ const pathListIcons = {
   remove:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6M14 11v6"></path></svg>',
 };
-let state;
-let draftPolicy;
-let preview;
+let state: PolicyState | undefined;
+let draftPolicy: Policy;
+let preview: Preview | null;
 let previewRequestId = 0;
 let dirty = false;
 let searchActive = false;
 const OVERVIEW_DAYS = 7;
 const DEFAULT_RETENTION_DAYS = 30;
 const MAX_RETENTION_DAYS = 365;
-let overview = null;
-let activity = null;
-let knownRuleIds = new Set();
+let overview: ActivityFeed | null = null;
+let activity: ActivityFeed | null = null;
+let knownRuleIds = new Set<string>();
 const activityFilters = { days: 7, decision: 'all', agent: 'all', query: '', command: '' };
 const tierExpanded = new Map([
   ['enforced', false],
@@ -56,26 +191,26 @@ const tierExpanded = new Map([
   ['strict', false],
   ['paranoid', false],
 ]);
-const searchCollapsedTiers = new Set();
-const secretGroupExpanded = new Map();
-const searchCollapsedSecretGroups = new Set();
-let rawCopyResetTimer = null;
-let feedCopyResetTimer = null;
-let activityQueryTimer = null;
-let renderedFeedEntries = [];
-let suspects = new Set();
-let activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
-let integrations = null;
+const searchCollapsedTiers = new Set<string>();
+const secretGroupExpanded = new Map<string, boolean>();
+const searchCollapsedSecretGroups = new Set<string>();
+let rawCopyResetTimer: number | null = null;
+let feedCopyResetTimer: number | null = null;
+let activityQueryTimer: number | undefined;
+let renderedFeedEntries: FeedEntry[] = [];
+let suspects = new Set<FeedEntry>();
+let activeStarContext: StarContext = { starred: null, starCount: null, blockedTotal: 0 };
+let integrations: Integrations | null = null;
 let integrationsRequested = false;
-const integrationBusy = new Set();
-let rulesData = null;
+const integrationBusy = new Set<string>();
+let rulesData: RulesData | null = null;
 let rulesRequested = false;
 let rulesScope = 'project';
-let pendingRuleFocus = null;
+let pendingRuleFocus: string | null = null;
 // Set once a dialog that detection said was available failed to open, so a
 // later refresh cannot re-lock the field behind a button that does not work.
 let directoryPickerFailed = false;
-const api = (path, init = {}) =>
+const api = (path: string, init: RequestInit = {}) =>
   fetch(`${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`, {
     ...init,
     headers: {
@@ -84,25 +219,39 @@ const api = (path, init = {}) =>
       ...(init.headers || {}),
     },
   });
-const requestJson = async (path, init) => {
+// Both outcomes carry both fields so a caller can read either without proving
+// which one it got; `data` is whatever the endpoint returned, unverified until a
+// reader's own guard proves its shape.
+const requestJson = async (path: string, init?: RequestInit) => {
   try {
     const response = await api(path, init);
     const text = await response.text();
-    return { ok: response.ok, status: response.status, data: text ? JSON.parse(text) : {} };
+    return {
+      ok: response.ok,
+      status: response.status,
+      data: text ? JSON.parse(text) : {},
+      error: undefined,
+    };
   } catch (error) {
-    return { ok: false, status: 0, error: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      status: 0,
+      data: undefined,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 };
-const errorText = (result) =>
+type RequestResult = Awaited<ReturnType<typeof requestJson>>;
+const errorText = (result: RequestResult) =>
   result.error ??
   (Array.isArray(result.data?.errors) && result.data.errors.length
     ? result.data.errors.join('\n')
     : null) ??
   result.data?.error ??
   `Request failed (status ${result.status}).`;
-const isWriteSuccess = (result) =>
+const isWriteSuccess = (result: RequestResult) =>
   result.ok && !(Array.isArray(result.data?.errors) && result.data.errors.length > 0);
-const isPolicyState = (value) =>
+const isPolicyState = (value: PolicyState | undefined): value is PolicyState =>
   !!value &&
   typeof value === 'object' &&
   !!value.policy &&
@@ -114,13 +263,15 @@ const isPolicyState = (value) =>
   Array.isArray(value.secretPatterns) &&
   (value.preview === null || (value.preview && typeof value.preview === 'object')) &&
   Array.isArray(value.errors);
-const qs = (id) => document.getElementById(id);
-const setDetailStatus = (text, kind = '') => {
+// Every id this reads is in page.html, so the element is asserted rather than
+// null-checked at each of the call sites.
+const qs = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+const setDetailStatus = (text: string, kind = '') => {
   qs('status').textContent = text;
   qs('status').className = `status ${kind}`;
 };
-let appStatusTimer;
-const setAppStatus = (text, kind = '') => {
+let appStatusTimer: number | undefined;
+const setAppStatus = (text: string, kind = '') => {
   qs('app-status').textContent = text;
   qs('app-status').className = `app-status ${kind}`;
   clearTimeout(appStatusTimer);
@@ -129,11 +280,11 @@ const setAppStatus = (text, kind = '') => {
 let busy = false;
 const updateActions = () => {
   const hasErrors = (state?.errors.length ?? 0) > 0;
-  qs('save').disabled = busy || !state || hasErrors;
-  qs('reset').disabled = busy || !state;
-  qs('repair').disabled = busy || !hasErrors;
+  qs<HTMLButtonElement>('save').disabled = busy || !state || hasErrors;
+  qs<HTMLButtonElement>('reset').disabled = busy || !state;
+  qs<HTMLButtonElement>('repair').disabled = busy || !hasErrors;
 };
-const runExclusive = async (pendingText, fn) => {
+const runExclusive = async (pendingText: string, fn: () => Promise<void>) => {
   if (busy) return;
   busy = true;
   updateActions();
@@ -146,17 +297,17 @@ const runExclusive = async (pendingText, fn) => {
     updateActions();
   }
 };
-const checkbox = (checked) => (checked ? 'checked' : '');
+const checkbox = (checked: boolean) => (checked ? 'checked' : '');
 // Retention goes down to 1, so every window label has to survive the singular.
-const dayCount = (days) => `${days} day${days === 1 ? '' : 's'}`;
+const dayCount = (days: number) => `${days} day${days === 1 ? '' : 's'}`;
 const syncMasterBadges = () => {
-  document.querySelectorAll('label.row.master input').forEach((input) => {
-    input.closest('label').querySelector('.master-badge').textContent = input.checked
+  document.querySelectorAll<HTMLInputElement>('label.row.master input').forEach((input) => {
+    input.closest('label')!.querySelector('.master-badge')!.textContent = input.checked
       ? 'On'
       : 'Off';
   });
 };
-const escapeHtml = (value) =>
+const escapeHtml = (value: unknown) =>
   String(value).replace(
     /[&<>"']/g,
     (char) =>
@@ -166,15 +317,15 @@ const escapeHtml = (value) =>
         '>': '&gt;',
         '"': '&quot;',
         "'": '&#39;',
-      })[char],
+      })[char]!,
   );
-const clonePolicy = (policy) => JSON.parse(JSON.stringify(policy));
-const pathLines = (value) =>
+const clonePolicy = (policy: Policy): Policy => JSON.parse(JSON.stringify(policy));
+const pathLines = (value: string) =>
   value
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean);
-const formatPolicy = (policy) => `${JSON.stringify(policy, null, 2)}\n`;
+const formatPolicy = (policy: unknown) => `${JSON.stringify(policy, null, 2)}\n`;
 const collectFormPolicy = () => ({
   version: 1,
   safety: {
@@ -194,8 +345,9 @@ const collectFormPolicy = () => ({
   },
   audit: draftPolicy.audit,
 });
-const viewNames = ['overview', 'activity', 'policy', 'rules', 'integrations', 'settings'];
-const viewTitles = {
+const viewNames = ['overview', 'activity', 'policy', 'rules', 'integrations', 'settings'] as const;
+type ViewName = (typeof viewNames)[number];
+const viewTitles: Record<ViewName, string> = {
   overview: 'Overview',
   activity: 'Activity',
   policy: 'Policy',
@@ -203,8 +355,8 @@ const viewTitles = {
   integrations: 'Integrations',
   settings: 'Settings',
 };
-const currentView = () => {
-  const hash = location.hash.replace('#', '');
+const currentView = (): ViewName => {
+  const hash = location.hash.replace('#', '') as ViewName;
   return viewNames.includes(hash) ? hash : 'overview';
 };
 const applyView = () => {
@@ -215,15 +367,15 @@ const applyView = () => {
   // Search takes the bar's space on these views, but the heading is the only
   // thing naming the current view, so it stays in the accessibility tree.
   qs('topbar-title').classList.toggle('sr-only', hasSearch);
-  document.querySelectorAll('.topbar-search').forEach((el) => {
+  document.querySelectorAll<HTMLElement>('.topbar-search').forEach((el) => {
     el.hidden = el.dataset.searchView !== view;
   });
   qs('topbar').classList.toggle('has-search', hasSearch);
   document.title = `${viewTitles[view]} · CC Safety Net`;
-  document.querySelectorAll('[data-view]').forEach((section) => {
+  document.querySelectorAll<HTMLElement>('[data-view]').forEach((section) => {
     section.hidden = section.dataset.view !== view;
   });
-  document.querySelectorAll('[data-nav]').forEach((link) => {
+  document.querySelectorAll<HTMLElement>('[data-nav]').forEach((link) => {
     if (link.dataset.nav === view) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   });
@@ -241,7 +393,7 @@ const applyView = () => {
   // rule can be scrolled into view.
   if (view === 'rules' && rulesData && pendingRuleFocus) renderRules();
 };
-const relativeTime = (ts) => {
+const relativeTime = (ts: string) => {
   const diff = Date.now() - new Date(ts).getTime();
   if (!Number.isFinite(diff)) return '';
   const minutes = Math.floor(diff / 60000);
@@ -252,14 +404,14 @@ const relativeTime = (ts) => {
   if (minutes > 0) return `${minutes}m ago`;
   return 'just now';
 };
-const isActivityFeed = (value) =>
+const isActivityFeed = (value: ActivityFeed | undefined): value is ActivityFeed =>
   !!value &&
   typeof value === 'object' &&
   Array.isArray(value.entries) &&
   !!value.counts &&
   typeof value.counts === 'object';
 const agentLabels = __CC_SAFETY_NET_AGENT_LABELS__;
-const tierCountHtml = (segments) => {
+const tierCountHtml = (segments: [number, string, string?][]) => {
   const parts = segments
     .filter(([count]) => count > 0)
     .map(([count, label, tone]) =>
@@ -267,7 +419,7 @@ const tierCountHtml = (segments) => {
     );
   return parts.length > 0 ? parts.join(' · ') : '0 on';
 };
-const feedItemHtml = (entry, index) => {
+const feedItemHtml = (entry: FeedEntry, index: number) => {
   const deny = entry.decision !== 'allow';
   const badgeClass = entry.failureStage ? 'error' : deny ? 'deny' : 'allow';
   const badgeLabel = entry.failureStage ? 'Error' : deny ? 'Blocked' : 'Allowed';
@@ -286,7 +438,7 @@ const feedItemHtml = (entry, index) => {
 };
 // Every measurement runs before the first write: interleaving them invalidates
 // layout on each entry, which costs ~570ms over a full 500-entry feed.
-const applyFeedClamps = (root) => {
+const applyFeedClamps = (root: HTMLElement) => {
   const overflowing = [...root.querySelectorAll('.feed-command')].filter(
     (command) =>
       !command.classList.contains('clamped') && command.scrollHeight > command.clientHeight + 1,
@@ -299,23 +451,23 @@ const applyFeedClamps = (root) => {
     );
   });
 };
-const dayLabel = (ts) => {
+const dayLabel = (ts: string) => {
   const date = new Date(ts);
   if (date.toDateString() === new Date().toDateString()) return 'Today';
   if (date.toDateString() === new Date(Date.now() - 86400000).toDateString()) return 'Yesterday';
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 const renderOverviewActivity = () => {
-  const tile = (value, label, extra) =>
+  const tile = (value: number, label: string, extra: string) =>
     `<div class="tile"><strong>${escapeHtml(value.toLocaleString('en-US'))}</strong><span>${escapeHtml(label)}</span>${extra}</div>`;
   // Buckets run oldest-first, so the last one is today. Each column carries its
   // own count: the tooltip is a pointer affordance and cannot be the only way
   // to read the series.
-  const dayAgoLabel = (daysAgo) =>
+  const dayAgoLabel = (daysAgo: number) =>
     daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} days ago`;
   // Each series scales to its own maximum, so bar heights read as shape over
   // time within one tile and never as a comparison between the two.
-  const sparkline = (byDay, noun) => {
+  const sparkline = (byDay: number[], noun: string) => {
     const max = Math.max(...byDay, 1);
     return `<div class="tile-spark" role="group" aria-label="Commands ${noun} per day, most recent ${dayCount(byDay.length)}">${byDay
       .map((count, index) => {
@@ -324,18 +476,22 @@ const renderOverviewActivity = () => {
       })
       .join('')}</div>`;
   };
-  qs('overview-window').textContent = `Last ${dayCount(overview.days)}`;
+  qs('overview-window').textContent = `Last ${dayCount(overview!.days)}`;
   qs('overview-tiles').innerHTML = [
-    tile(overview.counts.blocked, 'Blocked', sparkline(overview.counts.blockedByDay, 'blocked')),
-    tile(overview.totalInWindow, 'Analyzed', sparkline(overview.counts.analyzedByDay, 'analyzed')),
+    tile(overview!.counts.blocked, 'Blocked', sparkline(overview!.counts.blockedByDay, 'blocked')),
+    tile(
+      overview!.totalInWindow,
+      'Analyzed',
+      sparkline(overview!.counts.analyzedByDay, 'analyzed'),
+    ),
   ].join('');
 };
 const retentionDays = () => state?.policy?.audit?.retention_days ?? DEFAULT_RETENTION_DAYS;
 // A retention set below the Overview's fixed window would make its request a 400.
 const overviewDays = () => Math.min(OVERVIEW_DAYS, retentionDays());
 const renderRetention = () => {
-  qs('retention-days').value = String(state.policy.audit.retention_days);
-  qs('retention-unit').textContent = state.policy.audit.retention_days === 1 ? 'day' : 'days';
+  qs<HTMLInputElement>('retention-days').value = String(state!.policy.audit.retention_days);
+  qs('retention-unit').textContent = state!.policy.audit.retention_days === 1 ? 'day' : 'days';
   qs('retention-note').textContent =
     'Saved on change. Lowering this deletes anything already older than the new window; the Activity tab can only look back as far as it.';
 };
@@ -354,7 +510,7 @@ const configStateNotice = () => {
   if (!configState || configState.state === 'ready') return null;
   return `A fallback configuration is being enforced: ${configState.reason}`;
 };
-const setProtectionBanner = (notices) => {
+const setProtectionBanner = (notices: (string | null)[]) => {
   const text = notices.filter(Boolean).join(' ');
   qs('protection-banner').textContent = text;
   qs('protection-banner').hidden = text === '';
@@ -368,11 +524,11 @@ const renderProtectionCard = () => {
     setProtectionBanner([configNotice]);
     return;
   }
-  const policy = state.policy;
+  const policy = state!.policy;
   const customized =
-    state.preview.counts.effectiveCustomizations > 0 ||
+    state!.preview.counts.effectiveCustomizations > 0 ||
     Object.entries(policy.safety.overrides).some(
-      ([key, value]) => value !== levelCapabilities(policy.safety.level)[key],
+      ([key, value]) => value !== levelCapabilities(policy.safety.level)[key as Capability],
     );
   const commandsOn = policy.destructive_command_protection.enabled;
   const secretsOn = policy.secret_protection.enabled;
@@ -395,11 +551,16 @@ const renderProtectionCard = () => {
   qs('protection-card').innerHTML =
     `<div class="panel-head"><div class="panel-title"><h2>Protection status</h2></div><a class="panel-head-action view-all-link" href="#policy">Configure</a></div>` +
     `<p>${escapeHtml(safetyLevels[policy.safety.level][0])}${customized ? ' · Customized' : ''}</p>` +
-    `<p${commandsOn ? '' : ' class="state-disabled"'}>${commandsOn ? `${state.preview.counts.enabled} rules active` : 'Destructive command protection is OFF'}</p>` +
+    `<p${commandsOn ? '' : ' class="state-disabled"'}>${commandsOn ? `${state!.preview.counts.enabled} rules active` : 'Destructive command protection is OFF'}</p>` +
     `<p${secretsOn ? '' : ' class="state-disabled"'}>${secretsOn ? 'Secret protection on' : 'Secret protection is OFF'}</p>`;
 };
 // Renders a top-5 ranked list as label + count rows.
-const renderTopList = (containerId, counts, className, dataAttr) => {
+const renderTopList = (
+  containerId: string,
+  counts: Record<string, number>,
+  className: string,
+  dataAttr: string,
+) => {
   const top = Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
@@ -414,10 +575,10 @@ const renderTopList = (containerId, counts, className, dataAttr) => {
           .join('');
 };
 const renderTopRules = () =>
-  renderTopList('top-rules', overview.counts.rules, 'top-rule', 'data-rule-id');
+  renderTopList('top-rules', overview!.counts.rules, 'top-rule', 'data-rule-id');
 // Mirrors commandSignature in activity.ts so the drill-down can match the same
 // blocked entries the Top blocked commands count is built from.
-const commandSignature = (source) => {
+const commandSignature = (source: string) => {
   const tokens = source
     .trim()
     .split(/\s+/)
@@ -431,19 +592,20 @@ const commandSignature = (source) => {
 // denial reports that analysis failed, not that the command was dangerous, and
 // a signature one session was blocked on twice is a workload that kept wanting
 // the command. Computed from the loaded entries, so it follows the entry cap.
-const findSuspects = (entries) => {
-  const signatureKey = (entry) =>
-    `${entry.sessionId}\n${commandSignature(entry.segment || entry.command)}`;
+const findSuspects = (entries: FeedEntry[]) => {
+  const signatureKey = (entry: FeedEntry) =>
+    `${entry.sessionId}\n${commandSignature(entry.segment || entry.command!)}`;
   const repeats = entries
     .filter((entry) => entry.decision !== 'allow' && entry.sessionId)
     .reduce((counts, entry) => {
       const key = signatureKey(entry);
       return counts.set(key, (counts.get(key) ?? 0) + 1);
-    }, new Map());
+    }, new Map<string, number>());
   return new Set(
     entries.filter(
       (entry) =>
-        entry.decision !== 'allow' && (entry.failureStage || repeats.get(signatureKey(entry)) >= 2),
+        entry.decision !== 'allow' &&
+        (entry.failureStage || repeats.get(signatureKey(entry))! >= 2),
     ),
   );
 };
@@ -454,10 +616,10 @@ const clearCommandFilter = () => {
   activityFilters.command = '';
   return true;
 };
-const jumpToActivityRule = (ruleId) => {
+const jumpToActivityRule = (ruleId: string) => {
   activityFilters.command = '';
   activityFilters.query = ruleId.toLowerCase();
-  qs('activity-search').value = ruleId;
+  qs<HTMLInputElement>('activity-search').value = ruleId;
   if (activity) {
     renderActivityControls();
     renderActivityFeed();
@@ -465,32 +627,32 @@ const jumpToActivityRule = (ruleId) => {
   location.hash = 'activity';
 };
 const renderTopCommands = () =>
-  renderTopList('top-commands', overview.counts.commands, 'top-command', 'data-command');
+  renderTopList('top-commands', overview!.counts.commands, 'top-command', 'data-command');
 const renderTopLists = () => {
   renderTopCommands();
   renderTopRules();
 };
 const renderGuardErrors = () => {
-  qs('guard-errors').hidden = overview.counts.errors === 0;
-  if (overview.counts.errors === 0) return;
+  qs('guard-errors').hidden = overview!.counts.errors === 0;
+  if (overview!.counts.errors === 0) return;
   qs('guard-errors').textContent =
-    `${overview.counts.errors.toLocaleString('en-US')} guard error${overview.counts.errors === 1 ? '' : 's'} in the last ${dayCount(overview.days)} — commands blocked because evaluation failed, not by policy. Click to view.`;
+    `${overview!.counts.errors.toLocaleString('en-US')} guard error${overview!.counts.errors === 1 ? '' : 's'} in the last ${dayCount(overview!.days)} — commands blocked because evaluation failed, not by policy. Click to view.`;
 };
 const renderActivityControls = () => {
-  const chipHtml = (kind, value, label, count) =>
+  const chipHtml = (kind: 'decision' | 'agent', value: string, label: string, count?: number) =>
     `<button type="button" class="chip" data-activity-chip="${kind}" data-chip-value="${escapeHtml(value)}" aria-pressed="${activityFilters[kind] === value}">${escapeHtml(label)}${count === undefined ? '' : ` <span class="chip-count">${count.toLocaleString('en-US')}</span>`}</button>`;
   qs('activity-decision').innerHTML = [
-    chipHtml('decision', 'all', 'All', activity.totalInWindow),
-    chipHtml('decision', 'deny', 'Blocked', activity.counts.blocked),
-    chipHtml('decision', 'allow', 'Allowed', activity.counts.allowed),
-    ...(activity.counts.errors > 0
-      ? [chipHtml('decision', 'error', 'Errors', activity.counts.errors)]
+    chipHtml('decision', 'all', 'All', activity!.totalInWindow),
+    chipHtml('decision', 'deny', 'Blocked', activity!.counts.blocked),
+    chipHtml('decision', 'allow', 'Allowed', activity!.counts.allowed),
+    ...(activity!.counts.errors > 0
+      ? [chipHtml('decision', 'error', 'Errors', activity!.counts.errors)]
       : []),
     ...(suspects.size > 0
       ? [chipHtml('decision', 'suspect', 'Likely false positive', suspects.size)]
       : []),
   ].join('');
-  const agentNames = Object.keys(activity.counts.agents)
+  const agentNames = Object.keys(activity!.counts.agents)
     .filter((name) => name !== 'unknown')
     .sort();
   qs('activity-agents').innerHTML =
@@ -499,7 +661,7 @@ const renderActivityControls = () => {
       : [
           chipHtml('agent', 'all', 'All agents'),
           ...agentNames.map((name) =>
-            chipHtml('agent', name, agentLabels[name] ?? name, activity.counts.agents[name]),
+            chipHtml('agent', name, agentLabels[name] ?? name, activity!.counts.agents[name]),
           ),
         ].join('');
   qs('activity-command-filter').innerHTML = activityFilters.command
@@ -508,10 +670,10 @@ const renderActivityControls = () => {
   qs('activity-days').innerHTML = activityWindowOptions()
     .map((days) => `<option value="${days}">Last ${dayCount(days)}</option>`)
     .join('');
-  qs('activity-days').value = String(activity.days);
+  qs<HTMLSelectElement>('activity-days').value = String(activity!.days);
 };
 const renderActivityFeed = () => {
-  const matchesFilters = (entry) => {
+  const matchesFilters = (entry: FeedEntry) => {
     if (activityFilters.decision === 'deny' && entry.decision === 'allow') return false;
     if (activityFilters.decision === 'allow' && entry.decision !== 'allow') return false;
     if (activityFilters.decision === 'error' && !entry.failureStage) return false;
@@ -520,7 +682,7 @@ const renderActivityFeed = () => {
       return false;
     if (activityFilters.command) {
       if (entry.decision === 'allow') return false;
-      return commandSignature(entry.segment || entry.command) === activityFilters.command;
+      return commandSignature(entry.segment || entry.command!) === activityFilters.command;
     }
     if (!activityFilters.query) return true;
     return [entry.ruleId, entry.segment || entry.command]
@@ -529,7 +691,7 @@ const renderActivityFeed = () => {
       .toLowerCase()
       .includes(activityFilters.query);
   };
-  const entries = activity.entries.filter(matchesFilters);
+  const entries = activity!.entries.filter(matchesFilters);
   renderedFeedEntries = entries;
   qs('activity-feed').innerHTML =
     entries.length === 0
@@ -538,7 +700,7 @@ const renderActivityFeed = () => {
           .map((entry, index) => {
             const label = dayLabel(entry.ts);
             const separator =
-              index > 0 && label === dayLabel(entries[index - 1].ts)
+              index > 0 && label === dayLabel(entries[index - 1]!.ts)
                 ? ''
                 : `<div class="feed-day-sep">${escapeHtml(label)}</div>`;
             return separator + feedItemHtml(entry, index);
@@ -546,7 +708,7 @@ const renderActivityFeed = () => {
           .join('')}</div>`;
   applyFeedClamps(qs('activity-feed'));
   qs('activity-count').textContent =
-    `Showing ${entries.length.toLocaleString('en-US')} of ${activity.totalInWindow.toLocaleString('en-US')} entries from the last ${dayCount(activity.days)}${activity.truncated ? ' (capped at 500, newest of each decision)' : ''}.${activity.unreadable > 0 ? ` ${activity.unreadable.toLocaleString('en-US')} audit log source${activity.unreadable === 1 ? '' : 's'} could not be read, so this list is incomplete.` : ''}`;
+    `Showing ${entries.length.toLocaleString('en-US')} of ${activity!.totalInWindow.toLocaleString('en-US')} entries from the last ${dayCount(activity!.days)}${activity!.truncated ? ' (capped at 500, newest of each decision)' : ''}.${activity!.unreadable > 0 ? ` ${activity!.unreadable.toLocaleString('en-US')} audit log source${activity!.unreadable === 1 ? '' : 's'} could not be read, so this list is incomplete.` : ''}`;
 };
 const loadOverview = async () => {
   const result = await requestJson(`/api/activity?days=${overviewDays()}`);
@@ -559,7 +721,7 @@ const loadOverview = async () => {
     return;
   }
   overview = result.data;
-  qs('logs-path').textContent = overview.logsDir ?? 'Not available';
+  qs('logs-path').textContent = overview!.logsDir ?? 'Not available';
   renderOverviewActivity();
   renderTopLists();
   renderGuardErrors();
@@ -573,11 +735,11 @@ const loadActivity = async () => {
     return;
   }
   activity = result.data;
-  suspects = findSuspects(activity.entries);
-  if (activityFilters.agent !== 'all' && !(activityFilters.agent in activity.counts.agents)) {
+  suspects = findSuspects(activity!.entries);
+  if (activityFilters.agent !== 'all' && !(activityFilters.agent in activity!.counts.agents)) {
     activityFilters.agent = 'all';
   }
-  if (activityFilters.decision === 'error' && activity.counts.errors === 0) {
+  if (activityFilters.decision === 'error' && activity!.counts.errors === 0) {
     activityFilters.decision = 'all';
   }
   if (activityFilters.decision === 'suspect' && suspects.size === 0) {
@@ -587,7 +749,7 @@ const loadActivity = async () => {
   renderActivityFeed();
 };
 const refreshActivity = async () => {
-  const button = qs('activity-refresh');
+  const button = qs<HTMLButtonElement>('activity-refresh');
   if (button.disabled) return;
   button.disabled = true;
   button.classList.add('spinning');
@@ -601,7 +763,7 @@ const refreshActivity = async () => {
   button.disabled = false;
 };
 const renderIntegrations = () => {
-  qs('integrations-list').innerHTML = integrations.targets
+  qs('integrations-list').innerHTML = integrations!.targets
     .map((row) => {
       const busy = integrationBusy.has(row.target);
       const version =
@@ -636,11 +798,11 @@ const renderIntegrations = () => {
 const loadHealth = async () => {
   const result = await requestJson('/api/health');
   if (!result.ok || !Array.isArray(result.data?.hooks)) return;
-  const active = result.data.hooks.filter((hook) => hook.configured);
-  const inactive = result.data.hooks.filter((hook) => !hook.configured);
+  const active = result.data.hooks.filter((hook: { configured: boolean }) => hook.configured);
+  const inactive = result.data.hooks.filter((hook: { configured: boolean }) => !hook.configured);
   const attention = inactive.length > 0 || active.length === 0;
-  const parts = [];
-  const labelHtml = (hook) => `<strong>${escapeHtml(hook.label)}</strong>`;
+  const parts: string[] = [];
+  const labelHtml = (hook: { label: string }) => `<strong>${escapeHtml(hook.label)}</strong>`;
   if (active.length) parts.push(`Hook active in ${active.map(labelHtml).join(', ')}`);
   if (inactive.length)
     parts.push(`${inactive.map(labelHtml).join(', ')} detected without an active hook`);
@@ -665,13 +827,13 @@ const loadIntegrations = async () => {
   }
   integrations = result.data;
   renderIntegrations();
-  qs('integrations-pkg-version').textContent = integrations.system.version;
-  qs('integrations-node-version').textContent = integrations.system.nodeVersion ?? 'unknown';
-  qs('integrations-platform').textContent = integrations.system.platform;
+  qs('integrations-pkg-version').textContent = integrations!.system.version;
+  qs('integrations-node-version').textContent = integrations!.system.nodeVersion ?? 'unknown';
+  qs('integrations-platform').textContent = integrations!.system.platform;
   qs('integrations-system').hidden = false;
 };
 const refreshIntegrations = async () => {
-  const button = qs('integrations-refresh');
+  const button = qs<HTMLButtonElement>('integrations-refresh');
   if (button.disabled) return;
   button.disabled = true;
   button.classList.add('spinning');
@@ -683,20 +845,21 @@ const refreshIntegrations = async () => {
 const renderRules = () => {
   // Prefill only while untouched, so a refresh cannot discard a path already
   // chosen for a project other than the launch directory.
-  if (!qs('rules-project-path').value) qs('rules-project-path').value = rulesData.projectPath;
+  if (!qs<HTMLInputElement>('rules-project-path').value)
+    qs<HTMLInputElement>('rules-project-path').value = rulesData!.projectPath;
   // Typing an absolute path by hand is the error-prone half of this field, so
   // it stays read-only wherever a real dialog can replace it.
-  const canPick = rulesData.canPickDirectory && !directoryPickerFailed;
-  qs('rules-project-path').readOnly = canPick;
-  qs('rules-choose-directory').hidden = !canPick;
+  const canPick = rulesData!.canPickDirectory && !directoryPickerFailed;
+  qs<HTMLInputElement>('rules-project-path').readOnly = canPick;
+  qs<HTMLButtonElement>('rules-choose-directory').hidden = !canPick;
   qs('rules-list').innerHTML =
-    rulesData.rulebooks.length === 0
+    rulesData!.rulebooks.length === 0
       ? // A dropped source is the failure users are least likely to notice, so
         // it owns the empty state instead of the first-run copy below it.
-        rulesData.errors.length > 0
+        rulesData!.errors.length > 0
         ? '<p class="empty">Every configured rulebook was dropped, so no custom rule is enforced. See Diagnostics below.</p>'
         : '<p class="empty">No custom rulebooks. Run <code>npx -y cc-safety-net rule init</code> to create one, or see the <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">documentation</a>.</p>'
-      : rulesData.rulebooks
+      : rulesData!.rulebooks
           .map(
             (rulebook) => `<div class="rulebook-card">
     <div class="rulebook-head">
@@ -724,8 +887,10 @@ const renderRules = () => {
           )
           .join('');
   const diagnostics = [
-    ...rulesData.errors.map((text) => `<div class="status error">${escapeHtml(text)}</div>`),
-    ...rulesData.warnings.map((text) => `<div class="status">${escapeHtml(text)}</div>`),
+    ...rulesData!.errors.map(
+      (text: string) => `<div class="status error">${escapeHtml(text)}</div>`,
+    ),
+    ...rulesData!.warnings.map((text: string) => `<div class="status">${escapeHtml(text)}</div>`),
   ];
   qs('rules-diagnostics').innerHTML = diagnostics.join('');
   qs('rules-diagnostics-panel').hidden = diagnostics.length === 0;
@@ -753,7 +918,7 @@ const loadRules = async () => {
   renderRules();
 };
 const refreshRules = async () => {
-  const button = qs('rules-refresh');
+  const button = qs<HTMLButtonElement>('rules-refresh');
   if (button.disabled) return;
   button.disabled = true;
   button.classList.add('spinning');
@@ -762,17 +927,17 @@ const refreshRules = async () => {
   button.classList.remove('spinning');
   button.disabled = false;
 };
-const jumpToRulesRule = (ruleId) => {
+const jumpToRulesRule = (ruleId: string) => {
   pendingRuleFocus = ruleId.replace(/^custom\./, '');
   location.hash = 'rules';
 };
-const openRuleComposer = (command) => {
-  qs('rules-composer-input').value = command;
+const openRuleComposer = (command: string) => {
+  qs<HTMLTextAreaElement>('rules-composer-input').value = command;
   location.hash = 'rules';
 };
-const setRulesScope = (scope) => {
+const setRulesScope = (scope: string) => {
   rulesScope = scope;
-  document.querySelectorAll('[data-rules-scope]').forEach((chip) => {
+  document.querySelectorAll<HTMLElement>('[data-rules-scope]').forEach((chip) => {
     chip.setAttribute('aria-pressed', String(chip.dataset.rulesScope === scope));
   });
   qs('rules-project-path-field').hidden = scope !== 'project';
@@ -781,34 +946,34 @@ const rulePromptText = () => {
   // Rulebook names are claimed globally across both scopes: a project rulebook
   // reusing a user-scope name is dropped whole and enforces nothing, so the
   // agent has to see every existing name, not just this scope's.
-  const names = rulesData.rulebooks.map((rulebook) => rulebook.name);
+  const names = rulesData!.rulebooks.map((rulebook) => rulebook.name);
   return [
     'Use the cc-safety-net skill for this request.',
     'If that skill is not available, run `npx -y cc-safety-net rule doc` first and treat its output as the source of truth for schema, paths, and validation.',
     '',
     rulesScope === 'project'
-      ? `Scope: this project - ${qs('rules-project-path').value.trim()}`
+      ? `Scope: this project - ${qs<HTMLInputElement>('rules-project-path').value.trim()}`
       : 'Scope: all projects (user scope)',
     `Existing rulebooks (names must stay unique across both scopes): ${names.length > 0 ? names.join(', ') : 'none'}`,
     '',
-    qs('rules-composer-input').value.trim(),
+    qs<HTMLTextAreaElement>('rules-composer-input').value.trim(),
   ].join('\n');
 };
 const chooseProjectDirectory = async () => {
-  const button = qs('rules-choose-directory');
+  const button = qs<HTMLButtonElement>('rules-choose-directory');
   if (button.disabled) return;
   button.disabled = true;
   const result = await requestJson('/api/rules/choose-directory', { method: 'POST' });
   button.disabled = false;
   if (result.ok && result.data.path) {
-    qs('rules-project-path').value = result.data.path;
+    qs<HTMLInputElement>('rules-project-path').value = result.data.path;
     return;
   }
   if (result.ok && result.data.cancelled) return;
   // Detection cannot prove the dialog will actually open, so a failure has to
   // hand the field back rather than leave a read-only box and a dead button.
   directoryPickerFailed = true;
-  qs('rules-project-path').readOnly = false;
+  qs<HTMLInputElement>('rules-project-path').readOnly = false;
   button.hidden = true;
   setAppStatus(
     `${result.ok ? result.data.error : errorText(result)} - type the project path instead`,
@@ -820,29 +985,29 @@ const copyRulePrompt = async () => {
     setAppStatus('Rules have not loaded yet - refresh the Rulebooks panel', 'error');
     return;
   }
-  if (!qs('rules-composer-input').value.trim()) {
+  if (!qs<HTMLTextAreaElement>('rules-composer-input').value.trim()) {
     setAppStatus('Describe what you want first', 'error');
     return;
   }
   // An empty path would hand the agent "Scope: this project - " and let it pick
   // a directory itself, which is the guess this field exists to remove.
-  if (rulesScope === 'project' && !qs('rules-project-path').value.trim()) {
+  if (rulesScope === 'project' && !qs<HTMLInputElement>('rules-project-path').value.trim()) {
     setAppStatus('Enter the project path the rule belongs to', 'error');
     return;
   }
-  qs('rules-copy-prompt').disabled = true;
+  qs<HTMLButtonElement>('rules-copy-prompt').disabled = true;
   try {
     await navigator.clipboard.writeText(rulePromptText());
-    qs('rules-composer-input').value = '';
+    qs<HTMLTextAreaElement>('rules-composer-input').value = '';
     setAppStatus('Prompt copied - paste it into your coding CLI', 'ok');
   } catch {
     setAppStatus('Copy failed', 'error');
   } finally {
-    qs('rules-copy-prompt').disabled = false;
+    qs<HTMLButtonElement>('rules-copy-prompt').disabled = false;
   }
 };
-const runIntegrationAction = async (button) => {
-  const target = button.dataset.integrationTarget;
+const runIntegrationAction = async (button: HTMLElement) => {
+  const target = button.dataset.integrationTarget!;
   if (integrationBusy.has(target)) return;
   integrationBusy.add(target);
   const action = button.dataset.integrationAction;
@@ -852,7 +1017,7 @@ const runIntegrationAction = async (button) => {
     body: JSON.stringify({ target }),
   });
   integrationBusy.delete(target);
-  const row = integrations.targets.find((entry) => entry.target === target);
+  const row = integrations!.targets.find((entry) => entry.target === target)!;
   const ok = result.ok && result.data.ok === true;
   if (ok) row.status = action === 'install' ? 'active' : 'not-installed';
   row.note = {
@@ -863,10 +1028,10 @@ const runIntegrationAction = async (button) => {
   renderIntegrations();
 };
 const confirmDialog = (() => {
-  const dialog = qs('confirm-dialog');
-  const confirm = qs('confirm-dialog-confirm');
-  const cancel = qs('confirm-dialog-cancel');
-  let resolvePending = null;
+  const dialog = qs<HTMLDialogElement>('confirm-dialog');
+  const confirm = qs<HTMLButtonElement>('confirm-dialog-confirm');
+  const cancel = qs<HTMLButtonElement>('confirm-dialog-cancel');
+  let resolvePending: ((confirmed: boolean) => void) | null = null;
   dialog.addEventListener('close', () => {
     if (!resolvePending) return;
     resolvePending(dialog.returnValue === 'confirm');
@@ -875,8 +1040,8 @@ const confirmDialog = (() => {
   dialog.addEventListener('cancel', () => {
     dialog.returnValue = 'cancel';
   });
-  return (options) =>
-    new Promise((resolve) => {
+  return (options: ConfirmOptions) =>
+    new Promise<boolean>((resolve) => {
       if (resolvePending) {
         resolve(false);
         return;
@@ -884,7 +1049,7 @@ const confirmDialog = (() => {
       qs('confirm-dialog-title').textContent = options.title;
       qs('confirm-dialog-body').textContent = options.body;
       qs('confirm-dialog-detail').textContent = options.detail ?? '';
-      qs('confirm-dialog-detail').parentElement.hidden = !options.detail;
+      qs('confirm-dialog-detail').parentElement!.hidden = !options.detail;
       confirm.textContent = options.confirmLabel;
       confirm.className = options.confirmClass ?? 'danger';
       dialog.returnValue = 'cancel';
@@ -893,20 +1058,20 @@ const confirmDialog = (() => {
       cancel.focus();
     });
 })();
-const confirmProtectionDisable = (options) =>
+const confirmProtectionDisable = (options: { title: string; body: string; detail?: string }) =>
   confirmDialog({
     title: options.title,
     body: options.body,
     detail: options.detail,
     confirmLabel: 'Disable protection',
   });
-const togglePanel = (button) => {
+const togglePanel = (button: Element) => {
   const expanded = button.getAttribute('aria-expanded') !== 'true';
   button.setAttribute('aria-expanded', String(expanded));
-  qs(button.getAttribute('aria-controls')).hidden = !expanded;
+  qs(button.getAttribute('aria-controls')!).hidden = !expanded;
 };
 const syncSearchState = () => {
-  const active = qs('policy-search').value.trim().length > 0;
+  const active = qs<HTMLInputElement>('policy-search').value.trim().length > 0;
   if (active === searchActive) return;
   searchActive = active;
   if (active) return;
@@ -918,16 +1083,16 @@ const updateRawSource = () => {
     ? 'Read-only original policy JSON. Repair preserves valid settings and writes canonical JSON.'
     : 'Read-only mirror of the controls.';
 };
-const setRawCopyCopied = (copied) => {
-  qs('raw-copy').innerHTML = copied ? rawCopyIcons.check : rawCopyIcons.copy;
-  qs('raw-copy').classList.toggle('copied', copied);
-  qs('raw-copy').setAttribute(
+const setRawCopyCopied = (copied: boolean) => {
+  qs<HTMLButtonElement>('raw-copy').innerHTML = copied ? rawCopyIcons.check : rawCopyIcons.copy;
+  qs<HTMLButtonElement>('raw-copy').classList.toggle('copied', copied);
+  qs<HTMLButtonElement>('raw-copy').setAttribute(
     'aria-label',
     copied ? 'Copied raw JSON' : 'Copy raw JSON to clipboard',
   );
 };
 const resetFeedCopy = () => {
-  document.querySelectorAll('.feed-copy.copied').forEach((button) => {
+  document.querySelectorAll<HTMLElement>('.feed-copy.copied').forEach((button) => {
     button.classList.remove('copied');
     button.innerHTML = rawCopyIcons.copy;
     button.setAttribute('aria-label', 'Copy log entry as JSON');
@@ -943,8 +1108,8 @@ const reportUrlLimit = 8000;
 // the match ends at a path boundary, so a sibling directory (`<cwd>-backup`) or an
 // unrelated path that merely starts with it (`/app` inside `/var/lib/appdata`) is
 // left intact instead of being mangled mid-segment.
-const endsAtPathBoundary = (following) => following === '' || /^[/\\\s'"]/.test(following);
-const scrubReportPaths = (text, cwd, home) =>
+const endsAtPathBoundary = (following: string) => following === '' || /^[/\\\s'"]/.test(following);
+const scrubReportPaths = (text: string, cwd?: string | null, home?: string | null) =>
   [
     [cwd, '<project>'],
     [home, '~'],
@@ -957,7 +1122,7 @@ const scrubReportPaths = (text, cwd, home) =>
         : scrubbed,
     text,
   );
-const buildReportUrl = (fields) => {
+const buildReportUrl = (fields: Record<string, string>) => {
   const url = new URL(reportIssueUrl);
   Object.entries(fields)
     .filter(([, value]) => value)
@@ -969,7 +1134,10 @@ const buildReportUrl = (fields) => {
 // GitHub rejects the entire link past the cap, so the largest field is dropped
 // until the rest fits. Dropping one is not always enough: `entry` embeds the
 // command, so a long command still overflows once the entry is gone.
-const buildReportRequest = (fields, dropped = []) => {
+const buildReportRequest = (
+  fields: Record<string, string>,
+  dropped: string[] = [],
+): { url: string; dropped: string[] } => {
   const url = buildReportUrl(fields);
   if (url.length <= reportUrlLimit) return { url, dropped };
   const largest = Object.entries(fields)
@@ -978,26 +1146,26 @@ const buildReportRequest = (fields, dropped = []) => {
   if (!largest) return { url, dropped };
   return buildReportRequest({ ...fields, [largest[0]]: '' }, [...dropped, largest[0]]);
 };
-const openReportDialog = (button) => {
+const openReportDialog = (button: HTMLElement) => {
   const entry = renderedFeedEntries[Number(button.dataset.reportFp)];
   if (!entry) return;
-  const scrub = (text) => scrubReportPaths(text, entry.cwd, activity.homeDir);
-  qs('report-command').value = scrub(entry.command || entry.segment || '');
+  const scrub = (text: string) => scrubReportPaths(text, entry.cwd, activity!.homeDir);
+  qs<HTMLTextAreaElement>('report-command').value = scrub(entry.command || entry.segment || '');
   // Scrub each string value before serialising, not the serialised text: on
   // Windows JSON.stringify doubles every backslash, so a cwd of C:\Users\... would
   // never match its own needle and the entry would ship unscrubbed.
-  qs('report-entry').value = JSON.stringify(
+  qs<HTMLTextAreaElement>('report-entry').value = JSON.stringify(
     entry,
     (_key, value) => (typeof value === 'string' ? scrub(value) : value),
     2,
   );
-  qs('report-dialog').returnValue = 'cancel';
-  qs('report-dialog').showModal();
+  qs<HTMLDialogElement>('report-dialog').returnValue = 'cancel';
+  qs<HTMLDialogElement>('report-dialog').showModal();
 };
 const openFalsePositiveForm = async () => {
-  const fields = {
-    command: qs('report-command').value,
-    entry: qs('report-entry').value,
+  const fields: Record<string, string> = {
+    command: qs<HTMLTextAreaElement>('report-command').value,
+    entry: qs<HTMLTextAreaElement>('report-entry').value,
   };
   const request = buildReportRequest(fields);
   // Start the copy before the new tab takes focus, and open in the same task so
@@ -1017,10 +1185,10 @@ const openFalsePositiveForm = async () => {
     'error',
   );
 };
-qs('report-dialog').addEventListener('close', () => {
-  if (qs('report-dialog').returnValue === 'report') void openFalsePositiveForm();
+qs<HTMLDialogElement>('report-dialog').addEventListener('close', () => {
+  if (qs<HTMLDialogElement>('report-dialog').returnValue === 'report') void openFalsePositiveForm();
 });
-const copyFeedEntry = async (button) => {
+const copyFeedEntry = async (button: HTMLElement) => {
   const entry = renderedFeedEntries[Number(button.dataset.logCopy)];
   if (!entry) return;
   try {
@@ -1036,9 +1204,9 @@ const copyFeedEntry = async (button) => {
   }
 };
 const copyRawToClipboard = async () => {
-  qs('raw-copy').disabled = true;
+  qs<HTMLButtonElement>('raw-copy').disabled = true;
   try {
-    await navigator.clipboard.writeText(qs('raw').value);
+    await navigator.clipboard.writeText(qs<HTMLTextAreaElement>('raw').value);
     setRawCopyCopied(true);
     if (rawCopyResetTimer) clearTimeout(rawCopyResetTimer);
     rawCopyResetTimer = setTimeout(() => setRawCopyCopied(false), 2000);
@@ -1049,15 +1217,15 @@ const copyRawToClipboard = async () => {
       'error',
     );
   } finally {
-    qs('raw-copy').disabled = false;
+    qs<HTMLButtonElement>('raw-copy').disabled = false;
   }
 };
-const formatStarCount = (count) => {
+const formatStarCount = (count: number | null) => {
   if (typeof count !== 'number') return '';
   if (count >= 1000) return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`;
   return String(count);
 };
-const starCountHtml = (count) => {
+const starCountHtml = (count: number | null) => {
   const formatted = formatStarCount(count);
   return formatted ? `<span class="star-count">${escapeHtml(formatted)}</span>` : '';
 };
@@ -1065,7 +1233,7 @@ const hideStarCta = () => {
   qs('star-row').hidden = true;
   qs('star-slot').innerHTML = '';
 };
-const renderStarPitch = (context, starred = false) => {
+const renderStarPitch = (context: StarContext, starred = false) => {
   const evidence =
     context.blockedTotal > 0
       ? `CC Safety Net has blocked <strong>${escapeHtml(context.blockedTotal.toLocaleString('en-US'))}</strong> risky command${context.blockedTotal === 1 ? '' : 's'} on this machine in its retained ${escapeHtml(dayCount(retentionDays()))} history.`
@@ -1078,7 +1246,7 @@ const renderStarPitch = (context, starred = false) => {
     ? `${evidence} If it saved your work, star it on GitHub.`
     : 'If CC Safety Net is useful to you, star it on GitHub.';
 };
-const renderStarLink = (context, href = fallbackRepoUrl) => {
+const renderStarLink = (context: StarContext, href = fallbackRepoUrl) => {
   qs('star-slot').innerHTML =
     `<a class="star-cta" href="${escapeHtml(href)}" target="_blank" rel="noopener" aria-label="Star CC Safety Net on GitHub (opens github.com)">
       <span class="star-icon" aria-hidden="true">${starIcons.outline}</span>
@@ -1087,7 +1255,7 @@ const renderStarLink = (context, href = fallbackRepoUrl) => {
     </a>`;
   qs('star-row').hidden = false;
 };
-const renderStarCta = (context) => {
+const renderStarCta = (context: StarContext) => {
   activeStarContext = context;
   if (context.starred === true) {
     hideStarCta();
@@ -1107,12 +1275,12 @@ const renderStarCta = (context) => {
     </button>`;
   qs('star-row').hidden = false;
 };
-const starRepo = async (button) => {
+const starRepo = async (button: HTMLButtonElement) => {
   button.disabled = true;
   const result = await requestJson('/api/star', { method: 'POST' });
   if (result.ok && result.data?.ok === true) {
-    button.querySelector('.star-icon').innerHTML = starIcons.filled;
-    button.querySelector('.star-label').textContent = 'Starred. Thank you.';
+    button.querySelector('.star-icon')!.innerHTML = starIcons.filled;
+    button.querySelector('.star-label')!.textContent = 'Starred. Thank you.';
     button.setAttribute('aria-label', 'CC Safety Net starred on GitHub');
     button.classList.add('starred');
     qs('star-mechanism').hidden = true;
@@ -1132,13 +1300,13 @@ const loadStarContext = async () => {
 };
 const syncRawFromForm = () => {
   if (state?.errors.length) return;
-  qs('raw').value = formatPolicy(collectFormPolicy());
+  qs<HTMLTextAreaElement>('raw').value = formatPolicy(collectFormPolicy());
   updateRawSource();
 };
 const updateDirtyStatus = () => {
   if (state?.errors.length) return;
   const draftJson = JSON.stringify(collectFormPolicy());
-  dirty = draftJson !== JSON.stringify(state.policy);
+  dirty = draftJson !== JSON.stringify(state!.policy);
   qs('policy-savebar').hidden = !dirty;
   qs('dirty-chip').hidden = !dirty || currentView() === 'policy';
   if (dirty) sessionStorage.setItem('cc-safety-net-draft', draftJson);
@@ -1146,8 +1314,8 @@ const updateDirtyStatus = () => {
   setDetailStatus('');
   updateActions();
 };
-const createPathList = (prefix, config) => {
-  const setHint = (text) => {
+const createPathList = (prefix: string, config: PathListConfig) => {
+  const setHint = (text: string) => {
     qs(`${prefix}-hint`).textContent = text;
     qs(`${prefix}-hint`).hidden = !text;
   };
@@ -1155,14 +1323,17 @@ const createPathList = (prefix, config) => {
     const paths = config.getPaths();
     const disabled = config.isDisabled();
     qs(`${prefix}-count`).textContent = `${paths.length} path${paths.length === 1 ? '' : 's'}`;
-    qs(`${prefix}-input`).disabled = disabled;
-    qs(`${prefix}-add-button`).disabled = disabled;
+    qs<HTMLInputElement>(`${prefix}-input`).disabled = disabled;
+    qs<HTMLButtonElement>(`${prefix}-add-button`).disabled = disabled;
     qs(`${prefix}-list`).innerHTML =
       paths.length === 0
         ? `<li class="empty">No ${config.itemLabel}s configured.</li>`
         : paths
             .map(
-              (path, index) => `<li class="path-item ${disabled ? 'row-disabled' : ''}">
+              (
+                path: string,
+                index: number,
+              ) => `<li class="path-item ${disabled ? 'row-disabled' : ''}">
           <code>${escapeHtml(path)}</code>
           <button type="button" class="icon-button" data-path-list="${prefix}" data-path-remove="${index}" ${disabled ? 'disabled' : ''} aria-label="Remove ${config.itemLabel} ${escapeHtml(path)}">${pathListIcons.remove}</button>
         </li>`,
@@ -1170,11 +1341,11 @@ const createPathList = (prefix, config) => {
             .join('');
   };
   let adding = false;
-  const add = async (value) => {
+  const add = async (value: string) => {
     if (adding) return;
     const entries = [...new Set(pathLines(value))];
     if (entries.length === 0) return;
-    const submitted = qs(`${prefix}-input`).value;
+    const submitted = qs<HTMLInputElement>(`${prefix}-input`).value;
     const additions = entries.filter((entry) => !config.getPaths().includes(entry));
     if (config.validateAdditions && additions.length) {
       adding = true;
@@ -1193,14 +1364,15 @@ const createPathList = (prefix, config) => {
     const current = config.getPaths();
     const duplicates = entries.filter((entry) => current.includes(entry));
     config.setPaths([...current, ...additions.filter((entry) => !current.includes(entry))]);
-    if (qs(`${prefix}-input`).value === submitted) qs(`${prefix}-input`).value = '';
+    if (qs<HTMLInputElement>(`${prefix}-input`).value === submitted)
+      qs<HTMLInputElement>(`${prefix}-input`).value = '';
     setHint(duplicates.length ? `Already listed: ${duplicates.join(', ')}` : '');
     render();
     syncRawFromForm();
     updateDirtyStatus();
     qs(`${prefix}-input`).focus();
   };
-  const remove = (index) => {
+  const remove = (index: number) => {
     config.setPaths(config.getPaths().filter((_, position) => position !== index));
     setHint('');
     render();
@@ -1209,15 +1381,15 @@ const createPathList = (prefix, config) => {
   };
   return { render, add, remove };
 };
-const pathLists = {
+const pathLists: Record<string, ReturnType<typeof createPathList>> = {
   'deny-paths': createPathList('deny-paths', {
     getPaths: () => draftPolicy.secret_protection.deny_paths,
-    setPaths: (paths) => {
+    setPaths: (paths: string[]) => {
       draftPolicy.secret_protection.deny_paths = paths;
     },
     isDisabled: () => !draftPolicy.secret_protection.enabled,
     itemLabel: 'deny path',
-    validateAdditions: async (paths) => {
+    validateAdditions: async (paths: string[]) => {
       const candidate = collectFormPolicy();
       candidate.secret_protection = {
         ...candidate.secret_protection,
@@ -1233,7 +1405,7 @@ const pathLists = {
   }),
   'allow-paths': createPathList('allow-paths', {
     getPaths: () => draftPolicy.destructive_command_protection.allow_paths,
-    setPaths: (paths) => {
+    setPaths: (paths: string[]) => {
       draftPolicy.destructive_command_protection.allow_paths = paths;
     },
     isDisabled: () => !draftPolicy.destructive_command_protection.enabled,
@@ -1255,30 +1427,33 @@ const pathLists = {
 };
 // A default-off rule needs an explicit 'on' override to become active, so the switch state
 // cannot be read from the presence of an override alone.
-const secretRuleIsActive = (rule, overrides) =>
+const secretRuleIsActive = (rule: SecretRule, overrides: RuleOverrides) =>
   overrides[rule.id] ? overrides[rule.id] === 'on' : !rule.defaultOff;
 // A rule that already matches its default keeps no override, so the saved file stays small
 // and a later default change still reaches the user.
-const setSecretOverride = (rule, active) => {
+const setSecretOverride = (rule: SecretRule, active: boolean) => {
   if (active === !rule.defaultOff) {
     delete draftPolicy.secret_protection.overrides[rule.id];
     return;
   }
   draftPolicy.secret_protection.overrides[rule.id] = active ? 'on' : 'off';
 };
-const groupRules = (rules) =>
-  rules.reduce((groups, rule) => {
-    const group = groups.find((item) => item.category === rule.category);
-    if (group) {
-      group.rules.push(rule);
+const groupRules = <T extends { category: string }>(rules: T[]) =>
+  rules.reduce(
+    (groups, rule) => {
+      const group = groups.find((item) => item.category === rule.category);
+      if (group) {
+        group.rules.push(rule);
+        return groups;
+      }
+      groups.push({ category: rule.category, rules: [rule] });
       return groups;
-    }
-    groups.push({ category: rule.category, rules: [rule] });
-    return groups;
-  }, []);
+    },
+    [] as { category: string; rules: T[] }[],
+  );
 const renderSecretPatterns = () => {
-  const query = qs('policy-search').value.trim().toLowerCase();
-  const rules = state.secretPatterns.filter((rule) =>
+  const query = qs<HTMLInputElement>('policy-search').value.trim().toLowerCase();
+  const rules = state!.secretPatterns.filter((rule) =>
     [rule.category, rule.label, rule.id, rule.description, ...(rule.paths ?? [])]
       .join(' ')
       .toLowerCase()
@@ -1286,12 +1461,12 @@ const renderSecretPatterns = () => {
   );
   const overrides = draftPolicy.secret_protection.overrides;
   const disabled = !draftPolicy.secret_protection.enabled;
-  const disabledCount = state.secretPatterns.filter(
+  const disabledCount = state!.secretPatterns.filter(
     (rule) => !secretRuleIsActive(rule, overrides),
   ).length;
   qs('secret-summary').textContent = disabled
     ? 'Protection disabled. Saved rule settings and deny paths are preserved.'
-    : `${state.secretPatterns.length - disabledCount} active, ${disabledCount} disabled`;
+    : `${state!.secretPatterns.length - disabledCount} active, ${disabledCount} disabled`;
   qs('secret-patterns').innerHTML =
     rules.length === 0
       ? '<p class="empty">No secret protections match the search.</p>'
@@ -1301,7 +1476,7 @@ const renderSecretPatterns = () => {
               secretGroupExpanded.get(group.category) ||
               (searchActive && !searchCollapsedSecretGroups.has(group.category));
             const contentId = `secret-group-${group.category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
-            const allGroupRules = state.secretPatterns.filter(
+            const allGroupRules = state!.secretPatterns.filter(
               (rule) => rule.category === group.category,
             );
             const onCount = disabled
@@ -1349,7 +1524,7 @@ const renderSecretPatterns = () => {
           })
           .join('');
 };
-const levelCapabilities = (level) => ({
+const levelCapabilities = (level: SafetyLevel) => ({
   fail_closed: level === 'strict' || level === 'paranoid',
   paranoid_rm: level === 'paranoid',
   paranoid_interpreters: level === 'paranoid',
@@ -1360,7 +1535,7 @@ const renderPresetStatus = () => {
   const customized =
     preview.counts.effectiveCustomizations > 0 ||
     Object.entries(draftPolicy.safety.overrides).some(
-      ([key, value]) => value !== levelCapabilities(draftPolicy.safety.level)[key],
+      ([key, value]) => value !== levelCapabilities(draftPolicy.safety.level)[key as Capability],
     );
   qs('safety-preset-status').textContent = customized ? `${presetName()} · Customized` : '';
   qs('safety-preset-status').classList.toggle('customized', customized);
@@ -1390,8 +1565,8 @@ const renderSafety = () => {
   const inherited = levelCapabilities(draftPolicy.safety.level);
   qs('safety-overrides').innerHTML = Object.entries(safetyOverrides)
     .map(([key, meta]) => {
-      const value = draftPolicy.safety.overrides[key];
-      const inheritedText = inherited[key] ? 'on' : 'off';
+      const value = draftPolicy.safety.overrides[key as Capability];
+      const inheritedText = inherited[key as Capability] ? 'on' : 'off';
       return `<label class="row safety-override-row"><span><strong>${meta[0]}</strong><small>${meta[1]}</small></span><select data-safety-override="${key}">
       <option value="inherit" ${value === undefined ? 'selected' : ''}>Inherit from preset (${inheritedText})</option>
       <option value="true" ${value === true ? 'selected' : ''}>Force on</option>
@@ -1403,33 +1578,33 @@ const renderSafety = () => {
     `<label class="row"><input type="checkbox" data-workflow-worktree ${checkbox(draftPolicy.workflow.worktree_mode)}><span><strong>Allow discarding local changes in linked git worktrees</strong><small>Only relaxes linked worktree discard checks.</small></span></label>`;
   renderPresetStatus();
 };
-const tierForRule = (rule) => {
+const tierForRule = (rule: DestructiveRule): Tier => {
   if (!rule.activationCapability) return 'normal';
   return rule.activationCapability === 'fail_closed' ? 'strict' : 'paranoid';
 };
-const tierMeta = {
+const tierMeta: Record<Tier, [string, string]> = {
   normal: ['Available in every preset', 'No additional capability required'],
   strict: ['Strict tier', 'Inherits from Fail closed'],
   paranoid: ['Paranoid tier', 'Inherits from Paranoid rm or Paranoid interpreters'],
 };
-const ruleStateText = (rule, effective) => {
+const ruleStateText = (rule: DestructiveRule, effective: RuleState) => {
   if (effective.source === 'master_disabled')
     return 'Off — destructive-command protection disabled';
   if (effective.source === 'rule_override')
     return `${effective.enabled ? 'On' : 'Off'} — user rule override`;
   if (effective.source === 'built_in_default') return 'On — available in every preset';
   if (effective.source === 'environment') {
-    const capability = preview.capabilities[rule.activationCapability];
+    const capability = preview!.capabilities[rule.activationCapability!]!;
     const source = [...capability.sources].reverse().find((item) => item.startsWith('env '));
     return `${effective.enabled ? 'On' : 'Off'} — environment${source ? `; ${source.slice(4)}` : ''}`;
   }
   if (effective.source === 'capability_override') {
-    return `${effective.enabled ? 'On' : 'Off'} — capability override; ${safetyOverrides[rule.activationCapability][0]} forced ${effective.enabled ? 'on' : 'off'}`;
+    return `${effective.enabled ? 'On' : 'Off'} — capability override; ${safetyOverrides[rule.activationCapability!][0]} forced ${effective.enabled ? 'on' : 'off'}`;
   }
   if (effective.enabled) return `On — ${presetName()} preset`;
   return `Off — ${presetName()} preset; requires ${tierForRule(rule) === 'strict' ? 'Strict' : 'Paranoid'}`;
 };
-const showRulePopover = (button, label, title, body) => {
+const showRulePopover = (button: HTMLElement, label: string, title: string, body: string) => {
   const popover = qs('rule-example-popover');
   qs('rule-example-label').textContent = label;
   qs('rule-example-title').textContent = title;
@@ -1451,20 +1626,22 @@ const showRulePopover = (button, label, title, body) => {
   popover.style.top = `${top}px`;
   popover.style.left = `${left}px`;
 };
-const openRuleExample = (button) => {
-  const rule = state.destructiveCommandRules.find((item) => item.id === button.dataset.ruleExample);
+const openRuleExample = (button: HTMLElement) => {
+  const rule = state!.destructiveCommandRules.find(
+    (item) => item.id === button.dataset.ruleExample,
+  );
   if (!rule) return;
   showRulePopover(button, 'Blocked command example', rule.label, rule.example);
 };
-const openSecretPaths = (button) => {
-  const rule = state.secretPatterns.find((item) => item.id === button.dataset.secretPaths);
+const openSecretPaths = (button: HTMLElement) => {
+  const rule = state!.secretPatterns.find((item) => item.id === button.dataset.secretPaths);
   if (!rule) return;
-  showRulePopover(button, 'Protected paths', rule.label, rule.paths.join('\n'));
+  showRulePopover(button, 'Protected paths', rule.label, rule.paths!.join('\n'));
 };
 const renderDestructiveCommands = () => {
   if (!preview) return;
-  const query = qs('policy-search').value.trim().toLowerCase();
-  const matchingRules = state.destructiveCommandRules.filter((rule) =>
+  const query = qs<HTMLInputElement>('policy-search').value.trim().toLowerCase();
+  const matchingRules = state!.destructiveCommandRules.filter((rule) =>
     [rule.category, rule.label, rule.id, rule.description, tierMeta[tierForRule(rule)][0]]
       .join(' ')
       .toLowerCase()
@@ -1516,14 +1693,14 @@ const renderDestructiveCommands = () => {
     matchingRules.length === 0
       ? '<p class="empty">No built-in protections match the search.</p>'
       : enforcedSection +
-        Object.keys(tierMeta)
+        (Object.keys(tierMeta) as Tier[])
           .map((tier) => {
             const rules = configurableRules.filter((rule) => tierForRule(rule) === tier);
             if (rules.length === 0) return '';
-            const allTierRules = state.destructiveCommandRules.filter(
+            const allTierRules = state!.destructiveCommandRules.filter(
               (rule) => !rule.catastrophic && tierForRule(rule) === tier,
             );
-            const tierStates = allTierRules.map((rule) => preview.rules[rule.id]);
+            const tierStates = allTierRules.map((rule) => preview!.rules[rule.id]!);
             const expanded =
               tierExpanded.get(tier) || (searchActive && !searchCollapsedTiers.has(tier));
             const contentId = `destructive-tier-${tier}`;
@@ -1546,7 +1723,7 @@ const renderDestructiveCommands = () => {
             <h3>${escapeHtml(group.category)}</h3>
             <div class="grid">${group.rules
               .map((rule) => {
-                const effective = preview.rules[rule.id];
+                const effective = preview!.rules[rule.id]!;
                 const override = draftPolicy.destructive_command_protection.overrides[rule.id];
                 const status = ruleStateText(rule, effective);
                 const disabled = !draftPolicy.destructive_command_protection.enabled;
@@ -1593,7 +1770,7 @@ const refreshPolicyPreview = async () => {
 };
 let testerRequestId = 0;
 const runCommandTest = async () => {
-  const command = qs('tester-input').value.trim();
+  const command = qs<HTMLInputElement>('tester-input').value.trim();
   if (!command) {
     qs('tester-result').hidden = true;
     return;
@@ -1630,22 +1807,22 @@ const runCommandTest = async () => {
   el.innerHTML = `Blocked${ruleId ? ` by ${ruleIdHtml}` : ''} — ${escapeHtml(result.data.reason || '')}${segment}`;
 };
 function render() {
-  draftPolicy = clonePolicy(state.policy);
-  preview = state.preview;
+  draftPolicy = clonePolicy(state!.policy);
+  preview = state!.preview;
   knownRuleIds = new Set(
-    [...state.destructiveCommandRules, ...state.secretPatterns].map((rule) => rule.id),
+    [...state!.destructiveCommandRules, ...state!.secretPatterns].map((rule) => rule.id),
   );
   dirty = false;
   qs('policy-savebar').hidden = true;
   qs('dirty-chip').hidden = true;
-  qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
-  qs('app-version').textContent = state.version;
+  qs('policy-path').textContent = state!.path + (state!.exists ? '' : ' (not created yet)');
+  qs('app-version').textContent = state!.version;
   renderSafety();
   qs('destructive-command').innerHTML =
     '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' +
-    checkbox(state.policy.destructive_command_protection.enabled) +
+    checkbox(state!.policy.destructive_command_protection.enabled) +
     '><span><strong>Destructive command protection</strong><small>Block configurable destructive git, filesystem, and execution patterns. Catastrophic and custom rules remain active when disabled.</small></span><span class="master-badge">' +
-    (state.policy.destructive_command_protection.enabled ? 'On' : 'Off') +
+    (state!.policy.destructive_command_protection.enabled ? 'On' : 'Off') +
     '</span></label>' +
     '<div id="destructive-command-rules"></div>' +
     '<section class="rule-tier">' +
@@ -1660,9 +1837,9 @@ function render() {
     '</div></section>';
   qs('secret').innerHTML =
     '<label class="row master"><input type="checkbox" id="secret-enabled" ' +
-    checkbox(state.policy.secret_protection.enabled) +
+    checkbox(state!.policy.secret_protection.enabled) +
     '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge">' +
-    (state.policy.secret_protection.enabled ? 'On' : 'Off') +
+    (state!.policy.secret_protection.enabled ? 'On' : 'Off') +
     '</span></label>' +
     '<div id="secret-patterns"></div>' +
     '<section class="rule-tier">' +
@@ -1675,29 +1852,31 @@ function render() {
     '<p class="paths-hint" id="deny-paths-hint" hidden></p>' +
     '<ul class="paths-list" id="deny-paths-list"></ul>' +
     '</div></section>';
-  qs('raw').value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
-  qs('policy-search').value = '';
+  qs<HTMLTextAreaElement>('raw').value = state!.errors.length
+    ? state!.raw
+    : formatPolicy(draftPolicy);
+  qs<HTMLInputElement>('policy-search').value = '';
   syncSearchState();
   renderDestructiveCommands();
   renderSecretPatterns();
-  pathLists['deny-paths'].render();
-  pathLists['allow-paths'].render();
+  pathLists['deny-paths']!.render();
+  pathLists['allow-paths']!.render();
   updateRawSource();
   renderRetention();
-  qs('recovery').hidden = state.errors.length === 0;
+  qs('recovery').hidden = state!.errors.length === 0;
   updateActions();
   renderProtectionCard();
-  if (state.errors.length) {
+  if (state!.errors.length) {
     if (currentView() !== 'policy') location.hash = 'policy';
     setAppStatus('Repair required', 'error');
-    setDetailStatus(`Error: ${state.errors.join('\n')}`, 'error');
+    setDetailStatus(`Error: ${state!.errors.join('\n')}`, 'error');
     return;
   }
   setAppStatus('');
   setDetailStatus('');
 }
 const restoreDraft = () => {
-  if (state.errors.length) return;
+  if (state!.errors.length) return;
   const stored = sessionStorage.getItem('cc-safety-net-draft');
   if (!stored) return;
   const parsed = (() => {
@@ -1716,22 +1895,22 @@ const restoreDraft = () => {
     'secret_protection',
     'audit',
   ].every((key) => parsed && typeof parsed[key] === 'object' && parsed[key] !== null);
-  if (!isPolicyShape || stored === JSON.stringify(state.policy)) {
+  if (!isPolicyShape || stored === JSON.stringify(state!.policy)) {
     sessionStorage.removeItem('cc-safety-net-draft');
     return;
   }
   draftPolicy = parsed;
   // render() builds the two master-toggle checkboxes from state.policy and the
   // sub-renders below do not rebuild them, so sync them from the restored draft.
-  document.querySelector('[data-destructive-command-enabled]').checked =
+  document.querySelector<HTMLInputElement>('[data-destructive-command-enabled]')!.checked =
     draftPolicy.destructive_command_protection.enabled;
-  qs('secret-enabled').checked = draftPolicy.secret_protection.enabled;
+  qs<HTMLInputElement>('secret-enabled').checked = draftPolicy.secret_protection.enabled;
   syncMasterBadges();
   renderSafety();
   renderDestructiveCommands();
   renderSecretPatterns();
-  pathLists['deny-paths'].render();
-  pathLists['allow-paths'].render();
+  pathLists['deny-paths']!.render();
+  pathLists['allow-paths']!.render();
   syncRawFromForm();
   updateDirtyStatus();
   void refreshPolicyPreview();
@@ -1750,7 +1929,7 @@ async function load() {
   return true;
 }
 document.addEventListener('input', (event) => {
-  const input = event.target;
+  const input = event.target as HTMLInputElement;
   if (input.id === 'policy-search') {
     syncSearchState();
     renderDestructiveCommands();
@@ -1767,33 +1946,33 @@ document.addEventListener('input', (event) => {
   }
 });
 document.addEventListener('keydown', (event) => {
-  if (event.target?.id === 'tester-input' && event.key === 'Enter') {
+  if ((event.target as HTMLElement | null)?.id === 'tester-input' && event.key === 'Enter') {
     event.preventDefault();
     void runCommandTest();
     return;
   }
-  const list = pathLists[event.target?.dataset?.pathInput];
+  const list = pathLists[(event.target as HTMLInputElement | null)?.dataset?.pathInput as string];
   if (!list || event.key !== 'Enter') return;
   event.preventDefault();
-  void list.add(event.target.value);
+  void list.add((event.target as HTMLInputElement).value);
 });
 document.addEventListener('paste', (event) => {
-  const list = pathLists[event.target?.dataset?.pathInput];
+  const list = pathLists[(event.target as HTMLInputElement | null)?.dataset?.pathInput as string];
   if (!list) return;
   const text = event.clipboardData?.getData('text') ?? '';
   if (!text.includes('\n')) return;
   event.preventDefault();
-  void list.add(`${event.target.value}\n${text}`);
+  void list.add(`${(event.target as HTMLInputElement).value}\n${text}`);
 });
 // Saves on its own rather than through the policy savebar, which lives in the
 // Policy view and cannot be reached from Settings. It writes the saved policy
 // with only this field changed, so unsaved Policy edits are not committed by
 // touching a Settings control.
-const saveRetentionDays = async (days) => {
+const saveRetentionDays = async (days: number) => {
   const current = state?.policy.audit.retention_days;
   if (current === undefined) return;
   if (!Number.isInteger(days) || days < 1 || days > MAX_RETENTION_DAYS) {
-    qs('retention-days').value = String(current);
+    qs<HTMLInputElement>('retention-days').value = String(current);
     setAppStatus('Retention unchanged', 'error');
     setDetailStatus(
       `Error: retention must be a whole number of days from 1 to ${MAX_RETENTION_DAYS}.`,
@@ -1805,7 +1984,7 @@ const saveRetentionDays = async (days) => {
   // Saving reloads the policy, and the reload restores the stored draft — whose
   // retention is the old value, so the next Policy save would undo this one.
   if (dirty) {
-    qs('retention-days').value = String(current);
+    qs<HTMLInputElement>('retention-days').value = String(current);
     setAppStatus('Retention unchanged', 'error');
     setDetailStatus('Error: save or discard your unsaved Policy changes first.', 'error');
     return;
@@ -1820,18 +1999,18 @@ const saveRetentionDays = async (days) => {
       confirmClass: 'danger',
     }))
   ) {
-    qs('retention-days').value = String(current);
+    qs<HTMLInputElement>('retention-days').value = String(current);
     return;
   }
   await runExclusive('Saving...', async () => {
-    const policy = clonePolicy(state.policy);
+    const policy = clonePolicy(state!.policy);
     policy.audit.retention_days = days;
     const result = await requestJson('/api/policy', {
       method: 'POST',
       body: JSON.stringify(policy),
     });
     if (!isWriteSuccess(result)) {
-      qs('retention-days').value = String(current);
+      qs<HTMLInputElement>('retention-days').value = String(current);
       setAppStatus('Save failed', 'error');
       setDetailStatus(`Error: ${errorText(result)}`, 'error');
       return;
@@ -1845,7 +2024,7 @@ const saveRetentionDays = async (days) => {
   });
 };
 document.addEventListener('change', (event) => {
-  const input = event.target;
+  const input = event.target as HTMLInputElement;
   if (input.id === 'activity-days') {
     activityFilters.days = Number(input.value);
     void loadActivity();
@@ -1856,7 +2035,7 @@ document.addEventListener('change', (event) => {
     return;
   }
   if (input.name === 'safety-level') {
-    draftPolicy.safety.level = input.value;
+    draftPolicy.safety.level = input.value as SafetyLevel;
     renderSafety();
     syncRawFromForm();
     updateDirtyStatus();
@@ -1865,9 +2044,11 @@ document.addEventListener('change', (event) => {
   }
   if (input.dataset?.safetyOverride) {
     if (input.value === 'inherit')
-      delete draftPolicy.safety.overrides[input.dataset.safetyOverride];
-    if (input.value === 'true') draftPolicy.safety.overrides[input.dataset.safetyOverride] = true;
-    if (input.value === 'false') draftPolicy.safety.overrides[input.dataset.safetyOverride] = false;
+      delete draftPolicy.safety.overrides[input.dataset.safetyOverride as Capability];
+    if (input.value === 'true')
+      draftPolicy.safety.overrides[input.dataset.safetyOverride as Capability] = true;
+    if (input.value === 'false')
+      draftPolicy.safety.overrides[input.dataset.safetyOverride as Capability] = false;
     syncRawFromForm();
     updateDirtyStatus();
     void refreshPolicyPreview();
@@ -1894,7 +2075,7 @@ document.addEventListener('change', (event) => {
       }
       draftPolicy.destructive_command_protection.enabled = input.checked;
       syncMasterBadges();
-      pathLists['allow-paths'].render();
+      pathLists['allow-paths']!.render();
       syncRawFromForm();
       updateDirtyStatus();
       void refreshPolicyPreview();
@@ -1904,12 +2085,12 @@ document.addEventListener('change', (event) => {
   if (input.dataset?.destructiveTierActive) {
     // A bulk write over the same per-rule overrides the individual switches
     // use, so a rule that already matches what it inherits keeps no override.
-    state.destructiveCommandRules
+    state!.destructiveCommandRules
       .filter(
         (rule) => !rule.catastrophic && tierForRule(rule) === input.dataset.destructiveTierActive,
       )
       .forEach((rule) => {
-        if (input.checked === preview.rules[rule.id].inheritedEnabled) {
+        if (input.checked === preview!.rules[rule.id]!.inheritedEnabled) {
           delete draftPolicy.destructive_command_protection.overrides[rule.id];
           return;
         }
@@ -1924,7 +2105,7 @@ document.addEventListener('change', (event) => {
   }
   if (input.dataset?.destructiveCommandActive) {
     const ruleId = input.dataset.destructiveCommandActive;
-    if (input.checked === preview.rules[ruleId].inheritedEnabled)
+    if (input.checked === preview!.rules[ruleId]!.inheritedEnabled)
       delete draftPolicy.destructive_command_protection.overrides[ruleId];
     else
       draftPolicy.destructive_command_protection.overrides[ruleId] = input.checked ? 'on' : 'off';
@@ -1936,7 +2117,7 @@ document.addEventListener('change', (event) => {
   if (input.dataset?.secretGroupActive) {
     // A bulk write over the same per-rule overrides the individual switches
     // use, not a stored group setting.
-    state.secretPatterns
+    state!.secretPatterns
       .filter((rule) => rule.category === input.dataset.secretGroupActive)
       .forEach((rule) => {
         setSecretOverride(rule, input.checked);
@@ -1948,7 +2129,7 @@ document.addEventListener('change', (event) => {
   }
   if (input.dataset?.secretActive) {
     setSecretOverride(
-      state.secretPatterns.find((rule) => rule.id === input.dataset.secretActive),
+      state!.secretPatterns.find((rule) => rule.id === input.dataset.secretActive)!,
       input.checked,
     );
     renderSecretPatterns();
@@ -1971,81 +2152,83 @@ document.addEventListener('change', (event) => {
       draftPolicy.secret_protection.enabled = input.checked;
       syncMasterBadges();
       renderSecretPatterns();
-      pathLists['deny-paths'].render();
+      pathLists['deny-paths']!.render();
       syncRawFromForm();
       updateDirtyStatus();
     })();
   }
 });
 document.addEventListener('click', (event) => {
-  if (event.target.closest?.('#tester-run')) {
+  if ((event.target as HTMLElement).closest?.<HTMLElement>('#tester-run')) {
     void runCommandTest();
     return;
   }
-  const createRule = event.target.closest?.('[data-create-rule]');
+  const createRule = (event.target as HTMLElement).closest?.<HTMLElement>('[data-create-rule]');
   if (createRule) {
-    openRuleComposer(createRule.dataset.createRule);
+    openRuleComposer(createRule.dataset.createRule!);
     return;
   }
-  const feedToggle = event.target.closest?.('[data-feed-toggle]');
+  const feedToggle = (event.target as HTMLElement).closest?.<HTMLElement>('[data-feed-toggle]');
   if (feedToggle) {
-    const expanded = feedToggle.previousElementSibling.classList.toggle('expanded');
+    const expanded = feedToggle.previousElementSibling!.classList.toggle('expanded');
     feedToggle.setAttribute('aria-expanded', String(expanded));
     feedToggle.textContent = expanded ? 'Show less' : 'Show more';
     return;
   }
-  const feedCopy = event.target.closest?.('[data-log-copy]');
+  const feedCopy = (event.target as HTMLElement).closest?.<HTMLElement>('[data-log-copy]');
   if (feedCopy) {
     copyFeedEntry(feedCopy);
     return;
   }
-  const feedReport = event.target.closest?.('[data-report-fp]');
+  const feedReport = (event.target as HTMLElement).closest?.<HTMLElement>('[data-report-fp]');
   if (feedReport) {
     openReportDialog(feedReport);
     return;
   }
-  const blockFuture = event.target.closest?.('[data-block-future]');
+  const blockFuture = (event.target as HTMLElement).closest?.<HTMLElement>('[data-block-future]');
   if (blockFuture) {
     const entry = renderedFeedEntries[Number(blockFuture.dataset.blockFuture)];
     // With no recorded command there is nothing to prefill, and opening anyway
     // would clear whatever the user had already typed into the composer.
-    if (entry?.segment || entry?.command) openRuleComposer(entry.segment || entry.command);
+    if (entry?.segment || entry?.command) openRuleComposer(entry.segment || entry.command!);
     return;
   }
-  const topRule = event.target.closest?.('.top-rule');
+  const topRule = (event.target as HTMLElement).closest?.<HTMLElement>('.top-rule');
   if (topRule) {
-    const ruleId = topRule.dataset.ruleId;
+    const ruleId = topRule.dataset.ruleId!;
     (ruleId.startsWith('custom.') ? jumpToRulesRule : jumpToActivityRule)(ruleId);
     return;
   }
-  const ruleActivity = event.target.closest?.('[data-rule-activity]');
+  const ruleActivity = (event.target as HTMLElement).closest?.<HTMLElement>('[data-rule-activity]');
   if (ruleActivity) {
-    jumpToActivityRule(ruleActivity.dataset.ruleActivity);
+    jumpToActivityRule(ruleActivity.dataset.ruleActivity!);
     return;
   }
-  const jumpRule = event.target.closest?.('[data-jump-rule]');
+  const jumpRule = (event.target as HTMLElement).closest?.<HTMLElement>('[data-jump-rule]');
   if (jumpRule) {
-    qs('policy-search').value = jumpRule.dataset.jumpRule;
+    qs<HTMLInputElement>('policy-search').value = jumpRule.dataset.jumpRule!;
     syncSearchState();
     renderDestructiveCommands();
     renderSecretPatterns();
     location.hash = 'policy';
     return;
   }
-  const jumpCustom = event.target.closest?.('[data-jump-custom-rule]');
+  const jumpCustom = (event.target as HTMLElement).closest?.<HTMLElement>(
+    '[data-jump-custom-rule]',
+  );
   if (jumpCustom) {
-    jumpToRulesRule(jumpCustom.dataset.jumpCustomRule);
+    jumpToRulesRule(jumpCustom.dataset.jumpCustomRule!);
     return;
   }
-  const topCommand = event.target.closest?.('.top-command');
+  const topCommand = (event.target as HTMLElement).closest?.<HTMLElement>('.top-command');
   if (topCommand) {
     // Exact, blocked-only match on the signature so the feed count reconciles
     // with the Top blocked commands tally; shown as a removable pill, not search
     // text, since a substring query would over-match.
-    activityFilters.command = topCommand.dataset.command;
+    activityFilters.command = topCommand.dataset.command!;
     activityFilters.decision = 'deny';
     activityFilters.query = '';
-    qs('activity-search').value = '';
+    qs<HTMLInputElement>('activity-search').value = '';
     if (activity) {
       renderActivityControls();
       renderActivityFeed();
@@ -2053,13 +2236,13 @@ document.addEventListener('click', (event) => {
     location.hash = 'activity';
     return;
   }
-  if (event.target.closest?.('[data-clear-command]')) {
+  if ((event.target as HTMLElement).closest?.<HTMLElement>('[data-clear-command]')) {
     clearCommandFilter();
     renderActivityControls();
     renderActivityFeed();
     return;
   }
-  if (event.target.closest?.('#guard-errors')) {
+  if ((event.target as HTMLElement).closest?.<HTMLElement>('#guard-errors')) {
     clearCommandFilter();
     activityFilters.decision = 'error';
     if (activity) {
@@ -2069,62 +2252,68 @@ document.addEventListener('click', (event) => {
     location.hash = 'activity';
     return;
   }
-  const chip = event.target.closest?.('[data-activity-chip]');
+  const chip = (event.target as HTMLElement).closest?.<HTMLElement>('[data-activity-chip]');
   if (chip && activity) {
     clearCommandFilter();
-    activityFilters[chip.dataset.activityChip] = chip.dataset.chipValue;
+    activityFilters[chip.dataset.activityChip as 'decision' | 'agent'] = chip.dataset.chipValue!;
     renderActivityControls();
     renderActivityFeed();
     return;
   }
-  if (event.target.closest?.('#activity-refresh')) {
+  if ((event.target as HTMLElement).closest?.<HTMLElement>('#activity-refresh')) {
     void refreshActivity();
     return;
   }
-  if (event.target.closest?.('#integrations-refresh')) {
+  if ((event.target as HTMLElement).closest?.<HTMLElement>('#integrations-refresh')) {
     void refreshIntegrations();
     return;
   }
-  if (event.target.closest?.('#rules-refresh')) {
+  if ((event.target as HTMLElement).closest?.<HTMLElement>('#rules-refresh')) {
     void refreshRules();
     return;
   }
-  const scopeChip = event.target.closest?.('[data-rules-scope]');
+  const scopeChip = (event.target as HTMLElement).closest?.<HTMLElement>('[data-rules-scope]');
   if (scopeChip) {
-    setRulesScope(scopeChip.dataset.rulesScope);
+    setRulesScope(scopeChip.dataset.rulesScope!);
     return;
   }
-  const exampleChip = event.target.closest?.('[data-rules-example]');
+  const exampleChip = (event.target as HTMLElement).closest?.<HTMLElement>('[data-rules-example]');
   if (exampleChip) {
-    qs('rules-composer-input').value = exampleChip.dataset.rulesExample;
+    qs<HTMLTextAreaElement>('rules-composer-input').value = exampleChip.dataset.rulesExample!;
     return;
   }
-  if (event.target.closest?.('#rules-choose-directory')) {
+  if ((event.target as HTMLElement).closest?.<HTMLElement>('#rules-choose-directory')) {
     void chooseProjectDirectory();
     return;
   }
-  if (event.target.closest?.('#rules-copy-prompt')) {
+  if ((event.target as HTMLElement).closest?.<HTMLElement>('#rules-copy-prompt')) {
     void copyRulePrompt();
     return;
   }
-  const integrationButton = event.target.closest?.('[data-integration-action]');
+  const integrationButton = (event.target as HTMLElement).closest?.<HTMLElement>(
+    '[data-integration-action]',
+  );
   if (integrationButton) {
     void runIntegrationAction(integrationButton);
     return;
   }
-  const ruleExampleButton = event.target.closest?.('[data-rule-example]');
+  const ruleExampleButton = (event.target as HTMLElement).closest?.<HTMLElement>(
+    '[data-rule-example]',
+  );
   if (ruleExampleButton) {
     openRuleExample(ruleExampleButton);
     return;
   }
-  const secretPathsButton = event.target.closest?.('[data-secret-paths]');
+  const secretPathsButton = (event.target as HTMLElement).closest?.<HTMLElement>(
+    '[data-secret-paths]',
+  );
   if (secretPathsButton) {
     openSecretPaths(secretPathsButton);
     return;
   }
-  const tierButton = event.target.closest?.('[data-tier-toggle]');
+  const tierButton = (event.target as HTMLElement).closest?.<HTMLElement>('[data-tier-toggle]');
   if (tierButton) {
-    const tier = tierButton.dataset.tierToggle;
+    const tier = tierButton.dataset.tierToggle!;
     const expanded = tierButton.getAttribute('aria-expanded') === 'true';
     tierExpanded.set(tier, !expanded);
     if (searchActive && expanded) searchCollapsedTiers.add(tier);
@@ -2132,9 +2321,11 @@ document.addEventListener('click', (event) => {
     renderDestructiveCommands();
     return;
   }
-  const secretGroupButton = event.target.closest?.('[data-secret-group-toggle]');
+  const secretGroupButton = (event.target as HTMLElement).closest?.<HTMLElement>(
+    '[data-secret-group-toggle]',
+  );
   if (secretGroupButton) {
-    const category = secretGroupButton.dataset.secretGroupToggle;
+    const category = secretGroupButton.dataset.secretGroupToggle!;
     const expanded = secretGroupButton.getAttribute('aria-expanded') === 'true';
     secretGroupExpanded.set(category, !expanded);
     if (searchActive && expanded) searchCollapsedSecretGroups.add(category);
@@ -2144,23 +2335,32 @@ document.addEventListener('click', (event) => {
   }
   // The group switches sit inside .rule-tier-head, which is no longer the
   // collapse control there; togglePanel would read an aria-controls it lacks.
-  if (event.target.closest?.('[data-secret-group-active], [data-destructive-tier-active]')) return;
-  const button = event.target.closest?.('.panel-toggle, .rule-tier-head');
+  if (
+    (event.target as HTMLElement).closest?.<HTMLElement>(
+      '[data-secret-group-active], [data-destructive-tier-active]',
+    )
+  )
+    return;
+  const button = (event.target as HTMLElement).closest?.<HTMLElement>(
+    '.panel-toggle, .rule-tier-head',
+  );
   if (button) {
     togglePanel(button);
     return;
   }
-  const inheritedButton = event.target.closest?.('[data-use-inherited]');
+  const inheritedButton = (event.target as HTMLElement).closest?.<HTMLElement>(
+    '[data-use-inherited]',
+  );
   if (inheritedButton) {
     delete draftPolicy.destructive_command_protection.overrides[
-      inheritedButton.dataset.useInherited
+      inheritedButton.dataset.useInherited!
     ];
     syncRawFromForm();
     updateDirtyStatus();
     void refreshPolicyPreview();
     return;
   }
-  if (event.target.closest?.('#reset-rule-customizations')) {
+  if ((event.target as HTMLElement).closest?.<HTMLElement>('#reset-rule-customizations')) {
     if (Object.keys(draftPolicy.destructive_command_protection.overrides).length === 0) {
       setAppStatus('No customizations to reset', 'ok');
       return;
@@ -2181,7 +2381,7 @@ document.addEventListener('click', (event) => {
     })();
     return;
   }
-  if (event.target.closest?.('#reset-secret-customizations')) {
+  if ((event.target as HTMLElement).closest?.<HTMLElement>('#reset-secret-customizations')) {
     if (Object.keys(draftPolicy.secret_protection.overrides).length === 0) {
       setAppStatus('No customizations to reset', 'ok');
       return;
@@ -2203,7 +2403,7 @@ document.addEventListener('click', (event) => {
     })();
     return;
   }
-  if (event.target.closest?.('#discard-changes')) {
+  if ((event.target as HTMLElement).closest?.<HTMLElement>('#discard-changes')) {
     void (async () => {
       if (
         !(await confirmDialog({
@@ -2221,17 +2421,19 @@ document.addEventListener('click', (event) => {
     })();
     return;
   }
-  const addButton = event.target.closest?.('[data-path-add]');
+  const addButton = (event.target as HTMLElement).closest?.<HTMLElement>('[data-path-add]');
   if (addButton) {
-    void pathLists[addButton.dataset.pathAdd].add(qs(`${addButton.dataset.pathAdd}-input`).value);
+    void pathLists[addButton.dataset.pathAdd!]!.add(
+      qs<HTMLInputElement>(`${addButton.dataset.pathAdd}-input`).value,
+    );
     return;
   }
-  const removeButton = event.target.closest?.('[data-path-remove]');
+  const removeButton = (event.target as HTMLElement).closest?.<HTMLElement>('[data-path-remove]');
   if (removeButton)
-    pathLists[removeButton.dataset.pathList].remove(Number(removeButton.dataset.pathRemove));
-  const starButton = event.target.closest?.('.star-cta');
+    pathLists[removeButton.dataset.pathList!]!.remove(Number(removeButton.dataset.pathRemove));
+  const starButton = (event.target as HTMLElement).closest?.<HTMLElement>('.star-cta');
   if (starButton?.tagName === 'BUTTON') {
-    void starRepo(starButton);
+    void starRepo(starButton as HTMLButtonElement);
     return;
   }
 });
@@ -2244,7 +2446,7 @@ qs('save').onclick = () => {
     setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error');
     return;
   }
-  if (state.errors.length) {
+  if (state!.errors.length) {
     setAppStatus('Repair required', 'error');
     setDetailStatus('Error: Repair policy before saving changes.', 'error');
     return;
@@ -2280,7 +2482,7 @@ qs('repair').onclick = async () => {
     setDetailStatus('Error: Policy is not loaded yet. Reload the page.', 'error');
     return;
   }
-  if (state.errors.length === 0) {
+  if (state!.errors.length === 0) {
     setAppStatus('');
     setDetailStatus('');
     return;
@@ -2289,7 +2491,7 @@ qs('repair').onclick = async () => {
     !(await confirmDialog({
       title: 'Repair policy?',
       body: 'This will write canonical policy JSON. Valid settings are preserved; invalid fields are discarded. If the JSON cannot be parsed, defaults are restored.',
-      detail: state.path,
+      detail: state!.path,
       confirmLabel: 'Repair',
       confirmClass: 'primary',
     }))
@@ -2322,7 +2524,7 @@ qs('reset').onclick = async () => {
     !(await confirmDialog({
       title: 'Reset policy?',
       body: 'This will restore the default policy JSON at this path.',
-      detail: state.path,
+      detail: state!.path,
       confirmLabel: 'Reset policy',
     }))
   ) {
@@ -2345,18 +2547,18 @@ qs('reset').onclick = async () => {
   });
 };
 setRawCopyCopied(false);
-qs('raw-copy').onclick = () => {
+qs<HTMLButtonElement>('raw-copy').onclick = () => {
   void copyRawToClipboard();
 };
-const themeOrder = ['auto', 'light', 'dark'];
-const themeIcons = {
+const themeOrder: ThemePref[] = ['auto', 'light', 'dark'];
+const themeIcons: Record<ThemePref, string> = {
   auto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5"></rect><path d="M8 20h8M12 16v4"></path></svg>',
   light:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"></path></svg>',
   dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>',
 };
-const themeLabels = { auto: 'Auto', light: 'Light', dark: 'Dark' };
-const applyTheme = (pref) => {
+const themeLabels: Record<ThemePref, string> = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+const applyTheme = (pref: ThemePref) => {
   document.documentElement.style.colorScheme = pref === 'auto' ? 'light dark' : pref;
   qs('theme-toggle').innerHTML = `${themeIcons[pref]}<span>${themeLabels[pref]}</span>`;
   qs('theme-toggle').setAttribute(
@@ -2364,12 +2566,12 @@ const applyTheme = (pref) => {
     `Color theme: ${themeLabels[pref]}. Click to change.`,
   );
 };
-let themePref = themeOrder.includes(localStorage.getItem('cc-safety-net-theme'))
-  ? localStorage.getItem('cc-safety-net-theme')
+let themePref = themeOrder.includes(localStorage.getItem('cc-safety-net-theme') as ThemePref)
+  ? (localStorage.getItem('cc-safety-net-theme') as ThemePref)
   : 'auto';
 applyTheme(themePref);
 qs('theme-toggle').onclick = () => {
-  themePref = themeOrder[(themeOrder.indexOf(themePref) + 1) % themeOrder.length];
+  themePref = themeOrder[(themeOrder.indexOf(themePref) + 1) % themeOrder.length]!;
   if (themePref === 'auto') localStorage.removeItem('cc-safety-net-theme');
   else localStorage.setItem('cc-safety-net-theme', themePref);
   applyTheme(themePref);

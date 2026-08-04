@@ -7,8 +7,8 @@ const html = renderPolicyGuiHtml('test-token');
 // that ships inlined in the document — it reads only module state, so it needs
 // no DOM — instead of restructuring the script for tests.
 const helperSource = html.slice(
-  html.indexOf('const rulePromptText = () => {'),
-  html.indexOf('const copyRulePrompt = async () => {'),
+  html.indexOf('var rulePromptText = () => {'),
+  html.indexOf('var copyRulePrompt = async () => {'),
 );
 
 const rulesData = {

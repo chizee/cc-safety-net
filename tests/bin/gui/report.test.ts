@@ -8,8 +8,8 @@ const html = renderPolicyGuiHtml('test-token');
 // script that ships inlined in the document. Evaluate just that block — it is
 // pure, so it needs no DOM — instead of restructuring the script for tests.
 const helperSource = html.slice(
-  html.indexOf('const reportIssueUrl ='),
-  html.indexOf('const openReportDialog ='),
+  html.indexOf('var reportIssueUrl ='),
+  html.indexOf('var openReportDialog ='),
 );
 const helpers = new Function(
   `${helperSource}return { scrubReportPaths, buildReportUrl, buildReportRequest };`,
@@ -157,6 +157,6 @@ describe('false positive report', () => {
     expect(html).toContain('<textarea id="report-command"');
     expect(html).toContain('<textarea id="report-entry"');
     // Prefill only: the user submits on GitHub themselves.
-    expect(html).toContain("window.open(request.url, '_blank', 'noopener');");
+    expect(html).toContain('window.open(request.url, "_blank", "noopener");');
   });
 });

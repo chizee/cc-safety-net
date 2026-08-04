@@ -3,11 +3,11 @@ import { renderPolicyGuiHtml } from '@/bin/gui/page';
 
 const html = renderPolicyGuiHtml('test-token');
 // The ranking lives in the page script that ships inlined in the document.
-// Evaluate just that block — it is pure and depends only on commandSignature
-// directly above it — instead of restructuring the script for tests.
+// Evaluate just that block of the built script — it is pure and depends only on
+// commandSignature directly above it — instead of restructuring it for tests.
 const helperSource = html.slice(
-  html.indexOf('const commandSignature = (source) => {'),
-  html.indexOf('// Returns true when an exact command filter'),
+  html.indexOf('var commandSignature = (source) => {'),
+  html.indexOf('var clearCommandFilter'),
 );
 type FeedEntry = {
   decision: string;
@@ -80,12 +80,12 @@ describe('suspect filter', () => {
 
   test('the chip renders only when there are suspects, and the feed filters on it', () => {
     expect(html).toContain(
-      "[chipHtml('decision', 'suspect', 'Likely false positive', suspects.size)]",
+      '[chipHtml("decision", "suspect", "Likely false positive", suspects.size)]',
     );
     expect(html).toContain(
-      "if (activityFilters.decision === 'suspect' && !suspects.has(entry)) return false;",
+      'if (activityFilters.decision === "suspect" && !suspects.has(entry))\n      return false;',
     );
-    expect(html).toContain("if (activityFilters.decision === 'suspect' && suspects.size === 0) {");
+    expect(html).toContain('if (activityFilters.decision === "suspect" && suspects.size === 0) {');
     expect(html).toContain('suspects = findSuspects(activity.entries);');
   });
 });
