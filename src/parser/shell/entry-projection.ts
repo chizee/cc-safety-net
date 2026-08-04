@@ -7,7 +7,7 @@ import type {
   CommandWord,
 } from '@/ir/command';
 import type { ShellSyntaxEntry, ShellSyntaxFacts } from '@/ir/semantic-facts';
-import { parseCommand } from '@/parser/command';
+import { DEFAULT_COMMAND_PARSER_LIMITS, parseCommand } from '@/parser/command';
 import { hasUnclosedQuotes } from '@/parser/shell/shared';
 
 const LEGACY_BOUNDARIES = new Set(['&&', '||', '|&', '|', '&', ';']);
@@ -21,6 +21,7 @@ type ProjectionContext = {
   readonly source: string;
   readonly suppressed: ReadonlySet<CommandSpan>;
   readonly flags: ProjectionFlags;
+  readonly depth: number;
 };
 
 type QuoteState = { single: boolean; double: boolean };
@@ -44,7 +45,7 @@ export function projectShellSyntax(source: string, program: CommandProgram): She
   );
   if (hasUnclosedQuotes(masked)) return freezeFacts('unclosed-quote', masked, EMPTY_ENTRIES);
   const flags: ProjectionFlags = { invalid: false, limited: false };
-  const entries = projectProgram(program, { source: masked, suppressed, flags });
+  const entries = projectProgram(program, { source: masked, suppressed, flags, depth: 0 });
   if (flags.limited) return freezeFacts('structural-limit', masked, EMPTY_ENTRIES);
   if (flags.invalid) return freezeFacts('invalid', masked, EMPTY_ENTRIES);
   return freezeFacts('complete', masked, entries);
@@ -204,7 +205,13 @@ function projectUnterminatedHeredoc(
   ];
 }
 
+// Each re-parse resets the parser's own depth limit, so nesting across parses (heredoc bodies
+// declaring further heredocs) is bounded here to keep total recursion finite.
 function projectText(text: string, context: ProjectionContext): ShellSyntaxEntry[] {
+  if (context.depth >= DEFAULT_COMMAND_PARSER_LIMITS.maxDepth) {
+    context.flags.limited = true;
+    return [];
+  }
   const program = parseCommand(text, 'posix');
   if (program.status === 'limited') {
     context.flags.limited = true;
@@ -214,6 +221,7 @@ function projectText(text: string, context: ProjectionContext): ShellSyntaxEntry
     source: text,
     suppressed: new Set<CommandSpan>(),
     flags: context.flags,
+    depth: context.depth + 1,
   });
 }
 

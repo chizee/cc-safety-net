@@ -98,6 +98,18 @@ describe('semantic facts', () => {
     expect(projections).toBe(1);
   });
 
+  test('bounds recursive heredoc-body projection instead of overflowing the stack', () => {
+    const levels = 6000;
+    const source = `${Array.from({ length: levels }, (_, i) => `cat <<D${i}`).join('\n')}\nx\n${Array.from(
+      { length: levels },
+      (_, i) => `D${levels - 1 - i}`,
+    ).join('\n')}\n`;
+    expect(source.length).toBeLessThan(131_072);
+    const program = parseCommand(source, 'posix');
+    expect(program.status).toBe('complete');
+    expect(projectShellSyntax(source, program).status).toBe('structural-limit');
+  });
+
   test('keeps ordinary and structural-limit shell facts independent in both cache orders', () => {
     const source = 'Write-Output one two';
     const store = createSemanticFactStore();
