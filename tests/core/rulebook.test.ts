@@ -1,10 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  assertValidRulebook,
-  type Rulebook,
-  runRulebookFixtures,
-  validateRulebook,
-} from '@/core/rules/rulebook';
+import { assertValidRulebook, type Rulebook, validateRulebook } from '@/core/rules/rulebook';
 
 function rulebook(input: Partial<Rulebook> = {}): Rulebook {
   return {
@@ -37,11 +32,8 @@ function rulebook(input: Partial<Rulebook> = {}): Rulebook {
 }
 
 describe('rulebook validation', () => {
-  test('accepts a valid rulebook and runs fixtures', () => {
-    const parsed = assertValidRulebook(rulebook());
-
-    expect(parsed.name).toBe('project-rules');
-    expect(runRulebookFixtures(parsed)).toEqual({ ok: true, failures: [] });
+  test('accepts a valid rulebook', () => {
+    expect(assertValidRulebook(rulebook()).name).toBe('project-rules');
   });
 
   test('reports schema errors with enough detail to repair the rulebook', () => {
@@ -112,42 +104,5 @@ describe('rulebook validation', () => {
     );
 
     expect(result.errors).toContain('rules[1].name: duplicate rule name "BLOCK-DOCKER-PRUNE"');
-  });
-
-  test('fixture failures distinguish allowed, missing block, and wrong rule matches', () => {
-    const result = runRulebookFixtures(
-      rulebook({
-        rules: [
-          {
-            name: 'block-docker-prune',
-            command: 'docker',
-            subcommand: 'system',
-            block_args: ['prune'],
-            reason: 'Use targeted cleanup.',
-          },
-          {
-            name: 'block-git-reset',
-            command: 'git',
-            subcommand: 'reset',
-            block_args: ['--hard'],
-            reason: 'Avoid destructive reset.',
-          },
-        ],
-        tests: [
-          { command: 'docker ps', expect: 'blocked', rule: 'block-docker-prune' },
-          { command: 'docker system prune', expect: 'allowed' },
-          { command: 'git reset --hard', expect: 'blocked', rule: 'block-docker-prune' },
-        ],
-      }),
-    );
-
-    expect(result.ok).toBe(false);
-    expect(result.failures.map((failure) => failure.message)).toEqual([
-      'expected blocked by block-docker-prune but command was allowed',
-      'expected allowed but matched block-docker-prune',
-      'expected blocked by block-docker-prune but matched block-git-reset',
-    ]);
-    expect(result.failures[0]?.trace).toContain('skipped block-docker-prune');
-    expect(() => assertValidRulebook(rulebook({ tests: result.failures as never }))).toThrow();
   });
 });

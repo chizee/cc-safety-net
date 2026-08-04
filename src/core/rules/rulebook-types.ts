@@ -16,14 +16,3 @@ export interface Rulebook {
   rules: CustomRule[];
   tests: RulebookFixture[];
 }
-
-export interface RulebookFixtureFailure {
-  command: string;
-  message: string;
-  trace: string[];
-}
-
-export interface RulebookFixtureResult {
-  ok: boolean;
-  failures: RulebookFixtureFailure[];
-}

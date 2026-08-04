@@ -28,7 +28,6 @@ import {
   readRulesConfig,
   removeRulebookSource,
   syncRulesConfig,
-  testRulebookSources,
   writeDefaultRulesConfig,
   writeStarterRulebook,
 } from '@/core/rules/policy';
@@ -1438,13 +1437,12 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
-  test('tests local fixtures and handles GitHub repository inspection errors', async () => {
+  test('handles GitHub repository inspection errors', async () => {
     const tempDir = makeTempDir('rules-policy-github');
     const originalFetch = globalThis.fetch;
 
     try {
       writeProjectRulebook(tempDir);
-      expect((await testRulebookSources(['project-rules'], { cwd: tempDir })).ok).toBe(true);
 
       globalThis.fetch = (async () => new Response('', { status: 500 })) as unknown as typeof fetch;
       expect((await addRulebookSource('owner/repo', { cwd: tempDir })).errors[0]).toContain(
@@ -1478,14 +1476,10 @@ describe('rules policy recovery coverage', () => {
       mkdirSync(dirname(source), { recursive: true });
       writeFileSync(source, overLimitRulebookJson());
 
-      for (const result of [
-        await testRulebookSources(['project-rules'], { cwd: tempDir }),
-        await syncRulesConfig({ cwd: tempDir }),
-      ]) {
-        expect(result.ok).toBe(false);
-        expect(result.errors.join('\n')).toContain(RULEBOOK_LIMIT_ERROR);
-        expect(result.errors.join('\n')).not.toContain('TOPSECRET');
-      }
+      const result = await syncRulesConfig({ cwd: tempDir });
+      expect(result.ok).toBe(false);
+      expect(result.errors.join('\n')).toContain(RULEBOOK_LIMIT_ERROR);
+      expect(result.errors.join('\n')).not.toContain('TOPSECRET');
       expect(existsSync(getProjectRulesLockPath(tempDir))).toBe(false);
       const cacheRoot = join(tempDir, '.cc-safety-net', 'cache', 'rulebooks');
       expect(existsSync(cacheRoot) ? readdirSync(cacheRoot) : []).toEqual([]);

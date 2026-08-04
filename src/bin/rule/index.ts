@@ -2,11 +2,7 @@ import { join } from 'node:path';
 import { ruleCommand } from '@/bin/commands/rule';
 import { printCommandHelp } from '@/bin/help';
 import { RULE_DOC } from '@/bin/rule/doc';
-import {
-  printRuleChangeResult,
-  printRulesListReport,
-  printRulesTestResult,
-} from '@/bin/rule/format';
+import { printRuleChangeResult, printRulesListReport } from '@/bin/rule/format';
 import { runRulesMigrate } from '@/bin/rule/migrate';
 import { getUpdateNotice } from '@/bin/rule/update-notice';
 import { runRulesVerify } from '@/bin/rule/verify';
@@ -19,7 +15,6 @@ import {
   readRulesConfig,
   removeRulebookSource,
   syncRulesConfig,
-  testRulebookSources,
   writeDefaultRulesConfig,
   writeStarterRulebook,
 } from '@/core/rules/policy';
@@ -52,7 +47,6 @@ const RULE_SUBCOMMANDS = new Set([
   'sync',
   'list',
   'wrapper',
-  'test',
   'migrate',
   'doc',
   'verify',
@@ -157,22 +151,6 @@ async function runRuleCommandInternal(args: readonly string[]): Promise<number> 
 
   if (subcommand === 'wrapper') {
     return runRuleWrapperCommand(flags);
-  }
-
-  if (subcommand === 'test') {
-    const loaded = value ? null : readRulesConfig(getScopePaths(options).configTarget);
-    if (loaded && loaded.errors.length > 0) {
-      printRulesTestResult({ ok: false, errors: loaded.errors, warnings: [], entries: [] });
-      return 1;
-    }
-    const sources = value ? [value] : (loaded?.config?.rules ?? []);
-    if (sources.length === 0) {
-      console.log('No rulebooks configured; nothing to test.');
-      return 0;
-    }
-    const result = await testRulebookSources(sources, options);
-    printRulesTestResult(result);
-    return result.ok ? 0 : 1;
   }
 
   if (subcommand === 'migrate') {

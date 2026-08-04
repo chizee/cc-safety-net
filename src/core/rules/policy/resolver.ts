@@ -59,6 +59,7 @@ export const GITHUB_FETCH_LIMITS = Object.freeze({
   rawBytes: 4 * 1024 * 1024,
 });
 
+/** @internal */
 export async function resolveRulebookSource(
   spec: string,
   configDir: string,

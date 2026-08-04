@@ -1,6 +1,5 @@
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { NAME_PATTERN } from '@/core/rules/policy/source-syntax';
-import { runRulebookFixtures } from '@/core/rules/rulebook';
 import { readRulesConfig, readScopeRulesConfig, writeJsonAtomic } from './config-file';
 import {
   getPolicyFilesystemTargetForPath,
@@ -29,7 +28,6 @@ import {
   type DiscoveredRulebookSource,
   discoverGitHubRepositoryRulebooks,
   type ResolvedRulebook,
-  resolveRulebookSource,
   resolveRulebookSourceForSync,
 } from './resolver';
 import {
@@ -221,55 +219,6 @@ async function syncRulesConfigInternal(
         return failWithError(rollbackError);
       }
     }
-    return failWithError(error);
-  }
-}
-
-export async function testRulebookSources(
-  sources: string[],
-  options: SyncRulesConfigOptions = {},
-): Promise<SyncRulesConfigResult> {
-  if (sources.length > RULE_SOURCE_LIMIT) return sourceLimitResult();
-  const projectedOptions = projectSyncOptions(options);
-  const scope = getScopePaths(projectedOptions);
-  try {
-    const operation = createRuleSyncOperation();
-    const resolved = await mapRulebookSources(
-      sources,
-      (spec) =>
-        resolveRulebookSource(
-          spec,
-          scope.configDir,
-          projectedOptions,
-          scope.filesystemScope,
-          operation,
-        ),
-      operation,
-    );
-    const ruleCountsBySpec = new Map(
-      resolved.map((item) => [item.entry.spec, item.rulebook.rules.length]),
-    );
-    const testCountsBySpec = new Map(
-      resolved.map((item) => [item.entry.spec, item.rulebook.tests.length]),
-    );
-    const fixtureErrors = resolved.flatMap((item) =>
-      runRulebookFixtures(item.rulebook).failures.map((failure) =>
-        [
-          `${item.entry.spec}: ${failure.command}: ${failure.message}`,
-          ...failure.trace.map((line) => `  ${line}`),
-        ].join('\n'),
-      ),
-    );
-    return {
-      ok: fixtureErrors.length === 0,
-      errors: fixtureErrors,
-      warnings: [],
-      entries: resolved.map((item) => ({
-        ...addRuleCount(item.entry, ruleCountsBySpec),
-        testCount: testCountsBySpec.get(item.entry.spec),
-      })),
-    };
-  } catch (error) {
     return failWithError(error);
   }
 }

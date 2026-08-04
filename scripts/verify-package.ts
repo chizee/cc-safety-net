@@ -160,7 +160,11 @@ export async function verifyPackage(): Promise<void> {
         tests: [{ command: 'echo TOPSECRET', expect: 'blocked', rule: 'oversized' }],
       }),
     );
-    const ruleLimitResult = run(['node', cli, 'rule', 'test', 'package-limits'], directory, [1]);
+    writeFileSync(
+      join(directory, '.cc-safety-net', 'rules', 'rule.json'),
+      JSON.stringify({ version: 1, rules: ['package-limits'] }),
+    );
+    const ruleLimitResult = run(['node', cli, 'rule', 'sync'], directory, [1]);
     if (
       !ruleLimitResult.stderr.includes(
         "Rulebook exceeds CC Safety Net's safe validation limits.",

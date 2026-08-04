@@ -33,49 +33,12 @@ function printActiveRulebookSummary(entries: RulebookLockEntryWithStats[]): void
   console.log(`Active rulebooks (${entries.length}):`);
   for (const entry of entries) {
     console.log(`  - ${entry.name} ${entry.version} (${formatRuleCount(entry.ruleCount ?? 0)})`);
-    console.log(`    Source: ${formatRulebookSource(entry, new Map())}`);
+    console.log(`    Source: ${getRulebookDisplaySource(entry)}`);
   }
 }
 
 function formatRuleCount(count: number): string {
   return `${count} ${count === 1 ? 'rule' : 'rules'}`;
-}
-
-function formatRulebookSource(
-  entry: RulebookLockEntryWithStats,
-  sourceDisplayMap: Map<string, string>,
-): string {
-  return sourceDisplayMap.get(entry.spec) ?? getRulebookDisplaySource(entry);
-}
-
-export function printRulesTestResult(
-  result: {
-    ok: boolean;
-    errors: string[];
-    warnings?: string[];
-    entries: RulebookLockEntryWithStats[];
-  },
-  sourceDisplayMap: Map<string, string> = new Map(),
-): void {
-  if (!result.ok) {
-    printResultErrors(result);
-    return;
-  }
-  printResultWarnings(result);
-  console.log('Rulebook tests passed.');
-  console.log('');
-  for (const entry of result.entries) {
-    console.log(`  ${entry.name} ${entry.version}`);
-    console.log(`    Source: ${formatRulebookSource(entry, sourceDisplayMap)}`);
-    console.log(`    Rules: ${entry.ruleCount ?? 0}`);
-    console.log(`    Tests: ${entry.testCount ?? 0}`);
-  }
-  if (result.entries.length < 2) return;
-
-  console.log('');
-  console.log(
-    `Tested ${result.entries.length} rulebooks, ${sumStats(result.entries, 'ruleCount')} rules, ${sumStats(result.entries, 'testCount')} tests.`,
-  );
 }
 
 export function printRulesListReport(
@@ -136,10 +99,6 @@ function getMergedOverrides(
       return !!entry[1] && typeof entry[1] === 'object';
     })
     .map(([key, value]) => ({ key, value }));
-}
-
-function sumStats(entries: RulebookLockEntryWithStats[], key: 'ruleCount' | 'testCount'): number {
-  return entries.reduce((total, entry) => total + (entry[key] ?? 0), 0);
 }
 
 function printResultErrors(result: { errors: string[] }): void {

@@ -2,14 +2,13 @@ import { COMMAND_PATTERN } from '@/core/analyze/constants';
 import type { ValidationResult } from '@/core/config';
 import { iterateCustomRuleErrors } from '@/core/rules/custom-rule-validation';
 import { NAME_PATTERN } from '@/core/rules/policy/source-syntax';
-import { evaluateRulebookFixtures } from '@/core/rules/rulebook-fixtures';
 import {
   isRulebookWithinAcceptanceLimits,
   RULEBOOK_LIMIT_ERROR,
   RULEBOOK_LIMITS,
   RULEBOOK_VALIDATION_TRUNCATED,
 } from '@/core/rules/rulebook-limits';
-import type { Rulebook, RulebookFixtureResult } from '@/core/rules/rulebook-types';
+import type { Rulebook } from '@/core/rules/rulebook-types';
 
 export type { Rulebook } from '@/core/rules/rulebook-types';
 
@@ -175,28 +174,10 @@ function validateFixtures(
   }
 }
 
-export function runRulebookFixtures(rulebook: Rulebook): RulebookFixtureResult {
-  return evaluateRulebookFixtures(rulebook);
-}
-
 export function assertValidRulebook(rulebook: unknown): Rulebook {
   const result = validateRulebook(rulebook);
   if (result.errors.length > 0) {
     throw new Error(result.errors.join('; '));
   }
-  const parsed = rulebook as Rulebook;
-  const fixtures = runRulebookFixtures(parsed);
-  if (!fixtures.ok) {
-    if (
-      fixtures.failures.length === 1 &&
-      fixtures.failures[0]?.command === '' &&
-      fixtures.failures[0].message === RULEBOOK_LIMIT_ERROR
-    ) {
-      throw new Error(RULEBOOK_LIMIT_ERROR);
-    }
-    throw new Error(
-      fixtures.failures.map((failure) => `${failure.command}: ${failure.message}`).join('; '),
-    );
-  }
-  return parsed;
+  return rulebook as Rulebook;
 }

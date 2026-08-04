@@ -29,7 +29,6 @@ export type RulebookLockEntry = LocalDirectoryRulebookLockEntry | GitHubRulebook
 
 export type RulebookLockEntryWithStats = RulebookLockEntry & {
   ruleCount?: number;
-  testCount?: number;
 };
 
 export interface RulesLockfile {

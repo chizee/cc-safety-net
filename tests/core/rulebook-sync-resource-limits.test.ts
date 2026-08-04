@@ -10,7 +10,6 @@ import {
   getRulesLockPathForConfigPath,
   getUserRulesConfigPath,
   syncRulesConfig,
-  testRulebookSources,
 } from '@/core/rules/policy';
 import { getRulebookCachePath } from '@/core/rules/policy/paths';
 import { fetchGitHubResource } from '@/core/rules/policy/resolver';
@@ -153,13 +152,6 @@ describe('rulebook sync source fanout limits', () => {
       expect(JSON.stringify(rejected)).not.toContain('TOPSECRET');
       expect(readFileSync(lockPath, 'utf8')).toBe(lockBefore);
       expect(readFileSync(cachePath, 'utf8')).toBe(cacheBefore);
-      expect((await testRulebookSources(names.slice(0, 64), { cwd })).ok).toBe(true);
-      expect(await testRulebookSources([...names.slice(0, 64), 'TOPSECRET'], { cwd })).toEqual({
-        ok: false,
-        errors: [SOURCE_LIMIT_ERROR],
-        warnings: [],
-        entries: [],
-      });
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

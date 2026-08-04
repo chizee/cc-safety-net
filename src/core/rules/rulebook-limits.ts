@@ -11,8 +11,6 @@ export const RULEBOOK_LIMITS = Object.freeze({
   maxAggregateStringCodeUnits: 4_194_304,
   maxFixtureCommandCodeUnits: 131_072,
   maxValidationErrors: 64,
-  maxFixtureSegments: 16_384,
-  maxFixtureMatchWork: 1_048_576,
 });
 
 export function isRulebookWithinAcceptanceLimits(rulebook: Record<string, unknown>): boolean {

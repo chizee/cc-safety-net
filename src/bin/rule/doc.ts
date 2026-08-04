@@ -115,7 +115,7 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 | \`expect\` | Yes | \`"blocked"\` or \`"allowed"\` |
 | \`rule\` | Required for blocked fixtures | Rule name expected to block the command |
 
-Every rule must have at least one blocked fixture. Add allowed fixtures for close-but-safe commands.
+Every rule must have at least one blocked fixture. Add allowed fixtures for close-but-safe commands. Fixtures are shape-validated only; CC Safety Net does not execute them.
 
 ## Matching Behavior
 
@@ -135,8 +135,7 @@ Every rule must have at least one blocked fixture. Add allowed fixtures for clos
 4. Run \`cc-safety-net rule add <source>\` after creating or choosing a rulebook source; it adds the source and syncs it.
 5. Run \`cc-safety-net rule sync\` after manual \`rule.json\` changes or local rulebook edits.
 6. Run \`cc-safety-net rule verify\` to validate config, lock/cache state, local rulebooks, and shareable GitHub-source rulebook directories in the current repository (it does not fetch remote content).
-7. Run \`cc-safety-net rule test\` to execute every configured rulebook's fixtures, or \`cc-safety-net rule test <source>\` for one rulebook.
-8. Run \`cc-safety-net rule list\` to inspect active rulebooks and transparent wrappers.
+7. Run \`cc-safety-net rule list\` to inspect active rulebooks and transparent wrappers.
 
 An edited or invalid local rulebook keeps its last synced, digest-verified cached version enforced until \`cc-safety-net rule sync\` validates the edit. A missing lock entry or cache, a cache digest mismatch, or an invalid cached rulebook makes that source inactive; a missing lockfile or an unreadable or invalid \`rule.json\` makes every source in its scope inactive. Inactive sources stop applying their rules while other custom rules and all built-in protections stay active. Repair the reported condition, then run \`cc-safety-net rule sync\`. Run \`cc-safety-net status\` to see degraded sources.
 `;

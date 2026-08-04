@@ -28,10 +28,10 @@ Use information already provided in the user's prompt. Ask only when the scope, 
 7. Preserve unrelated existing rulebook sources, overrides, and rulebooks. Preview proposed JSON before writing when creating a new rulebook, merging with existing config, or resolving ambiguity.
 8. For GitHub rules, ensure the repository layout is `.cc-safety-net/rules/<rulebook-name>/rulebook.json`, and ensure the source name, directory name, and rulebook `name` match exactly.
 9. Validate after edits:
-   - Project rules: run `npx -y cc-safety-net rule sync`, `npx -y cc-safety-net rule verify`, `npx -y cc-safety-net rule test`, and `npx -y cc-safety-net rule list`.
-   - User rules: run `npx -y cc-safety-net rule sync --global`, `npx -y cc-safety-net rule verify`, `npx -y cc-safety-net rule test --global`, and `npx -y cc-safety-net rule list`.
-   - Shareable GitHub rulebook-only edits: run `npx -y cc-safety-net rule verify` and `npx -y cc-safety-net rule test <rulebook-name>`. Run `sync` and `list` only if the rulebook is also installed in local `rule.json`.
-10. If validation or tests fail, show the exact errors and make the smallest fix.
+   - Project rules: run `npx -y cc-safety-net rule sync`, `npx -y cc-safety-net rule verify`, and `npx -y cc-safety-net rule list`.
+   - User rules: run `npx -y cc-safety-net rule sync --global`, `npx -y cc-safety-net rule verify`, and `npx -y cc-safety-net rule list`.
+   - Shareable GitHub rulebook-only edits: run `npx -y cc-safety-net rule verify`. Run `sync` and `list` only if the rulebook is also installed in local `rule.json`.
+10. If validation fails, show the exact errors and make the smallest fix.
 11. Confirm the saved paths or GitHub rulebook path and summarize the added or updated rules.
 
 ## Rules

@@ -14,10 +14,6 @@ export const ruleCommand = {
     { usage: 'wrapper add <command>', description: 'Trust a transparent command wrapper' },
     { usage: 'wrapper remove <command>', description: 'Remove a transparent command wrapper' },
     { usage: 'wrapper list', description: 'List transparent command wrappers' },
-    {
-      usage: 'test [source]',
-      description: 'Run fixtures for all configured rulebooks or one source',
-    },
     { usage: 'migrate [--cleanup]', description: 'Migrate legacy inline rules' },
     { usage: 'doc', description: 'Print the rulebook authoring guide' },
     { usage: 'verify', description: 'Validate rule config files' },

@@ -21,12 +21,7 @@ export {
   getRulesConfigSourceDisplayMap,
   loadRulesPolicy,
 } from './scope-policy';
-export {
-  addRulebookSource,
-  removeRulebookSource,
-  syncRulesConfig,
-  testRulebookSources,
-} from './sync';
+export { addRulebookSource, removeRulebookSource, syncRulesConfig } from './sync';
 export type {
   LoadedRulesPolicy,
   RulebookLockEntryWithStats,
