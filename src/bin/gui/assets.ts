@@ -1,8 +1,9 @@
 import { join } from 'node:path';
 
-// The GUI's served document. The four files beside frontend/main.ts ship as
-// text; main.ts is TypeScript, so it is built for the browser here. Everything
-// static is composed in now, leaving the page one request-time hole.
+// The GUI's served document. frontend/page.html is a real HTML document that
+// links its icon, stylesheet and script; this module resolves those references
+// into one self-contained page, so nothing is spliced through placeholder
+// tokens. main.ts is TypeScript, so it is built for the browser here.
 //
 // scripts/gui-assets.ts freezes this export into the dist bundle, so the
 // published CLI reads no files and runs no build to serve the page.
@@ -22,14 +23,34 @@ const buildPageScript = async () => {
   return (await output.text()).replace(/^\/\/ \S*main\.ts\n/, '');
 };
 
-const logoSvg = await readAsset('logo.svg');
-const pageScriptJs = await buildPageScript();
+const [pageHtml, faviconSvg, customCss, logoSvg, pageScriptJs] = await Promise.all([
+  readAsset('page.html'),
+  readAsset('favicon.svg'),
+  readAsset('custom.css'),
+  readAsset('logo.svg'),
+  buildPageScript(),
+]);
 
-export const guiDocument = (await readAsset('page.html'))
-  .replace('/* __CC_SAFETY_NET_CUSTOM_CSS__ */', await readAsset('custom.css'))
-  .replace(
-    '__CC_SAFETY_NET_FAVICON__',
-    `data:image/svg+xml,${encodeURIComponent(await readAsset('favicon.svg'))}`,
-  )
-  .replace('<!-- __CC_SAFETY_NET_LOGO__ -->', () => logoSvg)
-  .replace('/* __CC_SAFETY_NET_SCRIPT__ */', () => pageScriptJs);
+export const guiDocument = new HTMLRewriter()
+  .on('link[rel="icon"]', {
+    element(link) {
+      link.setAttribute('href', `data:image/svg+xml,${encodeURIComponent(faviconSvg)}`);
+    },
+  })
+  .on('link[rel="stylesheet"]', {
+    element(link) {
+      link.replace(`<style>\n${customCss}\n  </style>`, { html: true });
+    },
+  })
+  // The logo is inline SVG so it can take its colour from the surrounding text.
+  .on('a.brand-home', {
+    element(anchor) {
+      anchor.setInnerContent(logoSvg, { html: true });
+    },
+  })
+  .on('script[src]', {
+    element(script) {
+      script.replace(`<script>\n${pageScriptJs}\n  </script>`, { html: true });
+    },
+  })
+  .transform(pageHtml);
