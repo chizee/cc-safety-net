@@ -18,9 +18,10 @@ const buildPageScript = async () => {
   });
   const output = result.outputs[0];
   if (!output) throw new Error(`GUI page script build failed:\n${result.logs.join('\n')}`);
-  // Bun labels the bundle with the entrypoint's path relative to the working
-  // directory, which would publish this machine's layout in the served page.
-  return (await output.text()).replace(/^\/\/ \S*main\.ts\n/, '');
+  // Bun labels each bundled module with its path relative to the working
+  // directory. `bun run` pins that to the package root, so the comments the
+  // served page carries are repository paths, not this machine's layout.
+  return output.text();
 };
 
 const [pageHtml, faviconSvg, customCss, logoSvg, pageScriptJs] = await Promise.all([

@@ -3193,7 +3193,9 @@ var checkbox = (checked) => checked ? "checked" : "";
 var dayCount = (days) => \`\${days} day\${days === 1 ? "" : "s"}\`;
 var syncMasterBadges = () => {
   document.querySelectorAll("label.row.master input").forEach((input) => {
-    input.closest("label").querySelector(".master-badge").textContent = input.checked ? "On" : "Off";
+    const badge = input.closest("label")?.querySelector(".master-badge");
+    if (badge)
+      badge.textContent = input.checked ? "On" : "Off";
   });
 };
 var escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
@@ -3202,7 +3204,7 @@ var escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
   ">": "&gt;",
   '"': "&quot;",
   "'": "&#39;"
-})[char]);
+})[char] ?? char);
 var clonePolicy = (policy) => JSON.parse(JSON.stringify(policy));
 var pathLines = (value) => value.split(\`
 \`).map((line) => line.trim()).filter(Boolean);
@@ -3324,6 +3326,8 @@ var dayLabel = (ts) => {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 };
 var renderOverviewActivity = () => {
+  if (!overview)
+    return;
   const tile = (value, label, extra) => \`<div class="tile"><strong>\${escapeHtml(value.toLocaleString("en-US"))}</strong><span>\${escapeHtml(label)}</span>\${extra}</div>\`;
   const dayAgoLabel = (daysAgo) => daysAgo === 0 ? "Today" : daysAgo === 1 ? "Yesterday" : \`\${daysAgo} days ago\`;
   const sparkline = (byDay, noun) => {
@@ -3341,9 +3345,9 @@ var renderOverviewActivity = () => {
 };
 var retentionDays = () => state?.policy?.audit?.retention_days ?? DEFAULT_RETENTION_DAYS;
 var overviewDays = () => Math.min(OVERVIEW_DAYS, retentionDays());
-var renderRetention = () => {
-  qs("retention-days").value = String(state.policy.audit.retention_days);
-  qs("retention-unit").textContent = state.policy.audit.retention_days === 1 ? "day" : "days";
+var renderRetention = (loaded) => {
+  qs("retention-days").value = String(loaded.policy.audit.retention_days);
+  qs("retention-unit").textContent = loaded.policy.audit.retention_days === 1 ? "day" : "days";
   qs("retention-note").textContent = "Saved on change. Lowering this deletes anything already older than the new window; the Activity tab can only look back as far as it.";
 };
 var activityWindowOptions = () => {
@@ -3364,7 +3368,7 @@ var setProtectionBanner = (notices) => {
 };
 var renderProtectionCard = () => {
   const configNotice = configStateNotice();
-  if (!state || !state.preview) {
+  if (!state?.preview) {
     qs("protection-card").hidden = true;
     setProtectionBanner([configNotice]);
     return;
@@ -3389,9 +3393,13 @@ var renderTopList = (containerId, counts, className, dataAttr) => {
   const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
   qs(containerId).innerHTML = top.length === 0 ? '<p class="empty">No blocked commands in this window.</p>' : top.map(([key, count]) => \`<button type="button" class="\${className}" \${dataAttr}="\${escapeHtml(key)}"><code class="rule-id">\${escapeHtml(key)}</code><span class="chip-count">\${count.toLocaleString("en-US")}</span></button>\`).join("");
 };
-var renderTopRules = () => renderTopList("top-rules", overview.counts.rules, "top-rule", "data-rule-id");
+var renderTopRules = () => {
+  if (!overview)
+    return;
+  renderTopList("top-rules", overview.counts.rules, "top-rule", "data-rule-id");
+};
 var commandSignature = (source) => {
-  const tokens = source.trim().split(/\\s+/).filter((token2) => token2 && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token2));
+  const tokens = (source ?? "").trim().split(/\\s+/).filter((token2) => token2 && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token2));
   const binary = tokens[0]?.split("/").pop();
   if (!binary)
     return null;
@@ -3405,7 +3413,7 @@ var findSuspects = (entries) => {
     const key = signatureKey(entry);
     return counts.set(key, (counts.get(key) ?? 0) + 1);
   }, new Map);
-  return new Set(entries.filter((entry) => entry.decision !== "allow" && (entry.failureStage || repeats.get(signatureKey(entry)) >= 2)));
+  return new Set(entries.filter((entry) => entry.decision !== "allow" && (entry.failureStage || (repeats.get(signatureKey(entry)) ?? 0) >= 2)));
 };
 var clearCommandFilter = () => {
   if (!activityFilters.command)
@@ -3423,18 +3431,27 @@ var jumpToActivityRule = (ruleId) => {
   }
   location.hash = "activity";
 };
-var renderTopCommands = () => renderTopList("top-commands", overview.counts.commands, "top-command", "data-command");
+var renderTopCommands = () => {
+  if (!overview)
+    return;
+  renderTopList("top-commands", overview.counts.commands, "top-command", "data-command");
+};
 var renderTopLists = () => {
   renderTopCommands();
   renderTopRules();
 };
 var renderGuardErrors = () => {
+  if (!overview)
+    return;
   qs("guard-errors").hidden = overview.counts.errors === 0;
   if (overview.counts.errors === 0)
     return;
   qs("guard-errors").textContent = \`\${overview.counts.errors.toLocaleString("en-US")} guard error\${overview.counts.errors === 1 ? "" : "s"} in the last \${dayCount(overview.days)} — commands blocked because evaluation failed, not by policy. Click to view.\`;
 };
 var renderActivityControls = () => {
+  if (!activity)
+    return;
+  const agentCounts = activity.counts.agents;
   const chipHtml = (kind, value, label, count) => \`<button type="button" class="chip" data-activity-chip="\${kind}" data-chip-value="\${escapeHtml(value)}" aria-pressed="\${activityFilters[kind] === value}">\${escapeHtml(label)}\${count === undefined ? "" : \` <span class="chip-count">\${count.toLocaleString("en-US")}</span>\`}</button>\`;
   qs("activity-decision").innerHTML = [
     chipHtml("decision", "all", "All", activity.totalInWindow),
@@ -3443,16 +3460,18 @@ var renderActivityControls = () => {
     ...activity.counts.errors > 0 ? [chipHtml("decision", "error", "Errors", activity.counts.errors)] : [],
     ...suspects.size > 0 ? [chipHtml("decision", "suspect", "Likely false positive", suspects.size)] : []
   ].join("");
-  const agentNames = Object.keys(activity.counts.agents).filter((name) => name !== "unknown").sort();
+  const agentNames = Object.keys(agentCounts).filter((name) => name !== "unknown").sort();
   qs("activity-agents").innerHTML = agentNames.length < 2 ? "" : [
     chipHtml("agent", "all", "All agents"),
-    ...agentNames.map((name) => chipHtml("agent", name, agentLabels[name] ?? name, activity.counts.agents[name]))
+    ...agentNames.map((name) => chipHtml("agent", name, agentLabels[name] ?? name, agentCounts[name]))
   ].join("");
   qs("activity-command-filter").innerHTML = activityFilters.command ? \`<button type="button" class="filter-pill" data-clear-command aria-label="Clear command filter">Command: <code>\${escapeHtml(activityFilters.command)}</code><span class="filter-pill-x" aria-hidden="true">✕</span></button>\` : "";
   qs("activity-days").innerHTML = activityWindowOptions().map((days) => \`<option value="\${days}">Last \${dayCount(days)}</option>\`).join("");
   qs("activity-days").value = String(activity.days);
 };
 var renderActivityFeed = () => {
+  if (!activity)
+    return;
   const matchesFilters = (entry) => {
     if (activityFilters.decision === "deny" && entry.decision === "allow")
       return false;
@@ -3477,7 +3496,8 @@ var renderActivityFeed = () => {
   renderedFeedEntries = entries;
   qs("activity-feed").innerHTML = entries.length === 0 ? '<p class="empty">No audit log entries match.</p>' : \`<div class="feed-list">\${entries.map((entry, index) => {
     const label = dayLabel(entry.ts);
-    const separator = index > 0 && label === dayLabel(entries[index - 1].ts) ? "" : \`<div class="feed-day-sep">\${escapeHtml(label)}</div>\`;
+    const previous = entries[index - 1];
+    const separator = previous && label === dayLabel(previous.ts) ? "" : \`<div class="feed-day-sep">\${escapeHtml(label)}</div>\`;
     return separator + feedItemHtml(entry, index);
   }).join("")}</div>\`;
   applyFeedClamps(qs("activity-feed"));
@@ -3536,7 +3556,10 @@ var refreshActivity = async () => {
   button.disabled = false;
 };
 var renderIntegrations = () => {
-  qs("integrations-list").innerHTML = integrations.targets.map((row) => {
+  const loaded = integrations;
+  if (!loaded)
+    return;
+  qs("integrations-list").innerHTML = loaded.targets.map((row) => {
     const busy2 = integrationBusy.has(row.target);
     const version = row.version === null ? '<span class="muted">not detected</span>' : \`<span class="agent-badge">v\${escapeHtml(row.version)}</span>\`;
     const status = row.status === "active" ? '<span class="state-active">Installed</span>' : row.status === "disabled" ? '<span class="state-disabled">Disabled</span>' : row.status === "not-inspected" ? \`<span class="muted" title="This runtime's state file could not be read, so its status is unknown.">Not inspected</span>\` : '<span class="muted">Not installed</span>';
@@ -3583,9 +3606,9 @@ var loadIntegrations = async () => {
   }
   integrations = result.data;
   renderIntegrations();
-  qs("integrations-pkg-version").textContent = integrations.system.version;
-  qs("integrations-node-version").textContent = integrations.system.nodeVersion ?? "unknown";
-  qs("integrations-platform").textContent = integrations.system.platform;
+  qs("integrations-pkg-version").textContent = result.data.system.version;
+  qs("integrations-node-version").textContent = result.data.system.nodeVersion ?? "unknown";
+  qs("integrations-platform").textContent = result.data.system.platform;
   qs("integrations-system").hidden = false;
 };
 var refreshIntegrations = async () => {
@@ -3600,12 +3623,15 @@ var refreshIntegrations = async () => {
   button.disabled = false;
 };
 var renderRules = () => {
+  const loaded = rulesData;
+  if (!loaded)
+    return;
   if (!qs("rules-project-path").value)
-    qs("rules-project-path").value = rulesData.projectPath;
-  const canPick = rulesData.canPickDirectory && !directoryPickerFailed;
+    qs("rules-project-path").value = loaded.projectPath;
+  const canPick = loaded.canPickDirectory && !directoryPickerFailed;
   qs("rules-project-path").readOnly = canPick;
   qs("rules-choose-directory").hidden = !canPick;
-  qs("rules-list").innerHTML = rulesData.rulebooks.length === 0 ? rulesData.errors.length > 0 ? '<p class="empty">Every configured rulebook was dropped, so no custom rule is enforced. See Diagnostics below.</p>' : '<p class="empty">No custom rulebooks. Run <code>npx -y cc-safety-net rule init</code> to create one, or see the <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">documentation</a>.</p>' : rulesData.rulebooks.map((rulebook) => \`<div class="rulebook-card">
+  qs("rules-list").innerHTML = loaded.rulebooks.length === 0 ? loaded.errors.length > 0 ? '<p class="empty">Every configured rulebook was dropped, so no custom rule is enforced. See Diagnostics below.</p>' : '<p class="empty">No custom rulebooks. Run <code>npx -y cc-safety-net rule init</code> to create one, or see the <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">documentation</a>.</p>' : loaded.rulebooks.map((rulebook) => \`<div class="rulebook-card">
     <div class="rulebook-head">
       <strong>\${escapeHtml(rulebook.name)}</strong>
       <span class="agent-badge">v\${escapeHtml(rulebook.version)}</span>
@@ -3621,8 +3647,8 @@ var renderRules = () => {
     </div>\`).join("")}
   </div>\`).join("");
   const diagnostics = [
-    ...rulesData.errors.map((text) => \`<div class="status error">\${escapeHtml(text)}</div>\`),
-    ...rulesData.warnings.map((text) => \`<div class="status">\${escapeHtml(text)}</div>\`)
+    ...loaded.errors.map((text) => \`<div class="status error">\${escapeHtml(text)}</div>\`),
+    ...loaded.warnings.map((text) => \`<div class="status">\${escapeHtml(text)}</div>\`)
   ];
   qs("rules-diagnostics").innerHTML = diagnostics.join("");
   qs("rules-diagnostics-panel").hidden = diagnostics.length === 0;
@@ -3674,7 +3700,7 @@ var setRulesScope = (scope) => {
   qs("rules-project-path-field").hidden = scope !== "project";
 };
 var rulePromptText = () => {
-  const names = rulesData.rulebooks.map((rulebook) => rulebook.name);
+  const names = rulesData?.rulebooks.map((rulebook) => rulebook.name) ?? [];
   return [
     "Use the cc-safety-net skill for this request.",
     "If that skill is not available, run \`npx -y cc-safety-net rule doc\` first and treat its output as the source of truth for schema, paths, and validation.",
@@ -3730,7 +3756,7 @@ var copyRulePrompt = async () => {
 };
 var runIntegrationAction = async (button) => {
   const target = button.dataset.integrationTarget;
-  if (integrationBusy.has(target))
+  if (!target || integrationBusy.has(target))
     return;
   integrationBusy.add(target);
   const action = button.dataset.integrationAction;
@@ -3740,7 +3766,9 @@ var runIntegrationAction = async (button) => {
     body: JSON.stringify({ target })
   });
   integrationBusy.delete(target);
-  const row = integrations.targets.find((entry) => entry.target === target);
+  const row = integrations?.targets.find((entry) => entry.target === target);
+  if (!row)
+    return;
   const ok = result.ok && result.data.ok === true;
   if (ok)
     row.status = action === "install" ? "active" : "not-installed";
@@ -3774,7 +3802,9 @@ var confirmDialog = (() => {
     qs("confirm-dialog-title").textContent = options.title;
     qs("confirm-dialog-body").textContent = options.body;
     qs("confirm-dialog-detail").textContent = options.detail ?? "";
-    qs("confirm-dialog-detail").parentElement.hidden = !options.detail;
+    const detailRow = qs("confirm-dialog-detail").parentElement;
+    if (detailRow)
+      detailRow.hidden = !options.detail;
     confirm.textContent = options.confirmLabel;
     confirm.className = options.confirmClass ?? "danger";
     dialog.returnValue = "cancel";
@@ -3790,9 +3820,12 @@ var confirmProtectionDisable = (options) => confirmDialog({
   confirmLabel: "Disable protection"
 });
 var togglePanel = (button) => {
+  const controls = button.getAttribute("aria-controls");
+  if (!controls)
+    return;
   const expanded = button.getAttribute("aria-expanded") !== "true";
   button.setAttribute("aria-expanded", String(expanded));
-  qs(button.getAttribute("aria-controls")).hidden = !expanded;
+  qs(controls).hidden = !expanded;
 };
 var syncSearchState = () => {
   const active = qs("policy-search").value.trim().length > 0;
@@ -3846,7 +3879,7 @@ var openReportDialog = (button) => {
   const entry = renderedFeedEntries[Number(button.dataset.reportFp)];
   if (!entry)
     return;
-  const scrub = (text) => scrubReportPaths(text, entry.cwd, activity.homeDir);
+  const scrub = (text) => scrubReportPaths(text, entry.cwd, activity?.homeDir);
   qs("report-command").value = scrub(entry.command || entry.segment || "");
   qs("report-entry").value = JSON.stringify(entry, (_key, value) => typeof value === "string" ? scrub(value) : value, 2);
   qs("report-dialog").returnValue = "cancel";
@@ -3958,8 +3991,12 @@ var starRepo = async (button) => {
   button.disabled = true;
   const result = await requestJson("/api/star", { method: "POST" });
   if (result.ok && result.data?.ok === true) {
-    button.querySelector(".star-icon").innerHTML = starIcons.filled;
-    button.querySelector(".star-label").textContent = "Starred. Thank you.";
+    const icon = button.querySelector(".star-icon");
+    const label = button.querySelector(".star-label");
+    if (icon)
+      icon.innerHTML = starIcons.filled;
+    if (label)
+      label.textContent = "Starred. Thank you.";
     button.setAttribute("aria-label", "CC Safety Net starred on GitHub");
     button.classList.add("starred");
     qs("star-mechanism").hidden = true;
@@ -3982,7 +4019,7 @@ var syncRawFromForm = () => {
   updateRawSource();
 };
 var updateDirtyStatus = () => {
-  if (state?.errors.length)
+  if (!state || state.errors.length)
     return;
   const draftJson = JSON.stringify(collectFormPolicy());
   dirty = draftJson !== JSON.stringify(state.policy);
@@ -4098,6 +4135,7 @@ var pathLists = {
     }
   })
 };
+var pathListFor = (name) => name === "deny-paths" || name === "allow-paths" ? pathLists[name] : null;
 var secretRuleIsActive = (rule, overrides) => overrides[rule.id] ? overrides[rule.id] === "on" : !rule.defaultOff;
 var setSecretOverride = (rule, active) => {
   if (active === !rule.defaultOff) {
@@ -4116,6 +4154,9 @@ var groupRules = (rules) => rules.reduce((groups, rule) => {
   return groups;
 }, []);
 var renderSecretPatterns = () => {
+  if (!state)
+    return;
+  const loaded = state;
   const query = qs("policy-search").value.trim().toLowerCase();
   const rules = state.secretPatterns.filter((rule) => [rule.category, rule.label, rule.id, rule.description, ...rule.paths ?? []].join(" ").toLowerCase().includes(query));
   const overrides = draftPolicy.secret_protection.overrides;
@@ -4125,7 +4166,7 @@ var renderSecretPatterns = () => {
   qs("secret-patterns").innerHTML = rules.length === 0 ? '<p class="empty">No secret protections match the search.</p>' : groupRules(rules).map((group) => {
     const expanded = secretGroupExpanded.get(group.category) || searchActive && !searchCollapsedSecretGroups.has(group.category);
     const contentId = \`secret-group-\${group.category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}\`;
-    const allGroupRules = state.secretPatterns.filter((rule) => rule.category === group.category);
+    const allGroupRules = loaded.secretPatterns.filter((rule) => rule.category === group.category);
     const onCount = disabled ? 0 : allGroupRules.filter((rule) => secretRuleIsActive(rule, overrides)).length;
     return \`
       <section class="rule-tier">
@@ -4206,7 +4247,8 @@ var tierMeta = {
   strict: ["Strict tier", "Inherits from Fail closed"],
   paranoid: ["Paranoid tier", "Inherits from Paranoid rm or Paranoid interpreters"]
 };
-var ruleStateText = (rule, effective) => {
+var ruleStateText = (rule, effective, capabilities) => {
+  const capability = rule.activationCapability;
   if (effective.source === "master_disabled")
     return "Off — destructive-command protection disabled";
   if (effective.source === "rule_override")
@@ -4214,12 +4256,12 @@ var ruleStateText = (rule, effective) => {
   if (effective.source === "built_in_default")
     return "On — available in every preset";
   if (effective.source === "environment") {
-    const capability = preview.capabilities[rule.activationCapability];
-    const source = [...capability.sources].reverse().find((item) => item.startsWith("env "));
+    const sources = capability ? capabilities[capability]?.sources ?? [] : [];
+    const source = [...sources].reverse().find((item) => item.startsWith("env "));
     return \`\${effective.enabled ? "On" : "Off"} — environment\${source ? \`; \${source.slice(4)}\` : ""}\`;
   }
-  if (effective.source === "capability_override") {
-    return \`\${effective.enabled ? "On" : "Off"} — capability override; \${safetyOverrides[rule.activationCapability][0]} forced \${effective.enabled ? "on" : "off"}\`;
+  if (effective.source === "capability_override" && capability) {
+    return \`\${effective.enabled ? "On" : "Off"} — capability override; \${safetyOverrides[capability][0]} forced \${effective.enabled ? "on" : "off"}\`;
   }
   if (effective.enabled)
     return \`On — \${presetName()} preset\`;
@@ -4243,21 +4285,23 @@ var showRulePopover = (button, label, title, body) => {
   popover.style.left = \`\${left}px\`;
 };
 var openRuleExample = (button) => {
-  const rule = state.destructiveCommandRules.find((item) => item.id === button.dataset.ruleExample);
+  const rule = state?.destructiveCommandRules.find((item) => item.id === button.dataset.ruleExample);
   if (!rule)
     return;
   showRulePopover(button, "Blocked command example", rule.label, rule.example);
 };
 var openSecretPaths = (button) => {
-  const rule = state.secretPatterns.find((item) => item.id === button.dataset.secretPaths);
-  if (!rule)
+  const rule = state?.secretPatterns.find((item) => item.id === button.dataset.secretPaths);
+  if (!rule?.paths)
     return;
   showRulePopover(button, "Protected paths", rule.label, rule.paths.join(\`
 \`));
 };
 var renderDestructiveCommands = () => {
-  if (!preview)
+  if (!state || !preview)
     return;
+  const loaded = state;
+  const effectiveState = preview;
   const query = qs("policy-search").value.trim().toLowerCase();
   const matchingRules = state.destructiveCommandRules.filter((rule) => [rule.category, rule.label, rule.id, rule.description, tierMeta[tierForRule(rule)][0]].join(" ").toLowerCase().includes(query));
   qs("destructive-command-summary").textContent = draftPolicy.destructive_command_protection.enabled ? \`\${preview.counts.enabled} active, \${preview.counts.disabled} disabled\` : "Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.";
@@ -4292,8 +4336,8 @@ var renderDestructiveCommands = () => {
     const rules = configurableRules.filter((rule) => tierForRule(rule) === tier);
     if (rules.length === 0)
       return "";
-    const allTierRules = state.destructiveCommandRules.filter((rule) => !rule.catastrophic && tierForRule(rule) === tier);
-    const tierStates = allTierRules.map((rule) => preview.rules[rule.id]);
+    const allTierRules = loaded.destructiveCommandRules.filter((rule) => !rule.catastrophic && tierForRule(rule) === tier);
+    const tierStates = allTierRules.flatMap((rule) => effectiveState.rules[rule.id] ?? []);
     const expanded = tierExpanded.get(tier) || searchActive && !searchCollapsedTiers.has(tier);
     const contentId = \`destructive-tier-\${tier}\`;
     return \`<section class="rule-tier rule-tier-\${tier}">
@@ -4312,9 +4356,11 @@ var renderDestructiveCommands = () => {
           \${groupRules(rules).map((group) => \`<section class="destructive-command-group">
             <h3>\${escapeHtml(group.category)}</h3>
             <div class="grid">\${group.rules.map((rule) => {
-      const effective = preview.rules[rule.id];
+      const effective = effectiveState.rules[rule.id];
+      if (!effective)
+        return "";
       const override = draftPolicy.destructive_command_protection.overrides[rule.id];
-      const status = ruleStateText(rule, effective);
+      const status = ruleStateText(rule, effective, effectiveState.capabilities);
       const disabled = !draftPolicy.destructive_command_protection.enabled;
       return \`<div class="row rule-row \${disabled ? "row-disabled" : ""}">
                 <label class="rule-control">
@@ -4387,6 +4433,8 @@ var runCommandTest = async () => {
   el.innerHTML = \`Blocked\${ruleId ? \` by \${ruleIdHtml}\` : ""} — \${escapeHtml(result.data.reason || "")}\${segment}\`;
 };
 function render() {
+  if (!state)
+    return;
   draftPolicy = clonePolicy(state.policy);
   preview = state.preview;
   knownRuleIds = new Set([...state.destructiveCommandRules, ...state.secretPatterns].map((rule) => rule.id));
@@ -4406,7 +4454,7 @@ function render() {
   pathLists["deny-paths"].render();
   pathLists["allow-paths"].render();
   updateRawSource();
-  renderRetention();
+  renderRetention(state);
   qs("recovery").hidden = state.errors.length === 0;
   updateActions();
   renderProtectionCard();
@@ -4422,7 +4470,7 @@ function render() {
   setDetailStatus("");
 }
 var restoreDraft = () => {
-  if (state.errors.length)
+  if (!state || state.errors.length)
     return;
   const stored = sessionStorage.getItem("cc-safety-net-draft");
   if (!stored)
@@ -4446,7 +4494,9 @@ var restoreDraft = () => {
     return;
   }
   draftPolicy = parsed;
-  document.querySelector("[data-destructive-command-enabled]").checked = draftPolicy.destructive_command_protection.enabled;
+  const masterToggle = document.querySelector("[data-destructive-command-enabled]");
+  if (masterToggle)
+    masterToggle.checked = draftPolicy.destructive_command_protection.enabled;
   qs("secret-enabled").checked = draftPolicy.secret_protection.enabled;
   syncMasterBadges();
   renderSafety();
@@ -4471,8 +4521,12 @@ async function load() {
   restoreDraft();
   return true;
 }
+var targetInput = (event) => event.target instanceof HTMLInputElement ? event.target : null;
+var targetElement = (event) => event.target instanceof Element ? event.target : null;
 document.addEventListener("input", (event) => {
-  const input = event.target;
+  const input = targetInput(event);
+  if (!input)
+    return;
   if (input.id === "policy-search") {
     syncSearchState();
     renderDestructiveCommands();
@@ -4488,19 +4542,25 @@ document.addEventListener("input", (event) => {
   }
 });
 document.addEventListener("keydown", (event) => {
-  if (event.target?.id === "tester-input" && event.key === "Enter") {
+  const input = targetInput(event);
+  if (!input)
+    return;
+  if (input.id === "tester-input" && event.key === "Enter") {
     event.preventDefault();
     runCommandTest();
     return;
   }
-  const list = pathLists[event.target?.dataset?.pathInput];
+  const list = pathListFor(input.dataset.pathInput);
   if (!list || event.key !== "Enter")
     return;
   event.preventDefault();
-  list.add(event.target.value);
+  list.add(input.value);
 });
 document.addEventListener("paste", (event) => {
-  const list = pathLists[event.target?.dataset?.pathInput];
+  const input = targetInput(event);
+  if (!input)
+    return;
+  const list = pathListFor(input.dataset.pathInput);
   if (!list)
     return;
   const text = event.clipboardData?.getData("text") ?? "";
@@ -4508,13 +4568,14 @@ document.addEventListener("paste", (event) => {
 \`))
     return;
   event.preventDefault();
-  list.add(\`\${event.target.value}
+  list.add(\`\${input.value}
 \${text}\`);
 });
 var saveRetentionDays = async (days) => {
-  const current = state?.policy.audit.retention_days;
-  if (current === undefined)
+  const saved = state;
+  if (!saved)
     return;
+  const current = saved.policy.audit.retention_days;
   if (!Number.isInteger(days) || days < 1 || days > MAX_RETENTION_DAYS) {
     qs("retention-days").value = String(current);
     setAppStatus("Retention unchanged", "error");
@@ -4540,7 +4601,7 @@ var saveRetentionDays = async (days) => {
     return;
   }
   await runExclusive("Saving...", async () => {
-    const policy = clonePolicy(state.policy);
+    const policy = clonePolicy(saved.policy);
     policy.audit.retention_days = days;
     const result = await requestJson("/api/policy", {
       method: "POST",
@@ -4561,36 +4622,41 @@ var saveRetentionDays = async (days) => {
   });
 };
 document.addEventListener("change", (event) => {
-  const input = event.target;
-  if (input.id === "activity-days") {
-    activityFilters.days = Number(input.value);
+  const control = event.target;
+  if (!(control instanceof HTMLInputElement || control instanceof HTMLSelectElement))
+    return;
+  if (control.id === "activity-days") {
+    activityFilters.days = Number(control.value);
     loadActivity();
     return;
   }
-  if (input.id === "retention-days") {
-    saveRetentionDays(Number(input.value));
+  if (control.id === "retention-days") {
+    saveRetentionDays(Number(control.value));
     return;
   }
-  if (input.name === "safety-level") {
-    draftPolicy.safety.level = input.value;
+  if (control.name === "safety-level") {
+    draftPolicy.safety.level = control.value;
     renderSafety();
     syncRawFromForm();
     updateDirtyStatus();
     refreshPolicyPreview();
     return;
   }
-  if (input.dataset?.safetyOverride) {
-    if (input.value === "inherit")
-      delete draftPolicy.safety.overrides[input.dataset.safetyOverride];
-    if (input.value === "true")
-      draftPolicy.safety.overrides[input.dataset.safetyOverride] = true;
-    if (input.value === "false")
-      draftPolicy.safety.overrides[input.dataset.safetyOverride] = false;
+  if (control.dataset?.safetyOverride) {
+    if (control.value === "inherit")
+      delete draftPolicy.safety.overrides[control.dataset.safetyOverride];
+    if (control.value === "true")
+      draftPolicy.safety.overrides[control.dataset.safetyOverride] = true;
+    if (control.value === "false")
+      draftPolicy.safety.overrides[control.dataset.safetyOverride] = false;
     syncRawFromForm();
     updateDirtyStatus();
     refreshPolicyPreview();
     return;
   }
+  const input = control instanceof HTMLInputElement ? control : null;
+  if (!input)
+    return;
   if ("workflowWorktree" in input.dataset) {
     draftPolicy.workflow.worktree_mode = input.checked;
     syncRawFromForm();
@@ -4617,8 +4683,11 @@ document.addEventListener("change", (event) => {
     return;
   }
   if (input.dataset?.destructiveTierActive) {
-    state.destructiveCommandRules.filter((rule) => !rule.catastrophic && tierForRule(rule) === input.dataset.destructiveTierActive).forEach((rule) => {
-      if (input.checked === preview.rules[rule.id].inheritedEnabled) {
+    const effectiveState = preview;
+    if (!effectiveState)
+      return;
+    state?.destructiveCommandRules.filter((rule) => !rule.catastrophic && tierForRule(rule) === input.dataset.destructiveTierActive).forEach((rule) => {
+      if (input.checked === effectiveState.rules[rule.id]?.inheritedEnabled) {
         delete draftPolicy.destructive_command_protection.overrides[rule.id];
         return;
       }
@@ -4631,7 +4700,7 @@ document.addEventListener("change", (event) => {
   }
   if (input.dataset?.destructiveCommandActive) {
     const ruleId = input.dataset.destructiveCommandActive;
-    if (input.checked === preview.rules[ruleId].inheritedEnabled)
+    if (input.checked === preview?.rules[ruleId]?.inheritedEnabled)
       delete draftPolicy.destructive_command_protection.overrides[ruleId];
     else
       draftPolicy.destructive_command_protection.overrides[ruleId] = input.checked ? "on" : "off";
@@ -4641,7 +4710,7 @@ document.addEventListener("change", (event) => {
     return;
   }
   if (input.dataset?.secretGroupActive) {
-    state.secretPatterns.filter((rule) => rule.category === input.dataset.secretGroupActive).forEach((rule) => {
+    state?.secretPatterns.filter((rule) => rule.category === input.dataset.secretGroupActive).forEach((rule) => {
       setSecretOverride(rule, input.checked);
     });
     renderSecretPatterns();
@@ -4650,7 +4719,10 @@ document.addEventListener("change", (event) => {
     return;
   }
   if (input.dataset?.secretActive) {
-    setSecretOverride(state.secretPatterns.find((rule) => rule.id === input.dataset.secretActive), input.checked);
+    const rule = state?.secretPatterns.find((item) => item.id === input.dataset.secretActive);
+    if (!rule)
+      return;
+    setSecretOverride(rule, input.checked);
     renderSecretPatterns();
     syncRawFromForm();
     updateDirtyStatus();
@@ -4675,67 +4747,73 @@ document.addEventListener("change", (event) => {
   }
 });
 document.addEventListener("click", (event) => {
-  if (event.target.closest?.("#tester-run")) {
+  const target = targetElement(event);
+  if (!target)
+    return;
+  if (target.closest("#tester-run")) {
     runCommandTest();
     return;
   }
-  const createRule = event.target.closest?.("[data-create-rule]");
+  const createRule = target.closest("[data-create-rule]");
   if (createRule) {
-    openRuleComposer(createRule.dataset.createRule);
+    openRuleComposer(createRule.dataset.createRule ?? "");
     return;
   }
-  const feedToggle = event.target.closest?.("[data-feed-toggle]");
+  const feedToggle = target.closest("[data-feed-toggle]");
   if (feedToggle) {
-    const expanded = feedToggle.previousElementSibling.classList.toggle("expanded");
+    const command = feedToggle.previousElementSibling;
+    if (!command)
+      return;
+    const expanded = command.classList.toggle("expanded");
     feedToggle.setAttribute("aria-expanded", String(expanded));
     feedToggle.textContent = expanded ? "Show less" : "Show more";
     return;
   }
-  const feedCopy = event.target.closest?.("[data-log-copy]");
+  const feedCopy = target.closest("[data-log-copy]");
   if (feedCopy) {
     copyFeedEntry(feedCopy);
     return;
   }
-  const feedReport = event.target.closest?.("[data-report-fp]");
+  const feedReport = target.closest("[data-report-fp]");
   if (feedReport) {
     openReportDialog(feedReport);
     return;
   }
-  const blockFuture = event.target.closest?.("[data-block-future]");
+  const blockFuture = target.closest("[data-block-future]");
   if (blockFuture) {
     const entry = renderedFeedEntries[Number(blockFuture.dataset.blockFuture)];
     if (entry?.segment || entry?.command)
-      openRuleComposer(entry.segment || entry.command);
+      openRuleComposer(entry.segment || entry.command || "");
     return;
   }
-  const topRule = event.target.closest?.(".top-rule");
+  const topRule = target.closest(".top-rule");
   if (topRule) {
-    const ruleId = topRule.dataset.ruleId;
+    const ruleId = topRule.dataset.ruleId ?? "";
     (ruleId.startsWith("custom.") ? jumpToRulesRule : jumpToActivityRule)(ruleId);
     return;
   }
-  const ruleActivity = event.target.closest?.("[data-rule-activity]");
+  const ruleActivity = target.closest("[data-rule-activity]");
   if (ruleActivity) {
-    jumpToActivityRule(ruleActivity.dataset.ruleActivity);
+    jumpToActivityRule(ruleActivity.dataset.ruleActivity ?? "");
     return;
   }
-  const jumpRule = event.target.closest?.("[data-jump-rule]");
+  const jumpRule = target.closest("[data-jump-rule]");
   if (jumpRule) {
-    qs("policy-search").value = jumpRule.dataset.jumpRule;
+    qs("policy-search").value = jumpRule.dataset.jumpRule ?? "";
     syncSearchState();
     renderDestructiveCommands();
     renderSecretPatterns();
     location.hash = "policy";
     return;
   }
-  const jumpCustom = event.target.closest?.("[data-jump-custom-rule]");
+  const jumpCustom = target.closest("[data-jump-custom-rule]");
   if (jumpCustom) {
-    jumpToRulesRule(jumpCustom.dataset.jumpCustomRule);
+    jumpToRulesRule(jumpCustom.dataset.jumpCustomRule ?? "");
     return;
   }
-  const topCommand = event.target.closest?.(".top-command");
+  const topCommand = target.closest(".top-command");
   if (topCommand) {
-    activityFilters.command = topCommand.dataset.command;
+    activityFilters.command = topCommand.dataset.command ?? "";
     activityFilters.decision = "deny";
     activityFilters.query = "";
     qs("activity-search").value = "";
@@ -4746,13 +4824,13 @@ document.addEventListener("click", (event) => {
     location.hash = "activity";
     return;
   }
-  if (event.target.closest?.("[data-clear-command]")) {
+  if (target.closest("[data-clear-command]")) {
     clearCommandFilter();
     renderActivityControls();
     renderActivityFeed();
     return;
   }
-  if (event.target.closest?.("#guard-errors")) {
+  if (target.closest("#guard-errors")) {
     clearCommandFilter();
     activityFilters.decision = "error";
     if (activity) {
@@ -4762,62 +4840,62 @@ document.addEventListener("click", (event) => {
     location.hash = "activity";
     return;
   }
-  const chip = event.target.closest?.("[data-activity-chip]");
+  const chip = target.closest("[data-activity-chip]");
   if (chip && activity) {
     clearCommandFilter();
-    activityFilters[chip.dataset.activityChip] = chip.dataset.chipValue;
+    activityFilters[chip.dataset.activityChip] = chip.dataset.chipValue ?? "";
     renderActivityControls();
     renderActivityFeed();
     return;
   }
-  if (event.target.closest?.("#activity-refresh")) {
+  if (target.closest("#activity-refresh")) {
     refreshActivity();
     return;
   }
-  if (event.target.closest?.("#integrations-refresh")) {
+  if (target.closest("#integrations-refresh")) {
     refreshIntegrations();
     return;
   }
-  if (event.target.closest?.("#rules-refresh")) {
+  if (target.closest("#rules-refresh")) {
     refreshRules();
     return;
   }
-  const scopeChip = event.target.closest?.("[data-rules-scope]");
+  const scopeChip = target.closest("[data-rules-scope]");
   if (scopeChip) {
-    setRulesScope(scopeChip.dataset.rulesScope);
+    setRulesScope(scopeChip.dataset.rulesScope ?? "");
     return;
   }
-  const exampleChip = event.target.closest?.("[data-rules-example]");
+  const exampleChip = target.closest("[data-rules-example]");
   if (exampleChip) {
-    qs("rules-composer-input").value = exampleChip.dataset.rulesExample;
+    qs("rules-composer-input").value = exampleChip.dataset.rulesExample ?? "";
     return;
   }
-  if (event.target.closest?.("#rules-choose-directory")) {
+  if (target.closest("#rules-choose-directory")) {
     chooseProjectDirectory();
     return;
   }
-  if (event.target.closest?.("#rules-copy-prompt")) {
+  if (target.closest("#rules-copy-prompt")) {
     copyRulePrompt();
     return;
   }
-  const integrationButton = event.target.closest?.("[data-integration-action]");
+  const integrationButton = target.closest("[data-integration-action]");
   if (integrationButton) {
     runIntegrationAction(integrationButton);
     return;
   }
-  const ruleExampleButton = event.target.closest?.("[data-rule-example]");
+  const ruleExampleButton = target.closest("[data-rule-example]");
   if (ruleExampleButton) {
     openRuleExample(ruleExampleButton);
     return;
   }
-  const secretPathsButton = event.target.closest?.("[data-secret-paths]");
+  const secretPathsButton = target.closest("[data-secret-paths]");
   if (secretPathsButton) {
     openSecretPaths(secretPathsButton);
     return;
   }
-  const tierButton = event.target.closest?.("[data-tier-toggle]");
+  const tierButton = target.closest("[data-tier-toggle]");
   if (tierButton) {
-    const tier = tierButton.dataset.tierToggle;
+    const tier = tierButton.dataset.tierToggle ?? "";
     const expanded = tierButton.getAttribute("aria-expanded") === "true";
     tierExpanded.set(tier, !expanded);
     if (searchActive && expanded)
@@ -4827,9 +4905,9 @@ document.addEventListener("click", (event) => {
     renderDestructiveCommands();
     return;
   }
-  const secretGroupButton = event.target.closest?.("[data-secret-group-toggle]");
+  const secretGroupButton = target.closest("[data-secret-group-toggle]");
   if (secretGroupButton) {
-    const category = secretGroupButton.dataset.secretGroupToggle;
+    const category = secretGroupButton.dataset.secretGroupToggle ?? "";
     const expanded = secretGroupButton.getAttribute("aria-expanded") === "true";
     secretGroupExpanded.set(category, !expanded);
     if (searchActive && expanded)
@@ -4839,22 +4917,22 @@ document.addEventListener("click", (event) => {
     renderSecretPatterns();
     return;
   }
-  if (event.target.closest?.("[data-secret-group-active], [data-destructive-tier-active]"))
+  if (target.closest("[data-secret-group-active], [data-destructive-tier-active]"))
     return;
-  const button = event.target.closest?.(".panel-toggle, .rule-tier-head");
+  const button = target.closest(".panel-toggle, .rule-tier-head");
   if (button) {
     togglePanel(button);
     return;
   }
-  const inheritedButton = event.target.closest?.("[data-use-inherited]");
+  const inheritedButton = target.closest("[data-use-inherited]");
   if (inheritedButton) {
-    delete draftPolicy.destructive_command_protection.overrides[inheritedButton.dataset.useInherited];
+    delete draftPolicy.destructive_command_protection.overrides[inheritedButton.dataset.useInherited ?? ""];
     syncRawFromForm();
     updateDirtyStatus();
     refreshPolicyPreview();
     return;
   }
-  if (event.target.closest?.("#reset-rule-customizations")) {
+  if (target.closest("#reset-rule-customizations")) {
     if (Object.keys(draftPolicy.destructive_command_protection.overrides).length === 0) {
       setAppStatus("No customizations to reset", "ok");
       return;
@@ -4873,7 +4951,7 @@ document.addEventListener("click", (event) => {
     })();
     return;
   }
-  if (event.target.closest?.("#reset-secret-customizations")) {
+  if (target.closest("#reset-secret-customizations")) {
     if (Object.keys(draftPolicy.secret_protection.overrides).length === 0) {
       setAppStatus("No customizations to reset", "ok");
       return;
@@ -4893,7 +4971,7 @@ document.addEventListener("click", (event) => {
     })();
     return;
   }
-  if (event.target.closest?.("#discard-changes")) {
+  if (target.closest("#discard-changes")) {
     (async () => {
       if (!await confirmDialog({
         title: "Discard unsaved changes?",
@@ -4910,16 +4988,18 @@ document.addEventListener("click", (event) => {
     })();
     return;
   }
-  const addButton = event.target.closest?.("[data-path-add]");
+  const addButton = target.closest("[data-path-add]");
   if (addButton) {
-    pathLists[addButton.dataset.pathAdd].add(qs(\`\${addButton.dataset.pathAdd}-input\`).value);
+    const list = pathListFor(addButton.dataset.pathAdd);
+    if (list)
+      list.add(qs(\`\${addButton.dataset.pathAdd}-input\`).value);
     return;
   }
-  const removeButton = event.target.closest?.("[data-path-remove]");
+  const removeButton = target.closest("[data-path-remove]");
   if (removeButton)
-    pathLists[removeButton.dataset.pathList].remove(Number(removeButton.dataset.pathRemove));
-  const starButton = event.target.closest?.(".star-cta");
-  if (starButton?.tagName === "BUTTON") {
+    pathListFor(removeButton.dataset.pathList)?.remove(Number(removeButton.dataset.pathRemove));
+  const starButton = target.closest(".star-cta");
+  if (starButton instanceof HTMLButtonElement) {
     starRepo(starButton);
     return;
   }
@@ -5048,7 +5128,7 @@ var applyTheme = (pref) => {
 var themePref = themeOrder.includes(localStorage.getItem("cc-safety-net-theme")) ? localStorage.getItem("cc-safety-net-theme") : "auto";
 applyTheme(themePref);
 qs("theme-toggle").onclick = () => {
-  themePref = themeOrder[(themeOrder.indexOf(themePref) + 1) % themeOrder.length];
+  themePref = themeOrder[(themeOrder.indexOf(themePref) + 1) % themeOrder.length] ?? "auto";
   if (themePref === "auto")
     localStorage.removeItem("cc-safety-net-theme");
   else

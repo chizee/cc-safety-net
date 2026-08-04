@@ -40,17 +40,5 @@
       "trailingCommas": "all",
       "semicolons": "always"
     }
-  },
-  "overrides": [
-    {
-      "includes": ["src/bin/gui/frontend/**"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noNonNullAssertion": "off"
-          }
-        }
-      }
-    }
-  ]
+  }
 }

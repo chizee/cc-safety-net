@@ -152,7 +152,7 @@ describe('false positive report', () => {
       '${deny ? `<button type="button" class="icon-button feed-report" data-report-fp="${index}"',
     );
     expect(html).toContain(
-      'const scrub = (text) => scrubReportPaths(text, entry.cwd, activity.homeDir);',
+      'const scrub = (text) => scrubReportPaths(text, entry.cwd, activity?.homeDir);',
     );
     expect(html).toContain('<textarea id="report-command"');
     expect(html).toContain('<textarea id="report-entry"');

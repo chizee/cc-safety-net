@@ -445,7 +445,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('const requestId = ++previewRequestId;');
       expect(html).toContain('if (requestId !== previewRequestId)\n    return false;');
       expect(html).toContain(
-        'if (input.checked === preview.rules[ruleId].inheritedEnabled)\n      delete draftPolicy.destructive_command_protection.overrides[ruleId];',
+        'if (input.checked === preview?.rules[ruleId]?.inheritedEnabled)\n      delete draftPolicy.destructive_command_protection.overrides[ruleId];',
       );
       expect(html).toContain('var tierExpanded = new Map([');
       expect(html).toContain('["strict", false]');
@@ -541,7 +541,8 @@ describe('policy GUI server', () => {
       expect(html).toContain('id="confirm-dialog-confirm"');
       expect(html).toContain('var confirmDialog =');
       expect(html).toContain('showModal()');
-      expect(html).toContain('qs("confirm-dialog-detail").parentElement.hidden = !options.detail;');
+      expect(html).toContain('const detailRow = qs("confirm-dialog-detail").parentElement;');
+      expect(html).toContain('detailRow.hidden = !options.detail;');
       expect(html).toContain('var confirmProtectionDisable =');
       expect(html).toContain('Disable destructive command protection?');
       expect(html).toContain('Custom rules remain active.');
@@ -702,9 +703,8 @@ describe('policy GUI server', () => {
       expect(html).not.toContain('star-dismiss');
       expect(html).toContain('var fallbackRepoUrl = "https://github.com/kenryu42/cc-safety-net";');
       expect(html).toContain('const result = await requestJson("/api/star", { method: "POST" });');
-      expect(html).toContain(
-        'button.querySelector(".star-label").textContent = "Starred. Thank you.";',
-      );
+      expect(html).toContain('const label = button.querySelector(".star-label");');
+      expect(html).toContain('label.textContent = "Starred. Thank you.";');
       expect(html).toContain(
         'renderStarLink(activeStarContext, result.data?.fallbackUrl ?? fallbackRepoUrl);',
       );
