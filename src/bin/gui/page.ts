@@ -1,12 +1,10 @@
-import { integrationDisplayNames } from '@/integrations/catalog';
-import { customCss, faviconSvg, logoSvg, pageHtml, pageScriptJs } from './assets';
+import { guiDocument } from './assets';
 
 export function renderPolicyGuiHtml(token: string): string {
-  return pageHtml
-    .replace('/* __CC_SAFETY_NET_CUSTOM_CSS__ */', customCss)
-    .replace('__CC_SAFETY_NET_FAVICON__', `data:image/svg+xml,${encodeURIComponent(faviconSvg)}`)
-    .replace('<!-- __CC_SAFETY_NET_LOGO__ -->', () => logoSvg)
-    .replace('/* __CC_SAFETY_NET_SCRIPT__ */', () => pageScriptJs)
-    .replace('__CC_SAFETY_NET_AGENT_LABELS__', () => JSON.stringify(integrationDisplayNames))
-    .replace('__CC_SAFETY_NET_TOKEN__', JSON.stringify(token));
+  // The placeholder is quoted so the data tag holds valid JSON before it is
+  // filled in, so the quotes go with it. Escaping `<` keeps the payload from
+  // closing the tag whatever the token holds; JSON.parse reads it back as `<`.
+  return guiDocument.replace('"__CC_SAFETY_NET_DATA__"', () =>
+    JSON.stringify({ token }).replaceAll('<', '\\u003c'),
+  );
 }

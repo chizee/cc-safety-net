@@ -1,8 +1,4 @@
-// Both identifiers are spliced into this script by src/bin/gui/page.ts: the
-// per-server token at request time, the agent labels from the integration
-// catalog. They are declared, never defined, so the bundler leaves them free.
-declare const __CC_SAFETY_NET_TOKEN__: string;
-declare const __CC_SAFETY_NET_AGENT_LABELS__: Record<string, string>;
+import { integrationDisplayNames } from '@/integrations/catalog';
 
 type SafetyLevel = 'standard' | 'strict' | 'paranoid';
 type Capability = 'fail_closed' | 'paranoid_rm' | 'paranoid_interpreters';
@@ -133,7 +129,9 @@ type ConfirmOptions = {
   confirmClass?: string;
 };
 
-const token = __CC_SAFETY_NET_TOKEN__;
+// The one value the server injects per request, carried in a JSON data tag.
+const token = (JSON.parse(document.getElementById('ccsn-data')!.textContent!) as { token: string })
+  .token;
 const fallbackRepoUrl = 'https://github.com/kenryu42/cc-safety-net';
 const safetyLevels: Record<SafetyLevel, [string, string]> = {
   standard: [
@@ -410,7 +408,7 @@ const isActivityFeed = (value: ActivityFeed | undefined): value is ActivityFeed 
   Array.isArray(value.entries) &&
   !!value.counts &&
   typeof value.counts === 'object';
-const agentLabels = __CC_SAFETY_NET_AGENT_LABELS__;
+const agentLabels: Record<string, string> = integrationDisplayNames;
 const tierCountHtml = (segments: [number, string, string?][]) => {
   const parts = segments
     .filter(([count]) => count > 0)

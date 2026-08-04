@@ -1,9 +1,10 @@
 import { join } from 'node:path';
 
-// The GUI's browser assets. The four files beside frontend/main.ts ship as text;
-// main.ts is TypeScript, so it is built for the browser here.
+// The GUI's served document. The four files beside frontend/main.ts ship as
+// text; main.ts is TypeScript, so it is built for the browser here. Everything
+// static is composed in now, leaving the page one request-time hole.
 //
-// scripts/gui-assets.ts freezes these exports into the dist bundle, so the
+// scripts/gui-assets.ts freezes this export into the dist bundle, so the
 // published CLI reads no files and runs no build to serve the page.
 const frontendDir = join(import.meta.dir, 'frontend');
 const readAsset = (name: string) => Bun.file(join(frontendDir, name)).text();
@@ -21,8 +22,14 @@ const buildPageScript = async () => {
   return (await output.text()).replace(/^\/\/ \S*main\.ts\n/, '');
 };
 
-export const pageHtml = await readAsset('page.html');
-export const customCss = await readAsset('custom.css');
-export const faviconSvg = await readAsset('favicon.svg');
-export const logoSvg = await readAsset('logo.svg');
-export const pageScriptJs = await buildPageScript();
+const logoSvg = await readAsset('logo.svg');
+const pageScriptJs = await buildPageScript();
+
+export const guiDocument = (await readAsset('page.html'))
+  .replace('/* __CC_SAFETY_NET_CUSTOM_CSS__ */', await readAsset('custom.css'))
+  .replace(
+    '__CC_SAFETY_NET_FAVICON__',
+    `data:image/svg+xml,${encodeURIComponent(await readAsset('favicon.svg'))}`,
+  )
+  .replace('<!-- __CC_SAFETY_NET_LOGO__ -->', () => logoSvg)
+  .replace('/* __CC_SAFETY_NET_SCRIPT__ */', () => pageScriptJs);

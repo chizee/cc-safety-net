@@ -164,7 +164,14 @@ describe('policy GUI server', () => {
 
       expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
       expect(html).toContain('<title>CC Safety Net</title>');
-      expect(html).toContain(`var token = ${JSON.stringify(server.token)};`);
+      // The token is the whole request-time surface: a JSON data tag the page
+      // script reads, rather than a value spliced into the script source.
+      expect(html).toContain(
+        `<script id="ccsn-data" type="application/json">{"token":"${server.token}"}</script>`,
+      );
+      expect(html).toContain(
+        'var token = JSON.parse(document.getElementById("ccsn-data").textContent).token;',
+      );
       expect(html).toContain('cc-safety-net-gui-custom-css');
       expect(html).toContain('role="status"');
       expect(html).toContain('aria-live="polite"');
@@ -314,11 +321,17 @@ describe('policy GUI server', () => {
       );
       // Agent display names; the badge renders only for identified agents.
       // Every audit `agent` value is an integration id, so a hand-kept subset
-      // would silently render raw ids for whatever it missed.
+      // would silently render raw ids for whatever it missed. The labels are
+      // bundled from the integration catalog now, so evaluate that block of the
+      // built script instead of matching the bundler's layout.
+      const bundledLabels = new Function(
+        `${html.slice(
+          html.indexOf('var catalog = ['),
+          html.indexOf('// src/bin/gui/frontend/main.ts'),
+        )}return integrationDisplayNames;`,
+      )() as Record<string, string>;
       for (const id of doctorIntegrationOrder) {
-        expect(html).toContain(
-          `${JSON.stringify(id)}:${JSON.stringify(getIntegrationDisplayName(id))}`,
-        );
+        expect(bundledLabels[id]).toBe(getIntegrationDisplayName(id));
       }
       expect(html).toContain('entry.agent && entry.agent !== "unknown"');
       // Unattributed logs get no chip; they fall under the "All agents" view.
