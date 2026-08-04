@@ -27,47 +27,22 @@ function importedLayer(specifier: string): string | null {
 }
 
 describe('source architecture', () => {
-  test('keeps dependency direction between ir, parser, rules, policy, analyzer, guards, engine, integrations, cli, and gui', () => {
-    // Edges no rename can untangle; each needs a code change to remove
-    const layerExceptions: readonly [string, string][] = [
-      ['policy/schema.ts', '@/analyzer/transparent-wrappers'],
-      ['policy/schema.ts', '@/engine/audit-retention-days'],
-      ['policy/store.ts', '@/engine/audit-retention-days'],
-      ['analyzer/find.ts', '@/guards/git-metadata-protection'],
-      ['analyzer/powershell/remove-item.ts', '@/guards/git-metadata-protection'],
-      ['analyzer/recursive-delete-targets.ts', '@/guards/git-metadata-protection'],
-      ['analyzer/rm.ts', '@/guards/git-metadata-protection'],
-    ];
+  test('keeps dependency direction between ir, parser, core, engine, integrations, cli, and gui', () => {
     const violations = sourceFiles().flatMap((path) => {
       const owner = layer(path);
-      const file = relative(SOURCE_ROOT, path);
       return imports(path).flatMap((specifier) => {
-        if (layerExceptions.some(([owned, allowed]) => owned === file && allowed === specifier)) {
-          return [];
-        }
         const target = importedLayer(specifier);
         const invalid =
           (owner === 'ir' && target !== null && target !== 'ir') ||
           (owner === 'parser' && target !== null && !['ir', 'parser'].includes(target)) ||
-          (owner === 'rules' &&
+          (['rules', 'policy', 'analyzer', 'guards'].includes(owner) &&
             target !== null &&
-            !['ir', 'parser', 'rules', 'policy'].includes(target)) ||
-          (owner === 'policy' &&
-            target !== null &&
-            !['ir', 'parser', 'rules', 'policy'].includes(target)) ||
-          (owner === 'analyzer' &&
-            target !== null &&
-            !['ir', 'parser', 'rules', 'policy', 'analyzer'].includes(target)) ||
-          (owner === 'guards' &&
-            target !== null &&
-            !['ir', 'parser', 'rules', 'policy', 'analyzer', 'guards'].includes(target)) ||
+            ['engine', 'integrations', 'cli', 'gui'].includes(target)) ||
           (owner === 'engine' &&
             target !== null &&
-            !['ir', 'parser', 'rules', 'policy', 'analyzer', 'guards', 'engine'].includes(
-              target,
-            )) ||
-          (!['cli', 'gui'].includes(owner) && (target === 'cli' || target === 'gui'));
-        return invalid ? [`${file} -> ${specifier}`] : [];
+            ['integrations', 'cli', 'gui'].includes(target)) ||
+          (owner === 'integrations' && (target === 'cli' || target === 'gui'));
+        return invalid ? [`${relative(SOURCE_ROOT, path)} -> ${specifier}`] : [];
       });
     });
     expect(violations).toEqual([]);

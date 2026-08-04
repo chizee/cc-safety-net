@@ -16,10 +16,6 @@ import {
 export { DESTRUCTIVE_COMMAND_RULE_METADATA } from '@/rules/destructive-command-rules';
 export { SECRET_PROTECTION_RULE_METADATA } from '@/rules/secret-protection-rules';
 
-import {
-  clampAuditRetentionDays,
-  DEFAULT_AUDIT_RETENTION_DAYS,
-} from '@/engine/audit-retention-days';
 import type {
   DestructiveCommandRuleOverride,
   EffectiveDestructiveCommandRuleState,
@@ -28,6 +24,10 @@ import type {
   PolicySafetyLevel,
   SecretProtectionConfig,
 } from '@/ir/policy';
+import {
+  clampAuditRetentionDays,
+  DEFAULT_AUDIT_RETENTION_DAYS,
+} from '@/policy/audit-retention-days';
 import { writeJsonAtomic } from '@/rules/policy/config-file';
 import { getUserRulesDir, POLICY_FILE } from '@/rules/policy/paths';
 import type { RulesPolicyOptions } from '@/rules/policy/types';

@@ -1,10 +1,10 @@
 import { createRequire } from 'node:module';
 import type * as Zod from 'zod';
 import { isReservedTransparentWrapper } from '@/analyzer/transparent-wrappers';
-import { MAX_AUDIT_RETENTION_DAYS, MIN_AUDIT_RETENTION_DAYS } from '@/engine/audit-retention-days';
 import { BLOCK_INTENTS } from '@/ir/decision';
 import { processHomeDir } from '@/ir/environment';
 import { getDestructiveAllowPathError, getSecretDenyPathError } from '@/policy/allow-paths';
+import { MAX_AUDIT_RETENTION_DAYS, MIN_AUDIT_RETENTION_DAYS } from '@/policy/audit-retention-days';
 import { COMMAND_PATTERN, MAX_REASON_LENGTH } from '@/rules/constants';
 import { DESTRUCTIVE_COMMAND_RULE_ID_SET } from '@/rules/destructive-command-rules';
 import { RULE_SOURCE_LIMIT, RULE_SOURCE_LIMIT_ERROR } from '@/rules/policy/resource-limits';

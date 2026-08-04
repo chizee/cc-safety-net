@@ -9,11 +9,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { AuditLogEntry } from '@/ir/audit';
 import {
   clampAuditRetentionDays,
   DEFAULT_AUDIT_RETENTION_DAYS,
-} from '@/engine/audit-retention-days';
-import type { AuditLogEntry } from '@/ir/audit';
+} from '@/policy/audit-retention-days';
 import { getUserRulesDir, POLICY_FILE } from '@/rules/policy/paths';
 import type { RulesPolicyOptions } from '@/rules/policy/types';
 
