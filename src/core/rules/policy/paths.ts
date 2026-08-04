@@ -28,22 +28,18 @@ const RULES_SUBDIR = 'rules';
 const CACHE_SUBDIR = 'cache';
 const CC_SAFETY_NET_HOME = 'CC_SAFETY_NET_HOME';
 export const RULE_SYNC_COMMAND = '`cc-safety-net rule sync`';
-export const RULE_MIGRATE_COMMAND = '`npx -y cc-safety-net rule migrate`';
 
 export interface PolicyPaths {
   userConfigPath: string;
   projectConfigPath: string;
   userLockPath: string;
   projectLockPath: string;
-  projectLegacyPath: string;
   userScope: PolicyFilesystemScope;
   projectScope: PolicyFilesystemScope;
-  projectLegacyScope: PolicyFilesystemScope;
   userConfigTarget: PolicyFilesystemTarget;
   projectConfigTarget: PolicyFilesystemTarget;
   userLockTarget: PolicyFilesystemTarget;
   projectLockTarget: PolicyFilesystemTarget;
-  projectLegacyTarget: PolicyFilesystemTarget;
 }
 
 export interface ScopePaths {
@@ -109,20 +105,13 @@ export function getPolicyPaths(options: RulesPolicyOptions): PolicyPaths {
   const projectConfigPath = options.projectConfigPath ?? getProjectRulesConfigPath(options.cwd);
   const userScope = getUserPolicyFilesystemScope(userConfigPath, options);
   const projectScope = getProjectPolicyFilesystemScope(projectConfigPath, options);
-  const projectLegacyPath = getLegacyProjectRulesConfigPath(options);
-  const projectLegacyScope = bindPolicyFilesystemScope(
-    resolve(options.cwd ?? process.cwd()),
-    'project policy',
-  );
   return {
     userConfigPath,
     projectConfigPath,
     userLockPath: getRulesLockPathForConfigPath(userConfigPath),
     projectLockPath: getRulesLockPathForConfigPath(projectConfigPath),
-    projectLegacyPath,
     userScope,
     projectScope,
-    projectLegacyScope,
     userConfigTarget: getPolicyFilesystemTargetForPath(userScope, userConfigPath),
     projectConfigTarget: getPolicyFilesystemTargetForPath(projectScope, projectConfigPath),
     userLockTarget: getPolicyFilesystemTargetForPath(
@@ -133,7 +122,6 @@ export function getPolicyPaths(options: RulesPolicyOptions): PolicyPaths {
       projectScope,
       getRulesLockPathForConfigPath(projectConfigPath),
     ),
-    projectLegacyTarget: getPolicyFilesystemTargetForPath(projectLegacyScope, projectLegacyPath),
   };
 }
 

@@ -1,4 +1,4 @@
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname } from 'node:path';
 import { assertValidRulebook, type Rulebook } from '@/core/rules/rulebook';
 import type { CustomRule } from '@/domain/policy';
 import { readRulesConfig } from './config-file';
@@ -13,15 +13,12 @@ import {
 } from './filesystem';
 import { readLockfile } from './lockfile';
 import {
-  getLegacyUserRulesConfigPath,
   getPolicyPaths,
   getRulebookCacheOptions,
   getRulebookCachePath,
   getRulebookDisplaySource,
   getRulesLockPathForConfigPath,
-  RULE_MIGRATE_COMMAND,
   RULE_SYNC_COMMAND,
-  RULEBOOK_FILE,
 } from './paths';
 import { sha256Digest } from './resolver';
 import type {
@@ -32,8 +29,6 @@ import type {
   RulesConfig,
   RulesPolicyOptions,
 } from './types';
-
-const ENFORCING_CACHED_RULEBOOK = 'enforcing the verified cached rulebook';
 
 interface ScopePolicy {
   rules: CustomRule[];
@@ -63,15 +58,6 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
   const project = sameConfigPath
     ? { config: null, errors: [] }
     : readRulesConfig(paths.projectConfigTarget);
-  let legacyErrors: string[];
-  try {
-    legacyErrors = getLegacyRulesConfigErrors(paths, options);
-  } catch (error) {
-    if (error instanceof PolicyFilesystemError) {
-      return invalidLoadedRulesPolicy(paths, error.message);
-    }
-    throw error;
-  }
   const userReadErrors = formatPolicyReadErrors(paths.userConfigPath, user.errors);
   const projectReadErrors = formatPolicyReadErrors(paths.projectConfigPath, project.errors);
 
@@ -112,7 +98,6 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
     transparent_wrappers: mergeTransparentWrappers(user.config, project.config),
     rulebooks: [...userPolicy.rulebooks, ...projectPolicy.rulebooks],
     errors: [
-      ...legacyErrors,
       ...userReadErrors,
       ...projectReadErrors,
       ...userPolicy.errors,
@@ -264,7 +249,6 @@ export function loadScopePolicy(
       return [];
     }
     const loadedRulebook = loadLockedRulebook(entry, configDir, options, filesystemScope);
-    warnings.push(...loadedRulebook.warnings);
     if (loadedRulebook.errors.length > 0 || !loadedRulebook.rulebook) {
       errors.push(...loadedRulebook.errors);
       return [];
@@ -310,16 +294,14 @@ function loadLockedRulebook(
   configDir: string,
   options: RulesPolicyOptions,
   filesystemScope: PolicyFilesystemScope,
-): { rulebook: Rulebook | null; errors: string[]; warnings: string[] } {
-  const errors: string[] = [];
-  const warnings: string[] = [];
+): { rulebook: Rulebook | null; errors: string[] } {
   const cachePath = getRulebookCachePath(entry, getRulebookCacheOptions(configDir, options));
   let cacheContent: string | null;
   try {
     cacheContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, cachePath));
   } catch (error) {
     if (error instanceof PolicyFilesystemError) {
-      return { rulebook: null, errors: [error.message], warnings };
+      return { rulebook: null, errors: [error.message] };
     }
     throw error;
   }
@@ -327,64 +309,32 @@ function loadLockedRulebook(
     return {
       rulebook: null,
       errors: [`missing cache entry for ${entry.spec}; run ${RULE_SYNC_COMMAND}`],
-      warnings,
     };
   }
 
   if (sha256Digest(cacheContent) !== entry.digest) {
-    errors.push(`cache digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-    return { rulebook: null, errors, warnings };
+    return {
+      rulebook: null,
+      errors: [`cache digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`],
+    };
   }
-  let rulebook: Rulebook | null = null;
+  let parsed: unknown;
   try {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(cacheContent) as unknown;
-    } catch {
-      errors.push(`invalid cached rulebook for ${entry.spec}`);
-      return { rulebook: null, errors, warnings };
-    }
+    parsed = JSON.parse(cacheContent) as unknown;
+  } catch {
+    return { rulebook: null, errors: [`invalid cached rulebook for ${entry.spec}`] };
+  }
+  try {
     assertValidRulebook(parsed);
-    rulebook = parsed as Rulebook;
   } catch (error) {
-    errors.push(
-      `invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : 'invalid rulebook'}`,
-    );
-    return { rulebook: null, errors, warnings };
+    return {
+      rulebook: null,
+      errors: [
+        `invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : 'invalid rulebook'}`,
+      ],
+    };
   }
-  if (entry.kind === 'local-directory') {
-    const sourcePath = resolve(configDir, entry.path);
-    const sourceRelative = relative(resolve(configDir), sourcePath);
-    if (
-      sourceRelative === '..' ||
-      sourceRelative.startsWith(`..${sep}`) ||
-      isAbsolute(sourceRelative)
-    ) {
-      errors.push(
-        `lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`,
-      );
-      return { rulebook: null, errors, warnings };
-    }
-    const localPath = join(sourcePath, RULEBOOK_FILE);
-    let localContent: string | null;
-    try {
-      localContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, localPath));
-    } catch (error) {
-      if (error instanceof PolicyFilesystemError) {
-        return { rulebook: null, errors: [error.message], warnings };
-      }
-      throw error;
-    }
-    if (localContent === null) {
-      warnings.push(
-        `missing local source for ${entry.spec}; ${ENFORCING_CACHED_RULEBOOK}; restore the source or remove it, then run ${RULE_SYNC_COMMAND}`,
-      );
-    }
-    if (localContent !== null && sha256Digest(localContent) !== entry.digest) {
-      warnings.push(getLocalSourceDriftWarning(entry.spec, localContent));
-    }
-  }
-  return { rulebook: errors.length === 0 ? rulebook : null, errors, warnings };
+  return { rulebook: parsed as Rulebook, errors: [] };
 }
 
 function mergeTransparentWrappers(
@@ -397,111 +347,6 @@ function mergeTransparentWrappers(
       ...(projectConfig?.transparent_wrappers ?? []),
     ]),
   ];
-}
-
-function getLegacyRulesConfigErrors(
-  paths: ReturnType<typeof getPolicyPaths>,
-  options: RulesPolicyOptions,
-): string[] {
-  return Array.from(
-    new Set([
-      ...getLegacyRulesConfigError(
-        getLegacyUserRulesConfigPath(options),
-        paths.userConfigPath,
-        '~/.cc-safety-net/config.json',
-        paths.userScope,
-        paths.userConfigTarget,
-        paths.userScope,
-      ),
-      ...getLegacyRulesConfigError(
-        paths.projectLegacyPath,
-        paths.projectConfigPath,
-        '.safety-net.json',
-        paths.projectLegacyScope,
-        paths.projectConfigTarget,
-        paths.projectScope,
-      ),
-    ]),
-  );
-}
-
-function getLegacyRulesConfigError(
-  legacyPath: string,
-  configPath: string,
-  migratedFrom: string,
-  filesystemScope: PolicyFilesystemScope,
-  configTarget: PolicyFilesystemTarget,
-  configFilesystemScope: PolicyFilesystemScope,
-): string[] {
-  const legacyContent = readPolicyFile(
-    getPolicyFilesystemTargetForPath(filesystemScope, legacyPath),
-  );
-  if (legacyContent === null) return [];
-  if (hasMigrationEvidence(configTarget, dirname(configPath), migratedFrom, configFilesystemScope))
-    return [];
-  if (!legacyRulesConfigNeedsMigration(legacyContent)) return [];
-  return [
-    `legacy rules config location is no longer used; ask the user to run ${RULE_MIGRATE_COMMAND}`,
-  ];
-}
-
-function legacyRulesConfigNeedsMigration(content: string): boolean {
-  try {
-    const parsed = JSON.parse(content) as unknown;
-    if (!parsed || typeof parsed !== 'object') return true;
-    const config = parsed as Record<string, unknown>;
-    if (config.version !== 1) return true;
-    if (config.rules === undefined) return false;
-    if (!Array.isArray(config.rules)) return true;
-    return config.rules.length > 0;
-  } catch {
-    return true;
-  }
-}
-
-function hasMigrationEvidence(
-  configTarget: PolicyFilesystemTarget,
-  configDir: string,
-  migratedFrom: string,
-  filesystemScope: PolicyFilesystemScope,
-): boolean {
-  const config = readRulesConfig(configTarget).config;
-  if (!config) return false;
-  return config.rules.some(
-    (source) => getRulebookMigratedFromTarget(configDir, source, filesystemScope) === migratedFrom,
-  );
-}
-
-function getRulebookMigratedFromTarget(
-  configDir: string,
-  source: string,
-  filesystemScope: PolicyFilesystemScope,
-): string | null {
-  if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(source)) return null;
-  const path = join(configDir, source, RULEBOOK_FILE);
-  try {
-    const content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, path));
-    if (content === null) return null;
-    const rulebook = JSON.parse(content) as Record<string, unknown>;
-    return typeof rulebook.migrated_from === 'string' ? rulebook.migrated_from : null;
-  } catch {
-    return null;
-  }
-}
-
-function getLocalSourceDriftWarning(spec: string, content: string): string {
-  try {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(content) as unknown;
-    } catch {
-      return `invalid local rulebook for ${spec}; ${ENFORCING_CACHED_RULEBOOK}; fix the rulebook, then run ${RULE_SYNC_COMMAND}`;
-    }
-    assertValidRulebook(parsed);
-  } catch (error) {
-    return `invalid local rulebook for ${spec}: ${error instanceof Error ? error.message : String(error)}; ${ENFORCING_CACHED_RULEBOOK}; fix the rulebook, then run ${RULE_SYNC_COMMAND}`;
-  }
-  return `local source digest mismatch for ${spec}; ${ENFORCING_CACHED_RULEBOOK}; the local edit stays pending until you run ${RULE_SYNC_COMMAND}`;
 }
 
 function applyOverrides(

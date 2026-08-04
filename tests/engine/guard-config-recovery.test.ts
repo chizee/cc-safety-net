@@ -237,18 +237,6 @@ const DROPPED_SOURCE_ROWS: [string, FailureRow][] = [
 /** Failures a verified or protective fallback absorbs, so enforcement continues. */
 const FALLBACK_ROWS: [string, FailureRow][] = [
   [
-    'local rulebook source drift after sync',
-    {
-      prepare: syncProjectRulebook,
-      breakConfig: (fixture) =>
-        rewriteRulebookReason(join(fixture.projectRulesDir, 'project-rules', 'rulebook.json')),
-      token: () => 'local source digest mismatch for project-rules',
-      // The verified cache still carries the pre-drift reason, so the pending
-      // local edit is provably not active.
-      customRule: 'enforced',
-    },
-  ],
-  [
     'unknown rule override key',
     {
       prepare: syncProjectRulebook,
@@ -475,7 +463,14 @@ describe('configuration recovery', () => {
       await syncProjectRulebook(fixture);
       expectUsableRuntime(fixture);
 
-      rewriteRulebookReason(join(fixture.projectRulesDir, 'project-rules', 'rulebook.json'));
+      writeFileSync(
+        fixture.projectConfigPath,
+        JSON.stringify({
+          version: 1,
+          rules: ['project-rules'],
+          overrides: { 'project-rules/nope': 'off' },
+        }),
+      );
       const token = 'sk-proj_1234567890abcdefghijklmnopqrstuv';
       writeFileSync(fixture.userPolicyPath, `{"version":1,"token":"${token}"`);
 
@@ -483,7 +478,7 @@ describe('configuration recovery', () => {
       // so the state rides into the audit metadata there too.
       const allowed = evaluateCommand(fixture, 'ls');
       expectAllowed(allowed, 'command-analysis');
-      expect(allowed.configFallback?.reason).toContain('local source digest mismatch');
+      expect(allowed.configFallback?.reason).toContain('unknown override key "project-rules/nope"');
       expect(
         projectGuardAudit(commandInvocation(fixture, 'ls'), allowed, true)?.configFallback,
       ).toBeTrue();
@@ -494,8 +489,7 @@ describe('configuration recovery', () => {
       });
       expect(denial?.configWarning).toBe(allowed.configFallback?.reason);
       const message = denial ? formatDenial(denial) : '';
-      expect(message).toContain('Config warning: local source digest mismatch for project-rules');
-      expect(message).toContain('enforcing the verified cached rulebook');
+      expect(message).toContain('Config warning: unknown override key "project-rules/nope"');
       expect(message).toContain('Enforcing built-in protective defaults');
       // The rejected bytes are named, never copied.
       expect(message).toContain('Invalid JSON');

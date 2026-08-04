@@ -14,8 +14,6 @@ import { hermeticSafetyNetHome, runCCSafetyNetCli, withEnv, withStdoutColor } fr
  */
 
 const WIDTH = 80;
-const MIGRATE_DIAGNOSTIC =
-  'legacy rules config location is no longer used; ask the user to run `npx -y cc-safety-net rule migrate`';
 const PLUGIN_DIAGNOSTIC =
   'plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected.';
 
@@ -146,14 +144,6 @@ describe('status command', () => {
     expect(result.output).toContain('Full report: cc-safety-net doctor');
   });
 
-  test('prints the migrate diagnostic verbatim for a legacy rules config', async () => {
-    await writeFile(join(project, '.safety-net.json'), '{not json');
-
-    const result = await runStatus();
-
-    expect(issueBullets(result.output)).toEqual([MIGRATE_DIAGNOSTIC]);
-  });
-
   test('leads with the plugin bullet and still prints the facts when the plugin is off', async () => {
     await writePluginSettings(settingsPath, false);
 
@@ -265,7 +255,7 @@ describe('status command', () => {
   });
 
   test('wraps a long diagnostic with a hanging indent instead of overflowing the width', async () => {
-    await writeFile(join(project, '.safety-net.json'), '{not json');
+    await writePluginSettings(settingsPath, false);
 
     const lines = (await runStatus()).output.trimEnd().split('\n');
 

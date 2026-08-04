@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from 'bun:test';
-import { rmSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as systemInfo from '@/bin/doctor/system-info';
 import { runRuleCommand } from '@/bin/rule';
@@ -13,11 +13,18 @@ describe('rule list exit code', () => {
       const rulesDir = join(tempDir, '.cc-safety-net', 'rules');
       writeProjectRuleConfig(rulesDir);
       expect((await runCCSafetyNetCli(['rule', 'sync'], env, tempDir)).exitCode).toBe(0);
-      rmSync(join(rulesDir, 'project-rules', 'rulebook.json'));
+      writeFileSync(
+        join(rulesDir, 'rule.json'),
+        JSON.stringify({
+          version: 1,
+          rules: ['project-rules'],
+          overrides: { 'project-rules/nope': 'off' },
+        }),
+      );
 
       const result = await runCCSafetyNetCli(['rule', 'list'], env, tempDir);
 
-      expect(result.output).toContain('missing local source for project-rules');
+      expect(result.output).toContain('unknown override key "project-rules/nope"');
       expect(result.output).toContain('Warnings (1):');
       expect(result.output).toContain('Issues: (none)');
       expect(result.exitCode).toBe(0);

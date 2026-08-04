@@ -93,7 +93,7 @@ export async function syncRulesConfigWithHooks(
 
 /**
  * Publishing a lock does not prove the synchronized scope loads cleanly: an unknown override key
- * and a pending local edit only appear once the policy is reloaded the way the guard loads it.
+ * only appears once the policy is reloaded the way the guard loads it.
  * Report what that reload finds instead of reporting success while the runtime state stays degraded.
  * The reload covers the scope being synchronized, so diagnostics owned by the other scope are left
  * alone: this run cannot repair them, and failing on them would break synchronizing one scope while

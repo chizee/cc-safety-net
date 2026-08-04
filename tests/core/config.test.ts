@@ -9,7 +9,6 @@ import {
   validateConfigFile,
   validateRulesConfigFile,
 } from '@/core/config';
-import { syncRulesConfig } from '@/core/rules/policy';
 import { validateRulesConfig } from '@/core/rules/policy/config-file';
 import { SECRET_DEFAULT_OFF_RULE_ID_SET } from '@/core/secret-protection-rules';
 import { analyzeTestCommand as analyzeCommand, loadTestPolicy } from '../helpers/policy';
@@ -483,30 +482,6 @@ describe('runtime config loading', () => {
     ).toEqual(['transparent_wrappers[0]: reserved command "xargs" cannot be a wrapper']);
   });
 
-  function writeLegacyProjectConfig(rules: unknown[] = []): void {
-    writeFileSync(join(tempDir, '.safety-net.json'), JSON.stringify({ version: 1, rules }));
-  }
-
-  function writeEmptyProjectRulesConfig(): void {
-    mkdirSync(join(tempDir, '.cc-safety-net', 'rules'), { recursive: true });
-    writeFileSync(
-      join(tempDir, '.cc-safety-net', 'rules', 'rule.json'),
-      JSON.stringify({ version: 1, rules: [], overrides: {} }),
-    );
-  }
-
-  /** A legacy config contributes no rules and reports the migration it needs. */
-  function expectLegacySourceDropped(): void {
-    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
-
-    expect(config.rules).toEqual([]);
-    expect(config.configFallbackReason).toBe(
-      'legacy rules config location is no longer used; ask the user to run `npx -y cc-safety-net rule migrate`. Those rule sources are not active; every other rule and all built-in protections still apply.',
-    );
-    // Ordinary analysis keeps running against the surviving policy.
-    expect(analyzeCommand('echo ok', { cwd: tempDir, config })).toBeNull();
-  }
-
   /** An unverifiable rule source is dropped, never enforced, and never blocking. */
   function expectRuleSourceDropped(reason: string): void {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
@@ -515,138 +490,6 @@ describe('runtime config loading', () => {
     expect(config.configFallbackReason).toContain(reason);
     expect(analyzeCommand('echo ok', { cwd: tempDir, config })).toBeNull();
   }
-
-  test('empty legacy project config is ignored when project rule config is missing', () => {
-    writeLegacyProjectConfig();
-
-    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
-
-    expect(config.rules).toEqual([]);
-    expect(config.configFallbackReason).toBeUndefined();
-  });
-
-  test('legacy project config with rules is dropped when project rule config is missing', () => {
-    writeLegacyProjectConfig([
-      {
-        name: 'block-echo',
-        command: 'echo',
-        block_args: ['hello'],
-        reason: 'No hello.',
-      },
-    ]);
-
-    expectLegacySourceDropped();
-  });
-
-  test('empty legacy user config is ignored when user rule config is missing', () => {
-    mkdirSync(join(tempDir, 'home', '.cc-safety-net'), { recursive: true });
-    writeFileSync(
-      join(tempDir, 'home', '.cc-safety-net', 'config.json'),
-      JSON.stringify({ version: 1, rules: [] }),
-    );
-
-    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
-
-    expect(config.rules).toEqual([]);
-    expect(config.configFallbackReason).toBeUndefined();
-  });
-
-  test('legacy user config with missing rules is ignored when user rule config is missing', () => {
-    mkdirSync(join(tempDir, 'home', '.cc-safety-net'), { recursive: true });
-    writeFileSync(
-      join(tempDir, 'home', '.cc-safety-net', 'config.json'),
-      JSON.stringify({ version: 1 }),
-    );
-
-    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
-
-    expect(config.rules).toEqual([]);
-    expect(config.configFallbackReason).toBeUndefined();
-  });
-
-  test('legacy user config with rules is dropped when user rule config is missing', () => {
-    mkdirSync(join(tempDir, 'home', '.cc-safety-net'), { recursive: true });
-    writeFileSync(
-      join(tempDir, 'home', '.cc-safety-net', 'config.json'),
-      JSON.stringify({
-        version: 1,
-        rules: [
-          {
-            name: 'block-echo',
-            command: 'echo',
-            block_args: ['hello'],
-            reason: 'No hello.',
-          },
-        ],
-      }),
-    );
-
-    expectLegacySourceDropped();
-  });
-
-  test('invalid legacy project config is dropped', () => {
-    writeFileSync(join(tempDir, '.safety-net.json'), '{bad json');
-
-    expectLegacySourceDropped();
-  });
-
-  test('invalid legacy user config is dropped', () => {
-    mkdirSync(join(tempDir, 'home', '.cc-safety-net'), { recursive: true });
-    writeFileSync(join(tempDir, 'home', '.cc-safety-net', 'config.json'), '{bad json');
-
-    expectLegacySourceDropped();
-  });
-
-  test('legacy files with rules are dropped when new rule config has no migration evidence', () => {
-    writeLegacyProjectConfig([
-      {
-        name: 'block-echo',
-        command: 'echo',
-        block_args: ['hello'],
-        reason: 'No hello.',
-      },
-    ]);
-    writeEmptyProjectRulesConfig();
-
-    expectLegacySourceDropped();
-  });
-
-  test('empty legacy files are ignored when new rule config has no migration evidence', () => {
-    writeLegacyProjectConfig();
-    writeEmptyProjectRulesConfig();
-
-    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
-
-    expect(config.rules).toEqual([]);
-    expect(config.configFallbackReason).toBeUndefined();
-  });
-
-  test('legacy files are ignored after migration evidence exists', async () => {
-    writeLegacyProjectConfig();
-    mkdirSync(join(tempDir, '.cc-safety-net', 'rules', 'project-rules'), { recursive: true });
-    writeFileSync(
-      join(tempDir, '.cc-safety-net', 'rules', 'rule.json'),
-      JSON.stringify({ version: 1, rules: ['project-rules'], overrides: {} }),
-    );
-    writeFileSync(
-      join(tempDir, '.cc-safety-net', 'rules', 'project-rules', 'rulebook.json'),
-      JSON.stringify({
-        rulebook_version: 1,
-        name: 'project-rules',
-        version: '1.0.0',
-        migrated_from: '.safety-net.json',
-        allowed_commands: ['git'],
-        rules: [],
-        tests: [],
-      }),
-    );
-    expect((await syncRulesConfig({ cwd: tempDir, userConfigDir: userRulesDir })).ok).toBe(true);
-
-    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
-
-    expect(config.rules).toEqual([]);
-    expect(config.configFallbackReason).toBeUndefined();
-  });
 
   test('unreadable rulebook cache entries are dropped', () => {
     writeLockedGitHubRulebookPolicy(tempDir, '{}', { cacheAsDirectory: true });

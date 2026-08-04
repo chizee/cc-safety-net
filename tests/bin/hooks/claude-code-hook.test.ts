@@ -124,35 +124,6 @@ describe('Claude Code hook', () => {
         expect(reason).toContain('run `cc-safety-net rule sync`');
       });
     });
-
-    test('legacy config with rules is dropped and reported on the next denial', async () => {
-      await withHookTestContext(async (context) => {
-        writeFileSync(
-          join(context.cwd, '.safety-net.json'),
-          JSON.stringify({
-            version: 1,
-            rules: [
-              {
-                name: 'block-echo',
-                command: 'echo',
-                block_args: ['hello'],
-                reason: 'No hello.',
-              },
-            ],
-          }),
-          'utf-8',
-        );
-
-        // The legacy rule is inert until migration, so its command is not blocked.
-        const allowed = await context.runClaudeCodeHook(context.claudeCodeBashInput('echo hello'));
-
-        expect(allowed.stdout).toBe('');
-
-        expect(await denialReason(context, 'git reset --hard')).toContain(
-          'ask the user to run `npx -y cc-safety-net rule migrate`',
-        );
-      });
-    });
   });
 
   test('fails closed without reflecting over-budget Git fallback patch input', async () => {

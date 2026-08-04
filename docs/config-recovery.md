@@ -52,8 +52,6 @@ rejected part ignored. Both produce the `degraded` state.
 | Unknown field in an otherwise readable `policy.json` | warning | The salvaged policy: recognized valid sections survive, invalid ones fall back to protective defaults |
 | Invalid recognized field in `policy.json` | warning | The salvaged policy; the invalid section only falls back to its protective default |
 | Empty or malformed JSON in `policy.json` | warning | Built-in protective defaults (destructive-command and secret protection enabled, no allow paths, no disabling overrides) |
-| Local rulebook source changed after sync | warning | The digest-verified cached rulebook; the local edit stays pending |
-| Local rulebook source invalid or missing, cache still verified | warning | The digest-verified cached rulebook |
 | Unknown rule override key | warning | Every loaded rule, with only the unknown override ignored |
 | Project override naming a user-scoped rule | warning | The user-scoped rule as configured; user policy stays authoritative |
 | Duplicate active rulebook name | warning | The rulebook that claimed the name first; the later one contributes nothing |
@@ -61,11 +59,14 @@ rejected part ignored. Both produce the `degraded` state.
 | Missing cache entry, or cache digest mismatch | error | None — that source is dropped |
 | Invalid cached rulebook | error | None — that source is dropped |
 | Malformed, empty, or unsupported-`version` `rule.json` | error | None — that whole scope is dropped, including its `transparent_wrappers` |
-| Legacy inline rules config awaiting `rule migrate` | error | None — the legacy file's rules are inert until migrated |
 | Unreadable or unsafe policy filesystem | error | None for rule sources; `policy.json` falls back to protective defaults |
 
 A failure in one scope drops only that scope. The other scope's verified rules stay enforced, and
 every built-in rule keeps applying in every case.
+
+An edited, invalid, or missing local rulebook source is not in the table because it is not a failure
+state. The guard reads the digest-verified cache and never re-reads the local copy, so the edit is
+simply not active until `cc-safety-net rule sync` validates and publishes it.
 
 One caveat is worth stating precisely, because it is the only place dropped configuration reduces
 built-in *coverage* rather than removing custom rules. `transparent_wrappers` is declared in
@@ -99,7 +100,7 @@ the configuration snapshot is loaded, so it is unaffected by the state and denie
 ## Truthful synchronization
 
 `cc-safety-net rule sync` reloads the synchronized scope the way the guard loads it before reporting
-success. If a diagnostic remains — an unknown override key, a pending local edit — sync reports
+success. If a diagnostic remains — an unknown override key, for example — sync reports
 failure with that exact diagnostic and exits non-zero instead of printing `Rule config synced.`.
 
 The verification covers the scope being synchronized, not the whole machine. Diagnostics owned solely
@@ -143,9 +144,10 @@ moved:
 
 - **Dropped rule sources are silent.** They remove denials, so nothing rubs. A command a rulebook
   used to block simply runs, and a clean session produces no signal at all. This is the accepted cost
-  of not blocking, and it is the case worth checking after any change to rule configuration — or
-  after an upgrade, since an unmigrated legacy config lands here. `cc-safety-net status` is the cheap
-  habitual check for it; reach for `doctor` when you want the full report.
+  of not blocking, and it is the case worth checking after any change to rule configuration.
+  `cc-safety-net status` is the cheap habitual check for it; reach for `doctor` when you want the
+  full report. An unmigrated legacy inline config is quieter still: it is never read at runtime and
+  reports nowhere, so `cc-safety-net rule verify` is what finds it.
 - **An invalid `policy.json` mostly announces itself.** Rejected sections fall back to *protective*
   defaults: both protections forced on, allow paths dropped, disabling overrides dropped. The result
   is more denials than you configured, so you find it through friction — something you deliberately
