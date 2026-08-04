@@ -40,8 +40,8 @@ asserts that:
 - only the real exact `"$tmp"` operand receives quote provenance; and
 - the additional literal target is still blocked in a home-directory context.
 
-The coverage is in `tests/core/analyze/parsing-helpers.test.ts` and
-`tests/core/rules-rm.test.ts`.
+The coverage is in `tests/analyzer/parsing-helpers.test.ts` and
+`tests/analyzer/rules-rm.test.ts`.
 
 ## 2. Pre-existing dynamic temp-path classification gaps
 

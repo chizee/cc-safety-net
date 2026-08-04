@@ -13,7 +13,7 @@ All command examples are analyzer input strings only. Do not execute them in a s
 - A finding that falls inside a listed family is pre-adjudicated. It is not merge-blocking and does
   not get a standard-mode parser fix. Report it, if at all, as a non-blocking residual note.
 - The productive response to a newly crafted bypass inside a listed family is a strict or paranoid
-  fail-closed fixture (see `tests/core/analyze/strict-unverifiable.test.ts`), not more standard-mode
+  fail-closed fixture (see `tests/analyzer/strict-unverifiable.test.ts`), not more standard-mode
   parser logic. Strict mode's fail-closed promise is finite and checkable; standard's blocklist is
   not.
 - Realistic non-adversarial provenance or field evidence makes a standard-mode false negative
@@ -21,7 +21,7 @@ All command examples are analyzer input strings only. Do not execute them in a s
   gates in `REVIEW.md` pass and an independent classifier confirms it. Otherwise it is
   evidence-invalid.
 - Corpus growth follows evidence, not imagination. New must-block entries in
-  `tests/core/analyze/behavioral-contract-cases.ts` come from field evidence; the fix is then the
+  `tests/analyzer/behavioral-contract-cases.ts` come from field evidence; the fix is then the
   smallest change that makes the corpus pass, preferring an ownership boundary, a bounded
   conservative check, or a strict-only denial over parser fidelity.
 
@@ -110,7 +110,7 @@ dynamic-input rules and the linear dangerous-text scans, stay active. Strict fai
 unverifiable forms.
 
 Adjudicated 2026-07-22. Sources: `SECURITY.md` safety-preset contract;
-`tests/core/analyze/strict-unverifiable.test.ts`.
+`tests/analyzer/strict-unverifiable.test.ts`.
 
 ### RR-3: Unverifiable Recursive-Delete Targets
 
@@ -123,7 +123,7 @@ remains enforced.
 
 Adjudicated 2026-07-22. Sources: `SECURITY.md` safety-preset and allow-path contracts;
 `docs/rm-temp-target-security-findings.md` section 2;
-`tests/core/analyze/strict-unverifiable.test.ts`.
+`tests/analyzer/strict-unverifiable.test.ts`.
 
 ### RR-4: Runtime-Reconstructed Strings Inside Interpreter Code
 
@@ -170,7 +170,7 @@ policy-file protection scope.
 
 Crafted quote concatenation aimed at analyzer internals, such as the sentinel-spoofing shape
 `rm -rf "$tmp" '__PREFIX_'SUFFIX__`. The archetype was fixed with regression coverage in
-`tests/core/analyze/parsing-helpers.test.ts`; the family remains adversarial by construction, and
+`tests/analyzer/parsing-helpers.test.ts`; the family remains adversarial by construction, and
 standard mode makes no bypass-proof claim against deliberate quoting tricks. The same input causing
 a strict or paranoid fail-open is never residual.
 

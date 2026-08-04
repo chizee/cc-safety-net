@@ -90,7 +90,7 @@ and surfaces the rejection inline before the entry is added.
 Validation deliberately stops there. An entry that names a specific workspace
 — the project path itself, or a relative entry such as `.` (relative entries
 are supported behavior; they resolve against the config cwd, which
-`tests/core/secret-protection.test.ts` pins) — cannot be judged at save time:
+`tests/guards/secret-protection.test.ts` pins) — cannot be judged at save time:
 whether it covers the session depends on each session's cwd, and denying a
 project directory is legitimate configuration when working from somewhere
 else.
@@ -137,7 +137,7 @@ at match time (`resolveAllowRoots`), while deny paths get no match-time
 validation: a deny entry can only over-block, never widen access.
 
 The deny-path matcher itself stays fail-safe and unvalidated:
-`tests/core/secret-protection.test.ts` deliberately pins that
+`tests/guards/secret-protection.test.ts` deliberately pins that
 `denyPaths: ['/']` matches everything at the matcher level, so a
 home-covering value that reaches the matcher from outside a validated config
 still blocks rather than being silently ignored.
