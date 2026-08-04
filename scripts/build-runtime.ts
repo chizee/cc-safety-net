@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { BunPlugin } from 'bun';
 import pkg from '../package.json';
-import { buildAmpArtifactHeader } from '../src/integrations/amp';
+import { buildAmpArtifactHeader } from '../src/integrations/amp/artifact';
 import { guiAssetsPlugin } from './gui-assets';
 
 // The Node/Pi bundles keep zod external and resolve it from the installed
@@ -58,7 +58,7 @@ export function buildRuntimeBundles(outdir: string) {
  */
 export async function buildAmpBundle(outdir: string) {
   const result = await Bun.build({
-    entrypoints: ['src/amp/index.ts'],
+    entrypoints: ['src/integrations/amp/index.ts'],
     target: 'bun',
     splitting: false,
     minify: { syntax: true, whitespace: true },

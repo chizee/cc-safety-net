@@ -17,8 +17,13 @@ import {
   formatSystemInfoSection,
   formatUpdateSection,
 } from '@/bin/doctor/format';
-import { getSystemInfo } from '@/bin/doctor/system-info';
-import type { DoctorReport, EffectiveRule, HookStatus, SystemInfo } from '@/bin/doctor/types';
+import type {
+  DoctorReport,
+  EffectiveRule,
+  HookStatus,
+  SystemInfo,
+} from '@/integrations/doctor-types';
+import { getSystemInfo } from '@/integrations/system-info';
 import { mockVersionFetcher, withStdoutColor } from '../../helpers.ts';
 
 function createSystemInfo(overrides: Partial<SystemInfo> = {}): SystemInfo {

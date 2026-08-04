@@ -4,8 +4,8 @@
 
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
-import type { ActivitySummary } from '@/bin/doctor/types';
 import { getAuditLogsDir, listAuditLogFiles, pruneExpiredAuditLogs } from '@/engine/facade';
+import type { ActivitySummary } from '@/integrations/doctor-types';
 import type { AuditLogEntry } from '@/ir/audit';
 
 function formatRelativeTime(date: Date): string {

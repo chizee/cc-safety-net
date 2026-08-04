@@ -1,4 +1,4 @@
-import { CC_SAFETY_NET_TEMPLATE } from '@/builtin-commands/templates/cc-safety-net';
+import { CC_SAFETY_NET_TEMPLATE } from '@/integrations/templates/cc-safety-net';
 
 type PiCommandApi = {
   registerCommand: (

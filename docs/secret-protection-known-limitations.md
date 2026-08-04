@@ -105,7 +105,7 @@ tokens are not kept as path candidates: operand-less commands, `echo` and
 with no path-like literal.
 
 The failure is loud, not silent. Each denial carries `Rule: secret.deny-path`
-in the hook message (`formatBlockedMessage` in `src/core/format.ts`), and
+in the hook message (`formatBlockedMessage` in `src/integrations/format.ts`), and
 secret-protection denials use the `hard_stop` footer, which tells the agent to
 stop retrying and report the block to the user.
 

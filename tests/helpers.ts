@@ -5,9 +5,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { analyzeCommand } from '@/analyzer';
-import type { VersionFetcher } from '@/bin/doctor/system-info';
 import { listAuditLogFiles } from '@/engine/audit-scan';
 import { resolveProtectedGitMetadata } from '@/guards/git-metadata-protection';
+import type { VersionFetcher } from '@/integrations/system-info';
 import type { AnalyzeInput, EnvironmentContext } from '@/ir/analysis';
 import type { AuditLogEntry } from '@/ir/audit';
 import type { TraceStep } from '@/ir/command-trace';

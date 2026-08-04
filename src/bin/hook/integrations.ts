@@ -1,14 +1,14 @@
 import { parseCommandArgs } from '@/bin/args';
-import { runAntigravityCliHook } from '@/bin/hook/antigravity-cli';
-import { runClaudeCodeHook } from '@/bin/hook/claude-code';
-import { runCopilotCliHook } from '@/bin/hook/copilot-cli';
-import { runCursorHook } from '@/bin/hook/cursor';
-import { runGeminiCLIHook } from '@/bin/hook/gemini-cli';
-import { runKimiCodeHook } from '@/bin/hook/kimi-code';
+import { runAntigravityCliHook } from '@/integrations/antigravity-cli/hook';
 import {
   type RuntimeHookIntegrationId,
   runtimeHookIntegrationMetadata,
 } from '@/integrations/catalog';
+import { runClaudeCodeHook } from '@/integrations/claude-code/hook';
+import { runCopilotCliHook } from '@/integrations/copilot-cli/hook';
+import { runCursorHook } from '@/integrations/cursor/hook';
+import { runGeminiCLIHook } from '@/integrations/gemini-cli/hook';
+import { runKimiCodeHook } from '@/integrations/kimi-code/hook';
 
 export type HookIntegration = {
   id: RuntimeHookIntegrationId;

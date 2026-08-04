@@ -2,6 +2,9 @@
  * Output formatting utilities for the doctor command.
  */
 
+import { colors } from '@/bin/utils/colors';
+import { renderTerminalText } from '@/bin/utils/terminal';
+import { getIntegrationDisplayName } from '@/integrations/catalog';
 import type {
   ActivitySummary,
   ConfigSourceInfo,
@@ -12,10 +15,7 @@ import type {
   HookStatus,
   SystemInfo,
   UpdateInfo,
-} from '@/bin/doctor/types';
-import { colors } from '@/bin/utils/colors';
-import { renderTerminalText } from '@/bin/utils/terminal';
-import { getIntegrationDisplayName } from '@/integrations/catalog';
+} from '@/integrations/doctor-types';
 import type { SelfTestSummary } from '@/integrations/self-test';
 
 interface TableOptions {

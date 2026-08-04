@@ -2,8 +2,8 @@
  * Environment variable checking for the doctor command.
  */
 
-import type { EnvVarInfo } from '@/bin/doctor/types';
 import { ENV_FLAGS, type EnvFlag, envFlagIsSet, getEnvFlagValue } from '@/engine/facade';
+import type { EnvVarInfo } from '@/integrations/doctor-types';
 
 const ENV_VARS: Array<{
   flag: EnvFlag;

@@ -1,12 +1,12 @@
+import { resolveAuditScope } from '@/engine/facade';
+import { getIntegrationDisplayName } from '@/integrations/catalog';
 import type {
   DoctorFinding,
   DoctorFindingSeverity,
   DoctorReport,
   ProtectedDirectoryIssue,
   ProtectedDirectoryKind,
-} from '@/bin/doctor/types';
-import { resolveAuditScope } from '@/engine/facade';
-import { getIntegrationDisplayName } from '@/integrations/catalog';
+} from '@/integrations/doctor-types';
 
 type DoctorFacts = Omit<DoctorReport, 'findings'>;
 

@@ -1,8 +1,8 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import * as systemInfo from '@/bin/doctor/system-info';
 import { runRuleCommand } from '@/bin/rule';
+import * as systemInfo from '@/integrations/system-info';
 import { runCCSafetyNetCli, withEnv, withTempDir } from '../../helpers';
 import { writeProjectRuleConfig } from '../../helpers/rulebook';
 

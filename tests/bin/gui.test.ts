@@ -11,7 +11,6 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getPackageVersion } from '@/bin/doctor/system-info';
 import {
   createPolicyGuiServer,
   fetchHealth,
@@ -22,9 +21,10 @@ import {
   starRepo,
   userHasStarredRepo,
 } from '@/bin/gui';
-import type { InstallAction, InstallTarget } from '@/bin/hook/install/targets';
 import { REASON_POLICY_CONFIG_PROTECTION } from '@/guards/policy-protection';
 import { doctorIntegrationOrder, getIntegrationDisplayName } from '@/integrations/catalog';
+import type { InstallAction, InstallTarget } from '@/integrations/install/targets';
+import { getPackageVersion } from '@/integrations/system-info';
 import { getUserPolicyPath } from '@/policy/store';
 import { mockVersionFetcher, writeJsonlFixture } from '../helpers';
 import { syncInitialGitRulebook } from '../helpers/rulebook';

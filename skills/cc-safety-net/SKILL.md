@@ -3,7 +3,7 @@ name: cc-safety-net
 description: Configure CC Safety Net rulebooks for user, project, or shareable GitHub scope.
 ---
 
-<!-- Keep the workflow below in sync with src/builtin-commands/templates/cc-safety-net.ts. -->
+<!-- Keep the workflow below in sync with src/integrations/templates/cc-safety-net.ts. -->
 
 ## Workflow
 

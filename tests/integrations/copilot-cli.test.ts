@@ -3,7 +3,7 @@ import {
   hasCopilotLegacyPlugin,
   hasCopilotMarketplace,
   hasCopilotSafetyNetPlugin,
-} from '@/integrations/copilot-cli';
+} from '@/integrations/copilot-cli/plugin-id';
 
 describe('GitHub Copilot CLI installation output', () => {
   test('matches complete plugin and marketplace identifiers without substring false positives', () => {

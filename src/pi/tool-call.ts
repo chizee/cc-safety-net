@@ -1,5 +1,5 @@
-import { resolveContainedCwd } from '@/core/cwd-containment';
 import { writeIntegrationDenialAudit } from '@/integrations/audit';
+import { resolveContainedCwd } from '@/integrations/cwd-containment';
 import {
   createFailedClosedDenial,
   formatDenial,

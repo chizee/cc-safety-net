@@ -5,17 +5,9 @@ import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
 import { parseCommandArgs } from '@/bin/args';
 import { getActivitySummary } from '@/bin/doctor/activity';
-import { getPackageVersion, getSystemInfo, type VersionFetcher } from '@/bin/doctor/system-info';
-import type { SystemInfo, UpdateInfo } from '@/bin/doctor/types';
 import { checkForUpdates } from '@/bin/doctor/updates';
 import { explainCommand } from '@/bin/explain';
-import { detectAllHooks } from '@/bin/hook/detect';
 import { type RunInstallCommandOptions, runInstallCommand } from '@/bin/hook/install';
-import {
-  INSTALL_TARGETS,
-  type InstallAction,
-  type InstallTarget,
-} from '@/bin/hook/install/targets';
 import {
   createPolicySnapshot,
   describeConfigState,
@@ -26,6 +18,14 @@ import {
   resolveAuditRetentionDays,
 } from '@/engine/facade';
 import { getIntegrationDisplayName, installIntegrationMetadata } from '@/integrations/catalog';
+import { detectAllHooks } from '@/integrations/detect';
+import type { SystemInfo, UpdateInfo } from '@/integrations/doctor-types';
+import {
+  INSTALL_TARGETS,
+  type InstallAction,
+  type InstallTarget,
+} from '@/integrations/install/targets';
+import { getPackageVersion, getSystemInfo, type VersionFetcher } from '@/integrations/system-info';
 import type { ExplainResult } from '@/ir/explain';
 import {
   createPolicyPreview,

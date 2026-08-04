@@ -1,11 +1,11 @@
 import { lstatSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { getAuditLogsDir } from '@/engine/facade';
 import type {
   DoctorPosture,
   ProtectedDirectoryKind,
   ProtectedDirectoryPosture,
-} from '@/bin/doctor/types';
-import { getAuditLogsDir } from '@/engine/facade';
+} from '@/integrations/doctor-types';
 
 function inspectDirectory(kind: ProtectedDirectoryKind, path: string): ProtectedDirectoryPosture {
   try {

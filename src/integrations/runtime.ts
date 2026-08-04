@@ -16,13 +16,17 @@ export {
   PathCanonicalizationLimitError,
   resolveExistingPath,
 } from '@/analyzer/path-canonicalization';
-export { firstTrustedRoot, isSameOrInsidePath, resolveContainedCwd } from '@/core/cwd-containment';
 export type {
   GuardDependencies,
   GuardEvaluation,
   GuardStage,
 } from '@/engine/guard';
 export { GuardEvaluationError } from '@/engine/guard';
+export {
+  firstTrustedRoot,
+  isSameOrInsidePath,
+  resolveContainedCwd,
+} from '@/integrations/cwd-containment';
 export { processPathResolver } from '@/ir/environment';
 export {
   extractPatchTargetsFromToolInput,

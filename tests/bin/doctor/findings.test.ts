@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { deriveDoctorFindings } from '@/bin/doctor/findings';
-import type { DoctorReport } from '@/bin/doctor/types';
+import type { DoctorReport } from '@/integrations/doctor-types';
 
 type DoctorFacts = Omit<DoctorReport, 'findings'>;
 

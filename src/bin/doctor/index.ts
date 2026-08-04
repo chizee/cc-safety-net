@@ -19,10 +19,7 @@ import {
   formatUpdateSection,
 } from '@/bin/doctor/format';
 import { getDoctorPosture } from '@/bin/doctor/posture';
-import { getPackageVersion, getSystemInfo } from '@/bin/doctor/system-info';
-import type { ConfigSourceInfo, DoctorOptions, DoctorReport, HookStatus } from '@/bin/doctor/types';
 import { checkForUpdates } from '@/bin/doctor/updates';
-import { detectAllHooks } from '@/bin/hook/detect';
 import { printInstallBanner } from '@/bin/hook/install/banner';
 import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
 import {
@@ -31,7 +28,15 @@ import {
   loadPolicySnapshot,
   resolveEffectiveDestructiveCommandRules,
 } from '@/engine/facade';
+import { detectAllHooks } from '@/integrations/detect';
+import type {
+  ConfigSourceInfo,
+  DoctorOptions,
+  DoctorReport,
+  HookStatus,
+} from '@/integrations/doctor-types';
 import { runIntegrationSelfTest } from '@/integrations/self-test';
+import { getPackageVersion, getSystemInfo } from '@/integrations/system-info';
 
 export { parseDoctorFlags } from '@/bin/doctor/flags';
 

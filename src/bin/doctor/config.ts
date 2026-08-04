@@ -3,7 +3,6 @@
  */
 
 import { dirname } from 'node:path';
-import type { ConfigSourceInfo, EffectiveRule, ShadowedRule } from '@/bin/doctor/types';
 import {
   getPolicyPaths,
   getProjectRulesConfigPath,
@@ -19,6 +18,7 @@ import {
   type ValidationResult,
   validateRulesConfigFile,
 } from '@/engine/facade';
+import type { ConfigSourceInfo, EffectiveRule, ShadowedRule } from '@/integrations/doctor-types';
 import type { CustomRule } from '@/ir/policy';
 
 export interface ConfigInfo {

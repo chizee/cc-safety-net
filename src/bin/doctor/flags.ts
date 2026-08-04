@@ -3,7 +3,7 @@
  */
 
 import { parseCommandArgs, reportCommandArgErrors } from '@/bin/args';
-import type { DoctorOptions } from '@/bin/doctor/types';
+import type { DoctorOptions } from '@/integrations/doctor-types';
 
 export function parseDoctorFlags(args: string[]): DoctorOptions | null {
   const parsed = parseCommandArgs(

@@ -1,8 +1,8 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import * as systemInfo from '@/bin/doctor/system-info';
 import { getUpdateNotice } from '@/bin/rule/update-notice';
+import * as systemInfo from '@/integrations/system-info';
 import { withEnv, withTempDir } from '../../helpers';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { getPackageVersion } from '@/bin/doctor/system-info';
 import { checkForUpdates } from '@/bin/doctor/updates';
+import { getPackageVersion } from '@/integrations/system-info';
 
 async function withFetch<T>(
   replacement: () => Promise<Response>,

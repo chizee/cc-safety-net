@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import type { InstallTarget } from '@/bin/hook/install/targets';
-import { startInstallPrompt } from './hook-helpers';
+import type { InstallTarget } from '@/integrations/install/targets';
+import { startInstallPrompt } from '../../integrations/hook-helpers';
 
 function makeChoice(target: InstallTarget, available: boolean) {
   return { target, flag: `--${target}`, label: target, available };

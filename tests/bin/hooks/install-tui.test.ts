@@ -1,20 +1,20 @@
 import { describe, expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
+import { canPromptInstallTargets, renderInstallSelection } from '@/bin/hook/install/prompt';
 import {
   applyInstallTargetState,
   buildInstallTargetChoices,
   buildInstallTargetChoicesAsync,
   type InstallTargetChoice,
-} from '@/bin/hook/install/choices';
-import { canPromptInstallTargets, renderInstallSelection } from '@/bin/hook/install/prompt';
+} from '@/integrations/install/choices';
 import {
   type InstallTarget,
   orderInstallTargets,
   runInstallTargetsInOrder,
-} from '@/bin/hook/install/targets';
+} from '@/integrations/install/targets';
 import { withEnv, withTempDir } from '../../helpers';
-import { createInstallPromptStreams, startInstallPrompt } from './hook-helpers';
+import { createInstallPromptStreams, startInstallPrompt } from '../../integrations/hook-helpers';
 
 function makeChoice(target: InstallTarget, label: string, available: boolean) {
   return { target, flag: `--${target}`, label, available };

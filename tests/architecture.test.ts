@@ -61,10 +61,6 @@ describe('source architecture', () => {
           (owner === 'guards' &&
             target !== null &&
             !['ir', 'parser', 'rules', 'policy', 'analyzer', 'guards'].includes(target)) ||
-          // core keeps format.ts and cwd-containment.ts until the integrations rename lands
-          (owner === 'core' &&
-            target !== null &&
-            ['engine', 'integrations', 'bin'].includes(target)) ||
           (owner === 'engine' &&
             target !== null &&
             !['ir', 'parser', 'rules', 'policy', 'analyzer', 'guards', 'engine'].includes(

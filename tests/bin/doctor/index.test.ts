@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import { join } from 'node:path';
 import { runDoctor } from '@/bin/doctor';
-import * as hookDetection from '@/bin/hook/detect';
+import * as hookDetection from '@/integrations/detect';
 import * as selfTest from '@/integrations/self-test';
 import { withEnv, withTempDir } from '../../helpers.ts';
 

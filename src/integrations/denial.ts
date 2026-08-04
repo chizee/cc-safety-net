@@ -1,6 +1,6 @@
 import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/analyzer/reasons';
-import { formatBlockedMessage } from '@/core/format';
 import { redactSecrets } from '@/engine/audit';
+import { formatBlockedMessage } from '@/integrations/format';
 import type { BlockIntent, Decision } from '@/ir/decision';
 
 type GuardEvaluation = {

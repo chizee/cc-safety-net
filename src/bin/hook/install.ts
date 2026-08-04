@@ -2,41 +2,17 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseCommandArgs } from '@/bin/args';
-import { stripJsonComments } from '@/bin/config/jsonc';
-import { defaultVersionFetcher } from '@/bin/doctor/system-info';
-import { detectAllHooks } from '@/bin/hook/detect';
-import { detectClaudeCode, hasClaudeInstalledPlugin } from '@/bin/hook/detect/claude-code';
-import { _getCopilotConfigHome } from '@/bin/hook/detect/copilot-cli';
-import { detectGeminiCLI } from '@/bin/hook/detect/gemini-cli';
-import { getPiSettingsPath, isPiSafetyNetPackageSource } from '@/bin/hook/detect/pi';
-import { installAmp, uninstallAmp } from '@/bin/hook/install/amp';
-import { installAntigravityCli, uninstallAntigravityCli } from '@/bin/hook/install/antigravity-cli';
-import { atomicWriteFile } from '@/bin/hook/install/atomic-write';
 import { printInstallBanner } from '@/bin/hook/install/banner';
-import {
-  applyInstallTargetState,
-  buildInstallTargetChoicesAsync,
-  type InstallTargetChoice,
-  type InstallTargetProbe,
-  probeInstallTarget,
-} from '@/bin/hook/install/choices';
-import { installCursor, uninstallCursor } from '@/bin/hook/install/cursor';
-import { installKimiCode, uninstallKimiCode } from '@/bin/hook/install/kimi-code';
-import { type NativeCommand, runNativeCommand, runNativeCommands } from '@/bin/hook/install/native';
-import { clearNpxSafetyNetCache } from '@/bin/hook/install/npx-cache';
-import { clearOpenCodeCache, uninstallOpenCode } from '@/bin/hook/install/opencode';
 import { canPromptInstallTargets, promptInstallTargets } from '@/bin/hook/install/prompt';
-import {
-  INSTALL_TARGETS,
-  type InstallAction,
-  type InstallTarget,
-  orderInstallTargets,
-  runInstallTargetsInOrder,
-  TARGET_FLAGS,
-} from '@/bin/hook/install/targets';
-import type { InstallResult } from '@/bin/hook/install/types';
 import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
+import { installAmp, uninstallAmp } from '@/integrations/amp/install';
+import {
+  installAntigravityCli,
+  uninstallAntigravityCli,
+} from '@/integrations/antigravity-cli/install';
 import { getIntegrationInstallLabel } from '@/integrations/catalog';
+import { detectClaudeCode, hasClaudeInstalledPlugin } from '@/integrations/claude-code/detect';
+import { _getCopilotConfigHome } from '@/integrations/copilot-cli/detect';
 import {
   COPILOT_LEGACY_PLUGIN_DIR,
   COPILOT_PLUGIN_DIR,
@@ -44,7 +20,38 @@ import {
   hasCopilotLegacyPlugin,
   hasCopilotMarketplace,
   hasCopilotSafetyNetPlugin,
-} from '@/integrations/copilot-cli';
+} from '@/integrations/copilot-cli/plugin-id';
+import { installCursor, uninstallCursor } from '@/integrations/cursor/install';
+import { detectAllHooks } from '@/integrations/detect';
+import { detectGeminiCLI } from '@/integrations/gemini-cli/detect';
+import { atomicWriteFile } from '@/integrations/install/atomic-write';
+import {
+  applyInstallTargetState,
+  buildInstallTargetChoicesAsync,
+  type InstallTargetChoice,
+  type InstallTargetProbe,
+  probeInstallTarget,
+} from '@/integrations/install/choices';
+import {
+  type NativeCommand,
+  runNativeCommand,
+  runNativeCommands,
+} from '@/integrations/install/native';
+import { clearNpxSafetyNetCache } from '@/integrations/install/npx-cache';
+import {
+  INSTALL_TARGETS,
+  type InstallAction,
+  type InstallTarget,
+  orderInstallTargets,
+  runInstallTargetsInOrder,
+  TARGET_FLAGS,
+} from '@/integrations/install/targets';
+import type { InstallResult } from '@/integrations/install/types';
+import { stripJsonComments } from '@/integrations/jsonc';
+import { installKimiCode, uninstallKimiCode } from '@/integrations/kimi-code/install';
+import { clearOpenCodeCache, uninstallOpenCode } from '@/integrations/opencode/install';
+import { getPiSettingsPath, isPiSafetyNetPackageSource } from '@/integrations/pi/detect';
+import { defaultVersionFetcher } from '@/integrations/system-info';
 
 type ConfigInstallTarget = Extract<InstallTarget, 'antigravity-cli' | 'kimi-code' | 'cursor'>;
 type NativeInstallTarget = Exclude<InstallTarget, ConfigInstallTarget | 'amp'>;

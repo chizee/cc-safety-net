@@ -4,9 +4,9 @@
  */
 
 import { isCancel, MultiSelectPrompt } from '@clack/core';
-import type { InstallTargetChoice } from '@/bin/hook/install/choices';
-import type { InstallAction, InstallTarget } from '@/bin/hook/install/targets';
 import { colors } from '@/bin/utils/colors';
+import type { InstallTargetChoice } from '@/integrations/install/choices';
+import type { InstallAction, InstallTarget } from '@/integrations/install/targets';
 
 type InstallPromptOptions = {
   input?: NodeJS.ReadStream;

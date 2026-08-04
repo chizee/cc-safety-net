@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { getPackageVersion } from '@/bin/doctor/system-info';
 import { checkForUpdates, isNewerVersion } from '@/bin/doctor/updates';
 import { getAuditLogHomeDir } from '@/engine/facade';
+import { getPackageVersion } from '@/integrations/system-info';
 
 type UpdateCache = {
   lastCheck?: number;
