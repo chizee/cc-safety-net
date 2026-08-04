@@ -1,17 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
-import { PassThrough, Writable } from 'node:stream';
 import {
   applyInstallTargetState,
   buildInstallTargetChoices,
   buildInstallTargetChoicesAsync,
   canPromptInstallTargets,
-  createInstallSelectionState,
   type InstallTargetChoice,
-  mapKeyPress,
-  promptInstallTargets,
-  reduceInstallSelectionState,
   renderInstallSelection,
 } from '@/bin/hook/install/selection';
 import {
@@ -20,6 +15,7 @@ import {
   runInstallTargetsInOrder,
 } from '@/bin/hook/install/targets';
 import { withEnv, withTempDir } from '../../helpers';
+import { createInstallPromptStreams, startInstallPrompt } from './hook-helpers';
 
 function makeChoice(target: InstallTarget, label: string, available: boolean) {
   return { target, flag: `--${target}`, label, available };
@@ -32,36 +28,6 @@ function expectAvailableTargets(
   expect(choices.filter((choice) => choice.available).map((choice) => choice.target)).toEqual([
     ...expected,
   ]);
-}
-
-function createPromptStreams() {
-  const chunks: string[] = [];
-  const rawModes: boolean[] = [];
-  const input = new PassThrough() as unknown as NodeJS.ReadStream & {
-    rawModes: boolean[];
-    isRaw: boolean;
-    isTTY: boolean;
-    setRawMode: (mode: boolean) => NodeJS.ReadStream;
-  };
-  const output = new Writable({
-    write(chunk, _encoding, callback) {
-      chunks.push(String(chunk));
-      callback();
-    },
-  }) as NodeJS.WriteStream & { chunks: string[]; isTTY: boolean };
-
-  input.isTTY = true;
-  input.isRaw = false;
-  input.rawModes = rawModes;
-  input.setRawMode = (mode) => {
-    input.isRaw = mode;
-    rawModes.push(mode);
-    return input;
-  };
-  output.isTTY = true;
-  output.chunks = chunks;
-
-  return { chunks, input, output, rawModes };
 }
 
 function writeFakeInstallProbeBinaries(binDir: string) {
@@ -380,7 +346,7 @@ describe('install target availability', () => {
 
 describe('install selection prompt', () => {
   test('detects whether interactive prompting is available', () => {
-    const streams = createPromptStreams();
+    const streams = createInstallPromptStreams();
 
     expect(canPromptInstallTargets(streams.input, streams.output)).toBe(true);
     streams.output.isTTY = false;
@@ -388,107 +354,76 @@ describe('install selection prompt', () => {
   });
 
   test('waits for cancellation when no integration is selectable', async () => {
-    const streams = createPromptStreams();
-    const result = promptInstallTargets('uninstall', [makeChoice('codex', 'Codex', false)], {
-      input: streams.input,
-      output: streams.output,
-    });
+    const prompt = startInstallPrompt('uninstall', [makeChoice('codex', 'Codex', false)]);
 
-    expect(streams.rawModes).toEqual([true]);
-    streams.input.emit('keypress', 'q', { name: 'q' });
+    expect(prompt.input.isRaw).toBe(true);
+    prompt.press('q');
 
-    expect(await result).toBeNull();
-    expect(streams.rawModes).toEqual([true, false]);
-    expect(streams.chunks.join('')).toContain('Uninstall CC Safety Net from:');
-    expect(streams.chunks.join('')).toContain(
+    expect(await prompt.result).toBeNull();
+    expect(prompt.input.isRaw).toBe(false);
+    expect(prompt.chunks.join('')).toContain('Uninstall CC Safety Net from:');
+    expect(prompt.chunks.join('')).toContain(
       'No selectable integrations found for uninstall. q/Esc: close',
     );
   });
 
   test('handles keyboard selection, empty confirm, ignored keys, and abort', async () => {
-    const streams = createPromptStreams();
-    const result = promptInstallTargets(
-      'install',
-      [
-        makeChoice('codex', 'Codex', true),
-        makeChoice('claude-code', 'Claude Code', false),
-        makeChoice('gemini-cli', 'Gemini CLI', true),
-      ],
-      { input: streams.input, output: streams.output },
-    );
+    const prompt = startInstallPrompt('install', [
+      makeChoice('codex', 'Codex', true),
+      makeChoice('claude-code', 'Claude Code', false),
+      makeChoice('gemini-cli', 'Gemini CLI', true),
+    ]);
 
-    streams.input.emit('keypress', 'x', { name: 'x' });
-    streams.input.emit('keypress', '', { name: 'return' });
-    streams.input.emit('keypress', '', { name: 'down' });
-    streams.input.emit('keypress', '', { name: 'up' });
-    streams.input.emit('keypress', 'j', { name: 'j' });
-    streams.input.emit('keypress', 'k', { name: 'k' });
-    streams.input.emit('keypress', ' ', { name: 'space' });
-    streams.input.emit('keypress', '', { name: 'down' });
-    streams.input.emit('keypress', ' ', { name: 'space' });
-    streams.input.emit('keypress', '', { name: 'enter' });
+    // An unknown key is ignored, and confirming an empty selection only rings the bell.
+    prompt.press('x', 'enter', 'down', 'up', 'j', 'k', ' ', 'down', ' ', 'enter');
 
-    expect(await result).toEqual(['codex', 'gemini-cli']);
-    expect(streams.rawModes).toEqual([true, false]);
-    expect(streams.chunks.join('')).toContain('\x07');
-    expect(streams.chunks.join('')).toContain('Installing selected integrations...');
+    expect(await prompt.result).toEqual(['codex', 'gemini-cli']);
+    expect(prompt.input.isRaw).toBe(false);
+    expect(prompt.chunks.join('')).toContain('\x07');
+    expect(prompt.chunks.join('')).toContain('Installing selected integrations...');
   });
 
   test('resolves the update sentinel for u only while installing', async () => {
-    const installStreams = createPromptStreams();
-    const installResult = promptInstallTargets('install', [makeChoice('codex', 'Codex', false)], {
-      input: installStreams.input,
-      output: installStreams.output,
-    });
-    installStreams.input.emit('keypress', 'u', { name: 'u' });
+    const codexOnly = [makeChoice('codex', 'Codex', false)];
+    const install = startInstallPrompt('install', codexOnly);
+    install.press('u');
 
-    const uninstallStreams = createPromptStreams();
-    const uninstallResult = promptInstallTargets(
-      'uninstall',
-      [makeChoice('codex', 'Codex', false)],
-      { input: uninstallStreams.input, output: uninstallStreams.output },
-    );
-    uninstallStreams.input.emit('keypress', 'u', { name: 'u' });
-    uninstallStreams.input.emit('keypress', 'q', { name: 'q' });
+    const shifted = startInstallPrompt('install', codexOnly);
+    shifted.press('U');
 
-    expect(await installResult).toBe('update');
-    expect(await uninstallResult).toBeNull();
+    const uninstall = startInstallPrompt('uninstall', codexOnly);
+    uninstall.press('u', 'q');
+
+    expect(await install.result).toBe('update');
+    expect(await shifted.result).toBe('update');
+    expect(await uninstall.result).toBeNull();
   });
 
   test('aborts through keyboard shortcuts without selecting targets', async () => {
-    const qStreams = createPromptStreams();
-    const qResult = promptInstallTargets('install', [makeChoice('codex', 'Codex', true)], {
-      input: qStreams.input,
-      output: qStreams.output,
-    });
-    qStreams.input.emit('keypress', 'q', { name: 'q' });
-
-    const ctrlStreams = createPromptStreams();
+    const codexOnly = [makeChoice('codex', 'Codex', true)];
     const interrupts: string[] = [];
-    const ctrlResult = promptInstallTargets('install', [makeChoice('codex', 'Codex', true)], {
-      input: ctrlStreams.input,
-      output: ctrlStreams.output,
+    const quit = startInstallPrompt('install', codexOnly);
+    quit.press('q');
+
+    const interrupted = startInstallPrompt('install', codexOnly, {
       onInterrupt: () => interrupts.push('ctrl-c'),
     });
-    ctrlStreams.input.emit('keypress', '', { ctrl: true, name: 'c' });
+    interrupted.press('ctrl-c');
 
-    const escapeStreams = createPromptStreams();
-    const escapeResult = promptInstallTargets('install', [makeChoice('codex', 'Codex', true)], {
-      input: escapeStreams.input,
-      output: escapeStreams.output,
+    const escaped = startInstallPrompt('install', codexOnly, {
       onInterrupt: () => interrupts.push('escape'),
     });
-    escapeStreams.input.emit('keypress', '', { name: 'escape' });
+    escaped.press('esc');
 
-    expect(await qResult).toBeNull();
-    expect(await ctrlResult).toBeNull();
-    expect(await escapeResult).toBeNull();
+    expect(await quit.result).toBeNull();
+    expect(await interrupted.result).toBeNull();
+    expect(await escaped.result).toBeNull();
     // Ctrl-C is an interrupt and is raised as the signal; q and Esc are ordinary quits.
     expect(interrupts).toEqual(['ctrl-c']);
   });
 });
 
-describe('install selection state', () => {
+describe('install selection movement', () => {
   const choices = [
     makeChoice('codex', 'Codex', false),
     makeChoice('claude-code', 'Claude Code', true),
@@ -496,46 +431,13 @@ describe('install selection state', () => {
     makeChoice('gemini-cli', 'Gemini CLI', true),
   ];
 
-  test('starts on the first available choice and skips unavailable rows', () => {
-    const first = createInstallSelectionState(choices);
-    const second = reduceInstallSelectionState(first, choices, 'down').state;
-    const third = reduceInstallSelectionState(second, choices, 'down').state;
+  test('starts on the first available choice and wraps past unavailable rows', async () => {
+    const prompt = startInstallPrompt('install', choices);
 
-    expect(first.cursor).toBe(1);
-    expect(second.cursor).toBe(3);
-    expect(third.cursor).toBe(1);
-  });
+    // Two moves from row 1 reach row 3 and wrap back to row 1; rows 0 and 2 are never focused.
+    prompt.press('down', 'down', ' ', 'enter');
 
-  test('maps and reduces the install-only update key', () => {
-    const state = createInstallSelectionState(choices);
-
-    expect(mapKeyPress('install', 'u', { name: 'u' })).toBe('update');
-    expect(mapKeyPress('install', 'U', { name: 'u' })).toBe('update');
-    expect(mapKeyPress('uninstall', 'u', { name: 'u' })).toBeNull();
-    // readline passes undefined input for special keys (F1, some sequences).
-    expect(mapKeyPress('install', undefined as unknown as string, { name: 'f1' })).toBeNull();
-    expect(reduceInstallSelectionState(state, choices, 'update')).toEqual({
-      state,
-      done: 'update',
-    });
-  });
-
-  test('toggles only selectable rows and reports confirm or abort', () => {
-    const disabledToggle = reduceInstallSelectionState(
-      { cursor: 0, selected: [] },
-      choices,
-      'toggle',
-    ).state;
-    const selected = reduceInstallSelectionState(
-      createInstallSelectionState(choices),
-      choices,
-      'toggle',
-    ).state;
-
-    expect(disabledToggle.selected).toEqual([]);
-    expect(selected.selected).toEqual(['claude-code']);
-    expect(reduceInstallSelectionState(selected, choices, 'confirm').done).toBe('confirm');
-    expect(reduceInstallSelectionState(selected, choices, 'abort').done).toBe('abort');
+    expect(await prompt.result).toEqual(['claude-code']);
   });
 
   test('renders unavailable rows and action-specific footers', () => {

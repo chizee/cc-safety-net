@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import * as readline from 'node:readline';
+import { isCancel, MultiSelectPrompt } from '@clack/core';
 import type { NativeCommand } from '@/bin/hook/install/native';
 import {
   INSTALL_TARGETS,
@@ -14,28 +14,6 @@ export type InstallTargetChoice = {
   label: string;
   available: boolean;
   unavailableReason?: string;
-};
-
-/** @internal */
-export type InstallSelectionState = {
-  cursor: number;
-  selected: InstallTarget[];
-};
-
-/** @internal */
-export type InstallSelectionKey =
-  | 'up'
-  | 'down'
-  | 'toggle'
-  | 'confirm'
-  | 'update'
-  | 'abort'
-  | 'interrupt';
-
-/** @internal */
-export type InstallSelectionResult = {
-  state: InstallSelectionState;
-  done?: 'confirm' | 'update' | 'abort' | 'interrupt';
 };
 
 export type InstallTargetProbe = (command: NativeCommand) => boolean;
@@ -54,11 +32,6 @@ export type InstallSelectionPromptOptions = {
   onInterrupt?: () => void;
 };
 
-type KeyPress = {
-  name?: string;
-  ctrl?: boolean;
-};
-
 // All targets probe in parallel, so a slow CLI (Electron-backed Cursor, or a Node CLI under
 // contention) must not be misreported as missing. Absent binaries still fail fast on spawn error.
 const PROBE_TIMEOUT_MS = 5000;
@@ -73,48 +46,6 @@ function activeVerb(action: InstallAction): string {
 
 function targetPreposition(action: InstallAction): string {
   return action === 'install' ? 'into' : 'from';
-}
-
-function isAvailable(choice: InstallTargetChoice | undefined): choice is InstallTargetChoice {
-  return choice?.available === true;
-}
-
-function selectedInChoiceOrder(
-  choices: readonly InstallTargetChoice[],
-  selected: readonly InstallTarget[],
-): InstallTarget[] {
-  const selectedTargets = new Set(selected);
-  return choices
-    .filter((choice) => selectedTargets.has(choice.target))
-    .map((choice) => choice.target);
-}
-
-function nextSelectableCursor(
-  choices: readonly InstallTargetChoice[],
-  cursor: number,
-  direction: -1 | 1,
-): number {
-  if (choices.length === 0 || choices.every((choice) => !choice.available)) return cursor;
-
-  return Array.from({ length: choices.length }, (_, index) => index + 1)
-    .map((offset) => (cursor + offset * direction + choices.length) % choices.length)
-    .find((index) => isAvailable(choices[index])) as number;
-}
-
-/** @internal */
-export function mapKeyPress(
-  action: InstallAction,
-  input: string,
-  key: KeyPress,
-): InstallSelectionKey | null {
-  if (key.ctrl && key.name === 'c') return 'interrupt';
-  if (key.name === 'escape' || input === 'q') return 'abort';
-  if (action === 'install' && (input === 'u' || input === 'U')) return 'update';
-  if (key.name === 'up' || input === 'k') return 'up';
-  if (key.name === 'down' || input === 'j') return 'down';
-  if (key.name === 'space' || input === ' ') return 'toggle';
-  if (key.name === 'return' || key.name === 'enter') return 'confirm';
-  return null;
 }
 
 function defaultInstallTargetProbe(command: NativeCommand): boolean {
@@ -234,43 +165,6 @@ function getChoiceAvailability(
   return { available: true };
 }
 
-/** @internal */
-export function createInstallSelectionState(
-  choices: readonly InstallTargetChoice[],
-): InstallSelectionState {
-  return {
-    cursor: choices.findIndex((choice) => choice.available),
-    selected: [],
-  };
-}
-
-/** @internal */
-export function reduceInstallSelectionState(
-  state: InstallSelectionState,
-  choices: readonly InstallTargetChoice[],
-  key: InstallSelectionKey,
-): InstallSelectionResult {
-  if (key === 'confirm' || key === 'update' || key === 'abort' || key === 'interrupt')
-    return { state, done: key };
-
-  if (key === 'up') {
-    return { state: { ...state, cursor: nextSelectableCursor(choices, state.cursor, -1) } };
-  }
-
-  if (key === 'down') {
-    return { state: { ...state, cursor: nextSelectableCursor(choices, state.cursor, 1) } };
-  }
-
-  const choice = choices[state.cursor];
-  if (!isAvailable(choice)) return { state };
-
-  const selected = state.selected.includes(choice.target)
-    ? state.selected.filter((target) => target !== choice.target)
-    : selectedInChoiceOrder(choices, [...state.selected, choice.target]);
-
-  return { state: { ...state, selected } };
-}
-
 const CHECKBOX_ON = '◉';
 const CHECKBOX_OFF = '◯';
 const CURSOR_ON = '>';
@@ -280,7 +174,7 @@ const CURSOR_OFF = ' ';
 export function renderInstallSelection(
   action: InstallAction,
   choices: readonly InstallTargetChoice[],
-  state: InstallSelectionState,
+  state: { cursor: number; selected: readonly InstallTarget[] },
   options: { color?: boolean } = {},
 ): string {
   const useColor = options.color !== false;
@@ -294,7 +188,8 @@ export function renderInstallSelection(
     '',
     ...choices.map((choice, index) => {
       const selected = state.selected.includes(choice.target);
-      const focused = index === state.cursor;
+      // The prompt parks its cursor on row 0 when every row is disabled; never focus one.
+      const focused = index === state.cursor && choice.available;
       const marker = selected ? CHECKBOX_ON : CHECKBOX_OFF;
       const cursor = focused ? CURSOR_ON : CURSOR_OFF;
       const suffix = choice.available ? '' : ` (${choice.unavailableReason ?? 'not installed'})`;
@@ -324,90 +219,45 @@ export function canPromptInstallTargets(
   return Boolean(input.isTTY && output.isTTY && typeof input.setRawMode === 'function');
 }
 
-export function promptInstallTargets(
+export async function promptInstallTargets(
   action: InstallAction,
   choices: readonly InstallTargetChoice[],
   options: InstallSelectionPromptOptions = {},
 ): Promise<InstallTarget[] | null | 'update'> {
-  const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
-  let state = createInstallSelectionState(choices);
+  // Esc and Ctrl-C cancel the prompt on their own; q and u need this seam to close it.
+  const abort = new AbortController();
+  let lastKey = '';
 
-  readline.emitKeypressEvents(input);
-  const wasRaw = input.isRaw === true;
-  input.setRawMode(true);
-  input.resume();
-
-  let renderedLines = 0;
-
-  const clearFrame = () => {
-    if (renderedLines === 0) return;
-    readline.moveCursor(output, 0, -renderedLines);
-    readline.cursorTo(output, 0);
-    readline.clearScreenDown(output);
-  };
-
-  const draw = () => {
-    clearFrame();
-    const frame = renderInstallSelection(action, choices, state);
-    output.write(`${frame}\n`);
-    renderedLines = frame.split('\n').length;
-  };
-
-  return new Promise((resolve) => {
-    const cleanup = () => {
-      input.off('keypress', onKeyPress);
-      input.setRawMode(wasRaw);
-      input.pause();
-      clearFrame();
-    };
-
-    const finish = (targets: InstallTarget[] | null | 'update') => {
-      cleanup();
-      if (targets !== 'update' && targets && targets.length > 0) {
-        output.write(`${activeVerb(action)} selected integrations...\n`);
-      }
-      resolve(targets);
-    };
-
-    function onKeyPress(inputValue: string, key: KeyPress) {
-      const mappedKey = mapKeyPress(action, inputValue, key);
-      if (!mappedKey) return;
-
-      const next = reduceInstallSelectionState(state, choices, mappedKey);
-      state = next.state;
-
-      if (next.done === 'interrupt') {
-        // Ctrl-C keeps the signal convention, matching the startup banner.
-        finish(null);
-        (options.onInterrupt ?? (() => process.kill(process.pid, 'SIGINT')))();
-        return;
-      }
-
-      if (next.done === 'abort') {
-        finish(null);
-        return;
-      }
-
-      if (next.done === 'update') {
-        finish('update');
-        return;
-      }
-
-      if (next.done === 'confirm') {
-        if (state.selected.length === 0) {
-          output.write('\x07');
-          draw();
-          return;
-        }
-        finish(state.selected);
-        return;
-      }
-
-      draw();
-    }
-
-    input.on('keypress', onKeyPress);
-    draw();
+  const prompt = new MultiSelectPrompt<{ value: InstallTarget; disabled: boolean }>({
+    input: options.input ?? process.stdin,
+    output,
+    signal: abort.signal,
+    options: choices.map((choice) => ({ value: choice.target, disabled: !choice.available })),
+    render() {
+      return renderInstallSelection(action, choices, {
+        cursor: this.cursor,
+        selected: this.value ?? [],
+      });
+    },
+    // Confirming nothing keeps the prompt open; the bell below is the whole feedback.
+    validate: (selected) => (selected?.length ? undefined : 'Select at least one integration'),
   });
+
+  prompt.on('key', (char, key) => {
+    lastKey = char ?? '';
+    if (key.name === 'return' && prompt.value?.length === 0) output.write('\x07');
+    if (char === 'q' || (action === 'install' && (char === 'u' || char === 'U'))) abort.abort();
+  });
+
+  const selected = await prompt.prompt();
+  if (!isCancel(selected)) {
+    output.write(`${activeVerb(action)} selected integrations...\n`);
+    return selected ?? [];
+  }
+
+  if (action === 'install' && (lastKey === 'u' || lastKey === 'U')) return 'update';
+  // Ctrl-C keeps the signal convention, matching the startup banner: restore first, then raise.
+  if (lastKey === '\x03') (options.onInterrupt ?? (() => process.kill(process.pid, 'SIGINT')))();
+  return null;
 }

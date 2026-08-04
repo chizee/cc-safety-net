@@ -1,9 +1,18 @@
 #!/usr/bin/env bun
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const bundledPackages = ['zod'] as const;
+// Everything the build inlines into `dist`: zod for the Amp artifact, and the prompt library
+// with its transitive dependencies for the interactive installer.
+const bundledPackages = [
+  '@clack/core',
+  'fast-string-truncated-width',
+  'fast-string-width',
+  'fast-wrap-ansi',
+  'sisteransi',
+  'zod',
+] as const;
 
 /** @internal */
 export function renderThirdPartyLicenses(directory = process.cwd()) {
@@ -16,7 +25,12 @@ export function renderThirdPartyLicenses(directory = process.cwd()) {
           `${name} license changed from MIT to ${String(manifest.license)}; review required`,
         );
       }
-      const license = readFileSync(join(packageDirectory, 'LICENSE'), 'utf8')
+      // Package license files are named LICENSE or license depending on the publisher.
+      const licenseFile = readdirSync(packageDirectory).find(
+        (entry) => entry.toLowerCase() === 'license',
+      );
+      if (!licenseFile) throw new Error(`${name} has no license file; review required`);
+      const license = readFileSync(join(packageDirectory, licenseFile), 'utf8')
         .replaceAll('\r\n', '\n')
         .replace(/\n+$/, '');
       return `${name} ${String(manifest.version)}\n\n${license}`;

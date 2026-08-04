@@ -2,12 +2,14 @@ import { expect } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
+import { PassThrough, Readable, Writable } from 'node:stream';
 import { runAntigravityCliHook } from '@/bin/hook/antigravity-cli';
 import { runClaudeCodeHook as runClaudeCodeHookAdapter } from '@/bin/hook/claude-code';
 import { runCopilotCliHook } from '@/bin/hook/copilot-cli';
 import { runCursorHook } from '@/bin/hook/cursor';
 import { runGeminiCLIHook } from '@/bin/hook/gemini-cli';
+import { type InstallTargetChoice, promptInstallTargets } from '@/bin/hook/install/selection';
+import type { InstallAction } from '@/bin/hook/install/targets';
 import { runKimiCodeHook } from '@/bin/hook/kimi-code';
 
 /**
@@ -32,6 +34,71 @@ export const TEST_HOOK_CWD = mkdtempSync(join(tmpdir(), 'safety-net-hook-cwd-'))
 
 export function makeTempHome(name: string) {
   return mkdtempSync(join(tmpdir(), `${name}-`));
+}
+
+/**
+ * Fake TTY stream pair for driving the install selection prompt: `input.emit('keypress', ...)`
+ * feeds keys, and `chunks` collects every rendered frame.
+ */
+export function createInstallPromptStreams() {
+  const chunks: string[] = [];
+  const input = new PassThrough() as unknown as NodeJS.ReadStream;
+  const output = new Writable({
+    write(chunk, _encoding, callback) {
+      chunks.push(String(chunk));
+      callback();
+    },
+  }) as NodeJS.WriteStream;
+
+  input.isTTY = true;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  input.isRaw = false;
+  output.isTTY = true;
+
+  return { chunks, input, output };
+}
+
+/** What Node's readline emits for each key the install selection prompt understands. */
+const INSTALL_PROMPT_KEYS = {
+  ' ': [' ', { name: 'space' }],
+  U: ['U', { name: 'u', shift: true }],
+  'ctrl-c': ['\x03', { ctrl: true, name: 'c', sequence: '\x03' }],
+  down: ['', { name: 'down' }],
+  enter: ['', { name: 'return' }],
+  esc: ['', { name: 'escape' }],
+  j: ['j', { name: 'j' }],
+  k: ['k', { name: 'k' }],
+  q: ['q', { name: 'q' }],
+  u: ['u', { name: 'u' }],
+  up: ['', { name: 'up' }],
+  x: ['x', { name: 'x' }],
+} as const satisfies Record<string, readonly [string, Record<string, unknown>]>;
+
+/**
+ * Starts the install selection prompt on fake TTY streams. `press` feeds keys in order, and
+ * `result` resolves with the prompt outcome once a key ends it.
+ */
+export function startInstallPrompt(
+  action: InstallAction,
+  choices: readonly InstallTargetChoice[],
+  options: { onInterrupt?: () => void } = {},
+) {
+  const streams = createInstallPromptStreams();
+  return {
+    chunks: streams.chunks,
+    input: streams.input,
+    press: (...keys: readonly (keyof typeof INSTALL_PROMPT_KEYS)[]) => {
+      for (const key of keys) streams.input.emit('keypress', ...INSTALL_PROMPT_KEYS[key]);
+    },
+    result: promptInstallTargets(action, choices, {
+      input: streams.input,
+      output: streams.output,
+      ...options,
+    }),
+  };
 }
 
 process.on('exit', () => {
