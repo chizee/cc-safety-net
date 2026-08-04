@@ -1,30 +1,9 @@
 import { extractShortOpts, normalizeCommandToken } from '@/core/shell';
 import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
-import type { CustomRule, PolicyRule } from '@/domain/policy';
+import type { PolicyRule } from '@/domain/policy';
 import { getCustomRuleOptionsWithValues } from './custom-subcommand';
 
-/** @internal */
-export function checkCustomRules(tokens: string[], rules: CustomRule[]): string | null {
-  return checkCustomRuleMatch(tokens, rules)?.reason ?? null;
-}
-
-/** @internal */
-export function checkCustomRuleMatch(
-  tokens: string[],
-  rules: CustomRule[],
-): DestructiveCommandRuleMatch | null {
-  return checkRuleMatch(tokens, rules);
-}
-
-/** @internal */
 export function checkPolicyRuleMatch(
-  tokens: readonly string[],
-  rules: readonly PolicyRule[],
-): DestructiveCommandRuleMatch | null {
-  return checkRuleMatch(tokens, rules);
-}
-
-function checkRuleMatch(
   tokens: readonly string[],
   rules: readonly PolicyRule[],
 ): DestructiveCommandRuleMatch | null {

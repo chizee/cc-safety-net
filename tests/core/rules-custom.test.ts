@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { checkCustomRules } from '@/core/rules/custom';
+import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import type { CustomRule } from '@/domain/policy';
+
+const checkCustomRules = (tokens: string[], rules: CustomRule[]) =>
+  checkPolicyRuleMatch(tokens, rules)?.reason ?? null;
 
 const blockGitAddAllRule: CustomRule = {
   name: 'block-git-add-all',
