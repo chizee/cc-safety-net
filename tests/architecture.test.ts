@@ -27,7 +27,7 @@ function importedLayer(specifier: string): string | null {
 }
 
 describe('source architecture', () => {
-  test('keeps dependency direction between ir, parser, rules, policy, analyzer, guards, engine, integrations, and bin', () => {
+  test('keeps dependency direction between ir, parser, rules, policy, analyzer, guards, engine, integrations, cli, and gui', () => {
     // Edges no rename can untangle; each needs a code change to remove
     const layerExceptions: readonly [string, string][] = [
       ['policy/schema.ts', '@/analyzer/transparent-wrappers'],
@@ -66,7 +66,7 @@ describe('source architecture', () => {
             !['ir', 'parser', 'rules', 'policy', 'analyzer', 'guards', 'engine'].includes(
               target,
             )) ||
-          (owner === 'integrations' && target === 'bin');
+          (!['cli', 'gui'].includes(owner) && (target === 'cli' || target === 'gui'));
         return invalid ? [`${file} -> ${specifier}`] : [];
       });
     });
@@ -82,22 +82,22 @@ describe('source architecture', () => {
     expect(violations).toEqual([]);
   });
 
-  test('bin consumes core only through the engine facade', () => {
+  test('the cli and gui consume core only through the engine facade', () => {
     const adminExceptions: readonly [string, RegExp][] = [
       // rules administration is read-write, outside the facade
-      ['bin/rule/', /^@\/rules\//],
+      ['cli/rule/', /^@\/rules\//],
       // GUI policy editor is read-write, outside the facade
-      ['bin/gui/', /^@\/policy\/store$/],
+      ['gui/', /^@\/policy\/store$/],
     ];
     const violations = sourceFiles()
-      .filter((path) => layer(path) === 'bin')
+      .filter((path) => ['cli', 'gui'].includes(layer(path)))
       .flatMap((path) => {
         const file = relative(SOURCE_ROOT, path);
         return imports(path)
           .filter((specifier) => specifier.startsWith('@/'))
           .filter(
             (specifier) =>
-              !/^@\/(?:bin|ir|integrations)\//.test(specifier) &&
+              !/^@\/(?:cli|gui|ir|integrations)(?:\/|$)/.test(specifier) &&
               specifier !== '@/engine/facade' &&
               !adminExceptions.some(
                 ([prefix, allowed]) => file.startsWith(prefix) && allowed.test(specifier),

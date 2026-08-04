@@ -21,7 +21,7 @@ import { policySnapshot, type TestPolicyInput } from './helpers/policy';
 // Default empty config for tests that don't specify a cwd.
 // This prevents loading the project's rulebook-backed config.
 const DEFAULT_TEST_POLICY = policySnapshot();
-const CLI_ENTRYPOINT = join(process.cwd(), 'src/bin/cc-safety-net.ts');
+const CLI_ENTRYPOINT = join(process.cwd(), 'src/cli/cc-safety-net.ts');
 
 function getOptionsFromEnv(
   cwd?: string,

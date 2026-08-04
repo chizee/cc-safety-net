@@ -40,5 +40,5 @@
   },
   "include": ["src/**/*", "tests/**/*", "scripts/**/*"],
   // The frontend is browser code with its own lib and globals; tsconfig.gui.json covers it.
-  "exclude": ["node_modules", "dist", "src/bin/gui/frontend"]
+  "exclude": ["node_modules", "dist", "src/gui/frontend"]
 }

@@ -3,11 +3,11 @@ import type { KnipConfig } from 'knip';
 const config: KnipConfig = {
   entry: [
     'src/index.ts!',
-    'src/bin/cc-safety-net.ts!',
-    'src/pi/index.ts!',
+    'src/cli/cc-safety-net.ts!',
+    'src/integrations/pi/index.ts!',
     'src/integrations/amp/index.ts!',
-    // Built for the browser by src/bin/gui/assets.ts, so no module imports it.
-    'src/bin/gui/frontend/main.ts!',
+    // Built for the browser by src/gui/assets.ts, so no module imports it.
+    'src/gui/frontend/main.ts!',
     // scripts invoked directly by package.json scripts or GitHub workflows
     'scripts/build.ts!',
     'scripts/build-schema.ts!',

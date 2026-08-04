@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { analyzeCommand } from '@/analyzer';
 import { containsDangerousCode } from '@/analyzer/interpreters';
 import { hasLinearDangerousText } from '@/analyzer/linear-danger-scanner';
-import { explainCommand } from '@/bin/explain';
+import { explainCommand } from '@/cli/explain';
 import type { AnalyzeInput } from '@/ir/analysis';
 import { TEST_ENVIRONMENT } from '../helpers/environment';
 import { analyzeTestCommand, policySnapshot, testModes } from '../helpers/policy';

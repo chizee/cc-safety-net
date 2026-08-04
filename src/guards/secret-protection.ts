@@ -149,7 +149,7 @@ const INLINE_ACCESS_IDENTIFIER_PARTS = new Set([
 ]);
 const CODE_EVAL_FLAGS = new Set(['-c', '-e', '-r', '-E', '--eval', '--exec']);
 const CC_SAFETY_NET_ENTRYPOINTS = new Set([
-  'src/bin/cc-safety-net.ts',
+  'src/cli/cc-safety-net.ts',
   'dist/bin/cc-safety-net.js',
 ]);
 const INTERPRETERS_BY_CLUSTERED_CODE_EVAL_FLAG = new Map([

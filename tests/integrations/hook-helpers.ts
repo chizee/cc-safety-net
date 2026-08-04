@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Readable, Writable } from 'node:stream';
-import { promptInstallTargets } from '@/bin/hook/install/prompt';
+import { promptInstallTargets } from '@/cli/install/prompt';
 import { runAntigravityCliHook } from '@/integrations/antigravity-cli/hook';
 import { runClaudeCodeHook as runClaudeCodeHookAdapter } from '@/integrations/claude-code/hook';
 import { runCopilotCliHook } from '@/integrations/copilot-cli/hook';
@@ -316,7 +316,7 @@ export async function runCli(
     ...(env ?? {}),
   };
 
-  const proc = Bun.spawn(['bun', join(process.cwd(), 'src/bin/cc-safety-net.ts'), ...args], {
+  const proc = Bun.spawn(['bun', join(process.cwd(), 'src/cli/cc-safety-net.ts'), ...args], {
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',

@@ -42,7 +42,7 @@
     "test:e2e:stability": "bun test tests/e2e --randomize --rerun-each 3",
     "test:e2e:live": "CC_SAFETY_NET_E2E_LIVE=1 bun test tests/e2e-live",
     "test:coverage": "AGENT=1 bun test tests --coverage --coverage-reporter=text --coverage-reporter=lcov",
-    "cc-safety-net": "bun run src/bin/cc-safety-net.ts",
+    "cc-safety-net": "bun run src/cli/cc-safety-net.ts",
     "prepare": "lefthook install"
   },
   "author": {

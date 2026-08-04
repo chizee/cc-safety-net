@@ -3,7 +3,7 @@ import { analyzeCommand } from '@/analyzer';
 import { REASON_DERIVED_COMMAND_WORK_LIMIT } from '@/analyzer/derived-command-budget';
 import * as gitAnalysis from '@/analyzer/git';
 import { REASON_PARALLEL_ANALYSIS_LIMIT } from '@/analyzer/parallel-budget';
-import { explainCommand } from '@/bin/explain';
+import { explainCommand } from '@/cli/explain';
 import { createCommandTraceRecorder } from '@/engine/command-trace';
 import { evaluateCommandWithTrace } from '@/engine/evaluate-command';
 import { createSemanticFactStore } from '@/guards/semantic-facts';

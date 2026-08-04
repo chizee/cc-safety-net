@@ -1,4 +1,4 @@
-import { runLogsCommand } from '@/bin/audit-log';
+import { runLogsCommand } from '@/cli/audit-log';
 
 export async function captureLogsCommand(args: string[], logsDir?: string, timeZone?: string) {
   const originalLog = console.log;

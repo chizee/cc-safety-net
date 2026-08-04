@@ -4,8 +4,8 @@
  * into core, config, and parser directly. `tests/architecture.test.ts` enforces
  * that boundary.
  *
- * Write paths stay out by design — rules administration (`bin/rule`) and the
- * GUI policy editor (`bin/gui`) keep their own read-write imports as the two
+ * Write paths stay out by design — rules administration (`cli/rule`) and the
+ * GUI policy editor (`gui`) keep their own read-write imports as the two
  * named exceptions in that test.
  */
 

@@ -440,7 +440,7 @@ describe('secret protection command target extraction', () => {
 
     for (const command of [
       `cc-safety-net explain --json --cwd /tmp/project 'cat /tmp/project/.env'`,
-      `bun src/bin/cc-safety-net.ts explain --json --cwd /tmp/project 'cat /tmp/project/.env'`,
+      `bun src/cli/cc-safety-net.ts explain --json --cwd /tmp/project 'cat /tmp/project/.env'`,
       `node dist/bin/cc-safety-net.js explain 'cat .env'`,
     ]) {
       expect(findSensitiveTargetInCommand(command, cwd), command).toBeNull();
@@ -454,8 +454,8 @@ describe('secret protection command target extraction', () => {
       `cc-safety-net explain --cwd ~/.ssh 'git status'`,
       `cc-safety-net explain 'cat .env' && cat .env`,
       `cc-safety-net explain "$(cat .env)"`,
-      `bun src/bin/other.ts explain .env`,
-      `bun src/bin/cc-safety-net.ts run .env`,
+      `bun src/cli/other.ts explain .env`,
+      `bun src/cli/cc-safety-net.ts run .env`,
     ]) {
       expect(findSensitiveTargetInCommand(command, cwd), command).not.toBeNull();
     }

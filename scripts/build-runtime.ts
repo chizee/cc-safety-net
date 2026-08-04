@@ -30,9 +30,9 @@ const inlineZodForAmp: BunPlugin = {
   },
 };
 
-export function buildRuntimeBundles(outdir: string) {
-  return Bun.build({
-    entrypoints: ['src/index.ts', 'src/bin/cc-safety-net.ts', 'src/pi/index.ts'],
+export async function buildRuntimeBundles(outdir: string) {
+  const result = await Bun.build({
+    entrypoints: ['src/index.ts', 'src/cli/cc-safety-net.ts', 'src/integrations/pi/index.ts'],
     outdir,
     target: 'node',
     external: ['zod'],
@@ -47,6 +47,29 @@ export function buildRuntimeBundles(outdir: string) {
     },
     plugins: [guiAssetsPlugin],
   });
+  if (!result.success) return result;
+  // Bun names a split entry's output directory after its source directory, so
+  // the CLI and Pi entries land under cli/ and integrations/pi/. Their published
+  // locations are fixed by package.json `bin`, package.json `pi.extensions`, and
+  // hooks/hooks.json, so both are moved back. The Pi entry also loses one
+  // directory level, which invalidates its relative shared-chunk specifiers; the
+  // CLI entry keeps its depth, so that rewrite is a no-op for it.
+  await Promise.all(
+    (
+      [
+        ['cli/cc-safety-net.js', 'bin/cc-safety-net.js'],
+        ['integrations/pi/index.js', 'pi/index.js'],
+      ] as const
+    ).map(async ([from, to]) => {
+      const emitted = Bun.file(join(outdir, from));
+      await Bun.write(
+        join(outdir, to),
+        (await emitted.text()).replaceAll('../../chunks/', '../chunks/'),
+      );
+      await emitted.delete();
+    }),
+  );
+  return result;
 }
 
 /**
