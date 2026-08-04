@@ -2258,6 +2258,7 @@ describe('policy GUI server', () => {
         error: (message) => errors.push(message),
       }),
     ).toBe(1);
+    expect(errors.join('\n')).toContain('Unknown option for gui: --bad');
     expect(errors.join('\n')).toContain('Usage: cc-safety-net gui [--no-open]');
 
     const output: string[] = [];

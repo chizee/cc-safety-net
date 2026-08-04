@@ -5,10 +5,9 @@ import {
   applyInstallTargetState,
   buildInstallTargetChoices,
   buildInstallTargetChoicesAsync,
-  canPromptInstallTargets,
   type InstallTargetChoice,
-  renderInstallSelection,
-} from '@/bin/hook/install/selection';
+} from '@/bin/hook/install/choices';
+import { canPromptInstallTargets, renderInstallSelection } from '@/bin/hook/install/prompt';
 import {
   type InstallTarget,
   orderInstallTargets,

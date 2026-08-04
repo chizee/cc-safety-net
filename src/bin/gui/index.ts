@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
+import { parseCommandArgs } from '@/bin/args';
 import { getActivitySummary } from '@/bin/doctor/activity';
 import { getPackageVersion, getSystemInfo, type VersionFetcher } from '@/bin/doctor/system-info';
 import type { SystemInfo, UpdateInfo } from '@/bin/doctor/types';
@@ -104,10 +105,11 @@ export async function runGuiCommand(
   args: readonly string[],
   options: RunGuiCommandOptions = {},
 ): Promise<number> {
-  const flags = parseGuiArgs(args);
+  const parsed = parseCommandArgs({ label: 'gui', booleans: { noOpen: ['--no-open'] } }, args);
   const log = options.log ?? console.log;
   const error = options.error ?? console.error;
-  if (!flags) {
+  if (parsed.errors.length > 0) {
+    for (const message of parsed.errors) error(message);
     error('Usage: cc-safety-net gui [--no-open]');
     return 1;
   }
@@ -115,7 +117,7 @@ export async function runGuiCommand(
   const server = await createPolicyGuiServer(options);
   log(`CC Safety Net policy GUI: ${server.url}`);
 
-  if (!flags.noOpen) {
+  if (!parsed.flags.noOpen) {
     try {
       await (options.openBrowser ?? openBrowser)(server.url);
     } catch (openError) {
@@ -160,11 +162,6 @@ export async function createPolicyGuiServer(
     url: `${origin}/?token=${encodeURIComponent(token)}`,
     close: () => closeServer(server),
   };
-}
-
-function parseGuiArgs(args: readonly string[]): { noOpen: boolean } | null {
-  if (args.some((arg) => arg !== '--no-open')) return null;
-  return { noOpen: args.includes('--no-open') };
 }
 
 async function handleRequest(

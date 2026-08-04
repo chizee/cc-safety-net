@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { Writable } from 'node:stream';
 import { runInstallCommand } from '@/bin/hook/install';
-import type { InstallTargetChoice } from '@/bin/hook/install/selection';
+import type { InstallTargetChoice } from '@/bin/hook/install/choices';
 import type { InstallTarget } from '@/bin/hook/install/targets';
 import { withEnv } from '../../helpers';
 import { makeTempHome, runCli } from './hook-helpers';

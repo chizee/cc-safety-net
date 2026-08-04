@@ -13,20 +13,19 @@ import { installAmp, uninstallAmp } from '@/bin/hook/install/amp';
 import { installAntigravityCli, uninstallAntigravityCli } from '@/bin/hook/install/antigravity-cli';
 import { atomicWriteFile } from '@/bin/hook/install/atomic-write';
 import { printInstallBanner } from '@/bin/hook/install/banner';
+import {
+  applyInstallTargetState,
+  buildInstallTargetChoicesAsync,
+  type InstallTargetChoice,
+  type InstallTargetProbe,
+  probeInstallTarget,
+} from '@/bin/hook/install/choices';
 import { installCursor, uninstallCursor } from '@/bin/hook/install/cursor';
 import { installKimiCode, uninstallKimiCode } from '@/bin/hook/install/kimi-code';
 import { type NativeCommand, runNativeCommand, runNativeCommands } from '@/bin/hook/install/native';
 import { clearNpxSafetyNetCache } from '@/bin/hook/install/npx-cache';
 import { clearOpenCodeCache, uninstallOpenCode } from '@/bin/hook/install/opencode';
-import {
-  applyInstallTargetState,
-  buildInstallTargetChoicesAsync,
-  canPromptInstallTargets,
-  type InstallTargetChoice,
-  type InstallTargetProbe,
-  probeInstallTarget,
-  promptInstallTargets,
-} from '@/bin/hook/install/selection';
+import { canPromptInstallTargets, promptInstallTargets } from '@/bin/hook/install/prompt';
 import {
   INSTALL_TARGETS,
   type InstallAction,

@@ -8,7 +8,8 @@ import { runClaudeCodeHook as runClaudeCodeHookAdapter } from '@/bin/hook/claude
 import { runCopilotCliHook } from '@/bin/hook/copilot-cli';
 import { runCursorHook } from '@/bin/hook/cursor';
 import { runGeminiCLIHook } from '@/bin/hook/gemini-cli';
-import { type InstallTargetChoice, promptInstallTargets } from '@/bin/hook/install/selection';
+import type { InstallTargetChoice } from '@/bin/hook/install/choices';
+import { promptInstallTargets } from '@/bin/hook/install/prompt';
 import type { InstallAction } from '@/bin/hook/install/targets';
 import { runKimiCodeHook } from '@/bin/hook/kimi-code';
 
