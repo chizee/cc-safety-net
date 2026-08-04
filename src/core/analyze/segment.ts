@@ -73,7 +73,11 @@ import { REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import { getBasename, normalizeCommandToken } from '@/core/shell';
 import { hasUnclosedQuotes } from '@/core/shell/shared';
-import type { AnalyzeResult, DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type {
+  AnalyzeResult,
+  DestructiveCommandRuleMatch,
+  EnvironmentContext,
+} from '@/domain/analysis';
 import type { CommandView, CommandWord } from '@/domain/command';
 import type { CommandTraceContext } from '@/domain/command-trace';
 import type { EffectivePolicy } from '@/domain/policy';
@@ -115,6 +119,7 @@ export function analyzeSegment(
   }
   const prelude = stripWrapperWords(
     leading.words,
+    options.environment,
     baseCwdForRm,
     new Map([...(options.envAssignments ?? []), ...leading.envAssignments]),
   );
@@ -154,12 +159,13 @@ export function analyzeSegment(
   const cwdForRm = prelude.cwd === null ? undefined : (prelude.cwd ?? baseCwdForRm);
   const originalCwdForRm = prelude.cwd === null ? undefined : originalCwd;
   const nestedEffectiveCwd = prelude.cwd === undefined ? options.effectiveCwd : prelude.cwd;
-  const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
+  const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments, options.environment);
 
   // Reads the parsed words: PowerShell stand-ins would report every head as dynamic.
   const dynamicCommandMatch = analyzeDynamicCommandStructure(
     dialect,
     prelude.words,
+    options.environment,
     options.strict,
     options.policy,
   );
@@ -467,7 +473,7 @@ export function analyzeSegment(
     trace?.recordSegment({
       type: 'tmpdir-check',
       tmpdirValue:
-        envAssignments.has('TMPDIR') || process.env.TMPDIR !== undefined ? '<redacted>' : null,
+        envAssignments.has('TMPDIR') || options.environment.env.has('TMPDIR') ? '<redacted>' : null,
       isOverriddenToNonTemp: !allowTmpdirVar,
       allowTmpdirVar,
     });
@@ -676,6 +682,7 @@ function analyzeEmbeddedCommand(
   index: number,
 ): DestructiveCommandRuleMatch | null {
   const childCommands = normalizeChildCommands(tokens.slice(index), {
+    environment: context.options.environment,
     cwd: context.cwd,
     envAssignments: context.envAssignments,
     policy: context.options.policy,
@@ -745,7 +752,10 @@ function analyzeNormalizedEmbeddedCommand(
     cwd: childCommand.cwd,
     originalCwd: childCommand.wrapperCwd === null ? undefined : context.originalCwd,
     envAssignments: childCommand.envAssignments,
-    allowTmpdirVar: !isTmpdirOverriddenToNonTemp(childCommand.envAssignments),
+    allowTmpdirVar: !isTmpdirOverriddenToNonTemp(
+      childCommand.envAssignments,
+      context.options.environment,
+    ),
     effectiveCwd:
       childCommand.wrapperCwd === undefined ? context.effectiveCwd : childCommand.wrapperCwd,
     options: cmd === 'git' ? { ...context.options, worktreeMode: false } : context.options,
@@ -786,8 +796,11 @@ type PowerShellLocationEffect =
   | { kind: 'unknown' }
   | { kind: 'target'; target: string };
 
-function posixSegmentChangesCwd(segment: readonly string[]): boolean {
-  const unwrapped = getCwdChangeTokens(segment);
+function posixSegmentChangesCwd(
+  segment: readonly string[],
+  environment: EnvironmentContext,
+): boolean {
+  const unwrapped = getCwdChangeTokens(segment, environment);
   if (unwrapped.length === 0) return false;
   const head = unwrapped[getCdCommandIndex(unwrapped)];
   if (head === 'cd' || head === 'pushd' || head === 'popd') return true;
@@ -797,6 +810,7 @@ function posixSegmentChangesCwd(segment: readonly string[]): boolean {
 export function resolveCwdAfterCommandView(
   commandView: Pick<CommandView, 'dialect' | 'words'>,
   cwd: string | null | undefined,
+  environment: EnvironmentContext,
   literalPipelineInput?: string,
 ): string | null | undefined {
   if (commandView.dialect === 'powershell') {
@@ -807,10 +821,10 @@ export function resolveCwdAfterCommandView(
   }
 
   const segment = commandView.words.map(analysisWordText);
-  if (!posixSegmentChangesCwd(segment)) return undefined;
+  if (!posixSegmentChangesCwd(segment, environment)) return undefined;
   if (!cwd) return null;
 
-  const unwrapped = getCwdChangeTokens(segment, cwd);
+  const unwrapped = getCwdChangeTokens(segment, environment, cwd);
   const cdIndex = getCdCommandIndex(unwrapped);
   if (cdIndex === -1 || unwrapped[cdIndex] !== 'cd') {
     return null;
@@ -899,9 +913,13 @@ function getCdCommandIndex(tokens: readonly string[]): number {
   return i;
 }
 
-function getCwdChangeTokens(segment: readonly string[], cwd?: string | null): string[] {
+function getCwdChangeTokens(
+  segment: readonly string[],
+  environment: EnvironmentContext,
+  cwd?: string | null,
+): string[] {
   const stripped = stripLeadingGrouping(segment);
-  return stripWrappers([...stripped], cwd);
+  return stripWrappers([...stripped], environment, cwd);
 }
 
 function samePath(a: string, b: string): boolean {

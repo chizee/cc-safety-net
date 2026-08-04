@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, toNamespacedPath } from 'node:path';
+import { testEnvironment } from '../../helpers/environment';
 import { analyzeTestCommand as analyzeCommand } from '../../helpers/policy';
 import {
   assertAllowed,
@@ -1383,18 +1384,16 @@ describe('edge cases', () => {
     });
 
     test('subshell environment changes do not leak into following outer commands', () => {
-      withEnv({ TMPDIR: tempDir }, () => {
-        assertAllowed('(export TMPDIR=/Users); rm -rf $TMPDIR/build', tempDir);
-        assertAllowed('echo $(export TMPDIR=/Users); rm -rf $TMPDIR/build', tempDir);
-      });
+      const environment = testEnvironment({ TMPDIR: tempDir });
+      assertAllowed('(export TMPDIR=/Users); rm -rf $TMPDIR/build', tempDir, environment);
+      assertAllowed('echo $(export TMPDIR=/Users); rm -rf $TMPDIR/build', tempDir, environment);
     });
 
     test('brace group environment changes remain visible to strict analysis', () => {
-      withEnv({ TMPDIR: tempDir }, () => {
-        const command = '{ export TMPDIR=/Users; }; rm -rf $TMPDIR/build';
-        assertAllowed(command, tempDir);
-        assertStrictBlocked(command, 'rm -rf', tempDir);
-      });
+      const environment = testEnvironment({ TMPDIR: tempDir });
+      const command = '{ export TMPDIR=/Users; }; rm -rf $TMPDIR/build';
+      assertAllowed(command, tempDir, environment);
+      assertStrictBlocked(command, 'rm -rf', tempDir, environment);
     });
 
     test('cd makes effectiveCwd unknown and propagates to interpreter -c', () => {
@@ -1520,13 +1519,27 @@ describe('edge cases', () => {
 
   describe('TMPDIR handling', () => {
     test('inherited non-temp TMPDIR blocks recursive delete only in strict mode', () => {
+      const environment = testEnvironment({ TMPDIR: join(process.cwd(), 'unsafe-tmpdir') });
+      const command = [RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' ');
+
+      assertAllowed(command, tempDir, environment);
+      assertStrictBlocked(command, 'shell variables', tempDir, environment);
+    });
+
+    test('inherited TMPDIR comes from the analysis environment only', () => {
       const unsafeTmpdir = join(process.cwd(), 'unsafe-tmpdir');
+      const command = [RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' ');
 
       withEnv({ TMPDIR: unsafeTmpdir }, () => {
-        const command = [RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' ');
-        assertAllowed(command, tempDir);
-        assertStrictBlocked(command, 'shell variables', tempDir);
+        expect(analyzeCommand(command, { cwd: tempDir, strict: true })).toBeNull();
       });
+      expect(
+        analyzeCommand(command, {
+          cwd: tempDir,
+          strict: true,
+          environment: testEnvironment({ TMPDIR: unsafeTmpdir }),
+        })?.reason,
+      ).toContain('shell variables');
     });
 
     test('envAssignments non-temp TMPDIR blocks recursive delete only in strict mode', () => {
@@ -1563,9 +1576,11 @@ describe('edge cases', () => {
         [RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' '),
       ].join(` ${SHELL_SEMICOLON} `);
 
-      withEnv({ TMPDIR: safeTmpdir }, () => {
-        assertAllowed([RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' '), tempDir);
-      });
+      assertAllowed(
+        [RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' '),
+        tempDir,
+        testEnvironment({ TMPDIR: safeTmpdir }),
+      );
       assertAllowed(command, tempDir);
     });
 
@@ -1576,10 +1591,9 @@ describe('edge cases', () => {
         [RM_RF_REASON, TMPDIR_BUILD_TARGET].join(' '),
       ].join(` ${SHELL_SEMICOLON} `);
 
-      withEnv({ TMPDIR: unsafeTmpdir }, () => {
-        assertAllowed(command, tempDir);
-        assertStrictBlocked(command, 'shell variables', tempDir);
-      });
+      const environment = testEnvironment({ TMPDIR: unsafeTmpdir });
+      assertAllowed(command, tempDir, environment);
+      assertStrictBlocked(command, 'shell variables', tempDir, environment);
     });
   });
 

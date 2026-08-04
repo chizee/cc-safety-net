@@ -2,11 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, toNamespacedPath } from 'node:path';
+import type { EnvironmentContext } from '@/domain/analysis';
+import { testEnvironment } from '../helpers/environment';
 import {
   analyzeTestCommand as analyzeCommand,
   type TestPolicyInput as Config,
 } from '../helpers/policy';
-import { withEnv, withSymlinkedHomeCwd } from '../helpers.ts';
+import { withSymlinkedHomeCwd } from '../helpers.ts';
 
 const config: Config = { version: 1, rules: [] };
 
@@ -22,7 +24,12 @@ function withTempProject(fn: (cwd: string) => void): void {
 function analyzePowerShell(
   command: string,
   cwd: string,
-  options: { config?: Config; paranoidRm?: boolean; strict?: boolean } = {},
+  options: {
+    config?: Config;
+    paranoidRm?: boolean;
+    strict?: boolean;
+    environment?: EnvironmentContext;
+  } = {},
 ) {
   return analyzeCommand(command, { cwd, config, shell: 'powershell', ...options });
 }
@@ -320,21 +327,21 @@ describe('PowerShell Remove-Item support', () => {
 
   test('blocks relative targets when cwd is home', () => {
     withTempProject((cwd) => {
-      withEnv({ HOME: cwd }, () => {
-        expect(analyzePowerShell('Remove-Item build -Recurse -Force', cwd)?.ruleId).toBe(
-          'powershell.remove-item-recursive-force-home-cwd',
-        );
-      });
+      expect(
+        analyzePowerShell('Remove-Item build -Recurse -Force', cwd, {
+          environment: testEnvironment({ HOME: cwd }),
+        })?.ruleId,
+      ).toBe('powershell.remove-item-recursive-force-home-cwd');
     });
   });
 
   test('blocks relative targets when cwd is a symlink to home', () => {
     withSymlinkedHomeCwd('safety-net-powershell-home-link-', (home, cwd) => {
-      withEnv({ HOME: home }, () => {
-        expect(analyzePowerShell('Remove-Item build -Recurse -Force', cwd)?.ruleId).toBe(
-          'powershell.remove-item-recursive-force-home-cwd',
-        );
-      });
+      expect(
+        analyzePowerShell('Remove-Item build -Recurse -Force', cwd, {
+          environment: testEnvironment({ HOME: home }),
+        })?.ruleId,
+      ).toBe('powershell.remove-item-recursive-force-home-cwd');
     });
   });
 

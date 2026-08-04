@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
-import { isTmpdirOverriddenToNonTemp } from '@/core/analyze/tmpdir';
+import { isTmpdirOverriddenToNonTemp as isTmpdirOverriddenWithEnvironment } from '@/core/analyze/tmpdir';
+import { TEST_ENVIRONMENT } from '../../helpers/environment';
+
+const isTmpdirOverriddenToNonTemp = (envAssignments: ReadonlyMap<string, string>) =>
+  isTmpdirOverriddenWithEnvironment(envAssignments, TEST_ENVIRONMENT);
 
 function evaluateInFreshProcess(
   assignedTmpdir: string,
@@ -16,7 +20,8 @@ function evaluateInFreshProcess(
       '-e',
       `${options.platform ? `Object.defineProperty(process, 'platform', { value: ${JSON.stringify(options.platform)} });` : ''}
 const { isTmpdirOverriddenToNonTemp } = await import(${JSON.stringify(join(process.cwd(), 'src/core/analyze/tmpdir.ts'))});
-process.stdout.write(String(isTmpdirOverriddenToNonTemp(new Map([['TMPDIR', process.env.TMPDIR ?? '']]))));`,
+const { createProcessEnvironment } = await import(${JSON.stringify(join(process.cwd(), 'src/core/environment.ts'))});
+process.stdout.write(String(isTmpdirOverriddenToNonTemp(new Map([['TMPDIR', process.env.TMPDIR ?? '']]), createProcessEnvironment())));`,
     ],
     {
       env: { ...process.env, TMPDIR: assignedTmpdir, ...options.environment },

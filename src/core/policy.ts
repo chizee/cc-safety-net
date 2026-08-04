@@ -7,6 +7,7 @@ import {
   resolveEffectiveDestructiveCommandRules,
 } from '@/core/destructive-command-rules';
 import { getCCSafetyNetEnvModes } from '@/core/env';
+import { processHomeDir } from '@/core/environment';
 import {
   SECRET_DEFAULT_OFF_RULE_ID_SET,
   SECRET_PROTECTION_RULE_ID_SET,
@@ -352,12 +353,14 @@ function repairRuleOverrides(value: unknown, knownRuleIds: ReadonlySet<string>) 
 
 function repairDenyPaths(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((path): path is string => getSecretDenyPathError(path) === null);
+  const home = processHomeDir();
+  return value.filter((path): path is string => getSecretDenyPathError(path, home) === null);
 }
 
 function repairAllowPaths(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((path): path is string => getDestructiveAllowPathError(path) === null);
+  const home = processHomeDir();
+  return value.filter((path): path is string => getDestructiveAllowPathError(path, home) === null);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

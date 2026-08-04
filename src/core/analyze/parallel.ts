@@ -150,7 +150,7 @@ export function analyzeParallel(
   const tokens = words.map(analysisWordText);
   const ambientOptions = context.envAssignments?.has('PARALLEL')
     ? context.envAssignments.get('PARALLEL')
-    : process.env.PARALLEL;
+    : context.environment.env.get('PARALLEL');
   if (ambientOptions?.trim()) {
     const reason = parallelUnsupportedReason(context);
     if (reason) return reason;
@@ -835,13 +835,20 @@ function analyzeParallelRmExpansion(
 ): DestructiveCommandRuleMatch | null {
   return filterDestructiveCommandMatch(
     analyzeRmMatch(textCommandWords(tokens), {
+      environment: context.environment,
       cwd,
       originalCwd: context.originalCwd,
       strict: context.strict,
       paranoid: context.paranoidRm,
       allowTmpdirVar: context.allowTmpdirVar,
-      tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments ?? new Map()),
-      trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments ?? new Map()),
+      tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(
+        context.envAssignments ?? new Map(),
+        context.environment,
+      ),
+      trustedTmpdirValue: isTmpdirValueTrusted(
+        context.envAssignments ?? new Map(),
+        context.environment,
+      ),
       protectedGitMetadata: context.protectedGitMetadata,
       policy: context.policy,
     }),

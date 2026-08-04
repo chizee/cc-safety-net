@@ -29,7 +29,11 @@ import {
 } from '@/core/destructive-command-rules';
 import { extractGitSubcommandAndRest } from '@/core/git/parse';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
-import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type {
+  AnalyzeNestedOverrides,
+  DestructiveCommandRuleMatch,
+  EnvironmentContext,
+} from '@/domain/analysis';
 import type { CommandWord } from '@/domain/command';
 import type { PolicyRule } from '@/domain/policy';
 
@@ -120,6 +124,7 @@ export function analyzeXargs(
             childCommand.wrapperEnvAssignments,
             dynamicInput,
             context.scanWork,
+            context.environment,
           ),
         dynamicRmInput,
         shellDynamicMatch,
@@ -224,6 +229,7 @@ function xargsInputCanChangeExecutedSource(
   wrapperEnvAssignments: ReadonlyMap<string, string>,
   dynamicInput: boolean,
   scanWork: { units: number } | undefined,
+  environment: EnvironmentContext,
 ): boolean {
   if (SHELL_WRAPPERS.has(childHead)) {
     if (isShellSyntaxCheck(childTokens)) return false;
@@ -274,7 +280,7 @@ function xargsInputCanChangeExecutedSource(
   }
 
   if (childHead === 'find') {
-    return findInputCanChangeExecutedSource(childTokens, replacementToken, scanWork);
+    return findInputCanChangeExecutedSource(childTokens, replacementToken, scanWork, environment);
   }
 
   if (childHead === 'git') {
@@ -473,6 +479,7 @@ function findInputCanChangeExecutedSource(
   childTokens: readonly string[],
   replacementToken: string | null,
   scanWork: { units: number } | undefined,
+  environment: EnvironmentContext,
 ): boolean {
   // Appended stdin can always extend a find expression (-delete, -exec, etc.).
   if (replacementToken === null) return true;
@@ -499,6 +506,7 @@ function findInputCanChangeExecutedSource(
       const execCommand = getFindExecCommand(childTokens, index);
       index = execCommand.nextIndex - 1;
       for (const childCommand of normalizeChildCommands(execCommand.tokens, {
+        environment,
         cwd: undefined,
       })) {
         const dynamicInput = xargsInputIsDynamic(
@@ -516,6 +524,7 @@ function findInputCanChangeExecutedSource(
             childCommand.wrapperEnvAssignments,
             dynamicInput,
             scanWork,
+            environment,
           )
         ) {
           return true;

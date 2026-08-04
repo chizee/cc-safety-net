@@ -22,6 +22,11 @@ export const processPathResolver: PathResolver = {
   },
 };
 
+/** The home directory of the current process, for callers that stay ambient by choice. */
+export function processHomeDir(): string {
+  return process.env.HOME || homedir();
+}
+
 /** Snapshot the current process state for one analysis run. */
 export function createProcessEnvironment(): EnvironmentContext {
   return {
@@ -30,7 +35,7 @@ export function createProcessEnvironment(): EnvironmentContext {
         value === undefined ? [] : [[name, value] as const],
       ),
     ),
-    home: process.env.HOME || homedir(),
+    home: processHomeDir(),
     tmpdir: tmpdir(),
     paths: processPathResolver,
   };

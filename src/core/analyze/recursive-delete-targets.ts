@@ -1,8 +1,6 @@
-import { homedir } from 'node:os';
 import { isAbsolute, normalize, parse, posix, resolve, sep } from 'node:path';
 import { expandAllowPathHome, getAllowPathHomeConflictError } from '@/core/analyze/allow-paths';
 import { isTrustedTempPath, isTrustedTempRootPath } from '@/core/analyze/tmpdir';
-import { getOwnEnvValue } from '@/core/env';
 import {
   isProtectedGitDeleteTarget,
   type ProtectedGitMetadata,
@@ -14,6 +12,7 @@ import {
   type PathCanonicalizationBudget,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
+import type { EnvironmentContext } from '@/domain/analysis';
 import type { CommandWord } from '@/domain/command';
 import { expandPosixLiteralBraceWord } from '@/parser/posix';
 
@@ -22,6 +21,8 @@ const BRACE_EXPANSION_LIMIT = 64;
 const BRACE_EXPANDED_LENGTH_LIMIT = 16_384;
 
 export interface RecursiveDeleteTargetTrustOptions {
+  /** Process state the trust checks read instead of touching env or home. */
+  environment: EnvironmentContext;
   cwd?: string;
   originalCwd?: string;
   strict?: boolean;
@@ -139,9 +140,9 @@ function isRawOffsetDoubleQuoted(raw: string, offset: number): boolean {
 }
 
 export function createRecursiveDeleteTargetContext(
-  options: RecursiveDeleteTargetOptions = {},
+  options: RecursiveDeleteTargetOptions,
 ): RecursiveDeleteTargetContext {
-  const homeDir = getHomeDirForRmPolicy();
+  const homeDir = options.environment.home;
   const budget = createPathCanonicalizationBudget();
   return {
     anchoredCwd: options.originalCwd ?? options.cwd ?? null,
@@ -409,10 +410,6 @@ function isTrustedTmpdirVariableRootTarget(path: string): boolean {
 
 function hasParentDirectoryComponent(path: string): boolean {
   return path.split(/[\\/]+/).includes('..');
-}
-
-function getHomeDirForRmPolicy(): string {
-  return getOwnEnvValue('HOME') || homedir();
 }
 
 function resolveAllowRoots(

@@ -53,6 +53,7 @@ import type {
   AnalyzeOptions,
   AnalyzeResult,
   DestructiveCommandRuleMatch,
+  EnvironmentContext,
 } from '@/domain/analysis';
 import type {
   CommandProgram,
@@ -179,7 +180,10 @@ function analyzeCommandWithBudget(
   // Preserve effectiveCwd from caller (e.g., after cd in prior segment of outer command)
   // undefined = use cwd, null = unknown (after cd/pushd)
   const effectiveCwd = options.effectiveCwd !== undefined ? options.effectiveCwd : options.cwd;
-  const shellGitContextState = createShellGitContextEnvState(options.envAssignments);
+  const shellGitContextState = createShellGitContextEnvState(
+    options.environment.env,
+    options.envAssignments,
+  );
   return analyzeProgram(program, depth, { ...options, rootProgram: program }, originalCwd, [
     {
       effectiveCwd,
@@ -698,7 +702,13 @@ function analyzeCommandView(
     invalidateLiteralHeredocFiles(commandView, state, 'after-consumer');
     state.literalHeredocFiles.clear();
     trackLiteralHeredocFiles(commandView, heredocReason, state);
-    updateCwdAfterCommandView(commandView, state, literalShellInput, options.trace);
+    updateCwdAfterCommandView(
+      commandView,
+      state,
+      literalShellInput,
+      options.environment,
+      options.trace,
+    );
     return null;
   }
 
@@ -753,7 +763,13 @@ function analyzeCommandView(
   invalidateLiteralHeredocFiles(commandView, state, 'after-consumer');
   state.literalHeredocFiles.clear();
   trackLiteralHeredocFiles(commandView, heredocReason, state);
-  updateCwdAfterCommandView(commandView, state, literalShellInput, options.trace);
+  updateCwdAfterCommandView(
+    commandView,
+    state,
+    literalShellInput,
+    options.environment,
+    options.trace,
+  );
   applyShellGitContextEnvSegment(segment, state.shellGitContextState);
   return null;
 }
@@ -987,7 +1003,7 @@ function analyzeUnsupportedHeredoc(
   const bodies = heredocs.flatMap((redirection) =>
     redirection.heredoc ? [redirection.heredoc.body] : [],
   );
-  if (isInertShellHeredoc(commandView, heredocs, state, envAssignments)) return null;
+  if (isInertShellHeredoc(commandView, heredocs, state, envAssignments, options)) return null;
   const interpreterMatch = analyzeInterpreterHeredocMatch(commandView, heredocs, options);
   if (interpreterMatch !== undefined) {
     return interpreterMatch
@@ -1065,13 +1081,19 @@ function isInertShellHeredoc(
   heredocs: readonly CommandRedirection[],
   state: AnalysisState,
   envAssignments: ReadonlyMap<string, string>,
+  options: ActiveInternalOptions,
 ): boolean {
   const heredoc = heredocs.length === 1 ? heredocs[0] : undefined;
   if (!heredoc?.heredoc?.quotedDelimiter || (heredoc.fd !== undefined && heredoc.fd !== 0)) {
     return false;
   }
 
-  const stripped = stripWrapperWords(commandView.words, state.effectiveCwd, envAssignments);
+  const stripped = stripWrapperWords(
+    commandView.words,
+    options.environment,
+    state.effectiveCwd,
+    envAssignments,
+  );
   const tokens = stripped.words.map(analysisWordText);
   const head = normalizeCommandToken(tokens[0] ?? '');
   if (
@@ -1087,9 +1109,15 @@ function updateCwdAfterCommandView(
   commandView: CommandView,
   state: AnalysisState,
   literalPipelineInput: string | undefined,
+  environment: EnvironmentContext,
   trace?: CommandTraceContext,
 ): void {
-  const nextCwd = resolveCwdAfterCommandView(commandView, state.effectiveCwd, literalPipelineInput);
+  const nextCwd = resolveCwdAfterCommandView(
+    commandView,
+    state.effectiveCwd,
+    environment,
+    literalPipelineInput,
+  );
   if (nextCwd === null) {
     trace?.recordSegment({
       type: 'cwd-change',
@@ -1171,6 +1199,7 @@ function getPowerShellRemoveItemOptions(
 ) {
   const cwdUnknown = effectiveCwd === null;
   return {
+    environment: options.environment,
     cwd: cwdUnknown ? undefined : (effectiveCwd ?? options.cwd),
     originalCwd: cwdUnknown ? undefined : options.cwd,
     strict: options.strict,

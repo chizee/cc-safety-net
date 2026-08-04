@@ -42,13 +42,13 @@ export interface AnalyzeRmOptions extends RecursiveDeleteTargetOptions {
 }
 
 /** @internal */
-export function analyzeRm(tokens: string[], options: AnalyzeRmOptions = {}): string | null {
+export function analyzeRm(tokens: string[], options: AnalyzeRmOptions): string | null {
   return analyzeRmMatch(textCommandWords(tokens), options)?.reason ?? null;
 }
 
 export function analyzeRmMatch(
   words: readonly CommandWord[],
-  options: AnalyzeRmOptions = {},
+  options: AnalyzeRmOptions,
 ): DestructiveCommandRuleMatch | null {
   const ctx = createRecursiveDeleteTargetContext({
     ...options,

@@ -8,6 +8,7 @@ import {
 } from '@/core/analyze/awk';
 import { analyzeChildCommand } from '@/core/analyze/child-analyzer';
 import { analyzeFind } from '@/core/analyze/find';
+import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import {
   analyzeTestCommand as analyzeCommand,
   type TestPolicyInput as Config,
@@ -637,6 +638,7 @@ describe('analyzeCommand (coverage)', () => {
 
   describe('child command analyzer branches', () => {
     const childContext = {
+      environment: TEST_ENVIRONMENT,
       cwd: '/tmp',
       originalCwd: '/tmp',
       paranoidRm: false,
@@ -681,6 +683,7 @@ describe('analyzeCommand (coverage)', () => {
 
     test('find exec supports analyzeNested fallback when token analyzer is absent', () => {
       const result = analyzeFind(['find', '.', '-exec', 'git', 'reset', '--hard', ';'], {
+        environment: TEST_ENVIRONMENT,
         cwd: '/tmp',
         envAssignments: new Map<string, string>(),
         analyzeNested: analyzeNestedMatch,
@@ -700,6 +703,7 @@ describe('analyzeCommand (coverage)', () => {
     test('find exec analyzeNested fallback continues when command is safe', () => {
       expect(
         analyzeFind(['find', '.', '-exec', 'echo', '{}', ';'], {
+          environment: TEST_ENVIRONMENT,
           cwd: '/tmp',
           envAssignments: new Map<string, string>(),
           analyzeNested: analyzeNestedMatch,
@@ -708,13 +712,17 @@ describe('analyzeCommand (coverage)', () => {
     });
 
     test('find exec direct fallback still handles wrapped rm commands', () => {
-      expect(analyzeFind(['find', '.', '-exec', 'busybox', 'rm', '-rf', '{}', ';'])).toContain(
-        'find -exec rm -rf',
-      );
+      expect(
+        analyzeFind(['find', '.', '-exec', 'busybox', 'rm', '-rf', '{}', ';'], {
+          environment: TEST_ENVIRONMENT,
+        }),
+      ).toContain('find -exec rm -rf');
     });
 
     test('find exec direct fallback allows safe command', () => {
-      expect(analyzeFind(['find', '.', '-exec', 'echo', '{}', ';'])).toBeNull();
+      expect(
+        analyzeFind(['find', '.', '-exec', 'echo', '{}', ';'], { environment: TEST_ENVIRONMENT }),
+      ).toBeNull();
     });
   });
 });

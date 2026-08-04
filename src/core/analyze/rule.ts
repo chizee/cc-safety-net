@@ -73,13 +73,20 @@ export const ANALYZER_RULES: readonly AnalyzerRule[] = [
     heads: new Set(['rm', 'rmdir']),
     analyze: (context) =>
       analyzeRmMatch(context.words, {
+        environment: context.options.environment,
         cwd: context.cwd,
         originalCwd: context.originalCwd,
         strict: context.options.strict,
         paranoid: context.options.paranoidRm,
         allowTmpdirVar: context.allowTmpdirVar,
-        tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
-        trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+        tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(
+          context.envAssignments,
+          context.options.environment,
+        ),
+        trustedTmpdirValue: isTmpdirValueTrusted(
+          context.envAssignments,
+          context.options.environment,
+        ),
         protectedGitMetadata: context.options.protectedGitMetadata,
         policy: context.options.policy,
       }),
@@ -92,12 +99,19 @@ export const ANALYZER_RULES: readonly AnalyzerRule[] = [
     heads: new Set(['find']),
     analyze: (context) =>
       analyzeFindMatch(context.words, {
+        environment: context.options.environment,
         cwd: context.cwd,
         originalCwd: context.originalCwd,
         strict: context.options.strict,
         allowTmpdirVar: context.allowTmpdirVar,
-        tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
-        trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+        tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(
+          context.envAssignments,
+          context.options.environment,
+        ),
+        trustedTmpdirValue: isTmpdirValueTrusted(
+          context.envAssignments,
+          context.options.environment,
+        ),
         protectedGitMetadata: context.options.protectedGitMetadata,
         derivedCommandWorkBudget: context.options.derivedCommandWorkBudget,
         envAssignments: context.envAssignments,
@@ -130,6 +144,7 @@ export const ANALYZER_RULES: readonly AnalyzerRule[] = [
 
 function nestedCommandAnalyzeContext(context: AnalyzerRuleContext): NestedCommandAnalyzeContext {
   return {
+    environment: context.options.environment,
     cwd: context.cwd,
     originalCwd: context.originalCwd,
     strict: context.options.strict,

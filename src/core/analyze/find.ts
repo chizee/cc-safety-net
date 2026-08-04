@@ -28,7 +28,11 @@ import {
   REASON_GIT_METADATA_PROTECTION,
 } from '@/core/git-metadata-protection';
 import { getBasename } from '@/core/shell';
-import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type {
+  AnalyzeNestedOverrides,
+  DestructiveCommandRuleMatch,
+  EnvironmentContext,
+} from '@/domain/analysis';
 import type { CommandWord } from '@/domain/command';
 import type { EffectivePolicy } from '@/domain/policy';
 
@@ -108,16 +112,13 @@ export interface AnalyzeFindContext extends RecursiveDeleteTargetTrustOptions {
 }
 
 /** @internal */
-export function analyzeFind(
-  tokens: readonly string[],
-  context: AnalyzeFindContext = {},
-): string | null {
+export function analyzeFind(tokens: readonly string[], context: AnalyzeFindContext): string | null {
   return analyzeFindMatch(textCommandWords(tokens), context)?.reason ?? null;
 }
 
 export function analyzeFindMatch(
   words: readonly CommandWord[],
-  context: AnalyzeFindContext = {},
+  context: AnalyzeFindContext,
 ): DestructiveCommandRuleMatch | null {
   // The primary/arity walk is textual; only the starting points read word facts.
   const tokens = words.map(analysisWordText);
@@ -151,7 +152,7 @@ export function analyzeFindMatch(
     reserveDerivedCommandTokens(derivedCommandWorkBudget, tokens.length - i - 1);
     const execCommand = getFindExecCommand(tokens, i);
     i = execCommand.nextIndex;
-    const directMatch = analyzeFindExecCommand(execCommand.tokens);
+    const directMatch = analyzeFindExecCommand(execCommand.tokens, context.environment);
     if (directMatch) {
       const match = filterDestructiveCommandMatch(directMatch, context.policy);
       if (match) return match;
@@ -181,7 +182,7 @@ function findCatastrophicDeleteMatch(
   context: AnalyzeFindContext,
 ): DestructiveCommandRuleMatch | null {
   const deletesDirectly = findHasDelete(tokens, 1);
-  if (!deletesDirectly && !findExecRmDeletesFoundPaths(tokens)) return null;
+  if (!deletesDirectly && !findExecRmDeletesFoundPaths(tokens, context.environment)) return null;
   // An omitted starting point means find searches `.` implicitly.
   const targets = getFindStartingPoints(words) ?? textCommandWords(['.']);
   const targetContext = createRecursiveDeleteTargetContext({
@@ -224,7 +225,10 @@ function findCatastrophicDeleteMatch(
   return null;
 }
 
-export function findExecRmDeletesFoundPaths(tokens: readonly string[]): boolean {
+export function findExecRmDeletesFoundPaths(
+  tokens: readonly string[],
+  environment: EnvironmentContext,
+): boolean {
   let index = 0;
   while (index < tokens.length) {
     if (!isFindExecPrimary(tokens[index])) {
@@ -232,7 +236,7 @@ export function findExecRmDeletesFoundPaths(tokens: readonly string[]): boolean 
       continue;
     }
     const command = getFindExecCommand(tokens, index);
-    const stripped = stripWrappers([...command.tokens]);
+    const stripped = stripWrappers([...command.tokens], environment);
     const head = getBasename(stripped[0] ?? '').toLowerCase();
     if ((head === 'rm' || head === 'rmdir') && stripped.some((token) => token.includes('{}'))) {
       return true;
@@ -258,10 +262,13 @@ function hasOnlyTrustedTempDeleteTargets(
   const targets = getFindStartingPoints(words);
   if (!targets) return false;
   const envAssignments = context.envAssignments ?? new Map();
-  const effectiveTmpdirValue = getEffectiveTmpdirValue(envAssignments);
-  const trustedTmpdirValue = context.trustedTmpdirValue ?? isTmpdirValueTrusted(envAssignments);
-  const allowTmpdirVar = context.allowTmpdirVar ?? !isTmpdirOverriddenToNonTemp(envAssignments);
+  const effectiveTmpdirValue = getEffectiveTmpdirValue(envAssignments, context.environment);
+  const trustedTmpdirValue =
+    context.trustedTmpdirValue ?? isTmpdirValueTrusted(envAssignments, context.environment);
+  const allowTmpdirVar =
+    context.allowTmpdirVar ?? !isTmpdirOverriddenToNonTemp(envAssignments, context.environment);
   const targetContext = createRecursiveDeleteTargetContext({
+    environment: context.environment,
     cwd: context.cwd,
     originalCwd: context.originalCwd,
     strict: context.strict,
@@ -269,7 +276,8 @@ function hasOnlyTrustedTempDeleteTargets(
     allowPaths: context.policy?.destructiveCommandAllowPaths,
     posixShell: true,
     tmpdirWordSplittingUnsafe:
-      context.tmpdirWordSplittingUnsafe ?? hasUnsafeTmpdirWordSplitting(envAssignments),
+      context.tmpdirWordSplittingUnsafe ??
+      hasUnsafeTmpdirWordSplitting(envAssignments, context.environment),
     trustedTmpdirValue,
   });
 
@@ -312,8 +320,11 @@ export function getFindStartingPoints(words: readonly CommandWord[]): CommandWor
   return targets.length > 0 ? targets : null;
 }
 
-function analyzeFindExecCommand(tokens: readonly string[]): DestructiveCommandRuleMatch | null {
-  let execCommand = stripWrappers([...tokens]);
+function analyzeFindExecCommand(
+  tokens: readonly string[],
+  environment: EnvironmentContext,
+): DestructiveCommandRuleMatch | null {
+  let execCommand = stripWrappers([...tokens], environment);
   if (execCommand.length === 0) {
     return null;
   }

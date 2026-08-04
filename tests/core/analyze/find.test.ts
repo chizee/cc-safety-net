@@ -3,8 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { isTrustedTempRootPath } from '@/core/analyze/tmpdir';
+import { testEnvironment } from '../../helpers/environment.ts';
 import { analyzeTestCommand } from '../../helpers/policy.ts';
-import { assertAllowed, assertBlocked, withEnv } from '../../helpers.ts';
+import { assertAllowed, assertBlocked } from '../../helpers.ts';
 
 describe('find -delete tests', () => {
   test('find delete blocked', () => {
@@ -23,10 +24,9 @@ describe('find -delete tests', () => {
   });
 
   test('find delete allows trusted TMPDIR descendants', () => {
-    withEnv({ TMPDIR: '/tmp/ccsn-find-root' }, () => {
-      assertAllowed('find $TMPDIR/child -depth -delete');
-      assertAllowed('find "$TMPDIR/child" -depth -delete');
-    });
+    const environment = testEnvironment({ TMPDIR: '/tmp/ccsn-find-root' });
+    assertAllowed('find $TMPDIR/child -depth -delete', undefined, environment);
+    assertAllowed('find "$TMPDIR/child" -depth -delete', undefined, environment);
   });
 
   test('find delete allows trusted temporary descendants in strict mode', () => {
@@ -65,11 +65,10 @@ describe('find -delete tests', () => {
     if (isTrustedTempRootPath(tmpdir())) {
       assertBlocked(`find ${tmpdir()} -depth -delete`, 'find -delete');
     }
-    withEnv({ TMPDIR: '/tmp/ccsn-find-root' }, () => {
-      assertBlocked('find $TMPDIR -depth -delete', 'find -delete');
-      assertBlocked('find "$TMPDIR/." -depth -delete', 'find -delete');
-      assertBlocked('find "${TMPDIR}//" -depth -delete', 'find -delete');
-    });
+    const environment = testEnvironment({ TMPDIR: '/tmp/ccsn-find-root' });
+    assertBlocked('find $TMPDIR -depth -delete', 'find -delete', undefined, environment);
+    assertBlocked('find "$TMPDIR/." -depth -delete', 'find -delete', undefined, environment);
+    assertBlocked('find "${TMPDIR}//" -depth -delete', 'find -delete', undefined, environment);
   });
 
   test('find delete blocks missing relative mixed and dynamic starting paths', () => {
@@ -84,16 +83,21 @@ describe('find -delete tests', () => {
   });
 
   test('find delete blocks unsafe TMPDIR expansion', () => {
-    withEnv({ TMPDIR: '' }, () => {
-      assertBlocked('find "$TMPDIR/child" -delete', 'find -delete');
-    });
-    withEnv({ TMPDIR: '/Users' }, () => {
-      assertBlocked('find "$TMPDIR/child" -delete', 'find -delete');
-    });
-    withEnv({ IFS: ':', TMPDIR: '/tmp/ccsn-find-root' }, () => {
-      assertBlocked('find $TMPDIR/child -delete', 'find -delete');
-      assertAllowed('find "$TMPDIR/child" -delete');
-    });
+    assertBlocked(
+      'find "$TMPDIR/child" -delete',
+      'find -delete',
+      undefined,
+      testEnvironment({ TMPDIR: '' }),
+    );
+    assertBlocked(
+      'find "$TMPDIR/child" -delete',
+      'find -delete',
+      undefined,
+      testEnvironment({ TMPDIR: '/Users' }),
+    );
+    const splitting = testEnvironment({ IFS: ':', TMPDIR: '/tmp/ccsn-find-root' });
+    assertBlocked('find $TMPDIR/child -delete', 'find -delete', undefined, splitting);
+    assertAllowed('find "$TMPDIR/child" -delete', undefined, splitting);
   });
 
   test('find delete blocks traversal through followed symlinks', () => {
@@ -118,9 +122,12 @@ describe('find -delete tests', () => {
       assertBlocked(`find ${root} -depth -delete`, 'find -delete', repo);
       assertBlocked(`find ${repo} -depth -delete`, 'find -delete', repo);
       assertAllowed(`find ${other} -depth -delete`, repo);
-      withEnv({ TMPDIR: tmpdir() }, () => {
-        assertBlocked(`find "$TMPDIR/${basename(root)}" -depth -delete`, 'find -delete', repo);
-      });
+      assertBlocked(
+        `find "$TMPDIR/${basename(root)}" -depth -delete`,
+        'find -delete',
+        repo,
+        testEnvironment({ TMPDIR: tmpdir() }),
+      );
       assertBlocked(`env -C ${repo} find ${root} -depth -delete`, 'find -delete', other);
       assertBlocked(`env -C ${other} find ${root} -depth -delete`, 'find -delete', repo);
     } finally {

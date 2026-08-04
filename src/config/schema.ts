@@ -5,6 +5,7 @@ import { COMMAND_PATTERN, MAX_REASON_LENGTH } from '@/core/analyze/constants';
 import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import { MAX_AUDIT_RETENTION_DAYS, MIN_AUDIT_RETENTION_DAYS } from '@/core/audit-retention-days';
 import { DESTRUCTIVE_COMMAND_RULE_ID_SET } from '@/core/destructive-command-rules';
+import { processHomeDir } from '@/core/environment';
 import { RULE_SOURCE_LIMIT, RULE_SOURCE_LIMIT_ERROR } from '@/core/rules/policy/resource-limits';
 import { getRulebookSourceSyntaxError } from '@/core/rules/policy/source-syntax';
 import { SECRET_PROTECTION_RULE_ID_SET } from '@/core/secret-protection-rules';
@@ -156,8 +157,9 @@ function createSchemas() {
         .optional(),
     })
     .superRefine((policy, context) => {
+      const home = processHomeDir();
       (policy.destructive_command_protection?.allow_paths ?? []).forEach((path, index) => {
-        const error = getDestructiveAllowPathError(path);
+        const error = getDestructiveAllowPathError(path, home);
         if (error) {
           context.addIssue({
             code: 'custom',
@@ -167,7 +169,7 @@ function createSchemas() {
         }
       });
       (policy.secret_protection?.deny_paths ?? []).forEach((path, index) => {
-        const error = getSecretDenyPathError(path);
+        const error = getSecretDenyPathError(path, home);
         if (error) {
           context.addIssue({
             code: 'custom',
@@ -440,8 +442,9 @@ function validateUserDestructivePolicy(value: unknown, errors: string[]): void {
     errors.push('destructive_command_protection.allow_paths must be an array of paths');
     return;
   }
+  const home = processHomeDir();
   for (let index = 0; index < value.allow_paths.length; index++) {
-    const error = getDestructiveAllowPathError(value.allow_paths[index]);
+    const error = getDestructiveAllowPathError(value.allow_paths[index], home);
     if (error) errors.push(`destructive_command_protection.allow_paths[${index}] ${error}`);
   }
 }
@@ -473,8 +476,9 @@ function validateUserSecretPolicy(value: unknown, errors: string[]): void {
     errors.push('secret_protection.deny_paths must be an array of paths');
     return;
   }
+  const home = processHomeDir();
   for (let index = 0; index < value.deny_paths.length; index++) {
-    const error = getSecretDenyPathError(value.deny_paths[index]);
+    const error = getSecretDenyPathError(value.deny_paths[index], home);
     if (error) errors.push(`secret_protection.deny_paths[${index}] ${error}`);
   }
 }

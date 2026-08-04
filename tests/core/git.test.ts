@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { analyzeGit, getGitWorktreeRelaxation } from '@/core/git';
+import { testEnvironment } from '../helpers/environment.ts';
 import {
   assertAllowed,
   assertBlocked,
@@ -1231,6 +1232,11 @@ describe('git linked worktree mode', () => {
     mkdirSync(recurseHome);
     writeFileSync(join(recurseHome, '.gitconfig'), '[submodule]\n\trecurse = true\n');
     writeFileSync(recurseConfig, '[submodule]\n\trecurse = true\n');
+    const environment = testEnvironment({
+      GIT_CONFIG_NOSYSTEM: '1',
+      HOME: safeHome,
+      XDG_CONFIG_HOME: safeXdg,
+    });
     try {
       withEnv(
         {
@@ -1240,36 +1246,16 @@ describe('git linked worktree mode', () => {
           XDG_CONFIG_HOME: safeXdg,
         },
         () => {
-          assertBlocked(
+          for (const command of [
             `git -c include.path=${toShellPath(recurseConfig)} reset --hard`,
-            'git reset --hard',
-            fixture.linkedWorktree,
-          );
-          assertBlocked(
             `HOME=${toShellPath(recurseHome)} git reset --hard`,
-            'git reset --hard',
-            fixture.linkedWorktree,
-          );
-          assertBlocked(
             `HOME=${toShellPath(recurseHome)}; git reset --hard`,
-            'git reset --hard',
-            fixture.linkedWorktree,
-          );
-          assertBlocked(
             `HOME+=${toShellPath(recurseHome)} git reset --hard`,
-            'git reset --hard',
-            fixture.linkedWorktree,
-          );
-          assertBlocked(
             `export HOME+=${toShellPath(recurseHome)}; git reset --hard`,
-            'git reset --hard',
-            fixture.linkedWorktree,
-          );
-          assertBlocked(
             `GIT_CONFIG_PARAMETERS="'submodule.recurse=true'" git reset --hard`,
-            'git reset --hard',
-            fixture.linkedWorktree,
-          );
+          ]) {
+            assertBlocked(command, 'git reset --hard', fixture.linkedWorktree, environment);
+          }
         },
       );
 
@@ -1969,27 +1955,37 @@ describe('git ssh environment overrides', () => {
   });
 
   test('inherited GIT_SSH_COMMAND blocks network operations', () => {
-    withEnv({ GIT_SSH_COMMAND: './malicious' }, () => {
-      assertBlocked('git fetch origin', 'Git SSH environment overrides');
-    });
+    assertBlocked(
+      'git fetch origin',
+      'Git SSH environment overrides',
+      undefined,
+      testEnvironment({ GIT_SSH_COMMAND: './malicious' }),
+    );
   });
 
   test('inherited GIT_SSH blocks network operations', () => {
-    withEnv({ GIT_SSH: './malicious' }, () => {
-      assertBlocked('git fetch origin', 'Git SSH environment overrides');
-    });
+    assertBlocked(
+      'git fetch origin',
+      'Git SSH environment overrides',
+      undefined,
+      testEnvironment({ GIT_SSH: './malicious' }),
+    );
   });
 
   test('inherited Git SSH env still allows non-network git status', () => {
-    withEnv({ GIT_SSH_COMMAND: './helper', GIT_SSH: './helper' }, () => {
-      assertAllowed('git status');
-    });
+    assertAllowed(
+      'git status',
+      undefined,
+      testEnvironment({ GIT_SSH_COMMAND: './helper', GIT_SSH: './helper' }),
+    );
   });
 
   test('unset inherited Git SSH env allows later network operations', () => {
-    withEnv({ GIT_SSH_COMMAND: './malicious', GIT_SSH: './malicious' }, () => {
-      assertAllowed('unset GIT_SSH_COMMAND GIT_SSH; git fetch origin');
-    });
+    assertAllowed(
+      'unset GIT_SSH_COMMAND GIT_SSH; git fetch origin',
+      undefined,
+      testEnvironment({ GIT_SSH_COMMAND: './malicious', GIT_SSH: './malicious' }),
+    );
   });
 });
 

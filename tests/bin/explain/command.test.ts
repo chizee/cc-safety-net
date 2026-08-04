@@ -15,8 +15,9 @@ import { REASON_POLICY_CONFIG_PROTECTION } from '@/core/policy-protection';
 import { REASON_RECURSION_LIMIT } from '@/core/reasons';
 import { syncRulesConfig } from '@/core/rules/policy';
 import { REASON_SECRET_PROTECTION } from '@/core/secret-protection';
+import type { EnvironmentContext } from '@/domain/analysis';
 import { createCommandTraceContext, createCommandTraceRecorder } from '@/engine/command-trace';
-import { TEST_ENVIRONMENT } from '../../helpers/environment';
+import { TEST_ENVIRONMENT, testEnvironment } from '../../helpers/environment';
 import {
   analyzeTestCommand,
   commandAnalysisPolicy,
@@ -335,6 +336,32 @@ describe('explainCommand edge cases', () => {
       (s) => s.type === 'rule-check' && s.ruleModule === 'analyze/find.ts',
     );
     expect(ruleStep).toBeDefined();
+  });
+
+  test('tmpdir check reports the analysis environment, not the ambient one', () => {
+    const tmpdirStep = (environment: EnvironmentContext) => {
+      const snapshot = policySnapshot();
+      const recorder = createCommandTraceRecorder();
+      const trace = createCommandTraceContext(recorder);
+      trace.currentSegmentIndex = 0;
+      analyzeCommandInternal('rm -rf /tmp/ccsn-trace', 0, {
+        cwd: '/tmp',
+        policySnapshot: snapshot,
+        environment,
+        policy: commandAnalysisPolicy(snapshot),
+        trace,
+      });
+      return recorder
+        .finish({ result: 'allowed' })
+        .events.map((event) => event.step)
+        .find((step) => step.type === 'tmpdir-check');
+    };
+
+    const ambient = withEnv({ TMPDIR: '/tmp/ccsn-ambient' }, () => tmpdirStep(TEST_ENVIRONMENT));
+    expect(ambient).toMatchObject({ tmpdirValue: null });
+    expect(tmpdirStep(testEnvironment({ TMPDIR: '/tmp/ccsn-injected' }))).toMatchObject({
+      tmpdirValue: '<redacted>',
+    });
   });
 
   test('xargs rm traces rule check and tmpdir check', () => {

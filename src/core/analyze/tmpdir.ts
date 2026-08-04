@@ -1,33 +1,40 @@
 import { lstatSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, normalize, parse as parsePath, sep } from 'node:path';
-import { getOwnEnvValue } from '@/core/env';
+import type { EnvironmentContext } from '@/domain/analysis';
 
 const INITIAL_SYSTEM_TMPDIR = tmpdir();
 const TEMP_ROOTS = ['/tmp', '/var/tmp', '/private/tmp', '/private/var/tmp'];
 const TRUSTED_TEMP_ROOTS = buildTrustedTempRoots();
 const DEFAULT_IFS = ' \t\n';
 
-export function isTmpdirOverriddenToNonTemp(envAssignments: ReadonlyMap<string, string>): boolean {
-  if (hasUnsafeTmpdirWordSplitting(envAssignments)) return true;
+export function isTmpdirOverriddenToNonTemp(
+  envAssignments: ReadonlyMap<string, string>,
+  environment: EnvironmentContext,
+): boolean {
+  if (hasUnsafeTmpdirWordSplitting(envAssignments, environment)) return true;
   // Only explicit shell assignments override TMPDIR trust. Inherited process env is not an override.
   if (!envAssignments.has('TMPDIR')) return false;
   return !isAssignedTmpdirValueTrusted(envAssignments.get('TMPDIR') ?? '');
 }
 
-export function isTmpdirValueTrusted(envAssignments: ReadonlyMap<string, string>): boolean {
+export function isTmpdirValueTrusted(
+  envAssignments: ReadonlyMap<string, string>,
+  environment: EnvironmentContext,
+): boolean {
   if (envAssignments.has('TMPDIR')) {
     return isAssignedTmpdirValueTrusted(envAssignments.get('TMPDIR') ?? '');
   }
-  const tmpdirValue = getEffectiveTmpdirValue(envAssignments);
+  const tmpdirValue = getEffectiveTmpdirValue(envAssignments, environment);
   if (tmpdirValue === undefined) return true;
   return isAssignedTmpdirValueTrusted(tmpdirValue);
 }
 
 export function getEffectiveTmpdirValue(
   envAssignments: ReadonlyMap<string, string>,
+  environment: EnvironmentContext,
 ): string | undefined {
-  return getEffectiveShellEnvValue(envAssignments, 'TMPDIR');
+  return getEffectiveShellEnvValue(envAssignments, environment, 'TMPDIR');
 }
 
 function isAssignedTmpdirValueTrusted(tmpdirValue: string): boolean {
@@ -37,8 +44,11 @@ function isAssignedTmpdirValueTrusted(tmpdirValue: string): boolean {
   return isTrustedTempPath(tmpdirValue);
 }
 
-export function hasUnsafeTmpdirWordSplitting(envAssignments: ReadonlyMap<string, string>): boolean {
-  const ifs = getEffectiveShellEnvValue(envAssignments, 'IFS');
+export function hasUnsafeTmpdirWordSplitting(
+  envAssignments: ReadonlyMap<string, string>,
+  environment: EnvironmentContext,
+): boolean {
+  const ifs = getEffectiveShellEnvValue(envAssignments, environment, 'IFS');
   return ifs !== undefined && ifs !== '' && ifs !== DEFAULT_IFS;
 }
 
@@ -74,9 +84,10 @@ function hasUnsafeTmpdirShellExpansion(path: string): boolean {
 
 function getEffectiveShellEnvValue(
   envAssignments: ReadonlyMap<string, string>,
+  environment: EnvironmentContext,
   name: string,
 ): string | undefined {
-  return envAssignments.has(name) ? envAssignments.get(name) : getOwnEnvValue(name);
+  return envAssignments.has(name) ? envAssignments.get(name) : environment.env.get(name);
 }
 
 function isMacOSPerUserTempRoot(path: string): boolean {

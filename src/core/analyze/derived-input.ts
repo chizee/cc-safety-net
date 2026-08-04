@@ -24,7 +24,7 @@ import {
 import { analyzeGitMatch } from '@/core/git';
 import { GIT_GLOBAL_OPTS_WITH_VALUE } from '@/core/git/worktree';
 import { normalizeCommandToken } from '@/core/shell';
-import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { DestructiveCommandRuleMatch, EnvironmentContext } from '@/domain/analysis';
 import { type CommandView, type CommandWord, isDynamicExecutable } from '@/domain/command';
 import type { EffectivePolicy } from '@/domain/policy';
 
@@ -65,6 +65,7 @@ function hasOptionLiteralPart(word: CommandWord | undefined): boolean {
 export function analyzeDynamicCommandStructure(
   dialect: CommandView['dialect'],
   words: readonly CommandWord[],
+  environment: EnvironmentContext,
   strict = false,
   policy?: EffectivePolicy,
 ): DestructiveCommandRuleMatch | null {
@@ -75,13 +76,14 @@ export function analyzeDynamicCommandStructure(
       : null;
   return (
     filterDestructiveCommandMatch(dynamicExecutableMatch, policy) ??
-    analyzeDynamicStructure(dialect, words, strict, policy)
+    analyzeDynamicStructure(dialect, words, environment, strict, policy)
   );
 }
 
 function analyzeDynamicStructure(
   dialect: CommandView['dialect'],
   words: readonly CommandWord[],
+  environment: EnvironmentContext,
   strict: boolean,
   policy?: EffectivePolicy,
 ): DestructiveCommandRuleMatch | null {
@@ -140,6 +142,7 @@ function analyzeDynamicStructure(
       dialect,
       words.slice(extractXargsChildCommandWithInfo(words.map(analysisWordText)).childStart),
       'xargs',
+      environment,
       strict,
       policy,
     );
@@ -149,6 +152,7 @@ function analyzeDynamicStructure(
       dialect,
       words.slice(extractParallelChildStart(words.map(analysisWordText))),
       'parallel',
+      environment,
       strict,
       policy,
     );
@@ -160,11 +164,12 @@ function analyzeDynamicChildStructure(
   dialect: CommandView['dialect'],
   childWords: readonly CommandWord[],
   kind: 'xargs' | 'parallel',
+  environment: EnvironmentContext,
   strict: boolean,
   policy?: EffectivePolicy,
 ): DestructiveCommandRuleMatch | null {
   if (childWords.length === 0) return null;
-  const child = normalizeChildCommandWords(childWords);
+  const child = normalizeChildCommandWords(childWords, environment);
   if (isDynamicExecutable(dialect, child)) {
     const match = filterDestructiveCommandMatch(
       destructiveCommandMatch(
@@ -175,7 +180,7 @@ function analyzeDynamicChildStructure(
     );
     if (match) return match;
   }
-  const nestedStructure = analyzeDynamicStructure(dialect, child, strict, policy);
+  const nestedStructure = analyzeDynamicStructure(dialect, child, environment, strict, policy);
   if (nestedStructure) return nestedStructure;
   if (
     child[0]?.text === 'rm' &&
@@ -192,8 +197,11 @@ function analyzeDynamicChildStructure(
   return null;
 }
 
-function normalizeChildCommandWords(words: readonly CommandWord[]): readonly CommandWord[] {
-  const stripped = stripWrapperWords(words);
+function normalizeChildCommandWords(
+  words: readonly CommandWord[],
+  environment: EnvironmentContext,
+): readonly CommandWord[] {
+  const stripped = stripWrapperWords(words, environment);
   const normalized = stripped.rewritten
     ? textCommandWords(stripped.words.map(analysisWordText))
     : stripped.words;

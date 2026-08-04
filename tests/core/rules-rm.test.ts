@@ -3,7 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { homedir, tmpdir } from 'node:os';
 import { join, toNamespacedPath } from 'node:path';
 import { textCommandWords } from '@/core/analyze/command-words';
-import { analyzeRm, analyzeRmMatch } from '@/core/analyze/rm';
+import {
+  type AnalyzeRmOptions,
+  analyzeRmMatch as analyzeRmMatchWithEnvironment,
+  analyzeRm as analyzeRmWithEnvironment,
+} from '@/core/analyze/rm';
+import type { CommandWord } from '@/domain/command';
+import { TEST_ENVIRONMENT, testEnvironment } from '../helpers/environment.ts';
 import { analyzeTestCommand, type TestPolicyInput } from '../helpers/policy.ts';
 import {
   assertAllowed,
@@ -14,6 +20,14 @@ import {
   withEnv,
   withSymlinkedHomeCwd,
 } from '../helpers.ts';
+
+type RmTestOptions = Omit<AnalyzeRmOptions, 'environment'> & Partial<AnalyzeRmOptions>;
+
+const analyzeRm = (tokens: string[], options: RmTestOptions = {}) =>
+  analyzeRmWithEnvironment(tokens, { environment: TEST_ENVIRONMENT, ...options });
+
+const analyzeRmMatch = (words: readonly CommandWord[], options: RmTestOptions = {}) =>
+  analyzeRmMatchWithEnvironment(words, { environment: TEST_ENVIRONMENT, ...options });
 
 describe('rm -rf blocked', () => {
   test('rm -rf blocked', () => {
@@ -296,9 +310,7 @@ describe('rm -rf cwd-aware', () => {
   test('rm -rf relative path in home cwd blocked', () => {
     setup();
     try {
-      withEnv({ HOME: tmpDir }, () => {
-        assertBlocked('rm -rf build', 'rm -rf', tmpDir);
-      });
+      assertBlocked('rm -rf build', 'rm -rf', tmpDir, testEnvironment({ HOME: tmpDir }));
     } finally {
       cleanup();
     }
@@ -306,18 +318,14 @@ describe('rm -rf cwd-aware', () => {
 
   test('rm -rf relative path in symlinked home cwd blocked', () => {
     withSymlinkedHomeCwd('safety-net-rm-home-link-', (home, cwd) => {
-      withEnv({ HOME: home }, () => {
-        assertBlocked('rm -rf build', 'home directory', cwd);
-      });
+      assertBlocked('rm -rf build', 'home directory', cwd, testEnvironment({ HOME: home }));
     });
   });
 
   test('rm -rf /tmp target in home cwd allowed', () => {
     setup();
     try {
-      withEnv({ HOME: tmpDir }, () => {
-        assertAllowed('rm -rf /tmp/test-dir', tmpDir);
-      });
+      assertAllowed('rm -rf /tmp/test-dir', tmpDir, testEnvironment({ HOME: tmpDir }));
     } finally {
       cleanup();
     }
@@ -326,9 +334,7 @@ describe('rm -rf cwd-aware', () => {
   test('rm -rf /var/tmp target in home cwd allowed', () => {
     setup();
     try {
-      withEnv({ HOME: tmpDir }, () => {
-        assertAllowed('rm -rf /var/tmp/test-dir', tmpDir);
-      });
+      assertAllowed('rm -rf /var/tmp/test-dir', tmpDir, testEnvironment({ HOME: tmpDir }));
     } finally {
       cleanup();
     }
@@ -337,9 +343,7 @@ describe('rm -rf cwd-aware', () => {
   test('rm -rf $TMPDIR target in home cwd allowed', () => {
     setup();
     try {
-      withEnv({ HOME: tmpDir }, () => {
-        assertAllowed('rm -rf $TMPDIR/test-dir', tmpDir);
-      });
+      assertAllowed('rm -rf $TMPDIR/test-dir', tmpDir, testEnvironment({ HOME: tmpDir }));
     } finally {
       cleanup();
     }
@@ -348,9 +352,12 @@ describe('rm -rf cwd-aware', () => {
   test('rm -rf mixed temp and home-relative targets in home cwd blocked', () => {
     setup();
     try {
-      withEnv({ HOME: tmpDir }, () => {
-        assertBlocked('rm -rf /tmp/test-dir build', 'home directory', tmpDir);
-      });
+      assertBlocked(
+        'rm -rf /tmp/test-dir build',
+        'home directory',
+        tmpDir,
+        testEnvironment({ HOME: tmpDir }),
+      );
     } finally {
       cleanup();
     }
@@ -361,9 +368,7 @@ describe('rm -rf cwd-aware', () => {
     try {
       const repo = join(tmpDir, 'repo');
       require('node:fs').mkdirSync(repo);
-      withEnv({ HOME: tmpDir }, () => {
-        assertAllowed('rm -rf build', repo);
-      });
+      assertAllowed('rm -rf build', repo, testEnvironment({ HOME: tmpDir }));
     } finally {
       cleanup();
     }
@@ -384,58 +389,67 @@ describe('rm -rf cwd-aware', () => {
         },
       ];
 
-      withEnv({ HOME: home }, () => {
-        for (const config of configs) {
-          expect(analyzeTestCommand(`rm -rf ${toShellPath(home)}`, { cwd, config })?.ruleId).toBe(
-            'rm.recursive-force-root-or-home',
-          );
-          expect(
-            analyzeTestCommand(`find ${toShellPath(home)} -delete`, { cwd, config })?.ruleId,
-          ).toBe('rm.recursive-force-root-or-home');
-          expect(
-            analyzeTestCommand(
-              `find ${toShellPath(home)} -exec rm -f /tmp/cache \\; -exec rm -rf {} +`,
-              { cwd, config },
-            )?.ruleId,
-          ).toBe('rm.recursive-force-root-or-home');
-          expect(
-            analyzeTestCommand(`find ${toShellPath(home)} -exec rm -r {} +`, { cwd, config })
-              ?.ruleId,
-          ).toBe('rm.recursive-force-root-or-home');
-          expect(
-            analyzeTestCommand(`find ${toShellPath(home)} -type f -exec rm -f {} +`, {
-              cwd,
-              config,
-            })?.ruleId,
-          ).toBe('rm.recursive-force-root-or-home');
-        }
+      const environment = testEnvironment({ HOME: home });
+      for (const config of configs) {
         expect(
-          analyzeTestCommand(`find ${toShellPath(home)} -maxdepth 0 -exec rm -f /tmp/cache \\;`, {
+          analyzeTestCommand(`rm -rf ${toShellPath(home)}`, { cwd, config, environment })?.ruleId,
+        ).toBe('rm.recursive-force-root-or-home');
+        expect(
+          analyzeTestCommand(`find ${toShellPath(home)} -delete`, { cwd, config, environment })
+            ?.ruleId,
+        ).toBe('rm.recursive-force-root-or-home');
+        expect(
+          analyzeTestCommand(
+            `find ${toShellPath(home)} -exec rm -f /tmp/cache \\; -exec rm -rf {} +`,
+            { cwd, config, environment },
+          )?.ruleId,
+        ).toBe('rm.recursive-force-root-or-home');
+        expect(
+          analyzeTestCommand(`find ${toShellPath(home)} -exec rm -r {} +`, {
             cwd,
+            config,
+            environment,
           })?.ruleId,
-        ).not.toBe('rm.recursive-force-root-or-home');
-        expect(analyzeTestCommand('rm -rf ../home', { cwd })?.ruleId).toBe(
-          'rm.recursive-force-root-or-home',
-        );
-        expect(analyzeTestCommand('rm -r ../home', { cwd })?.ruleId).toBe(
-          'rm.recursive-force-root-or-home',
-        );
-        expect(analyzeTestCommand('rm --recursiv ../home', { cwd })?.ruleId).toBe(
-          'rm.recursive-force-root-or-home',
-        );
-        expect(analyzeTestCommand(`rm -rf ${toShellPath(home)}/*`, { cwd })?.ruleId).toBe(
-          'rm.recursive-force-root-or-home',
-        );
-        expect(analyzeTestCommand(`rm -rf ${toShellPath(home)}/`, { cwd })?.ruleId).toBe(
-          'rm.recursive-force-root-or-home',
-        );
+        ).toBe('rm.recursive-force-root-or-home');
         expect(
-          analyzeTestCommand(`rm -rf ${toShellPath(join(home, 'project'))}`, { cwd })?.ruleId,
-        ).not.toBe('rm.recursive-force-root-or-home');
-        expect(
-          analyzeTestCommand(`find ${toShellPath(join(home, 'project'))} -delete`, { cwd })?.ruleId,
-        ).not.toBe('rm.recursive-force-root-or-home');
-      });
+          analyzeTestCommand(`find ${toShellPath(home)} -type f -exec rm -f {} +`, {
+            cwd,
+            config,
+            environment,
+          })?.ruleId,
+        ).toBe('rm.recursive-force-root-or-home');
+      }
+      expect(
+        analyzeTestCommand(`find ${toShellPath(home)} -maxdepth 0 -exec rm -f /tmp/cache \\;`, {
+          cwd,
+          environment,
+        })?.ruleId,
+      ).not.toBe('rm.recursive-force-root-or-home');
+      expect(analyzeTestCommand('rm -rf ../home', { cwd, environment })?.ruleId).toBe(
+        'rm.recursive-force-root-or-home',
+      );
+      expect(analyzeTestCommand('rm -r ../home', { cwd, environment })?.ruleId).toBe(
+        'rm.recursive-force-root-or-home',
+      );
+      expect(analyzeTestCommand('rm --recursiv ../home', { cwd, environment })?.ruleId).toBe(
+        'rm.recursive-force-root-or-home',
+      );
+      expect(
+        analyzeTestCommand(`rm -rf ${toShellPath(home)}/*`, { cwd, environment })?.ruleId,
+      ).toBe('rm.recursive-force-root-or-home');
+      expect(analyzeTestCommand(`rm -rf ${toShellPath(home)}/`, { cwd, environment })?.ruleId).toBe(
+        'rm.recursive-force-root-or-home',
+      );
+      expect(
+        analyzeTestCommand(`rm -rf ${toShellPath(join(home, 'project'))}`, { cwd, environment })
+          ?.ruleId,
+      ).not.toBe('rm.recursive-force-root-or-home');
+      expect(
+        analyzeTestCommand(`find ${toShellPath(join(home, 'project'))} -delete`, {
+          cwd,
+          environment,
+        })?.ruleId,
+      ).not.toBe('rm.recursive-force-root-or-home');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -938,14 +952,17 @@ describe('analyzeRm (unit)', () => {
           })?.id,
         ).toBe('rm.recursive-force-outside-cwd');
 
-        withEnv({ HOME: localNamespace, TEMP: localNamespace, TMP: localNamespace }, () => {
-          const match = analyzeRmMatch(textCommandWords(['rm', '-rf', localNamespace]), {
-            cwd: localNamespace,
-            originalCwd: localNamespace,
-          });
-          expect(match?.id).toBe('rm.recursive-force-outside-cwd');
-          expect(match?.reason).toContain('outside cwd is blocked');
+        const match = analyzeRmMatch(textCommandWords(['rm', '-rf', localNamespace]), {
+          cwd: localNamespace,
+          originalCwd: localNamespace,
+          environment: testEnvironment({
+            HOME: localNamespace,
+            TEMP: localNamespace,
+            TMP: localNamespace,
+          }),
         });
+        expect(match?.id).toBe('rm.recursive-force-outside-cwd');
+        expect(match?.reason).toContain('outside cwd is blocked');
       } finally {
         rmSync(cwd, { recursive: true, force: true });
       }

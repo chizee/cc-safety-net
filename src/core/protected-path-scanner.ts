@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { isAbsolute, normalize, resolve } from 'node:path';
 import { stripWrappers } from '@/core/analyze/wrapper-prelude';
+import { createProcessEnvironment } from '@/core/environment';
 import {
   expandSupportedPathEnvironmentVariables,
   type PathCanonicalizationBudget,
@@ -153,7 +154,7 @@ function applyShellState(
   const variables = isAssignmentOnlySegment(segment)
     ? new Map([...state.variables, ...extractShellAssignments(segment, state.variables)])
     : state.variables;
-  const stripped = stripWrappers([...segment]);
+  const stripped = stripWrappers([...segment], createProcessEnvironment());
   const target = getBasename(stripped[0] ?? '').toLowerCase() === 'cd' ? stripped[1] : undefined;
   return {
     cwd:

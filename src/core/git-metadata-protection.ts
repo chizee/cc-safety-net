@@ -1,6 +1,7 @@
 import { statSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { stripWrappers } from '@/core/analyze/wrapper-prelude';
+import { createProcessEnvironment } from '@/core/environment';
 import { findDotGitInAncestors, resolveDotGitFileTargets } from '@/core/git/worktree';
 import {
   createPathCanonicalizationBudget,
@@ -247,7 +248,7 @@ function findGitMetadataMoveTarget(
   budget: PathCanonicalizationBudget,
 ): string | null {
   if (isAssignmentOnlySegment(segment)) return null;
-  const stripped = stripWrappers([...segment]);
+  const stripped = stripWrappers([...segment], createProcessEnvironment());
   if (getBasename(stripped[0] ?? '').toLowerCase() !== 'mv') return null;
   const operands = extractMvOperandPaths(stripped.slice(1));
   const source = operands.sources.find((target) =>

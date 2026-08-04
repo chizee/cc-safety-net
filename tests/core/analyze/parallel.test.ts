@@ -12,8 +12,9 @@ import {
   REASON_PARALLEL_ANALYSIS_LIMIT,
 } from '@/core/analyze/parallel-budget';
 import type { CommandTraceContext, CommandTraceEvent } from '@/domain/command-trace';
-import { TEST_ENVIRONMENT } from '../../helpers/environment';
+import { TEST_ENVIRONMENT, testEnvironment } from '../../helpers/environment';
 import { analyzeTestCommand, commandAnalysisPolicy, policySnapshot } from '../../helpers/policy';
+import { withEnv } from '../../helpers.ts';
 
 const limitedResult = (command: string) => ({
   kind: 'deny' as const,
@@ -473,6 +474,17 @@ describe('parallel policy candidate fallthrough', () => {
         },
       })?.ruleId,
     ).toBe('git.reset-hard');
+  });
+
+  test('reads the ambient configuration from the analysis environment only', () => {
+    expect(
+      withEnv({ PARALLEL: '-I X' }, () => analyzeTestCommand('parallel echo ::: ok')),
+    ).toBeNull();
+    expect(
+      analyzeTestCommand('parallel echo ::: ok', {
+        environment: testEnvironment({ PARALLEL: '-I X' }),
+      })?.ruleId,
+    ).toBe('parallel.command-stream-dynamic');
   });
 
   test('allows an explicitly empty ambient configuration', () => {

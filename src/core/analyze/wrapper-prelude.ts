@@ -4,6 +4,7 @@ import { analysisWordText, textCommandWords } from '@/core/analyze/command-words
 import { MAX_STRIP_ITERATIONS } from '@/core/analyze/constants';
 import { parseGitContextAppendEnvAssignment } from '@/core/git/env';
 import { resolveChdirTarget } from '@/core/path';
+import type { EnvironmentContext } from '@/domain/analysis';
 import type { CommandWord } from '@/domain/command';
 
 const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -65,6 +66,7 @@ function hasWrapperPreludeHead(text: string): boolean {
 
 export function stripWrapperWords(
   words: readonly CommandWord[],
+  environment: EnvironmentContext,
   cwd?: string | null,
   inheritedEnvAssignments?: ReadonlyMap<string, string>,
 ): WrapperPreludeResult {
@@ -90,8 +92,11 @@ export function stripWrapperWords(
 
     while (result.length > 0 && headText(result).includes('=') && !isEnvAssignment(result)) {
       const appendAssignment =
-        parseTmpdirAppendEnvAssignment(headText(result), effectiveEnvAssignments) ??
-        parseGitContextAppendEnvAssignment(headText(result), effectiveEnvAssignments);
+        parseTmpdirAppendEnvAssignment(
+          headText(result),
+          effectiveEnvAssignments,
+          environment.env,
+        ) ?? parseGitContextAppendEnvAssignment(headText(result), effectiveEnvAssignments);
       if (appendAssignment) {
         allEnvAssignments.set(appendAssignment.name, appendAssignment.value);
         effectiveEnvAssignments.set(appendAssignment.name, appendAssignment.value);
@@ -117,7 +122,7 @@ export function stripWrapperWords(
       }
     }
     if (head === 'env') {
-      const envResult = stripEnvWords(result, currentCwd, effectiveEnvAssignments);
+      const envResult = stripEnvWords(result, currentCwd, effectiveEnvAssignments, environment.env);
       if (envResult.unverifiableEnvSplit) {
         return {
           words: result,
@@ -185,14 +190,13 @@ function isEnvAssignment(words: readonly CommandWord[]): boolean {
 function parseTmpdirAppendEnvAssignment(
   token: string,
   envAssignments: ReadonlyMap<string, string>,
+  env: ReadonlyMap<string, string>,
 ): { name: string; value: string } | null {
   const prefix = 'TMPDIR+=';
   if (!token.startsWith(prefix)) return null;
   return {
     name: 'TMPDIR',
-    value: `${envAssignments.get('TMPDIR') ?? process.env.TMPDIR ?? ''}${token.slice(
-      prefix.length,
-    )}`,
+    value: `${envAssignments.get('TMPDIR') ?? env.get('TMPDIR') ?? ''}${token.slice(prefix.length)}`,
   };
 }
 
@@ -267,6 +271,7 @@ function stripEnvWords(
   words: readonly CommandWord[],
   cwd: string | null | undefined,
   inheritedEnvAssignments: ReadonlyMap<string, string>,
+  env: ReadonlyMap<string, string>,
 ): EnvWordStrippingResult {
   const envAssignments = new Map<string, string>();
   let currentCwd = cwd;
@@ -337,6 +342,7 @@ function stripEnvWords(
         inheritedEnvAssignments,
         unsetEnvNames,
         currentCwd,
+        env,
       );
       if (applied.done) return applied.result;
       expanded = applied.expanded;
@@ -404,6 +410,7 @@ function applyEnvSplitStringOption(
   inheritedEnvAssignments: ReadonlyMap<string, string>,
   unsetEnvNames: ReadonlySet<string>,
   currentCwd: string | null | undefined,
+  env: ReadonlyMap<string, string>,
 ):
   | { done: true; result: EnvWordStrippingResult }
   | {
@@ -414,7 +421,7 @@ function applyEnvSplitStringOption(
     } {
   const splitResult =
     value !== undefined
-      ? parseEnvSplitString(value, inheritedEnvAssignments, unsetEnvNames)
+      ? parseEnvSplitString(value, inheritedEnvAssignments, unsetEnvNames, env)
       : { tokens: null, unverifiableEnvSplit: false };
   if (splitResult.unverifiableEnvSplit) {
     return {
@@ -452,6 +459,7 @@ function parseEnvSplitString(
   value: string,
   envAssignments: ReadonlyMap<string, string>,
   unsetEnvNames: ReadonlySet<string>,
+  env: ReadonlyMap<string, string>,
 ): { tokens: string[] | null; unverifiableEnvSplit: boolean } {
   if (value.length > MAX_ENV_SPLIT_EXPANDED_LENGTH) {
     return { tokens: null, unverifiableEnvSplit: true };
@@ -459,7 +467,7 @@ function parseEnvSplitString(
   const splitResult = splitEnvString(value, (name) => {
     if (unsetEnvNames.has(name)) return '';
     if (envAssignments.has(name)) return envAssignments.get(name) ?? '';
-    return Object.hasOwn(process.env, name) ? (process.env[name] ?? '') : '';
+    return env.get(name) ?? '';
   });
   return {
     tokens: splitResult.tokens,
@@ -636,12 +644,17 @@ export interface EnvStrippingResult {
  * Token views of the word-based prelude, for the derived commands that exist only as text
  * (find -exec children, xargs/parallel templates) and the guards that skip wrapper prefixes.
  */
-export function stripWrappers(tokens: string[], cwd?: string | null): string[] {
-  return stripWrappersWithInfo(tokens, cwd).tokens;
+export function stripWrappers(
+  tokens: string[],
+  environment: EnvironmentContext,
+  cwd?: string | null,
+): string[] {
+  return stripWrappersWithInfo(tokens, environment, cwd).tokens;
 }
 
 export function stripWrappersWithInfo(
   tokens: string[],
+  environment: EnvironmentContext,
   cwd?: string | null,
   inheritedEnvAssignments?: ReadonlyMap<string, string>,
 ): EnvStrippingResult {
@@ -649,7 +662,12 @@ export function stripWrappersWithInfo(
   if (!hasWrapperPreludeHead(tokens[0] ?? '')) {
     return { tokens: [...tokens], envAssignments: new Map(), cwd };
   }
-  const stripped = stripWrapperWords(textCommandWords(tokens), cwd, inheritedEnvAssignments);
+  const stripped = stripWrapperWords(
+    textCommandWords(tokens),
+    environment,
+    cwd,
+    inheritedEnvAssignments,
+  );
   return {
     tokens: stripped.words.map(analysisWordText),
     envAssignments: stripped.envAssignments,

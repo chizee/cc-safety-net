@@ -8,6 +8,7 @@ import {
   REASON_DERIVED_COMMAND_WORK_LIMIT,
   reserveDerivedCommandTokens,
 } from '@/core/analyze/derived-command-budget';
+import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import { analyzeTestCommand } from '../../helpers/policy';
 
 const repeatedArgs = (value: string, count: number) =>
@@ -73,13 +74,19 @@ describe('derived command work budget', () => {
   });
 
   test('normalizes direct child commands and rejects unverifiable env split expansion', () => {
-    expect(normalizeChildCommand(['busybox', 'git', 'status'], { cwd: '/tmp' })).toMatchObject({
+    expect(
+      normalizeChildCommand(['busybox', 'git', 'status'], {
+        environment: TEST_ENVIRONMENT,
+        cwd: '/tmp',
+      }),
+    ).toMatchObject({
       tokens: ['git', 'status'],
       cwd: '/tmp',
       head: 'git',
     });
     expect(() =>
       normalizeChildCommand(['env', '-S', Array.from({ length: 16_385 }, () => 'x').join(' ')], {
+        environment: TEST_ENVIRONMENT,
         cwd: '/tmp',
       }),
     ).toThrow(EnvSplitStringExpansionError);

@@ -31,10 +31,16 @@ import { REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { checkPolicyRuleMatch } from '@/core/rules/custom';
 import { normalizeCommandToken } from '@/core/shell';
 import { hasUnclosedQuotes } from '@/core/shell/shared';
-import type { AnalyzeNestedOverrides, DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type {
+  AnalyzeNestedOverrides,
+  DestructiveCommandRuleMatch,
+  EnvironmentContext,
+} from '@/domain/analysis';
 import type { EffectivePolicy } from '@/domain/policy';
 
 export interface ChildCommandAnalysisContext {
+  /** Process state nested analysis reads instead of touching env, home or the filesystem. */
+  environment: EnvironmentContext;
   cwd: string | undefined;
   derivedCommandWorkBudget?: DerivedCommandWorkBudget;
   originalCwd: string | undefined;
@@ -207,13 +213,17 @@ export function analyzeChildCommandMatch(
       normalizedHead === 'rm' && (hasRecursiveForceFlags(tokens) || options.dynamicRmInput);
     const rmMatch = filterDestructiveCommandMatch(
       analyzeRmMatch(textCommandWords(tokens), {
+        environment: context.environment,
         cwd: context.cwd,
         originalCwd: context.originalCwd,
         strict: context.strict,
         paranoid: context.paranoidRm,
         allowTmpdirVar: context.allowTmpdirVar,
-        tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(context.envAssignments),
-        trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments),
+        tmpdirWordSplittingUnsafe: hasUnsafeTmpdirWordSplitting(
+          context.envAssignments,
+          context.environment,
+        ),
+        trustedTmpdirValue: isTmpdirValueTrusted(context.envAssignments, context.environment),
         protectedGitMetadata: context.protectedGitMetadata,
         policy: context.policy,
       }),

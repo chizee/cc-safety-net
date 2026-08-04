@@ -1,12 +1,6 @@
-import { homedir } from 'node:os';
 import { isAbsolute, normalize, sep } from 'node:path';
-import { getOwnEnvValue } from '@/core/env';
 
 const IS_WINDOWS = process.platform === 'win32';
-
-function getAllowPathHomeDir(): string {
-  return getOwnEnvValue('HOME') || homedir();
-}
 
 export function expandAllowPathHome(path: string, home: string): string {
   if (path === '~') return home;
@@ -14,15 +8,15 @@ export function expandAllowPathHome(path: string, home: string): string {
   return path;
 }
 
-export function getDestructiveAllowPathError(value: unknown): string | null {
+export function getDestructiveAllowPathError(value: unknown, home: string): string | null {
   if (typeof value !== 'string' || value.trim() === '') {
     return 'must be a non-empty path string';
   }
-  const expanded = expandAllowPathHome(value.trim(), getAllowPathHomeDir());
+  const expanded = expandAllowPathHome(value.trim(), home);
   if (!isAbsolute(expanded)) {
     return 'must be an absolute path or start with ~/';
   }
-  return getAllowPathHomeConflictError(expanded, getAllowPathHomeDir());
+  return getAllowPathHomeConflictError(expanded, home);
 }
 
 // Deny entries may be relative (they resolve against each session's config cwd,
@@ -30,11 +24,10 @@ export function getDestructiveAllowPathError(value: unknown): string | null {
 // are judged here. The rejected class — home, anything above it, `/` — has no
 // legitimate reading and blocks essentially every command in every workspace
 // under home.
-export function getSecretDenyPathError(value: unknown): string | null {
+export function getSecretDenyPathError(value: unknown, home: string): string | null {
   if (typeof value !== 'string' || value.trim() === '') {
     return 'must be a non-empty path string';
   }
-  const home = getAllowPathHomeDir();
   const expanded = expandAllowPathHome(
     value.trim().replace(/^\$(?:\{HOME\}|HOME(?=\/|$))/, '~'),
     home,

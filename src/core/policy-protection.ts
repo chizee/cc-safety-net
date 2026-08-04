@@ -6,6 +6,7 @@ import {
   getFindStartingPoints,
 } from '@/core/analyze/find';
 import { stripWrappers } from '@/core/analyze/wrapper-prelude';
+import { createProcessEnvironment } from '@/core/environment';
 import {
   createPathCanonicalizationBudget,
   type PathCanonicalizationBudget,
@@ -151,7 +152,8 @@ function findPolicyConfigMutationTargetInSegment(
   budget: PathCanonicalizationBudget,
 ): PolicyConfigTarget | null {
   if (isAssignmentOnlySegment(segment)) return null;
-  const stripped = stripWrappers([...segment]);
+  const environment = createProcessEnvironment();
+  const stripped = stripWrappers([...segment], environment);
   const command = getBasename(stripped[0] ?? '').toLowerCase();
   const args = stripped.slice(1);
 
@@ -169,7 +171,7 @@ function findPolicyConfigMutationTargetInSegment(
 
   if (command === 'find') {
     const deletesDirectly = findHasDelete(stripped, 1);
-    if (deletesDirectly || findExecRmDeletesFoundPaths(stripped)) {
+    if (deletesDirectly || findExecRmDeletesFoundPaths(stripped, environment)) {
       const target = (
         getFindStartingPoints(textCommandWords(stripped)) ?? textCommandWords(['.'])
       ).find((startingPoint) => {
@@ -233,7 +235,7 @@ function extractRmOperands(args: readonly string[]): readonly string[] {
 }
 
 function isReadOnlySegment(tokens: readonly string[]): boolean {
-  const stripped = stripWrappers([...tokens]);
+  const stripped = stripWrappers([...tokens], createProcessEnvironment());
   if (stripped.length === 0) return false;
   const command = getBasename(stripped[0] ?? '').toLowerCase();
   if (!READ_ONLY_COMMANDS.has(command)) return false;

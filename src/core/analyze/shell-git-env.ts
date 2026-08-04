@@ -1,5 +1,4 @@
 import { parseEnvAssignment } from '@/core/analyze/wrapper-prelude';
-import { getOwnEnvValue } from '@/core/env';
 import {
   GIT_SSH_ENV_NAMES,
   isGitConfigEnvName,
@@ -8,6 +7,8 @@ import {
 } from '@/core/git/env';
 
 export interface ShellGitContextEnvState {
+  /** Inherited process environment the shell starts from. */
+  env: ReadonlyMap<string, string>;
   effectiveEnvAssignments?: ReadonlyMap<string, string>;
   shellAssignments: Map<string, string>;
   exportedNames: Set<string>;
@@ -34,14 +35,18 @@ const ENV_APPEND_ASSIGNMENT_RE = /^([A-Za-z_][A-Za-z0-9_]*)\+=/;
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export function createShellGitContextEnvState(
+  env: ReadonlyMap<string, string>,
   effectiveEnvAssignments?: ReadonlyMap<string, string>,
 ): ShellGitContextEnvState {
-  const initialEffectiveEnvAssignments =
-    getInitialEffectiveShellEnvAssignments(effectiveEnvAssignments);
+  const initialEffectiveEnvAssignments = getInitialEffectiveShellEnvAssignments(
+    env,
+    effectiveEnvAssignments,
+  );
   return {
+    env,
     effectiveEnvAssignments: initialEffectiveEnvAssignments,
     shellAssignments: new Map(),
-    exportedNames: getInitiallyExportedShellEnvNames(initialEffectiveEnvAssignments),
+    exportedNames: getInitiallyExportedShellEnvNames(env, initialEffectiveEnvAssignments),
     allexport: false,
     keywordExport: false,
   };
@@ -52,6 +57,7 @@ export function cloneShellGitContextEnvState(
   state: ShellGitContextEnvState,
 ): ShellGitContextEnvState {
   return {
+    env: state.env,
     effectiveEnvAssignments: state.effectiveEnvAssignments
       ? new Map(state.effectiveEnvAssignments)
       : undefined,
@@ -158,7 +164,7 @@ export function getSegmentGitContextEnvAssignments(
   let nextEnvAssignments: Map<string, string> | null = null;
   const currentValues = getCurrentShellAssignmentValues(state);
   for (const token of tokens) {
-    const assignment = parseShellContextEnvAssignment(token, currentValues);
+    const assignment = parseShellContextEnvAssignment(token, currentValues, state.env);
     if (!assignment) {
       continue;
     }
@@ -185,6 +191,7 @@ function getShellCommandInfo(
     const assignment = parseShellContextEnvAssignment(
       token,
       getCurrentShellAssignmentValues(state, leadingAssignments),
+      state.env,
     );
     if (!assignment) {
       break;
@@ -301,13 +308,15 @@ function getPrefixedCommandTarget(
 function parseShellContextEnvAssignment(
   token: string,
   currentValues: ReadonlyMap<string, string>,
+  env: ReadonlyMap<string, string>,
 ): GitContextAssignment | null {
-  return parseEnvAssignment(token) ?? parseAppendEnvAssignment(token, currentValues);
+  return parseEnvAssignment(token) ?? parseAppendEnvAssignment(token, currentValues, env);
 }
 
 function parseAppendEnvAssignment(
   token: string,
   currentValues: ReadonlyMap<string, string>,
+  env: ReadonlyMap<string, string>,
 ): GitContextAssignment | null {
   const gitAssignment = parseGitContextAppendEnvAssignment(token, currentValues);
   if (gitAssignment) return gitAssignment;
@@ -317,7 +326,7 @@ function parseAppendEnvAssignment(
   const eqIdx = token.indexOf('=');
   return {
     name,
-    value: `${currentValues.has(name) ? currentValues.get(name) : (getOwnEnvValue(name) ?? '')}${token.slice(eqIdx + 1)}`,
+    value: `${currentValues.has(name) ? currentValues.get(name) : (env.get(name) ?? '')}${token.slice(eqIdx + 1)}`,
   };
 }
 
@@ -339,11 +348,12 @@ function getCurrentShellAssignmentValues(
 }
 
 function getInitialEffectiveShellEnvAssignments(
+  env: ReadonlyMap<string, string>,
   effectiveEnvAssignments?: ReadonlyMap<string, string>,
 ): ReadonlyMap<string, string> | undefined {
   const inheritedAssignments = [...GIT_SSH_ENV_NAMES, TMPDIR_ENV_NAME, IFS_ENV_NAME]
     .map((name) => {
-      const value = getOwnEnvValue(name);
+      const value = env.get(name);
       return value === undefined ? null : ([name, value] as const);
     })
     .filter((assignment): assignment is readonly [string, string] => assignment !== null);
@@ -356,10 +366,11 @@ function getInitialEffectiveShellEnvAssignments(
 }
 
 function getInitiallyExportedShellEnvNames(
+  env: ReadonlyMap<string, string>,
   effectiveEnvAssignments?: ReadonlyMap<string, string>,
 ): Set<string> {
   const exportedNames = new Set<string>();
-  for (const name of Object.keys(process.env)) {
+  for (const name of env.keys()) {
     if (isTrackedShellEnvName(name)) {
       exportedNames.add(name);
     }
@@ -397,7 +408,11 @@ function setEffectiveGitContextAssignment(
 }
 
 function addExportedGitContextEnvAssignment(state: ShellGitContextEnvState, token: string): void {
-  const assignment = parseShellContextEnvAssignment(token, getCurrentShellAssignmentValues(state));
+  const assignment = parseShellContextEnvAssignment(
+    token,
+    getCurrentShellAssignmentValues(state),
+    state.env,
+  );
   if (assignment) {
     state.shellAssignments.set(assignment.name, assignment.value);
     state.exportedNames.add(assignment.name);
@@ -416,7 +431,11 @@ function addTypesetGitContextEnvAssignment(
   exports: boolean,
   readonlyLeadingAssignments?: ReadonlyMap<string, GitContextAssignment>,
 ): void {
-  const assignment = parseShellContextEnvAssignment(token, getCurrentShellAssignmentValues(state));
+  const assignment = parseShellContextEnvAssignment(
+    token,
+    getCurrentShellAssignmentValues(state),
+    state.env,
+  );
   if (assignment) {
     state.shellAssignments.set(assignment.name, assignment.value);
     if (exports) {
@@ -452,7 +471,7 @@ function exportTrackedGitContextEnvName(state: ShellGitContextEnvState, name: st
     value:
       state.shellAssignments.get(name) ??
       state.effectiveEnvAssignments?.get(name) ??
-      getOwnEnvValue(name) ??
+      state.env.get(name) ??
       '',
   });
 }

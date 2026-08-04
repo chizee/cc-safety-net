@@ -11,9 +11,12 @@ import {
 import { stripWrappersWithInfo } from '@/core/analyze/wrapper-prelude';
 import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { getBasename } from '@/core/shell';
+import type { EnvironmentContext } from '@/domain/analysis';
 import type { EffectivePolicy } from '@/domain/policy';
 
 export interface ChildCommandContext {
+  /** Process state nested analysis reads instead of touching env, home or the filesystem. */
+  environment: EnvironmentContext;
   cwd: string | undefined;
   envAssignments?: ReadonlyMap<string, string>;
   policy?: Pick<
@@ -64,6 +67,7 @@ export function normalizeChildCommands(
   const policy = context.policy ?? { rules: [], transparentWrappers: [] };
   return normalizeChildCommandCandidates(
     [...tokens],
+    context.environment,
     context.cwd,
     context.cwd,
     new Map(),
@@ -76,6 +80,7 @@ export function normalizeChildCommands(
 
 function* normalizeChildCommandCandidates(
   tokens: string[],
+  environment: EnvironmentContext,
   wrapperCwd: string | null | undefined,
   cwd: string | undefined,
   wrapperEnvAssignments: Map<string, string>,
@@ -84,7 +89,7 @@ function* normalizeChildCommandCandidates(
   budget: { iterations: number },
   wrappedByTransparent: boolean,
 ): Generator<NormalizedChildCommand> {
-  const wrapperInfo = stripWrappersWithInfo(tokens, wrapperCwd, envAssignments);
+  const wrapperInfo = stripWrappersWithInfo(tokens, environment, wrapperCwd, envAssignments);
   if (wrapperInfo.unverifiableEnvSplit) throw new EnvSplitStringExpansionError();
   for (const [key, value] of wrapperInfo.envAssignments) {
     envAssignments.set(key, value);
@@ -108,6 +113,7 @@ function* normalizeChildCommandCandidates(
         childIndex === transparentWrapper.childIndex
           ? transparentWrapper.tokens
           : [...childTokens.slice(childIndex)],
+        environment,
         childWrapperCwd,
         cwd,
         new Map(wrapperEnvAssignments),
@@ -124,6 +130,7 @@ function* normalizeChildCommandCandidates(
     reserveChildNormalization(budget);
     yield* normalizeChildCommandCandidates(
       [...childTokens.slice(1)],
+      environment,
       childWrapperCwd,
       cwd,
       wrapperEnvAssignments,

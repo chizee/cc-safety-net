@@ -13,3 +13,15 @@ export const TEST_ENVIRONMENT: EnvironmentContext = {
   tmpdir: tmpdir(),
   paths: processPathResolver,
 };
+
+/**
+ * The test process state with the given variables injected, for env-dependent analysis.
+ * HOME also sets the home directory, the way the real process snapshot resolves it.
+ */
+export function testEnvironment(env: Record<string, string>): EnvironmentContext {
+  return {
+    ...TEST_ENVIRONMENT,
+    env: new Map(Object.entries(env)),
+    home: env.HOME || TEST_ENVIRONMENT.home,
+  };
+}

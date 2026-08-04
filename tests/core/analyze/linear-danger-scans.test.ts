@@ -4,6 +4,7 @@ import { analyzeCommand } from '@/core/analyze';
 import { containsDangerousCode } from '@/core/analyze/interpreters';
 import { hasLinearDangerousText } from '@/core/analyze/linear-danger-scanner';
 import type { AnalyzeOptions } from '@/domain/analysis';
+import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import { analyzeTestCommand, policySnapshot } from '../../helpers/policy';
 
 type MeasuredAnalyzeOptions = AnalyzeOptions & {
@@ -14,6 +15,7 @@ function measure(command: string) {
   const scanWork = { units: 0 };
   const result = analyzeCommand(command, {
     policySnapshot: policySnapshot(),
+    environment: TEST_ENVIRONMENT,
     scanWork,
   } as MeasuredAnalyzeOptions);
   return { result, units: scanWork.units };

@@ -15,7 +15,7 @@ import {
   REASON_GIT_METADATA_PROTECTION,
 } from '@/core/git-metadata-protection';
 import { isUnsupportedWindowsNamespacePath } from '@/core/path';
-import type { DestructiveCommandRuleMatch } from '@/domain/analysis';
+import type { DestructiveCommandRuleMatch, EnvironmentContext } from '@/domain/analysis';
 import type { CommandView } from '@/domain/command';
 import type { EffectivePolicy } from '@/domain/policy';
 
@@ -41,6 +41,7 @@ const REASON_REMOVE_ITEM_PIPELINE =
   'PowerShell Remove-Item receives pipeline input that cannot be verified safely. Use explicit literal paths within cwd.';
 
 interface AnalyzePowerShellRemoveItemOptions {
+  environment: EnvironmentContext;
   cwd?: string;
   originalCwd?: string;
   strict?: boolean;
@@ -71,7 +72,7 @@ interface ParsedRemoveItem {
 export function analyzePowerShellCommandViewMatch(
   command: CommandView,
   hasPipelineInput: boolean,
-  options: AnalyzePowerShellRemoveItemOptions = {},
+  options: AnalyzePowerShellRemoveItemOptions,
   ctx: RecursiveDeleteTargetContext = createRecursiveDeleteTargetContext({
     ...options,
     allowPaths: options.policy?.destructiveCommandAllowPaths,

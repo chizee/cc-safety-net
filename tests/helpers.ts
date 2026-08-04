@@ -9,7 +9,7 @@ import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { analyzeCommand } from '@/core/analyze';
 import { listAuditLogFiles } from '@/core/audit-scan';
 import { envTruthy } from '@/core/env';
-import type { AnalyzeOptions } from '@/domain/analysis';
+import type { AnalyzeOptions, EnvironmentContext } from '@/domain/analysis';
 import type { AuditLogEntry } from '@/domain/audit';
 import type { TraceStep } from '@/domain/command-trace';
 import type { Decision } from '@/domain/decision';
@@ -22,7 +22,11 @@ import { policySnapshot, type TestPolicyInput } from './helpers/policy';
 const DEFAULT_TEST_POLICY = policySnapshot();
 const CLI_ENTRYPOINT = join(process.cwd(), 'src/bin/cc-safety-net.ts');
 
-function getOptionsFromEnv(cwd?: string, policy?: TestPolicyInput): AnalyzeOptions {
+function getOptionsFromEnv(
+  cwd?: string,
+  policy?: TestPolicyInput,
+  environment: EnvironmentContext = TEST_ENVIRONMENT,
+): AnalyzeOptions {
   // If no cwd specified, use empty config to avoid loading project's config
   const snapshot = policy
     ? policySnapshot(policy)
@@ -32,7 +36,7 @@ function getOptionsFromEnv(cwd?: string, policy?: TestPolicyInput): AnalyzeOptio
   return {
     cwd,
     policySnapshot: snapshot,
-    environment: TEST_ENVIRONMENT,
+    environment,
     strict: envTruthy('SAFETY_NET_STRICT'),
     paranoidRm: envTruthy('SAFETY_NET_PARANOID') || envTruthy('SAFETY_NET_PARANOID_RM'),
     paranoidInterpreters:
@@ -41,21 +45,38 @@ function getOptionsFromEnv(cwd?: string, policy?: TestPolicyInput): AnalyzeOptio
   };
 }
 
-export function assertBlocked(command: string, reasonContains: string, cwd?: string): void {
-  const options = getOptionsFromEnv(cwd);
+export function assertBlocked(
+  command: string,
+  reasonContains: string,
+  cwd?: string,
+  environment?: EnvironmentContext,
+): void {
+  const options = getOptionsFromEnv(cwd, undefined, environment);
   const result = analyzeCommand(command, options);
   expect(result).not.toBeNull();
   expect(result?.reason).toContain(reasonContains);
 }
 
-export function assertStrictBlocked(command: string, reasonContains: string, cwd?: string): void {
-  const result = analyzeCommand(command, { ...getOptionsFromEnv(cwd), strict: true });
+export function assertStrictBlocked(
+  command: string,
+  reasonContains: string,
+  cwd?: string,
+  environment?: EnvironmentContext,
+): void {
+  const result = analyzeCommand(command, {
+    ...getOptionsFromEnv(cwd, undefined, environment),
+    strict: true,
+  });
   expect(result).not.toBeNull();
   expect(result?.reason).toContain(reasonContains);
 }
 
-export function assertAllowed(command: string, cwd?: string): void {
-  const options = getOptionsFromEnv(cwd);
+export function assertAllowed(
+  command: string,
+  cwd?: string,
+  environment?: EnvironmentContext,
+): void {
+  const options = getOptionsFromEnv(cwd, undefined, environment);
   const result = analyzeCommand(command, options);
   expect(result).toBeNull();
 }
