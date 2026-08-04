@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { parseCommandArgs, reportCommandArgErrors } from '@/bin/args';
 import { runLogsCommand } from '@/bin/audit-log';
 import { type CommandName, findCommand } from '@/bin/commands';
 import { parseDoctorFlags, runDoctor } from '@/bin/doctor/index';
@@ -14,44 +15,10 @@ import { runInstallCommand, runUpdateCommand } from '@/bin/hook/install';
 import {
   findHookIntegrationByFlag,
   findLegacyTopLevelHookIntegration,
-  type HookIntegration,
 } from '@/bin/hook/integrations';
 import { runRuleCommand } from '@/bin/rule';
 import { printStatus } from '@/bin/status';
 import { printStatusline } from '@/bin/statusline';
-
-type ParsedCommand =
-  | { mode: 'hook'; integration: HookIntegration }
-  | { mode: 'install'; args: string[] }
-  | { mode: 'update'; args: string[] }
-  | { mode: 'uninstall'; args: string[] }
-  | { mode: 'rule'; args: string[] }
-  | { mode: 'status' }
-  | { mode: 'statusline' }
-  | { mode: 'gui'; args: string[] }
-  | { mode: 'doctor'; args: string[] }
-  | { mode: 'logs'; args: string[] }
-  | { mode: 'explain'; args: string[] };
-
-type ParsedCommandHandler<T extends ParsedCommand['mode']> = (
-  command: Extract<ParsedCommand, { mode: T }>,
-) => Promise<void>;
-
-/**
- * Everything after the first `--` is command input, never a CLI option.
- */
-function optionArgs(args: readonly string[]): readonly string[] {
-  const separator = args.indexOf('--');
-  return separator === -1 ? args : args.slice(0, separator);
-}
-
-/**
- * Check if --help or -h is present in args (but not as a quoted command argument).
- */
-function hasHelpFlag(args: readonly string[]): boolean {
-  const options = optionArgs(args);
-  return options.includes('--help') || options.includes('-h');
-}
 
 /**
  * Handle "help <command>" pattern.
@@ -78,132 +45,53 @@ function handleHelpCommand(args: readonly string[]): boolean {
   process.exit(1);
 }
 
-/**
- * Handle "<command> --help" pattern for subcommands.
- * Returns true if handled, false otherwise.
- */
-function handleCommandHelp(args: readonly string[]): boolean {
-  if (!hasHelpFlag(args)) {
-    return false;
-  }
-
-  const commandName = args[0];
-  if (!commandName || commandName.startsWith('-')) {
-    // Not a subcommand, will be handled by global help
-    return false;
-  }
-
-  // Check if this is a known command. `rule` parses its own help so the request
-  // reaches the leaf handler for the named subcommand.
-  const command = findCommand(commandName);
-  if (command && command.name !== 'rule') {
-    showCommandHelp(commandName);
-    process.exit(0);
-  }
-
-  return false;
-}
-
-const commandParsers = {
-  explain: (args: string[]): ParsedCommand => ({ mode: 'explain', args }),
-  rule: (args: string[]): ParsedCommand => ({ mode: 'rule', args }),
-  status: (args: string[]): ParsedCommand => {
-    const unexpected = args[0];
-    if (!unexpected) return { mode: 'status' };
-    console.error(`Unexpected argument for status: ${unexpected}`);
-    process.exit(1);
-  },
-  statusline: (args: string[]): ParsedCommand => {
-    if (args.includes('--claude-code') || args.includes('-cc')) return { mode: 'statusline' };
-    console.error('statusline requires --claude-code (-cc)');
-    showCommandHelp('statusline', console.error);
-    process.exit(1);
-  },
-  hook: (args: string[]): ParsedCommand => {
-    const integration = args.length === 1 ? findHookIntegrationByFlag(args) : undefined;
-    if (integration) return { mode: 'hook', integration };
-
+const commandHandlers = {
+  hook: async (args) => {
+    const integration = findHookIntegrationByFlag(args);
+    if (integration) {
+      await integration.run();
+      return;
+    }
     console.error(
       'hook requires exactly one integration flag. Try: cc-safety-net hook --kimi-code',
     );
     showCommandHelp('hook', console.error);
     process.exit(1);
   },
-  install: (args: string[]): ParsedCommand => ({ mode: 'install', args }),
-  update: (args: string[]): ParsedCommand => ({ mode: 'update', args }),
-  uninstall: (args: string[]): ParsedCommand => ({ mode: 'uninstall', args }),
-  doctor: (args: string[]): ParsedCommand => ({ mode: 'doctor', args }),
-  logs: (args: string[]): ParsedCommand => ({ mode: 'logs', args }),
-  gui: (args: string[]): ParsedCommand => ({ mode: 'gui', args }),
-} satisfies Record<CommandName, (args: string[]) => ParsedCommand>;
-
-function parseCliArgs(args: string[]): ParsedCommand | null {
-  // Handle "help <command>" pattern first
-  if (handleHelpCommand(args)) {
-    return null;
-  }
-
-  // Handle "<command> --help" pattern
-  if (handleCommandHelp(args)) {
-    return null;
-  }
-
-  const commandName = args[0];
-  // A known command name keeps its own help; `rule` is the one command that
-  // parses `--help` itself, so the global help must not swallow it.
-  if (!commandName || (hasHelpFlag(args) && !findCommand(commandName))) {
-    printHelp();
-    process.exit(0);
-  }
-
-  const options = optionArgs(args);
-  if (options.includes('--version') || options.includes('-V')) {
-    printVersion();
-    process.exit(0);
-  }
-
-  const command = findCommand(commandName);
-  if (command) {
-    return commandParsers[command.name](args.slice(1));
-  }
-
-  const legacyIntegration = findLegacyTopLevelHookIntegration(commandName);
-  if (legacyIntegration) return { mode: 'hook', integration: legacyIntegration };
-  if (commandName === '--statusline') return { mode: 'statusline' };
-
-  console.error(
-    commandName.startsWith('-')
-      ? `Unknown option: ${commandName}`
-      : `Unknown command: ${commandName}`,
-  );
-  console.error("Run 'cc-safety-net --help' for usage.");
-  process.exit(1);
-}
-
-const commandHandlers = {
-  hook: async (command) => {
-    await command.integration.run();
+  install: async (args) => {
+    process.exit(await runInstallCommand('install', args));
   },
-  install: async (command) => {
-    process.exit(await runInstallCommand('install', command.args));
+  update: async (args) => {
+    process.exit(await runUpdateCommand(args));
   },
-  update: async (command) => {
-    process.exit(await runUpdateCommand(command.args));
+  uninstall: async (args) => {
+    process.exit(await runInstallCommand('uninstall', args));
   },
-  uninstall: async (command) => {
-    process.exit(await runInstallCommand('uninstall', command.args));
+  rule: async (args) => {
+    process.exit(await runRuleCommand(args));
   },
-  rule: async (command) => {
-    process.exit(await runRuleCommand(command.args));
-  },
-  status: async (_command) => {
+  status: async (args) => {
+    if (reportCommandArgErrors(parseCommandArgs({ label: 'status' }, args).errors)) {
+      process.exit(1);
+    }
     printStatus();
   },
-  statusline: async (_command) => {
-    await printStatusline();
+  statusline: async (args) => {
+    const parsed = parseCommandArgs(
+      { label: 'statusline', booleans: { claudeCode: ['-cc', '--claude-code'] } },
+      args,
+    );
+    if (parsed.errors.length === 0 && parsed.flags.claudeCode) {
+      await printStatusline();
+      return;
+    }
+    reportCommandArgErrors(parsed.errors);
+    if (!parsed.flags.claudeCode) console.error('statusline requires --claude-code (-cc)');
+    showCommandHelp('statusline', console.error);
+    process.exit(1);
   },
-  doctor: async (command) => {
-    const flags = parseDoctorFlags(command.args);
+  doctor: async (args) => {
+    const flags = parseDoctorFlags(args);
     if (!flags) process.exit(1);
     const exitCode = await runDoctor({
       json: flags.json,
@@ -211,14 +99,14 @@ const commandHandlers = {
     });
     process.exit(exitCode);
   },
-  logs: async (command) => {
-    process.exit(await runLogsCommand(command.args));
+  logs: async (args) => {
+    process.exit(await runLogsCommand(args));
   },
-  gui: async (command) => {
-    process.exit(await runGuiCommand(command.args));
+  gui: async (args) => {
+    process.exit(await runGuiCommand(args));
   },
-  explain: async (command) => {
-    const flags = parseExplainFlags(command.args);
+  explain: async (args) => {
+    const flags = parseExplainFlags(args);
     if (!flags) {
       process.exit(1);
     }
@@ -233,18 +121,59 @@ const commandHandlers = {
     }
     process.exit(0);
   },
-} satisfies { [Mode in ParsedCommand['mode']]: ParsedCommandHandler<Mode> };
-
-// The `satisfies` clause above already forces a handler for every mode, so the
-// lookup cannot miss; the cast only re-joins the union the index signature splits.
-async function runParsedCommand(command: ParsedCommand): Promise<void> {
-  const handler = commandHandlers[command.mode] as (c: ParsedCommand) => Promise<void>;
-  await handler(command);
-}
+} satisfies Record<CommandName, (args: string[]) => Promise<void>>;
 
 async function main(): Promise<void> {
-  const command = parseCliArgs(process.argv.slice(2));
-  if (command) await runParsedCommand(command);
+  const args = process.argv.slice(2);
+  // The global scan answers one question — was --help or --version given as an
+  // option? Everything after the first `--` is command input, so the scan stops
+  // there, and unknown tokens belong to whichever command is dispatched below.
+  const globalScan = parseCommandArgs(
+    { label: 'cc-safety-net', booleans: { version: ['-V', '--version'] }, positionals: 'list' },
+    args,
+  );
+
+  if (handleHelpCommand(args)) return;
+
+  const commandName = args[0];
+  const command = commandName ? findCommand(commandName) : undefined;
+  // A known command name keeps its own help; `rule` is the one command that parses
+  // `--help` itself, so the request reaches the leaf handler for its subcommand.
+  if (globalScan.help && command && command.name !== 'rule') {
+    showCommandHelp(command.name);
+    process.exit(0);
+  }
+  if (!commandName || (globalScan.help && !command)) {
+    printHelp();
+    process.exit(0);
+  }
+  if (globalScan.flags.version) {
+    printVersion();
+    process.exit(0);
+  }
+
+  if (command) {
+    await commandHandlers[command.name](args.slice(1));
+    return;
+  }
+
+  const legacyIntegration = findLegacyTopLevelHookIntegration(commandName);
+  if (legacyIntegration) {
+    await legacyIntegration.run();
+    return;
+  }
+  if (commandName === '--statusline') {
+    await printStatusline();
+    return;
+  }
+
+  console.error(
+    commandName.startsWith('-')
+      ? `Unknown option: ${commandName}`
+      : `Unknown command: ${commandName}`,
+  );
+  console.error("Run 'cc-safety-net --help' for usage.");
+  process.exit(1);
 }
 
 main().catch((error: unknown) => {

@@ -1,3 +1,4 @@
+import { parseCommandArgs } from '@/bin/args';
 import { runAntigravityCliHook } from '@/bin/hook/antigravity-cli';
 import { runClaudeCodeHook } from '@/bin/hook/claude-code';
 import { runCopilotCliHook } from '@/bin/hook/copilot-cli';
@@ -35,10 +36,28 @@ export const hookIntegrations: readonly HookIntegration[] = runtimeHookIntegrati
   }),
 );
 
+/**
+ * Resolve the one integration the `hook` arguments name. Anything else — no flag,
+ * two integrations, a stray option or argument — resolves to nothing, because the
+ * hook command runs exactly one integration or none.
+ */
 export function findHookIntegrationByFlag(args: readonly string[]): HookIntegration | undefined {
-  return hookIntegrations.find((integration) =>
-    [...integration.flags, ...integration.legacyFlags].some((flag) => args.includes(flag)),
+  const parsed = parseCommandArgs(
+    {
+      label: 'hook',
+      booleans: Object.fromEntries(
+        hookIntegrations.map((integration) => [
+          integration.id,
+          [...integration.flags, ...integration.legacyFlags],
+        ]),
+      ),
+    },
+    args,
   );
+  if (parsed.errors.length > 0) return undefined;
+
+  const named = hookIntegrations.filter((integration) => parsed.flags[integration.id]);
+  return named.length === 1 ? named[0] : undefined;
 }
 
 export function findLegacyTopLevelHookIntegration(

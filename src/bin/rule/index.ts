@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { parseCommandArgs } from '@/bin/args';
 import { ruleCommand } from '@/bin/commands/rule';
 import { printCommandHelp } from '@/bin/help';
 import { RULE_DOC } from '@/bin/rule/doc';
@@ -205,36 +206,26 @@ function getRuleHelpCommand(positionals: string[]) {
 }
 
 function parseRuleFlags(args: readonly string[]): RuleFlags {
+  const parsed = parseCommandArgs(
+    {
+      label: 'rule',
+      booleans: {
+        global: ['-g', '--global'],
+        check: ['--check'],
+        cleanup: ['--cleanup'],
+        deleteSource: ['--delete-source'],
+        example: ['--example'],
+      },
+      positionals: 'list',
+    },
+    args,
+  );
   const flags: RuleFlags = {
-    global: false,
-    check: false,
-    cleanup: false,
-    deleteSource: false,
-    example: false,
-    help: false,
-    positionals: [],
-    errors: [],
+    ...parsed.flags,
+    help: parsed.help,
+    positionals: parsed.positionals,
+    errors: parsed.errors,
   };
-
-  for (const arg of args) {
-    if (arg === '-g' || arg === '--global') {
-      flags.global = true;
-    } else if (arg === '--check') {
-      flags.check = true;
-    } else if (arg === '--delete-source') {
-      flags.deleteSource = true;
-    } else if (arg === '--cleanup') {
-      flags.cleanup = true;
-    } else if (arg === '--example') {
-      flags.example = true;
-    } else if (arg === '-h' || arg === '--help') {
-      flags.help = true;
-    } else if (arg.startsWith('-')) {
-      flags.errors.push(unknownRuleOption(flags.positionals[0], arg));
-    } else {
-      flags.positionals.push(arg);
-    }
-  }
 
   validateRuleFlags(flags);
   return flags;
@@ -259,8 +250,8 @@ function validateRuleFlags(flags: RuleFlags): void {
     flags.errors.push(unknownRuleOption(subcommand, '--example'));
   }
   if (subcommand === 'migrate') {
-    if (flags.global) flags.errors.push('Unknown option for rule migrate: --global');
-    if (flags.check) flags.errors.push('Unknown option for rule migrate: --check');
+    if (flags.global) flags.errors.push(unknownRuleOption(subcommand, '--global'));
+    if (flags.check) flags.errors.push(unknownRuleOption(subcommand, '--check'));
     if (flags.positionals.length > 1) {
       flags.errors.push(`Unexpected rule migrate argument: ${flags.positionals[1]}`);
     }
@@ -275,8 +266,9 @@ function validateRuleFlags(flags: RuleFlags): void {
 }
 
 function unknownRuleOption(subcommand: string | undefined, option: string) {
-  if (subcommand === 'migrate') return `Unknown option for rule migrate: ${option}`;
-  return `Unknown rule option: ${option}`;
+  return subcommand
+    ? `Unknown option for rule ${subcommand}: ${option}`
+    : `Unknown option for rule: ${option}`;
 }
 
 function validateRuleWrapperFlags(flags: RuleFlags): void {

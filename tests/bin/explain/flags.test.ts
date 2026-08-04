@@ -62,7 +62,7 @@ describe('parseExplainFlags', () => {
   test('rejects an unknown flag instead of analyzing different text', () => {
     const flags = parseExplainFlags(['--jsoon', 'rm -rf /']);
     expect(flags).toBeNull();
-    expect(getStderr()).toContain('unknown option "--jsoon"');
+    expect(getStderr()).toContain('Unknown option for explain: --jsoon');
   });
 
   test('keeps an unknown flag as command input after the -- separator', () => {
@@ -110,13 +110,13 @@ describe('parseExplainFlags', () => {
   test('errors when --cwd has no value', () => {
     const flags = parseExplainFlags(['--cwd']);
     expect(flags).toBeNull();
-    expect(getStderr()).toContain('--cwd requires a path');
+    expect(getStderr()).toContain('--cwd requires a value');
   });
 
   test('errors when --cwd value is another flag', () => {
     const flags = parseExplainFlags(['--cwd', '--json', 'echo']);
     expect(flags).toBeNull();
-    expect(getStderr()).toContain('--cwd requires a path');
+    expect(getStderr()).toContain('--cwd requires a value');
   });
 
   test('errors when --cwd path does not exist', () => {

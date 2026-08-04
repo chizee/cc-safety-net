@@ -80,7 +80,7 @@ describe('explain CLI flag parsing', () => {
     const result = await runCCSafetyNetCli(['explain', '--jsoon', 'rm -rf /']);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain('unknown option "--jsoon"');
+    expect(result.stderr).toContain('Unknown option for explain: --jsoon');
     expect(result.output).toBe('');
   });
 
@@ -250,7 +250,7 @@ describe('explain CLI flag parsing', () => {
     const stderr = await new Response(proc.stderr).text();
     const exitCode = await proc.exited;
 
-    expect(stderr).toContain('--cwd requires a path');
+    expect(stderr).toContain('--cwd requires a value');
     expect(exitCode).toBe(1);
   });
 
@@ -266,7 +266,7 @@ describe('explain CLI flag parsing', () => {
     const stderr = await new Response(proc.stderr).text();
     const exitCode = await proc.exited;
 
-    expect(stderr).toContain('--cwd requires a path');
+    expect(stderr).toContain('--cwd requires a value');
     expect(exitCode).toBe(1);
   });
 });

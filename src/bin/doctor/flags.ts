@@ -2,21 +2,18 @@
  * CLI flag parsing for the doctor command.
  */
 
+import { parseCommandArgs, reportCommandArgErrors } from '@/bin/args';
 import type { DoctorOptions } from '@/bin/doctor/types';
 
 export function parseDoctorFlags(args: string[]): DoctorOptions | null {
-  const unexpected = args.find((arg) => arg !== '--json' && arg !== '--skip-update-check');
-  if (unexpected) {
-    console.error(
-      unexpected.startsWith('-')
-        ? `Unknown option for doctor: ${unexpected}`
-        : `Unexpected argument for doctor: ${unexpected}`,
-    );
-    return null;
-  }
+  const parsed = parseCommandArgs(
+    {
+      label: 'doctor',
+      booleans: { json: ['--json'], skipUpdateCheck: ['--skip-update-check'] },
+    },
+    args,
+  );
+  if (reportCommandArgErrors(parsed.errors)) return null;
 
-  return {
-    json: args.includes('--json'),
-    skipUpdateCheck: args.includes('--skip-update-check'),
-  };
+  return { json: parsed.flags.json, skipUpdateCheck: parsed.flags.skipUpdateCheck };
 }

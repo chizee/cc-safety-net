@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { parseCommandArgs } from '@/bin/args';
 import { stripJsonComments } from '@/bin/config/jsonc';
 import {
   _getCopilotConfigHome,
@@ -299,15 +300,19 @@ function removePiExtensionsFilter(homeDir: string): void {
 }
 
 function parseInstallTarget(args: readonly string[], action: InstallAction): InstallTarget {
-  const unknownOption = args.find((arg) => arg.startsWith('-') && !TARGET_FLAGS.has(arg));
+  const parsed = parseCommandArgs(
+    {
+      label: action,
+      booleans: Object.fromEntries(INSTALL_TARGETS.map((target) => [target.target, [target.flag]])),
+    },
+    args,
+  );
+  const error = parsed.errors[0];
+  if (error) throw new Error(error);
 
-  if (unknownOption) throw new Error(`Unknown ${action} option: ${unknownOption}`);
-  const unexpectedArg = args.find((arg) => !arg.startsWith('-'));
-  if (unexpectedArg) throw new Error(`Unexpected argument for ${action}: ${unexpectedArg}`);
-  const targets = args.flatMap((arg) => {
-    const target = TARGET_FLAGS.get(arg);
-    return target ? [target] : [];
-  });
+  const targets = INSTALL_TARGETS.filter((target) => parsed.flags[target.target]).map(
+    (target) => target.target,
+  );
   if (targets.length !== 1)
     throw new Error(`Choose exactly one ${action} target: ${[...TARGET_FLAGS.keys()].join(', ')}`);
   return targets[0] as InstallTarget;
@@ -547,11 +552,8 @@ function runSingleInstallTarget(
 }
 
 function parseUpdateArgs(args: readonly string[]): void {
-  const unknownOption = args.find((arg) => arg.startsWith('-'));
-  if (unknownOption) throw new Error(`Unknown update option: ${unknownOption}`);
-
-  const unexpectedArg = args[0];
-  if (unexpectedArg) throw new Error(`Unexpected argument for update: ${unexpectedArg}`);
+  const error = parseCommandArgs({ label: 'update' }, args).errors[0];
+  if (error) throw new Error(error);
 }
 
 async function detectUpdateTargets(homeDir: string): Promise<InstallTarget[]> {

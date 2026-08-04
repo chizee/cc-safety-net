@@ -337,6 +337,6 @@ fi
     expect(unexpected.exitCode).toBe(1);
     expect(unexpected.stderr).toContain('Unexpected argument for update: extra');
     expect(unknownOption.exitCode).toBe(1);
-    expect(unknownOption.stderr).toContain('Unknown update option: --codex');
+    expect(unknownOption.stderr).toContain('Unknown option for update: --codex');
   });
 });

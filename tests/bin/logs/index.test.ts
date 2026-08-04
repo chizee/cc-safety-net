@@ -770,7 +770,7 @@ describe('runLogsCommand', () => {
       const invalidLimit = await captureLogsCommand(['--limit', '0'], fixture.logsDir);
 
       expect(unknown.exitCode).toBe(1);
-      expect(unknown.stderr).toContain('Unknown option: --wat');
+      expect(unknown.stderr).toContain('Unknown option for logs: --wat');
       expect(invalidLimit.exitCode).toBe(1);
       expect(invalidLimit.stderr).toContain('--limit must be a positive number');
     } finally {

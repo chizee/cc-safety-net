@@ -63,7 +63,7 @@ describe('status arguments', () => {
     const result = await runIsolated(['status', '--json']);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain('Unexpected argument for status: --json');
+    expect(result.stderr).toContain('Unknown option for status: --json');
     expect(result.output).toBe('');
   });
 

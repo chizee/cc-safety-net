@@ -1209,7 +1209,7 @@ hooks = []
       });
 
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('Unknown install option: --unknown');
+      expect(result.stderr).toContain('Unknown option for install: --unknown');
       expect(existsSync(join(homeDir, '.kimi-code', 'config.toml'))).toBe(false);
     } finally {
       rmSync(homeDir, { recursive: true, force: true });

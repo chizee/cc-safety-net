@@ -1,5 +1,6 @@
 import { readdirSync, statSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import { parseCommandArgs, reportCommandArgErrors } from '@/bin/args';
 import { renderTerminalText } from '@/bin/utils/terminal';
 import { getAuditLogsDir } from '@/core/audit';
 import { pruneExpiredAuditLogs, resolveAuditRetentionDays } from '@/core/audit-retention';
@@ -32,104 +33,64 @@ function parseLogsFlags(args: string[]): LogsFlags | null {
   // Retained history is the only history, so neither the `--since` ceiling nor
   // the default window can reach past it.
   const retentionDays = resolveAuditRetentionDays();
-  const flags: LogsFlags = {
-    limit: 20,
-    limitExplicit: false,
-    since: Math.min(30, retentionDays),
-    sinceExplicit: false,
-    all: false,
-    json: false,
-    suspect: false,
-    pruneLegacy: false,
-    dryRun: false,
-  };
+  const parsed = parseCommandArgs(
+    {
+      label: 'logs',
+      booleans: {
+        all: ['--all'],
+        suspect: ['--suspect'],
+        json: ['--json'],
+        pruneLegacy: ['--prune-legacy'],
+        dryRun: ['--dry-run'],
+      },
+      values: {
+        id: ['--id'],
+        limit: ['--limit'],
+        since: ['--since'],
+        agent: ['--agent'],
+        rule: ['--rule'],
+        session: ['--session'],
+        project: ['--project'],
+      },
+    },
+    args,
+  );
+  if (reportCommandArgErrors(parsed.errors)) return null;
 
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index];
-    if (arg === '--all') {
-      flags.all = true;
-      continue;
-    }
-    if (arg === '--suspect') {
-      flags.suspect = true;
-      continue;
-    }
-    if (arg === '--json') {
-      flags.json = true;
-      continue;
-    }
-    if (arg === '--prune-legacy') {
-      flags.pruneLegacy = true;
-      continue;
-    }
-    if (arg === '--dry-run') {
-      flags.dryRun = true;
-      continue;
-    }
-    if (arg === '--id') {
-      const value = parseStringValue(args[index + 1], '--id');
-      if (value === null) return null;
-      if (!/^[a-f0-9]{16}$/.test(value)) {
-        console.error('--id must be 16 hexadecimal characters');
-        return null;
-      }
-      flags.id = value;
-      index++;
-      continue;
-    }
-    if (arg === '--limit') {
-      const limit = parsePositiveNumber(args[index + 1]);
-      if (limit === null) {
-        console.error('--limit must be a positive number');
-        return null;
-      }
-      flags.limit = limit;
-      flags.limitExplicit = true;
-      index++;
-      continue;
-    }
-    if (arg === '--since') {
-      const since = parsePositiveNumber(args[index + 1]);
-      if (since === null || since > retentionDays) {
-        console.error(`--since must be a positive number of days no greater than ${retentionDays}`);
-        return null;
-      }
-      flags.since = since;
-      flags.sinceExplicit = true;
-      index++;
-      continue;
-    }
-    if (arg === '--agent') {
-      const value = parseStringValue(args[index + 1], '--agent');
-      if (value === null) return null;
-      flags.agent = value;
-      index++;
-      continue;
-    }
-    if (arg === '--rule') {
-      const value = parseStringValue(args[index + 1], '--rule');
-      if (value === null) return null;
-      flags.rule = value;
-      index++;
-      continue;
-    }
-    if (arg === '--session') {
-      const value = parseStringValue(args[index + 1], '--session');
-      if (value === null) return null;
-      flags.session = value;
-      index++;
-      continue;
-    }
-    if (arg === '--project') {
-      const value = parseStringValue(args[index + 1], '--project');
-      if (value === null) return null;
-      flags.project = resolve(value);
-      index++;
-      continue;
-    }
-    console.error(`Unknown option: ${arg}`);
+  if (parsed.values.id !== undefined && !/^[a-f0-9]{16}$/.test(parsed.values.id)) {
+    console.error('--id must be 16 hexadecimal characters');
     return null;
   }
+  const limit = parsed.values.limit === undefined ? 20 : parsePositiveNumber(parsed.values.limit);
+  if (limit === null) {
+    console.error('--limit must be a positive number');
+    return null;
+  }
+  const since =
+    parsed.values.since === undefined
+      ? Math.min(30, retentionDays)
+      : parsePositiveNumber(parsed.values.since);
+  if (since === null || since > retentionDays) {
+    console.error(`--since must be a positive number of days no greater than ${retentionDays}`);
+    return null;
+  }
+
+  const flags: LogsFlags = {
+    limit,
+    limitExplicit: parsed.values.limit !== undefined,
+    since,
+    sinceExplicit: parsed.values.since !== undefined,
+    all: parsed.flags.all,
+    json: parsed.flags.json,
+    suspect: parsed.flags.suspect,
+    pruneLegacy: parsed.flags.pruneLegacy,
+    dryRun: parsed.flags.dryRun,
+    id: parsed.values.id,
+    agent: parsed.values.agent,
+    rule: parsed.values.rule,
+    session: parsed.values.session,
+    project: parsed.values.project === undefined ? undefined : resolve(parsed.values.project),
+  };
 
   if (
     flags.id &&
@@ -432,16 +393,7 @@ function formatHumanTimestamp(timestamp: string, timeZone?: string): string {
   }).format(date);
 }
 
-function parsePositiveNumber(value: string | undefined): number | null {
-  if (value === undefined) return null;
+function parsePositiveNumber(value: string): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseStringValue(value: string | undefined, flag: string): string | null {
-  if (value === undefined || value.startsWith('-')) {
-    console.error(`${flag} requires a value`);
-    return null;
-  }
-  return value;
 }

@@ -3,8 +3,10 @@
  */
 
 import { existsSync } from 'node:fs';
+import { parseCommandArgs, reportCommandArgErrors } from '@/bin/args';
 
 const SHELL_SAFE_ARGUMENT = /^[A-Za-z0-9_@%+=:,./-]+$/;
+const USAGE = 'Usage: cc-safety-net explain [--json] [--cwd <path>] <command>';
 
 export interface ExplainFlags {
   json: boolean;
@@ -13,63 +15,32 @@ export interface ExplainFlags {
 }
 
 export function parseExplainFlags(args: string[]): ExplainFlags | null {
-  let json = false;
-  let cwd: string | undefined;
-  const remaining: string[] = [];
-
-  let i = 0;
-  while (i < args.length) {
-    const arg = args[i];
-
-    // Skip --help as it's handled elsewhere
-    if (arg === '--help' || arg === '-h') {
-      i++;
-      continue;
-    }
-
-    // Explicit separator: everything after is the command
-    if (arg === '--') {
-      remaining.push(...args.slice(i + 1));
-      break;
-    }
-
-    // Once we hit a non-flag arg, everything else is the command
-    if (!arg?.startsWith('--')) {
-      remaining.push(...args.slice(i));
-      break;
-    }
-
-    if (arg === '--json') {
-      json = true;
-      i++;
-    } else if (arg === '--cwd') {
-      i++;
-      const value = args[i];
-      if (!value || value.startsWith('--')) {
-        console.error('Error: --cwd requires a path');
-        return null;
-      }
-      if (!existsSync(value)) {
-        console.error(`Error: --cwd path does not exist: ${value}`);
-        return null;
-      }
-      cwd = value;
-      i++;
-    } else {
-      console.error(`Error: unknown option "${arg}"`);
-      console.error('Usage: cc-safety-net explain [--json] [--cwd <path>] <command>');
-      console.error('Pass -- before a command that starts with dashes.');
-      return null;
-    }
+  const parsed = parseCommandArgs(
+    {
+      label: 'explain',
+      booleans: { json: ['--json'] },
+      values: { cwd: ['--cwd'] },
+      positionals: 'tail',
+    },
+    args,
+  );
+  if (reportCommandArgErrors(parsed.errors)) {
+    console.error(USAGE);
+    console.error('Pass -- before a command that starts with dashes.');
+    return null;
+  }
+  if (parsed.values.cwd !== undefined && !existsSync(parsed.values.cwd)) {
+    console.error(`Error: --cwd path does not exist: ${parsed.values.cwd}`);
+    return null;
   }
 
   // When the user passes a full command as a single argument (e.g., explain "git status | rm -rf /"),
   // use it directly to preserve shell operators. Otherwise, single-quote every argument that is
   // not already inert so multiple arguments survive the reparse as themselves.
   const command =
-    remaining.length === 1
-      ? remaining[0]
-      : remaining
+    parsed.positionals.length === 1
+      ? parsed.positionals[0]
+      : parsed.positionals
           .map((argument) =>
             SHELL_SAFE_ARGUMENT.test(argument)
               ? argument
@@ -78,9 +49,9 @@ export function parseExplainFlags(args: string[]): ExplainFlags | null {
           .join(' ');
   if (!command) {
     console.error('Error: No command provided');
-    console.error('Usage: cc-safety-net explain [--json] [--cwd <path>] <command>');
+    console.error(USAGE);
     return null;
   }
 
-  return { json, cwd, command };
+  return { json: parsed.flags.json, cwd: parsed.values.cwd, command };
 }
