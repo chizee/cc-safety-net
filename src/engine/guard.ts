@@ -27,7 +27,7 @@ import {
   getCommandSyntaxFact,
 } from '@/core/semantic-facts';
 import { ToolInputLimitError } from '@/core/tool-input';
-import type { AnalyzeOptions } from '@/domain/analysis';
+import type { AnalyzeInput } from '@/domain/analysis';
 import type { AuditFailureStage } from '@/domain/audit';
 import type { Decision } from '@/domain/decision';
 import type { ToolInvocation } from '@/domain/invocation';
@@ -63,7 +63,7 @@ export type GuardDependencies = {
   findSensitiveTarget: typeof findSensitiveTargetInSemanticFacts;
   analyzeCommand: (
     command: string,
-    options: AnalyzeOptions,
+    options: AnalyzeInput,
     program?: ReturnType<typeof getDeclaredCommandProgram>,
     factStore?: SemanticFacts['store'],
     protectedGitMetadata?: ReturnType<typeof resolveProtectedGitMetadata>,

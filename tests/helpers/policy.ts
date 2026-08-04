@@ -93,7 +93,7 @@ export function commandAnalysisPolicy(snapshot: PolicySnapshot = policySnapshot(
 
 export function analyzeTestCommand(
   command: string,
-  options: Omit<AnalyzeOptions, 'policySnapshot' | 'environment'> & {
+  options: Omit<AnalyzeOptions, 'policySnapshot'> & {
     config?: TestPolicyInput;
     environment?: EnvironmentContext;
   } = {},

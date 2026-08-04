@@ -9,15 +9,15 @@ import { analyzeXargs } from '@/core/analyze/xargs';
 import { analyzeGitMatch } from '@/core/git';
 import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import type {
+  AnalyzeInput,
   AnalyzeNestedOverrides,
-  AnalyzeOptions,
   AnalyzeResult,
   DestructiveCommandRuleMatch,
 } from '@/domain/analysis';
 import type { CommandView, CommandWord } from '@/domain/command';
 import type { EffectivePolicy } from '@/domain/policy';
 
-export type InternalOptions = AnalyzeOptions & {
+export type InternalOptions = AnalyzeInput & {
   policy: EffectivePolicy;
   effectiveCwd: string | null | undefined;
   analyzeNested: (

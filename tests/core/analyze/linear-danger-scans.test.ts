@@ -3,11 +3,11 @@ import { explainCommand } from '@/bin/explain';
 import { analyzeCommand } from '@/core/analyze';
 import { containsDangerousCode } from '@/core/analyze/interpreters';
 import { hasLinearDangerousText } from '@/core/analyze/linear-danger-scanner';
-import type { AnalyzeOptions } from '@/domain/analysis';
+import type { AnalyzeInput } from '@/domain/analysis';
 import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import { analyzeTestCommand, policySnapshot } from '../../helpers/policy';
 
-type MeasuredAnalyzeOptions = AnalyzeOptions & {
+type MeasuredAnalyzeOptions = AnalyzeInput & {
   scanWork?: { units: number };
 };
 

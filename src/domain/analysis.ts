@@ -41,8 +41,6 @@ export type EnvironmentContext = Readonly<{
 export interface AnalyzeOptions {
   /** Immutable policy snapshot to evaluate. */
   policySnapshot: PolicySnapshot;
-  /** Process state the analysis reads instead of touching env, home, tmpdir or the filesystem. */
-  environment: EnvironmentContext;
   /** Capability values and provenance already resolved at the caller boundary. */
   effectiveCapabilities?: EffectiveSafetyCapabilities;
   /** Current working directory */
@@ -68,6 +66,12 @@ export interface AnalyzeOptions {
   /** Analyze programs with unclosed quotes instead of falling back to raw-text scanning */
   analyzePartialProgram?: boolean;
 }
+
+/**
+ * What the analyzer entry point needs: the caller's options plus the process state it must
+ * read instead of touching env, home, tmpdir or the filesystem.
+ */
+export type AnalyzeInput = AnalyzeOptions & { environment: EnvironmentContext };
 
 export interface AnalyzeNestedOverrides {
   effectiveCwd?: string | null;

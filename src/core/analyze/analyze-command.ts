@@ -49,8 +49,8 @@ import type { ProtectedGitMetadata } from '@/core/git-metadata-protection';
 import { REASON_RECURSION_LIMIT, REASON_STRICT_UNPARSEABLE } from '@/core/reasons';
 import { getBasename, normalizeCommandToken } from '@/core/shell';
 import type {
+  AnalyzeInput,
   AnalyzeNestedOverrides,
-  AnalyzeOptions,
   AnalyzeResult,
   DestructiveCommandRuleMatch,
   EnvironmentContext,
@@ -67,7 +67,7 @@ import type { CommandAnalysisPolicy } from '@/domain/policy';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
 import { parseCommand } from '@/parser/command';
 
-export type InternalOptions = AnalyzeOptions & {
+export type InternalOptions = AnalyzeInput & {
   policy: CommandAnalysisPolicy;
   factStore?: SemanticFactStore;
   derivedCommandWorkBudget?: DerivedCommandWorkBudget;

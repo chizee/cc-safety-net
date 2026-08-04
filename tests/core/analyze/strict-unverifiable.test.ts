@@ -69,10 +69,7 @@ const paranoidOnlyCases: Array<{
   },
 ];
 
-function options(
-  strict: boolean,
-  shell?: ShellKind,
-): Omit<AnalyzeOptions, 'policySnapshot' | 'environment'> {
+function options(strict: boolean, shell?: ShellKind): Omit<AnalyzeOptions, 'policySnapshot'> {
   return {
     cwd: process.cwd(),
     strict,

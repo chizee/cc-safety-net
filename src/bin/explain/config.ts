@@ -11,7 +11,7 @@ import { createProcessEnvironment } from '@/core/environment';
 import { getProjectRulesConfigPath, getUserRulesConfigPath } from '@/core/rules/policy';
 import { PolicyFilesystemError, readPolicyFile } from '@/core/rules/policy/filesystem';
 import { getPolicyPaths } from '@/core/rules/policy/paths';
-import type { AnalyzeOptions } from '@/domain/analysis';
+import type { AnalyzeInput } from '@/domain/analysis';
 import type { ExplainOptions } from '@/domain/explain';
 
 export interface GetConfigSourceOptions {
@@ -72,7 +72,7 @@ export function getConfigSource(options?: GetConfigSourceOptions): {
  * Build AnalyzeOptions from ExplainOptions.
  * Merges user options with environment variable defaults.
  */
-export function buildAnalyzeOptions(explainOptions?: ExplainOptions): AnalyzeOptions {
+export function buildAnalyzeOptions(explainOptions?: ExplainOptions): AnalyzeInput {
   // Resolve to absolute path - relative paths break cwd comparison logic
   const cwd = resolve(explainOptions?.cwd ?? process.cwd());
   const policySnapshot =

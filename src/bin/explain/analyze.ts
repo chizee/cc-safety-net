@@ -18,7 +18,7 @@ import {
   REASON_SECRET_PROTECTION,
 } from '@/core/secret-protection';
 import { createSemanticFacts } from '@/core/semantic-facts';
-import type { AnalyzeOptions } from '@/domain/analysis';
+import type { AnalyzeInput, AnalyzeOptions } from '@/domain/analysis';
 import type { CommandTrace } from '@/domain/command-trace';
 import type { ExplainOptions, ExplainResult, ExplainTrace } from '@/domain/explain';
 import { createToolInvocation } from '@/domain/invocation';
@@ -166,7 +166,7 @@ function findPreAnalysisBlock(command: string, options: AnalyzeOptions) {
   return null;
 }
 
-function identifyModeGatedCandidate(command: string, options: AnalyzeOptions) {
+function identifyModeGatedCandidate(command: string, options: AnalyzeInput) {
   const policy = options.policySnapshot.policy;
   const candidateSnapshot = createPolicySnapshot(
     {

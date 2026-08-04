@@ -1,6 +1,6 @@
 import { analyzeCommandWithProgram } from '@/core/analyze';
 import { createSemanticFactStore } from '@/core/semantic-facts';
-import type { AnalyzeOptions } from '@/domain/analysis';
+import type { AnalyzeInput } from '@/domain/analysis';
 import type { CommandProgram } from '@/domain/command';
 import type { CommandTrace } from '@/domain/command-trace';
 import type { Decision } from '@/domain/decision';
@@ -22,7 +22,7 @@ export type TracedCommandEvaluation = Readonly<{
  */
 export function evaluateCommandWithTrace(
   command: string,
-  options: AnalyzeOptions,
+  options: AnalyzeInput,
   suppliedProgram?: CommandProgram,
   suppliedFactStore?: SemanticFactStore,
 ): TracedCommandEvaluation {

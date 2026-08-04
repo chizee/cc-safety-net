@@ -4,6 +4,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { analyzeCommand } from '@/core/analyze';
 import { blockedSegment, withEnv } from '../../helpers';
+import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import { behavioralContractCases } from './behavioral-contract-cases';
 
 const root = mkdtempSync(join(tmpdir(), 'cc-safety-net-contract-'));
@@ -31,7 +32,11 @@ describe('analyzeCommand behavioral contract', () => {
           CC_SAFETY_NET_WORKTREE: '',
           SAFETY_NET_WORKTREE: '',
         },
-        () => analyzeCommand(contractCase.command, contractCase.options),
+        () =>
+          analyzeCommand(contractCase.command, {
+            ...contractCase.options,
+            environment: TEST_ENVIRONMENT,
+          }),
       );
 
       if (contractCase.expected.kind === 'allow') {

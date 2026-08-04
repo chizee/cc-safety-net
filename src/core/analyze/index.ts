@@ -4,20 +4,20 @@ import {
   type ProtectedGitMetadata,
   resolveProtectedGitMetadata,
 } from '@/core/git-metadata-protection';
-import type { AnalyzeOptions } from '@/domain/analysis';
+import type { AnalyzeInput } from '@/domain/analysis';
 import type { CommandProgram } from '@/domain/command';
 import type { Decision } from '@/domain/decision';
 import type { SemanticFactStore } from '@/domain/semantic-facts';
 
 /** @internal */
-export function analyzeCommand(command: string, options: AnalyzeOptions) {
+export function analyzeCommand(command: string, options: AnalyzeInput) {
   return analyzeCommandWithProgram(command, options);
 }
 
 /** @internal Canonical pre-parsed command-analysis entry point. */
 export function analyzeCommandWithProgram(
   command: string,
-  options: AnalyzeOptions,
+  options: AnalyzeInput,
   program?: CommandProgram,
   factStore?: SemanticFactStore,
   protectedGitMetadata: ProtectedGitMetadata | null = resolveProtectedGitMetadata(options.cwd),

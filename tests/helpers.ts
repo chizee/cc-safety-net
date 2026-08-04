@@ -9,7 +9,7 @@ import { loadPolicySnapshot } from '@/config/policy-snapshot';
 import { analyzeCommand } from '@/core/analyze';
 import { listAuditLogFiles } from '@/core/audit-scan';
 import { envTruthy } from '@/core/env';
-import type { AnalyzeOptions, EnvironmentContext } from '@/domain/analysis';
+import type { AnalyzeInput, EnvironmentContext } from '@/domain/analysis';
 import type { AuditLogEntry } from '@/domain/audit';
 import type { TraceStep } from '@/domain/command-trace';
 import type { Decision } from '@/domain/decision';
@@ -26,7 +26,7 @@ function getOptionsFromEnv(
   cwd?: string,
   policy?: TestPolicyInput,
   environment: EnvironmentContext = TEST_ENVIRONMENT,
-): AnalyzeOptions {
+): AnalyzeInput {
   // If no cwd specified, use empty config to avoid loading project's config
   const snapshot = policy
     ? policySnapshot(policy)
