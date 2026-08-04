@@ -421,13 +421,14 @@ h1 {
   white-space: nowrap;
 }
 
-/* Only links that leave the app get the pointer cursor; in-app controls keep
-   the default arrow. */
-a {
-  cursor: default;
-}
-
-a[target="_blank"] {
+/* Everything clickable gets the pointer cursor. Links already get it from the
+   user agent; buttons, selects, and the label rows that wrap a control do not. */
+button:not(:disabled),
+select,
+label.row:not(.row-disabled),
+label.rule-control,
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled) {
   cursor: pointer;
 }
 
