@@ -3,10 +3,10 @@
  */
 
 import { lstatSync, readFileSync } from 'node:fs';
-import { AMP_MANAGED_HEADER } from '@/amp/index';
 import { getPackageVersion } from '@/bin/doctor/system-info';
 import type { DetectContext, HookDetection } from '@/bin/hook/detect/context';
 import { getAmpPluginPath } from '@/bin/hook/install/amp';
+import { AMP_MANAGED_HEADER } from '@/integrations/amp';
 
 function _ampArtifactVersion(content: string): string | undefined {
   return /^\/\/ version:\s*(.+)$/m.exec(content)?.[1]?.trim();

@@ -2,10 +2,12 @@ import { homedir } from 'node:os';
 import { wrapReason } from '@/bin/explain/format-helpers';
 import { isPluginEnabled } from '@/bin/statusline';
 import { colors } from '@/bin/utils/colors';
-import { loadPolicySnapshot } from '@/config/policy-snapshot';
-import { resolveEffectiveDestructiveCommandRules } from '@/core/destructive-command-rules';
-import { getCCSafetyNetEnvModes } from '@/core/env';
-import { getUserPolicyPath } from '@/core/policy';
+import {
+  getCCSafetyNetEnvModes,
+  getUserPolicyPath,
+  loadPolicySnapshot,
+  resolveEffectiveDestructiveCommandRules,
+} from '@/engine/facade';
 
 /**
  * Prints what the runtime is enforcing right now: a verdict line, an aligned

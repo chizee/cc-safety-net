@@ -1,7 +1,7 @@
 import { getToolRoute, outputFailedClosed, runConfiguredHookAdapter } from '@/bin/hook/common';
-import { firstTrustedRoot, resolveContainedCwd } from '@/core/cwd-containment';
 import type { CommandToolKind, ToolCallContext } from '@/domain/invocation';
 import type { IntegrationDenial } from '@/integrations/denial';
+import { firstTrustedRoot, resolveContainedCwd } from '@/integrations/runtime';
 
 /** Cursor preToolUse hook input format */
 interface CursorHookInput {

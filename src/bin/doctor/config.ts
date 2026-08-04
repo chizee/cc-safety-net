@@ -4,23 +4,22 @@
 
 import { dirname } from 'node:path';
 import type { ConfigSourceInfo, EffectiveRule, ShadowedRule } from '@/bin/doctor/types';
-import { type ValidationResult, validateRulesConfigFile } from '@/core/config';
+import type { CustomRule } from '@/domain/policy';
 import {
+  getPolicyPaths,
   getProjectRulesConfigPath,
   getRulesConfigRuntimeErrorsForConfig,
   getRulesLockPathForConfigPath,
   getUserRulesConfigPath,
   getUserRulesLockPath,
   loadRulesPolicy,
-} from '@/core/rules/policy';
-import {
   PolicyFilesystemError,
   type PolicyFilesystemScope,
   type PolicyFilesystemTarget,
   readPolicyFile,
-} from '@/core/rules/policy/filesystem';
-import { getPolicyPaths } from '@/core/rules/policy/paths';
-import type { CustomRule } from '@/domain/policy';
+  type ValidationResult,
+  validateRulesConfigFile,
+} from '@/engine/facade';
 
 export interface ConfigInfo {
   userConfig: ConfigSourceInfo;

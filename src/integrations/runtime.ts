@@ -11,6 +11,21 @@ import {
 } from '@/engine/guard';
 import { projectGuardAudit, writeGuardAudit } from '@/integrations/audit';
 
+export { firstTrustedRoot, isSameOrInsidePath, resolveContainedCwd } from '@/core/cwd-containment';
+export { ENV_FLAGS, envTruthy, shouldRecordAllowedCommands } from '@/core/env';
+export { processPathResolver } from '@/core/environment';
+export {
+  createPathCanonicalizationBudget,
+  PathCanonicalizationLimitError,
+  resolveExistingPath,
+} from '@/core/path-canonicalization';
+export {
+  extractPatchTargetsFromToolInput,
+  extractPathLikeToolValues,
+  getCommandFromToolInput,
+  getNonCommandToolInputKind,
+  ToolInputLimitError,
+} from '@/core/tool-input';
 export type {
   GuardDependencies,
   GuardEvaluation,

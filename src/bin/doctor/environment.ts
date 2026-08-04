@@ -3,7 +3,7 @@
  */
 
 import type { EnvVarInfo } from '@/bin/doctor/types';
-import { ENV_FLAGS, type EnvFlag, envFlagIsSet, getEnvFlagValue } from '@/core/env';
+import { ENV_FLAGS, type EnvFlag, envFlagIsSet, getEnvFlagValue } from '@/engine/facade';
 
 const ENV_VARS: Array<{
   flag: EnvFlag;

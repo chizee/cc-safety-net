@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { getPackageVersion } from '@/bin/doctor/system-info';
 import { checkForUpdates, isNewerVersion } from '@/bin/doctor/updates';
-import { getAuditLogHomeDir } from '@/core/audit';
+import { getAuditLogHomeDir } from '@/engine/facade';
 
 type UpdateCache = {
   lastCheck?: number;

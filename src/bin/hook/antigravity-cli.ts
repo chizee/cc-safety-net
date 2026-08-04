@@ -1,19 +1,18 @@
 import { isAbsolute, relative } from 'node:path';
 import { getToolRoute, runConfiguredHookAdapter } from '@/bin/hook/common';
-import { firstTrustedRoot, resolveContainedCwd } from '@/core/cwd-containment';
-import { processPathResolver } from '@/core/environment';
-import {
-  createPathCanonicalizationBudget,
-  PathCanonicalizationLimitError,
-  resolveExistingPath,
-} from '@/core/path-canonicalization';
-import {
-  extractPatchTargetsFromToolInput,
-  extractPathLikeToolValues,
-  ToolInputLimitError,
-} from '@/core/tool-input';
 import type { CommandToolKind, ToolCallContext } from '@/domain/invocation';
 import { createFailedClosedDenial, type IntegrationDenial } from '@/integrations/denial';
+import {
+  createPathCanonicalizationBudget,
+  extractPatchTargetsFromToolInput,
+  extractPathLikeToolValues,
+  firstTrustedRoot,
+  PathCanonicalizationLimitError,
+  processPathResolver,
+  resolveContainedCwd,
+  resolveExistingPath,
+  ToolInputLimitError,
+} from '@/integrations/runtime';
 
 /** Antigravity CLI PreToolUse hook input format */
 interface AntigravityCliHookInput {

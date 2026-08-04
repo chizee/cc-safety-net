@@ -25,9 +25,12 @@ import { checkForUpdates } from '@/bin/doctor/updates';
 import { detectAllHooks } from '@/bin/hook/detect';
 import { printInstallBanner } from '@/bin/hook/install/banner';
 import { resolveAfterOptionalBanner } from '@/bin/startup/banner';
-import { describeConfigState, loadPolicySnapshot } from '@/config/policy-snapshot';
-import { resolveEffectiveDestructiveCommandRules } from '@/core/destructive-command-rules';
-import { getCCSafetyNetEnvModes } from '@/core/env';
+import {
+  describeConfigState,
+  getCCSafetyNetEnvModes,
+  loadPolicySnapshot,
+  resolveEffectiveDestructiveCommandRules,
+} from '@/engine/facade';
 import { runIntegrationSelfTest } from '@/integrations/self-test';
 
 export { parseDoctorFlags } from '@/bin/doctor/flags';

@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { BunPlugin } from 'bun';
 import pkg from '../package.json';
-import { buildAmpArtifactHeader } from '../src/amp/index';
+import { buildAmpArtifactHeader } from '../src/integrations/amp';
 
 // The Node/Pi bundles keep zod external and resolve it from the installed
 // package's node_modules. The Amp plugin ships as a single copied file with no

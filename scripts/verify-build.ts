@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { isBuiltin } from 'node:module';
 import { posix, relative, resolve } from 'node:path';
 import pkg from '../package.json';
-import { AMP_MANAGED_HEADER } from '../src/amp/index';
+import { AMP_MANAGED_HEADER } from '../src/integrations/amp';
 
 const AMP_ARTIFACT = 'dist/amp/cc-safety-net.ts';
 

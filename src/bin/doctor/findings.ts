@@ -5,7 +5,7 @@ import type {
   ProtectedDirectoryIssue,
   ProtectedDirectoryKind,
 } from '@/bin/doctor/types';
-import { resolveAuditScope } from '@/core/env';
+import { resolveAuditScope } from '@/engine/facade';
 import { getIntegrationDisplayName } from '@/integrations/catalog';
 
 type DoctorFacts = Omit<DoctorReport, 'findings'>;

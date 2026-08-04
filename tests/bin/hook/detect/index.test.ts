@@ -6,12 +6,12 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildAmpArtifactHeader } from '@/amp/index';
 import { stripJsonComments } from '@/bin/config/jsonc';
 import { getPackageVersion } from '@/bin/doctor/system-info';
 import type { HookStatus } from '@/bin/doctor/types';
 import { detectAllHooks } from '@/bin/hook/detect';
 import { getAmpPluginPath } from '@/bin/hook/install/amp';
+import { buildAmpArtifactHeader } from '@/integrations/amp';
 import { withEnv } from '../../../helpers.ts';
 
 function expectHookState(

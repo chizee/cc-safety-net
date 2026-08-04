@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AMP_MANAGED_HEADER, buildAmpArtifactHeader } from '@/amp/index';
+import { AMP_MANAGED_HEADER, buildAmpArtifactHeader } from '@/integrations/amp';
 import pkg from '../../package.json';
 import {
   getRuntimeImportSpecifiers,

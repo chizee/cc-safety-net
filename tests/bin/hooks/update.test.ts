@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
-import { AMP_MANAGED_HEADER } from '@/amp/index';
 import { getCursorHooksPath } from '@/bin/hook/install/cursor';
+import { AMP_MANAGED_HEADER } from '@/integrations/amp';
 import { makeTempHome, runCli } from './hook-helpers';
 
 function writeClaudePluginRecords(

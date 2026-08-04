@@ -7,8 +7,6 @@ import { printRuleChangeResult, printRulesListReport } from '@/bin/rule/format';
 import { runRulesMigrate } from '@/bin/rule/migrate';
 import { getUpdateNotice } from '@/bin/rule/update-notice';
 import { runRulesVerify } from '@/bin/rule/verify';
-import { COMMAND_PATTERN } from '@/core/analyze/constants';
-import { isReservedTransparentWrapper } from '@/core/analyze/transparent-wrappers';
 import {
   addRulebookSource,
   getRulesConfigSourceDisplayMap,
@@ -28,6 +26,7 @@ import {
   readPolicyFile,
 } from '@/core/rules/policy/filesystem';
 import { getPolicyPaths, getRulebookCacheRoot, getScopePaths } from '@/core/rules/policy/paths';
+import { COMMAND_PATTERN, isReservedTransparentWrapper } from '@/engine/facade';
 
 interface RuleFlags {
   global: boolean;

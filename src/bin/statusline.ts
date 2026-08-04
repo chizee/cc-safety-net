@@ -2,9 +2,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readBoundedHookInput } from '@/bin/hook/common';
-import { loadPolicySnapshot } from '@/config/policy-snapshot';
-import { resolveEffectiveDestructiveCommandRules } from '@/core/destructive-command-rules';
-import { ENV_FLAGS, envTruthy, getCCSafetyNetEnvModes } from '@/core/env';
+import {
+  ENV_FLAGS,
+  envTruthy,
+  getCCSafetyNetEnvModes,
+  loadPolicySnapshot,
+  resolveEffectiveDestructiveCommandRules,
+} from '@/engine/facade';
 
 /**
  * Read piped stdin content asynchronously, bounded by the hook input limit.

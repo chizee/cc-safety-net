@@ -15,13 +15,7 @@ import {
   type InstallAction,
   type InstallTarget,
 } from '@/bin/hook/install/targets';
-import {
-  createPolicySnapshot,
-  describeConfigState,
-  loadPolicySnapshot,
-} from '@/config/policy-snapshot';
-import { getUserPolicyDiagnostics } from '@/config/schema';
-import { resolveAuditRetentionDays } from '@/core/audit-retention';
+
 import {
   createPolicyPreview,
   DEFAULT_GUI_POLICY,
@@ -35,9 +29,16 @@ import {
   SECRET_PROTECTION_RULE_METADATA,
   writeUserPolicyFromGui,
 } from '@/core/policy';
-import { loadRulesPolicy } from '@/core/rules/policy';
-import type { RulesPolicyOptions } from '@/core/rules/policy/types';
 import type { ExplainResult } from '@/domain/explain';
+import {
+  createPolicySnapshot,
+  describeConfigState,
+  getUserPolicyDiagnostics,
+  loadPolicySnapshot,
+  loadRulesPolicy,
+  type RulesPolicyOptions,
+  resolveAuditRetentionDays,
+} from '@/engine/facade';
 import { getIntegrationDisplayName, installIntegrationMetadata } from '@/integrations/catalog';
 import { getActivityFeed } from './activity';
 import { chooseDirectory, isDirectoryPickerAvailable } from './choose-directory';

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { AMP_MANAGED_HEADER, buildAmpArtifactHeader } from '@/amp/index';
+import { AMP_MANAGED_HEADER, buildAmpArtifactHeader } from '@/integrations/amp';
 import pkg from '../../package.json';
 
 describe('Amp package manifest', () => {

@@ -1,4 +1,4 @@
-import { ENV_FLAGS } from '@/core/env';
+import { ENV_FLAGS } from '@/engine/facade';
 import type { Command } from './commands';
 import { findCommand, getVisibleCommands } from './commands';
 

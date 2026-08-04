@@ -5,7 +5,6 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { getConfigSource } from '@/bin/explain/config';
 import { explainCommand as explainCommandBase } from '@/bin/explain/index';
 import { analyzeCommandInternal } from '@/core/analyze/analyze-command';
 import { MAX_RECURSION_DEPTH } from '@/core/analyze/constants';
@@ -17,6 +16,7 @@ import { syncRulesConfig } from '@/core/rules/policy';
 import { REASON_SECRET_PROTECTION } from '@/core/secret-protection';
 import type { EnvironmentContext } from '@/domain/analysis';
 import { createCommandTraceContext, createCommandTraceRecorder } from '@/engine/command-trace';
+import { getConfigSource } from '@/engine/explain';
 import { TEST_ENVIRONMENT, testEnvironment } from '../../helpers/environment';
 import {
   analyzeTestCommand,

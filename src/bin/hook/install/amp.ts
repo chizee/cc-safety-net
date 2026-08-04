@@ -1,9 +1,9 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AMP_MANAGED_HEADER } from '@/amp/index';
 import { atomicWriteFile } from '@/bin/hook/install/atomic-write';
 import type { InstallResult } from '@/bin/hook/install/types';
+import { AMP_MANAGED_HEADER } from '@/integrations/amp';
 
 const AMP_ARTIFACT_RELATIVE = join('amp', 'cc-safety-net.ts');
 

@@ -55,6 +55,32 @@ describe('source architecture', () => {
     expect(violations).toEqual([]);
   });
 
+  test('bin consumes core only through the engine facade', () => {
+    const adminExceptions: readonly [string, RegExp][] = [
+      // rules administration is read-write, outside the facade
+      ['bin/rule/', /^@\/core\/(?:rules\/|config$)/],
+      // GUI policy editor is read-write, outside the facade
+      ['bin/gui/', /^@\/core\/policy$/],
+    ];
+    const violations = sourceFiles()
+      .filter((path) => layer(path) === 'bin')
+      .flatMap((path) => {
+        const file = relative(SOURCE_ROOT, path);
+        return imports(path)
+          .filter((specifier) => specifier.startsWith('@/'))
+          .filter(
+            (specifier) =>
+              !/^@\/(?:bin|domain|integrations)\//.test(specifier) &&
+              specifier !== '@/engine/facade' &&
+              !adminExceptions.some(
+                ([prefix, allowed]) => file.startsWith(prefix) && allowed.test(specifier),
+              ),
+          )
+          .map((specifier) => `${file} -> ${specifier}`);
+      });
+    expect(violations).toEqual([]);
+  });
+
   test('contains no source import cycles', () => {
     const files = sourceFiles();
     const byModule = new Map(

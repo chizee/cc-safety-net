@@ -1,12 +1,12 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
-import { isSameOrInsidePath } from '@/core/cwd-containment';
-import { processPathResolver } from '@/core/environment';
 import {
   createPathCanonicalizationBudget,
+  isSameOrInsidePath,
   PathCanonicalizationLimitError,
+  processPathResolver,
   resolveExistingPath,
-} from '@/core/path-canonicalization';
+} from '@/integrations/runtime';
 
 type ClaudeShapeAgent = 'codex' | 'copilot-cli' | 'claude-code' | 'unknown';
 

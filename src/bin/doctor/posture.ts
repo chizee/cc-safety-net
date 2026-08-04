@@ -5,7 +5,7 @@ import type {
   ProtectedDirectoryKind,
   ProtectedDirectoryPosture,
 } from '@/bin/doctor/types';
-import { getAuditLogsDir } from '@/core/audit';
+import { getAuditLogsDir } from '@/engine/facade';
 
 function inspectDirectory(kind: ProtectedDirectoryKind, path: string): ProtectedDirectoryPosture {
   try {

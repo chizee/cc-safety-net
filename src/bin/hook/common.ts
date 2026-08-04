@@ -1,10 +1,3 @@
-import { firstTrustedRoot } from '@/core/cwd-containment';
-import { ENV_FLAGS, envTruthy, shouldRecordAllowedCommands } from '@/core/env';
-import {
-  getCommandFromToolInput,
-  getNonCommandToolInputKind,
-  ToolInputLimitError,
-} from '@/core/tool-input';
 import type { CommandToolKind, ToolCallContext, ToolRoute } from '@/domain/invocation';
 import { createToolInvocation } from '@/domain/invocation';
 import { writeIntegrationDenialAudit } from '@/integrations/audit';
@@ -16,10 +9,17 @@ import {
   projectGuardDenial,
 } from '@/integrations/denial';
 import {
+  ENV_FLAGS,
+  envTruthy,
   evaluateRuntimeGuard,
+  firstTrustedRoot,
   type GuardDependencies,
   GuardEvaluationError,
   type GuardStage,
+  getCommandFromToolInput,
+  getNonCommandToolInputKind,
+  shouldRecordAllowedCommands,
+  ToolInputLimitError,
 } from '@/integrations/runtime';
 
 type HookDenyOutput = (denial: IntegrationDenial) => void;

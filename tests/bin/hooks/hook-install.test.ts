@@ -11,7 +11,6 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import { buildAmpArtifactHeader } from '@/amp/index';
 import { getAntigravityHooksPath } from '@/bin/hook/antigravity';
 import {
   ampArtifactCandidates,
@@ -21,6 +20,7 @@ import {
   uninstallAmp,
 } from '@/bin/hook/install/amp';
 import { getCursorHooksPath, installCursor, uninstallCursor } from '@/bin/hook/install/cursor';
+import { buildAmpArtifactHeader } from '@/integrations/amp';
 import { makeTempHome, runCli } from './hook-helpers';
 
 const CURSOR_CANONICAL_ENTRY = {
