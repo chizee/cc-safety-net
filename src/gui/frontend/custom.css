@@ -1607,14 +1607,19 @@ label.row.safety-override-row select {
 }
 
 /* The secret group head carries a bulk action, so the collapse control is a
-   button inside the head rather than the head itself. */
+   button inside the head rather than the head itself. The negative margin
+   cancels the head's padding and the stretch spans the taller switch beside it,
+   so the button covers the whole head band and the layout stays where it was;
+   without them the head's padding is a dead zone. */
 .tier-collapse {
   display: flex;
   min-width: 0;
   flex: 1;
   align-items: center;
+  align-self: stretch;
   gap: 12px;
-  padding: 0;
+  margin: -9px -10px;
+  padding: 9px 10px;
   border: 0;
   border-radius: 0;
   background: none;
