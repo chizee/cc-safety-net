@@ -24,6 +24,7 @@ import {
   policySnapshot,
   type TestExplainOptions,
   testExplainOptions,
+  testModes,
 } from '../../helpers/policy';
 import {
   getTraceSteps,
@@ -349,6 +350,7 @@ describe('explainCommand edge cases', () => {
         policySnapshot: snapshot,
         environment,
         protectedGitMetadata: null,
+        effectiveCapabilities: testModes().capabilities,
         policy: commandAnalysisPolicy(snapshot),
         trace,
       });
@@ -1258,6 +1260,7 @@ describe('explainSegment direct depth limit', () => {
       policySnapshot: snapshot,
       environment: TEST_ENVIRONMENT,
       protectedGitMetadata: null,
+      effectiveCapabilities: testModes().capabilities,
       policy: commandAnalysisPolicy(snapshot),
       trace,
     });
@@ -1278,6 +1281,7 @@ describe('explainSegment direct depth limit', () => {
       policySnapshot: snapshot,
       environment: TEST_ENVIRONMENT,
       protectedGitMetadata: null,
+      effectiveCapabilities: testModes().capabilities,
       policy: commandAnalysisPolicy(snapshot),
       trace,
     });

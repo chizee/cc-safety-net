@@ -23,6 +23,7 @@ import {
 import { createSemanticFacts, getCommandSyntaxFact } from '@/core/semantic-facts';
 import { getBasename } from '@/core/shell';
 import { isReadOnlyTool } from '@/core/tool-input';
+import type { EnvironmentContext } from '@/domain/analysis';
 import { createToolInvocation, type ToolCallContext, type ToolRoute } from '@/domain/invocation';
 import type { SemanticFacts, ShellSyntaxFacts } from '@/domain/semantic-facts';
 
@@ -197,7 +198,7 @@ function findPolicyConfigMutationTargetInSegment(
     if (target) return { target };
   }
 
-  if (isReadOnlySegment(segment)) return null;
+  if (isReadOnlySegment(segment, environment)) return null;
   for (const token of segment) {
     for (const candidate of extractDirectPathCandidates(token)) {
       if (
@@ -234,8 +235,8 @@ function extractRmOperands(args: readonly string[]): readonly string[] {
   return args.filter((arg) => !arg.startsWith('-'));
 }
 
-function isReadOnlySegment(tokens: readonly string[]): boolean {
-  const stripped = stripWrappers([...tokens], createProcessEnvironment());
+function isReadOnlySegment(tokens: readonly string[], environment: EnvironmentContext): boolean {
+  const stripped = stripWrappers([...tokens], environment);
   if (stripped.length === 0) return false;
   const command = getBasename(stripped[0] ?? '').toLowerCase();
   if (!READ_ONLY_COMMANDS.has(command)) return false;

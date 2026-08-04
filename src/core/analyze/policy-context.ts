@@ -1,10 +1,10 @@
 import { createCommandAnalysisPolicy } from '@/core/destructive-command-rules';
 import { deriveEffectiveSafetyLevel } from '@/core/env';
-import type { AnalyzeOptions } from '@/domain/analysis';
+import type { AnalyzeInput } from '@/domain/analysis';
 import type { EffectiveCapabilityState } from '@/domain/policy';
 
 type PolicyContextOptions = Pick<
-  AnalyzeOptions,
+  AnalyzeInput,
   | 'policySnapshot'
   | 'effectiveCapabilities'
   | 'strict'
@@ -16,7 +16,6 @@ type PolicyContextOptions = Pick<
 /** @internal */
 export function resolveCommandAnalysisContext(options: PolicyContextOptions) {
   const capabilities = options.effectiveCapabilities;
-  if (!capabilities) throw new Error('Effective safety capabilities could not be resolved.');
   const strict = options.strict ?? capabilities.fail_closed.enabled;
   const paranoidRm = options.paranoidRm ?? capabilities.paranoid_rm.enabled;
   const paranoidInterpreters =

@@ -64,7 +64,20 @@ export function isTrustedTempRootPath(path: string, environment: EnvironmentCont
   return normalizedPath !== null && trustedTempRoots(environment).includes(normalizedPath);
 }
 
+// Resolving the temp roots costs a realpath per component, and the guard asks for them
+// once per target, per segment and per child command. The captured process state cannot
+// change within a run, so each context resolves them once.
+const trustedTempRootsByEnvironment = new WeakMap<EnvironmentContext, string[]>();
+
 function trustedTempRoots(environment: EnvironmentContext): string[] {
+  const cached = trustedTempRootsByEnvironment.get(environment);
+  if (cached) return cached;
+  const resolved = resolveTrustedTempRoots(environment);
+  trustedTempRootsByEnvironment.set(environment, resolved);
+  return resolved;
+}
+
+function resolveTrustedTempRoots(environment: EnvironmentContext): string[] {
   const roots = TEMP_ROOTS.map(
     (root) => tryResolveExistingPathComponents(root, environment.paths) ?? normalize(root),
   );

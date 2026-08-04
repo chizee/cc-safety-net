@@ -3,10 +3,9 @@ import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AWK_INTERPRETERS, extractAwkSystemCommands } from '@/core/analyze/awk';
 import { extractXargsChildCommandWithInfo } from '@/core/analyze/xargs';
-import { createProcessEnvironment, processPathResolver } from '@/core/environment';
+import { processPathResolver } from '@/core/environment';
 import {
   createPathCanonicalizationBudget,
-  expandSupportedPathEnvironmentVariables,
   type PathCanonicalizationBudget,
   resolveExistingPath,
 } from '@/core/path-canonicalization';
@@ -1630,11 +1629,7 @@ function normalizeCandidatePath(
   const home = homeValue
     ? normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget))
     : '';
-  const normalized = normalizePathText(
-    normalizeFileUriPath(
-      expandSupportedPathEnvironmentVariables(target, createProcessEnvironment()),
-    ),
-  );
+  const normalized = normalizePathText(normalizeFileUriPath(projectSensitiveShellText(target)));
   if (!normalized) {
     return '';
   }
@@ -1665,11 +1660,7 @@ function normalizeAbsoluteCandidatePath(
   const home = homeValue
     ? normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget))
     : '';
-  const normalized = normalizePathText(
-    normalizeFileUriPath(
-      expandSupportedPathEnvironmentVariables(target, createProcessEnvironment()),
-    ),
-  );
+  const normalized = normalizePathText(normalizeFileUriPath(projectSensitiveShellText(target)));
   if (!normalized) return '';
   const expanded = home ? expandHomePath(normalized, home) : normalized;
   return normalizePathText(

@@ -45,12 +45,13 @@ export type EnvironmentContext = Readonly<{
   paths: PathResolver;
 }>;
 
-/** Options for command analysis */
+/**
+ * Options for command analysis.
+ * @internal
+ */
 export interface AnalyzeOptions {
   /** Immutable policy snapshot to evaluate. */
   policySnapshot: PolicySnapshot;
-  /** Capability values and provenance already resolved at the caller boundary. */
-  effectiveCapabilities?: EffectiveSafetyCapabilities;
   /** Current working directory */
   cwd?: string;
   /** Shell syntax to use for command-specific analysis */
@@ -80,6 +81,8 @@ export interface AnalyzeOptions {
  * read instead of touching env, home, tmpdir or the filesystem.
  */
 export type AnalyzeInput = AnalyzeOptions & {
+  /** Capability values and provenance already resolved at the caller boundary. */
+  effectiveCapabilities: EffectiveSafetyCapabilities;
   environment: EnvironmentContext;
   protectedGitMetadata: ProtectedGitMetadata | null;
 };

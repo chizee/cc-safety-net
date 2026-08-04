@@ -127,6 +127,9 @@ export function getCommandSyntaxFact(
 
 /** @internal */
 export function projectSensitiveShellText(source: string): string {
+  // Scanning asks for this per token and per candidate path, so text that cannot expand
+  // must not pay for a snapshot of the whole process environment.
+  if (!source.includes('$')) return source;
   return expandSupportedPathEnvironmentVariables(source, createProcessEnvironment());
 }
 
