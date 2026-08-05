@@ -30,11 +30,13 @@ async function runStatusline(env: Record<string, string>) {
 async function runStatuslineWithStdin(stdin: string, env: Record<string, string>) {
   const cli = join(process.cwd(), 'src/cli/cc-safety-net.ts');
   const proc = Bun.spawn([process.execPath, cli, 'statusline', '--claude-code'], {
-    stdin: Buffer.from(stdin),
+    stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
     env: { ...process.env, ...env },
   });
+  proc.stdin.write(stdin);
+  proc.stdin.end();
   const output = await new Response(proc.stdout).text();
   return { output: output.trim(), exitCode: await proc.exited };
 }
