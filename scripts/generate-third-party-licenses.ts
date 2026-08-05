@@ -5,14 +5,7 @@ import { join } from 'node:path';
 
 // Everything the build inlines into `dist`: zod for the Amp artifact, and the prompt library
 // with its transitive dependencies for the interactive installer.
-const bundledPackages = [
-  '@clack/core',
-  'fast-string-truncated-width',
-  'fast-string-width',
-  'fast-wrap-ansi',
-  'sisteransi',
-  'zod',
-] as const;
+const bundledPackages = ['@clack/core', 'picocolors', 'sisteransi', 'zod'] as const;
 
 /** @internal */
 export function renderThirdPartyLicenses(directory = process.cwd()) {
@@ -20,9 +13,10 @@ export function renderThirdPartyLicenses(directory = process.cwd()) {
     .map((name) => {
       const packageDirectory = join(directory, 'node_modules', name);
       const manifest = JSON.parse(readFileSync(join(packageDirectory, 'package.json'), 'utf8'));
-      if (manifest.license !== 'MIT') {
+      const expectedLicense = name === 'picocolors' ? 'ISC' : 'MIT';
+      if (manifest.license !== expectedLicense) {
         throw new Error(
-          `${name} license changed from MIT to ${String(manifest.license)}; review required`,
+          `${name} license changed from ${expectedLicense} to ${String(manifest.license)}; review required`,
         );
       }
       // Package license files are named LICENSE or license depending on the publisher.

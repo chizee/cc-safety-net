@@ -5,14 +5,7 @@ import { generateThirdPartyLicenses } from '../../scripts/generate-third-party-l
 import { withTempDir } from '../helpers';
 
 // Every package the build inlines into `dist`; a new one without a license fixture fails here.
-const BUNDLED_PACKAGES = [
-  '@clack/core',
-  'fast-string-truncated-width',
-  'fast-string-width',
-  'fast-wrap-ansi',
-  'sisteransi',
-  'zod',
-] as const;
+const BUNDLED_PACKAGES = ['@clack/core', 'picocolors', 'sisteransi', 'zod'] as const;
 
 function writePackage(directory: string, name: string, version: string, license = 'MIT') {
   const packageDirectory = join(directory, 'node_modules', name);
@@ -26,7 +19,9 @@ function writePackage(directory: string, name: string, version: string, license 
 }
 
 function writeBundledPackages(directory: string) {
-  for (const name of BUNDLED_PACKAGES) writePackage(directory, name, '5.0.0');
+  BUNDLED_PACKAGES.forEach((name) => {
+    writePackage(directory, name, '5.0.0', name === 'picocolors' ? 'ISC' : 'MIT');
+  });
 }
 
 describe('third-party license generation', () => {
