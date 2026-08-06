@@ -457,6 +457,8 @@ describe('semantic facts', () => {
       .entries;
     const called = createCommandFacts('cleanup() { rm -rf /project/cache; }; X=1 cleanup')
       .commands[0]?.shell.entries;
+    const timed = createCommandFacts('cleanup() { rm -rf /project/cache; }; time -p cleanup')
+      .commands[0]?.shell.entries;
 
     expect(grouped).toEqual([
       { kind: 'operator', operator: '{', boundary: true },
@@ -469,6 +471,14 @@ describe('semantic facts', () => {
     expect(defined).toEqual([]);
     expect(called?.filter((entry) => entry.kind === 'word').map((entry) => entry.text)).toEqual([
       'X=1',
+      'cleanup',
+      'rm',
+      '-rf',
+      '/project/cache',
+    ]);
+    expect(timed?.filter((entry) => entry.kind === 'word').map((entry) => entry.text)).toEqual([
+      'time',
+      '-p',
       'cleanup',
       'rm',
       '-rf',

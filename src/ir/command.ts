@@ -97,19 +97,28 @@ export function isDynamicExecutable(
 }
 
 const ASSIGNMENT_PREFIX = /^[A-Za-z_][A-Za-z0-9_]*=/;
-// `time` and `!` prefix the command they measure or negate; the shell still runs the word
-// after them. Quoting and escaping suppress alias expansion, never a function lookup, so
-// `'f'`, `"f"` and `\f` all call the function `f`.
-const CALL_KEYWORDS = new Set(['time', '!']);
+
+function isBareCallPrefix(word: CommandWord | undefined, text: string) {
+  return word?.provenance === 'literal' && !word.quoted && word.raw === text && word.text === text;
+}
 
 /**
  * @internal Names the command a word list runs: the first word that is neither a leading
  * assignment nor a keyword prefix, and that the parse can resolve to a literal.
  */
 export function getCalledCommandName(view: CommandView): string | undefined {
-  const command = view.words.find(
-    (word) => !ASSIGNMENT_PREFIX.test(word.text) && !CALL_KEYWORDS.has(word.text),
-  );
+  const afterTimeIndex = isBareCallPrefix(view.words[0], 'time') ? 1 : 0;
+  const afterTimeOptionIndex =
+    afterTimeIndex === 1 && isBareCallPrefix(view.words[afterTimeIndex], '-p')
+      ? afterTimeIndex + 1
+      : afterTimeIndex;
+  const commandStartIndex = isBareCallPrefix(view.words[afterTimeOptionIndex], '!')
+    ? afterTimeOptionIndex + 1
+    : afterTimeOptionIndex;
+  const command = view.words
+    .slice(commandStartIndex)
+    .find((word) => !ASSIGNMENT_PREFIX.test(word.text));
+
   return command?.provenance === 'literal' ? command.text : undefined;
 }
 
