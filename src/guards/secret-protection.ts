@@ -378,11 +378,14 @@ function extractCommandPathTargets(
   if (syntax.status === 'unclosed-quote') return [];
   if (syntax.status === 'invalid') throw new Error('Unable to parse command for secret protection');
 
-  const targets = extractCommandSubstitutionPathTargets(
-    projectSensitiveShellText(syntax.source),
-    store,
-    options,
-  );
+  const targets = [
+    ...syntax.assignmentFallbacks,
+    ...extractCommandSubstitutionPathTargets(
+      projectSensitiveShellText(syntax.source),
+      store,
+      options,
+    ),
+  ];
   let segment: string[] = [];
   let pipeProducer: string[] | null = null;
 

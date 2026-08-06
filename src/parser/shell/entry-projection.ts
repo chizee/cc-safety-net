@@ -15,12 +15,18 @@ const LEGACY_BOUNDARIES = new Set(['&&', '||', '|&', '|', '&', ';']);
 const LEGACY_SEGMENT_REDIRECTS = new Set(['<<', '<<<', '>|']);
 const SPECIAL_VARIABLE_NAME = /[*@#?$!_-]/;
 const EMPTY_ENTRIES = Object.freeze([]) as readonly ShellSyntaxEntry[];
+const EMPTY_STRINGS = Object.freeze([]) as readonly string[];
 // A call site inlines the whole body, so branching recursion (`a() { a; a; }`) grows
 // exponentially where the depth cap alone never triggers. Real commands call a handful of
 // functions; anything past this budget fails closed instead of running the projection dry.
 const MAX_FUNCTION_EXPANSIONS = 256;
 
-type ProjectionFlags = { invalid: boolean; limited: boolean; expansions: number };
+type ProjectionFlags = {
+  invalid: boolean;
+  limited: boolean;
+  expansions: number;
+  assignmentFallbacks: string[];
+};
 
 type ProjectionContext = {
   readonly source: string;
@@ -50,7 +56,12 @@ export function projectShellSyntax(source: string, program: CommandProgram): She
     source,
   );
   if (hasUnclosedQuotes(masked)) return freezeFacts('unclosed-quote', masked, EMPTY_ENTRIES);
-  const flags: ProjectionFlags = { invalid: false, limited: false, expansions: 0 };
+  const flags: ProjectionFlags = {
+    invalid: false,
+    limited: false,
+    expansions: 0,
+    assignmentFallbacks: [],
+  };
   const entries = projectProgram(program, {
     source: masked,
     suppressed,
@@ -60,15 +71,21 @@ export function projectShellSyntax(source: string, program: CommandProgram): She
   });
   if (flags.limited) return freezeFacts('structural-limit', masked, EMPTY_ENTRIES);
   if (flags.invalid) return freezeFacts('invalid', masked, EMPTY_ENTRIES);
-  return freezeFacts('complete', masked, entries);
+  return freezeFacts('complete', masked, entries, flags.assignmentFallbacks);
 }
 
 function freezeFacts(
   status: ShellSyntaxFacts['status'],
   source: string,
   entries: readonly ShellSyntaxEntry[],
+  assignmentFallbacks: readonly string[] = EMPTY_STRINGS,
 ): ShellSyntaxFacts {
-  return Object.freeze({ status, source, entries: Object.freeze(entries) });
+  return Object.freeze({
+    status,
+    source,
+    entries: Object.freeze(entries),
+    assignmentFallbacks: Object.freeze(assignmentFallbacks),
+  });
 }
 
 function projectProgram(program: CommandProgram, context: ProjectionContext): ShellSyntaxEntry[] {
@@ -263,6 +280,7 @@ function projectText(text: string, context: ProjectionContext): ShellSyntaxEntry
     invalid: false,
     limited: false,
     expansions: context.flags.expansions,
+    assignmentFallbacks: context.flags.assignmentFallbacks,
   };
   const entries = projectProgram(program, {
     source: text,
@@ -358,9 +376,10 @@ function projectWord(
 }
 
 // Reproduces the quoting, escaping and expansion rules of the token stream the scanners were
-// built against: quotes come off, `$NAME` normalizes to `${NAME}`, and an unquoted `*`/`?`
-// makes the whole word a glob whose text never reaches a segment. An unquoted parenthesis ends
-// the run it sits in, so `open('.env')` still yields `.env` as a token of its own.
+// built against: quotes come off, `$NAME` normalizes to `${NAME}`, active assignment expansions
+// expose their fallback, and an unquoted `*`/`?` makes the whole word a glob whose text never
+// reaches a segment. An unquoted parenthesis ends the run it sits in, so `open('.env')` still
+// yields `.env` as a token of its own.
 function scanWordText(
   raw: string,
   state: QuoteState,
@@ -398,7 +417,7 @@ function scanWordText(
         continue;
       }
       if (char === '$') {
-        const expansion = readExpansion(raw, index, flags);
+        const expansion = readExpansion(raw, index, state, flags);
         text += expansion.text;
         index = expansion.next;
         continue;
@@ -421,7 +440,7 @@ function scanWordText(
       continue;
     }
     if (char === '$') {
-      const expansion = readExpansion(raw, index, flags);
+      const expansion = readExpansion(raw, index, state, flags);
       text += expansion.text;
       index = expansion.next;
       continue;
@@ -433,7 +452,7 @@ function scanWordText(
   return [...runs, { text, glob }];
 }
 
-function readExpansion(raw: string, start: number, flags: ProjectionFlags) {
+function readExpansion(raw: string, start: number, state: QuoteState, flags: ProjectionFlags) {
   const char = raw[start + 1];
   if (char === '{') {
     const close = findExpansionClose(raw, start + 2);
@@ -441,13 +460,32 @@ function readExpansion(raw: string, start: number, flags: ProjectionFlags) {
       flags.invalid = true;
       return { text: '', next: raw.length };
     }
-    return { text: raw.slice(start, close + 1), next: close + 1 };
+    const expansion = raw.slice(start, close + 1);
+    collectAssignmentFallback(expansion, state, flags);
+    return { text: expansion, next: close + 1 };
   }
   if (char !== undefined && SPECIAL_VARIABLE_NAME.test(char)) {
     return { text: `\${${char}}`, next: start + 2 };
   }
   const name = /^\w*/.exec(raw.slice(start + 1))?.[0] ?? '';
   return { text: `\${${name}}`, next: start + 1 + name.length };
+}
+
+function collectAssignmentFallback(
+  expansion: string,
+  state: QuoteState,
+  flags: ProjectionFlags,
+): void {
+  const content = expansion.slice(2, -1);
+  const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(content)?.[0];
+  if (!name) return;
+  const suffix = content.slice(name.length);
+  const operator = [':=', '='].find((candidate) => suffix.startsWith(candidate));
+  if (!operator) return;
+  const runs = scanWordText(suffix.slice(operator.length), { ...state }, flags);
+  flags.assignmentFallbacks.push(
+    ...runs.flatMap((run) => (typeof run === 'string' || !run.text ? [] : [run.text])),
+  );
 }
 
 function findExpansionClose(raw: string, start: number): number {

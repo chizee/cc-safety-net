@@ -77,6 +77,7 @@ describe('semantic facts', () => {
       status: 'structural-limit',
       source,
       entries: [],
+      assignmentFallbacks: [],
     });
     expect(facts.store.getShellSyntax(source, command.program)).toBe(command.shell);
     expect(projections).toBe(0);
@@ -186,6 +187,16 @@ describe('semantic facts', () => {
     expect(
       shell?.entries.some((entry) => entry.kind === 'word' && entry.text.includes('.env')),
     ).toBe(true);
+  });
+
+  test('projects active assignment fallbacks but keeps single-quoted text inert', () => {
+    const active = commandFacts('cat "${X:=proof-target}"').commands[0]?.shell;
+    const inert = commandFacts("cat '${X:=proof-target}'").commands[0]?.shell;
+
+    expect(active?.entries).toContainEqual({ kind: 'word', text: '${X:=proof-target}' });
+    expect(active?.assignmentFallbacks).toEqual(['proof-target']);
+    expect(inert?.entries).toContainEqual({ kind: 'word', text: '${X:=proof-target}' });
+    expect(inert?.assignmentFallbacks).toEqual([]);
   });
 
   test('policy protection does not emulate nested shell bodies', () => {

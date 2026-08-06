@@ -21,6 +21,7 @@ export type ShellSyntaxFacts = {
   readonly status: 'complete' | 'unclosed-quote' | 'invalid' | 'structural-limit';
   readonly source: string;
   readonly entries: readonly ShellSyntaxEntry[];
+  readonly assignmentFallbacks: readonly string[];
 };
 
 /** @internal */

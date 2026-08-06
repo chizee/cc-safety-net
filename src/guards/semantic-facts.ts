@@ -161,6 +161,7 @@ export function createSemanticFactStore(
         status: 'structural-limit' as const,
         source,
         entries: EMPTY_SHELL_SYNTAX_ENTRIES,
+        assignmentFallbacks: Object.freeze([]) as readonly string[],
       });
       structuralLimitFacts.set(program, syntax);
       return syntax;

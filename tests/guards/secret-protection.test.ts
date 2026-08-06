@@ -1043,7 +1043,23 @@ describe('treats quoted heredoc bodies as literal data', () => {
     expect(findSensitiveTargetInCommand('node -e "console.log(`v${Date.now()}`)"', cwd)).toBeNull();
   });
 
-  test('scans a single-quoted assignment expansion instead of failing closed', () => {
+  test('blocks active assignment fallbacks without failing closed on inert or benign text', () => {
+    for (const strict of [false, true]) {
+      for (const command of [
+        'cat "${X:=.env}"',
+        'cat "${X=.env}"',
+        'cat ${X:=".env"}',
+        'cat ${X:=.e"nv"}',
+      ]) {
+        expect(
+          findSensitiveTargetInCommand(command, cwd, undefined, { strict })?.ruleId,
+          command,
+        ).toBe('secret.basename.env');
+      }
+    }
+
+    expect(findSensitiveTargetInCommand("cat '${X:=.env}'", cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand('cat "${X:=README.md}"', cwd)).toBeNull();
     expect(findSensitiveTargetInCommand("echo '${X:=1}'", cwd)).toBeNull();
   });
 
