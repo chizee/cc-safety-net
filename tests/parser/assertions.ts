@@ -11,4 +11,9 @@ export function expectProgramSpans(program: CommandProgram, source: string) {
       expect(source.slice(word.span.start, word.span.end)).toBe(word.raw);
     }
   }
+  for (const node of program.nodes) {
+    if (node.kind === 'group' || node.kind === 'function') {
+      expectProgramSpans(node.body, source);
+    }
+  }
 }

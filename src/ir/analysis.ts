@@ -1,4 +1,4 @@
-import type { ShellKind } from './command.js';
+import type { CommandProgram, ShellKind } from './command.js';
 import type { CommandTraceContext } from './command-trace.js';
 import type { BlockIntent } from './decision.js';
 import type { EffectiveSafetyCapabilities, PolicySnapshot } from './policy.js';
@@ -91,4 +91,6 @@ export interface AnalyzeNestedOverrides {
   effectiveCwd?: string | null;
   envAssignments?: ReadonlyMap<string, string>;
   worktreeMode?: boolean;
+  /** Functions the nested source can still call: set only where it runs in the same shell. */
+  functionDefinitions?: ReadonlyMap<string, CommandProgram>;
 }

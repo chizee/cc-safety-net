@@ -213,9 +213,11 @@ export function analyzeSegment(
       innerCommand: shellBuiltinSource.source,
       depth: depth + 1,
     });
+    // eval and trap run their source in this shell, which still holds the caller's functions.
     const result = options.analyzeNested(shellBuiltinSource.source, {
       effectiveCwd: nestedEffectiveCwd,
       envAssignments,
+      functionDefinitions: options.functionDefinitions,
     });
     if (result) return result;
   }

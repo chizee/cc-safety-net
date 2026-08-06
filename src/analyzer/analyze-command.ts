@@ -48,7 +48,13 @@ import type {
   EnvironmentContext,
   PathResolver,
 } from '@/ir/analysis';
-import type { CommandProgram, CommandRedirection, CommandView, CommandWord } from '@/ir/command';
+import {
+  type CommandProgram,
+  type CommandRedirection,
+  type CommandView,
+  type CommandWord,
+  getCalledCommandName,
+} from '@/ir/command';
 import type { CommandTraceContext } from '@/ir/command-trace';
 import type { CommandAnalysisPolicy } from '@/ir/policy';
 import type { SemanticFactStore } from '@/ir/semantic-facts';
@@ -68,6 +74,7 @@ export type InternalOptions = AnalyzeInput & {
   parallelBudget?: ParallelAnalysisBudget;
   scanWork?: { units: number };
   literalHeredocFiles?: ReadonlyMap<string, string>;
+  functionDefinitions?: ReadonlyMap<string, CommandProgram>;
   rootProgram?: CommandProgram;
 };
 
@@ -183,6 +190,7 @@ function analyzeCommandWithBudget(
       effectiveCwd,
       shellGitContextState,
       literalHeredocFiles: new Map(options.literalHeredocFiles),
+      functionDefinitions: new Map(options.functionDefinitions),
     },
   ]).result;
 }
@@ -191,6 +199,7 @@ type AnalysisState = {
   effectiveCwd: string | null | undefined;
   shellGitContextState: ShellGitContextEnvState;
   literalHeredocFiles: Map<string, string>;
+  functionDefinitions: Map<string, CommandProgram>;
 };
 
 type ProgramAnalysis = {
@@ -240,6 +249,32 @@ function analyzeProgram(
     const skippedFailureStates =
       previousConnector === '&&' ? (priorConditionalStates?.failure ?? []) : [];
     const tracksCommandOutcome = conditional || isConditionalConnector(nextConnector);
+
+    if (node.kind === 'function') {
+      const successStates = executionStates.flatMap((state) => {
+        const definedState = cloneAnalysisState(state);
+        definedState.functionDefinitions.set(node.name, node.body);
+        return getSuccessfulAnalysisStates(
+          state,
+          [definedState],
+          isolated,
+          nextConnector === '&',
+          isConditionalConnector(nextConnector),
+        );
+      });
+      const next = finishControlFlowStep(
+        successStates,
+        [],
+        skippedSuccessStates,
+        skippedFailureStates,
+        previousConnector,
+        nextConnector,
+      );
+      states = next.states;
+      conditionalStates = next.conditionalStates;
+      previousConnector = undefined;
+      continue;
+    }
 
     if (node.kind === 'group') {
       const successStates: AnalysisState[] = [];
@@ -317,10 +352,25 @@ function analyzeProgram(
           literalShellInput,
         );
         if (result) return { result, states };
+        const functionBody = getCalledFunctionBody(node, analyzedState.functionDefinitions);
+        // Every call site re-analyzes the whole body, so a chain of functions that each call
+        // the next several times fans out far past what the recursion depth cap bounds.
+        if (functionBody) {
+          reserveDerivedCommandTokens(
+            options.derivedCommandWorkBudget,
+            countCommandProgramWords(functionBody),
+          );
+        }
+        const functionAnalysis = functionBody
+          ? depth + 1 >= MAX_RECURSION_DEPTH
+            ? recursionLimitAnalysis(node.displayText, options, [analyzedState])
+            : analyzeProgram(functionBody, depth + 1, options, originalCwd, [analyzedState])
+          : { result: null, states: [analyzedState] };
+        if (functionAnalysis.result) return functionAnalysis;
         successStates.push(
           ...getSuccessfulAnalysisStates(
             state,
-            [analyzedState],
+            functionAnalysis.states,
             isolated,
             nextConnector === '&',
             isConditionalConnector(nextConnector),
@@ -329,7 +379,9 @@ function analyzeProgram(
         if (tracksCommandOutcome) {
           failureStates.push(state);
           failureStates.push(
-            isolated ? isolateFilesystemState(state, analyzedState) : analyzedState,
+            ...functionAnalysis.states.map((functionState) =>
+              isolated ? isolateFilesystemState(state, functionState) : functionState,
+            ),
           );
         }
       }
@@ -593,7 +645,7 @@ function countCommandProgramWords(program: CommandProgram): number {
       (node.kind === 'command'
         ? node.words.length +
           node.nested.reduce((sum, nested) => sum + countCommandProgramWords(nested), 0)
-        : node.kind === 'group'
+        : node.kind === 'group' || node.kind === 'function'
           ? countCommandProgramWords(node.body)
           : 0),
     0,
@@ -713,6 +765,7 @@ function analyzeCommandView(
     effectiveCwd: state.effectiveCwd,
     envAssignments: segmentEnvAssignments,
     literalHeredocFiles: state.literalHeredocFiles,
+    functionDefinitions: state.functionDefinitions,
     hasPipelineInput,
     literalShellInput,
     analyzeNested: (
@@ -729,6 +782,8 @@ function analyzeCommandView(
         effectiveCwd: nestedEffectiveCwd,
         envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
         literalHeredocFiles: state.literalHeredocFiles,
+        // A child shell inherits no functions, so only same-shell callers pass them on.
+        functionDefinitions: overrides?.functionDefinitions,
         worktreeMode: overrides?.worktreeMode ?? options.worktreeMode,
         trace: options.trace
           ? withTraceSegment(options.trace, options.trace.currentSegmentIndex, true)
@@ -1133,6 +1188,7 @@ function cloneAnalysisState(state: AnalysisState): AnalysisState {
     effectiveCwd: state.effectiveCwd,
     shellGitContextState: cloneShellGitContextEnvState(state.shellGitContextState),
     literalHeredocFiles: new Map(state.literalHeredocFiles),
+    functionDefinitions: new Map(state.functionDefinitions),
   };
 }
 
@@ -1153,6 +1209,7 @@ function analysisStatesEqual(left: AnalysisState, right: AnalysisState): boolean
   return (
     left.effectiveCwd === right.effectiveCwd &&
     optionalMapsEqual(left.literalHeredocFiles, right.literalHeredocFiles) &&
+    optionalMapsEqual(left.functionDefinitions, right.functionDefinitions) &&
     optionalMapsEqual(
       left.shellGitContextState.effectiveEnvAssignments,
       right.shellGitContextState.effectiveEnvAssignments,
@@ -1167,13 +1224,21 @@ function analysisStatesEqual(left: AnalysisState, right: AnalysisState): boolean
   );
 }
 
-function optionalMapsEqual(
-  left: ReadonlyMap<string, string> | undefined,
-  right: ReadonlyMap<string, string> | undefined,
+function optionalMapsEqual<T>(
+  left: ReadonlyMap<string, T> | undefined,
+  right: ReadonlyMap<string, T> | undefined,
 ): boolean {
   if (left === right) return true;
   if (!left || !right || left.size !== right.size) return false;
   return [...left].every(([key, value]) => right.get(key) === value && right.has(key));
+}
+
+function getCalledFunctionBody(
+  view: CommandView,
+  functions: ReadonlyMap<string, CommandProgram>,
+): CommandProgram | undefined {
+  const name = getCalledCommandName(view);
+  return name === undefined ? undefined : functions.get(name);
 }
 
 function setsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {

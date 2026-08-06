@@ -1335,6 +1335,28 @@ describe('explainCommand pre-analysis protection stages', () => {
     expect(result.ruleId).toBe('policy-protection');
   });
 
+  test('hard-stops executed brace and function policy mutations in standard and strict', async () => {
+    await withTempDir('cc-safety-net-explain-policy-function-', (cwd) => {
+      const safetyNetHome = join(cwd, 'shared-policy');
+      withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
+        for (const strict of [false, true]) {
+          for (const command of [
+            `{ rm -rf ${safetyNetHome}; }`,
+            `cleanup() { rm -rf ${safetyNetHome}; }; cleanup`,
+          ]) {
+            const result = explainCommand(command, { cwd, strict });
+            expect(result.result, command).toBe('blocked');
+            expect(result.ruleId, command).toBe('policy-protection');
+          }
+        }
+
+        expect(explainCommand(`cleanup() { rm -rf ${safetyNetHome}; }`, { cwd }).result).toBe(
+          'allowed',
+        );
+      });
+    });
+  });
+
   test('protects git metadata resolved from the analysis cwd', async () => {
     await withTempDir('cc-safety-net-explain-git-metadata-', (cwd) => {
       mkdirSync(join(cwd, '.git'));

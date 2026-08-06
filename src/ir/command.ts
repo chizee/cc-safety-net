@@ -96,6 +96,23 @@ export function isDynamicExecutable(
   return provenance !== undefined && provenance !== 'literal';
 }
 
+const ASSIGNMENT_PREFIX = /^[A-Za-z_][A-Za-z0-9_]*=/;
+// `time` and `!` prefix the command they measure or negate; the shell still runs the word
+// after them. Quoting and escaping suppress alias expansion, never a function lookup, so
+// `'f'`, `"f"` and `\f` all call the function `f`.
+const CALL_KEYWORDS = new Set(['time', '!']);
+
+/**
+ * @internal Names the command a word list runs: the first word that is neither a leading
+ * assignment nor a keyword prefix, and that the parse can resolve to a literal.
+ */
+export function getCalledCommandName(view: CommandView): string | undefined {
+  const command = view.words.find(
+    (word) => !ASSIGNMENT_PREFIX.test(word.text) && !CALL_KEYWORDS.has(word.text),
+  );
+  return command?.provenance === 'literal' ? command.text : undefined;
+}
+
 /** @internal */
 export type CommandConnector = {
   readonly kind: 'connector';
@@ -111,6 +128,14 @@ export type CommandGroup = {
   readonly body: CommandProgram;
 };
 
+/** @internal A POSIX name() brace-body definition. Its body is inert until a direct call. */
+export type CommandFunction = {
+  readonly kind: 'function';
+  readonly name: string;
+  readonly span: CommandSpan;
+  readonly body: CommandProgram;
+};
+
 /** @internal */
 export type CommandUnknown = {
   readonly kind: 'unknown';
@@ -119,7 +144,12 @@ export type CommandUnknown = {
 };
 
 /** @internal */
-export type CommandNode = CommandView | CommandConnector | CommandGroup | CommandUnknown;
+export type CommandNode =
+  | CommandView
+  | CommandConnector
+  | CommandGroup
+  | CommandFunction
+  | CommandUnknown;
 
 /** @internal */
 export type CommandProgram = {

@@ -60,6 +60,45 @@ describe('command parser boundary', () => {
     expect(views[0]?.redirections[0]?.target?.provenance).toBe('command-substitution');
   });
 
+  test('models a POSIX function definition without treating its body as an executed group', () => {
+    const source = 'cleanup () { rm -rf build; }';
+    const program = parseCommand(source, 'posix');
+
+    expect(program.status).toBe('complete');
+    expect(program.issues).toEqual([]);
+    expect(program.nodes).toMatchObject([
+      {
+        kind: 'function',
+        name: 'cleanup',
+        span: { start: 0, end: source.length },
+        body: {
+          nodes: [
+            {
+              kind: 'command',
+              words: [{ text: 'rm' }, { text: '-rf' }, { text: 'build' }],
+            },
+            { kind: 'connector', operator: ';' },
+          ],
+        },
+      },
+    ]);
+    expect(projectCommandViews(program)).toEqual([]);
+    expectProgramSpans(program, source);
+  });
+
+  test('keeps unsupported and unclosed function forms on bounded parser paths', () => {
+    const bashOnly = parseCommand('function cleanup { echo ok; }', 'posix');
+    const unclosed = parseCommand('cleanup() { echo ok', 'posix');
+
+    expect(bashOnly.nodes.some((node) => node.kind === 'function')).toBeFalse();
+    expect(unclosed.status).toBe('partial');
+    expect(unclosed.issues).toContainEqual({
+      code: 'unclosed-function-body',
+      message: 'function body is not closed',
+      span: { start: 10, end: 19 },
+    });
+  });
+
   test('marks executable substitution output without a sentinel token', () => {
     const view = projectCommandViews(parseCommand('$(printf r)m -rf /', 'posix'))[0];
 

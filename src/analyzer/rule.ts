@@ -13,7 +13,7 @@ import type {
   AnalyzeResult,
   DestructiveCommandRuleMatch,
 } from '@/ir/analysis';
-import type { CommandView, CommandWord } from '@/ir/command';
+import type { CommandProgram, CommandView, CommandWord } from '@/ir/command';
 import type { EffectivePolicy } from '@/ir/policy';
 
 export type InternalOptions = AnalyzeInput & {
@@ -30,6 +30,7 @@ export type InternalOptions = AnalyzeInput & {
   hasPipelineInput?: boolean;
   literalShellInput?: string;
   literalHeredocFiles?: ReadonlyMap<string, string>;
+  functionDefinitions?: ReadonlyMap<string, CommandProgram>;
   wrapperNormalizationBudget?: { iterations: number };
 };
 

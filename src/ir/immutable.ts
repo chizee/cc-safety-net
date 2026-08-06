@@ -148,7 +148,7 @@ export function freezeCommandProgram(program: CommandProgram): CommandProgram {
     nodes: Object.freeze(
       program.nodes.map((node) => {
         if (node.kind === 'command') return freezeCommandView(node);
-        if (node.kind === 'group') {
+        if (node.kind === 'group' || node.kind === 'function') {
           return Object.freeze({
             ...node,
             span: Object.freeze(node.span),

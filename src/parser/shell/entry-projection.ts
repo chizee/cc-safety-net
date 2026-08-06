@@ -1,10 +1,11 @@
-import type {
-  CommandNode,
-  CommandProgram,
-  CommandRedirection,
-  CommandSpan,
-  CommandView,
-  CommandWord,
+import {
+  type CommandNode,
+  type CommandProgram,
+  type CommandRedirection,
+  type CommandSpan,
+  type CommandView,
+  type CommandWord,
+  getCalledCommandName,
 } from '@/ir/command';
 import type { ShellSyntaxEntry, ShellSyntaxFacts } from '@/ir/semantic-facts';
 import { DEFAULT_COMMAND_PARSER_LIMITS, parseCommand } from '@/parser/command';
@@ -14,14 +15,19 @@ const LEGACY_BOUNDARIES = new Set(['&&', '||', '|&', '|', '&', ';']);
 const LEGACY_SEGMENT_REDIRECTS = new Set(['<<', '<<<', '>|']);
 const SPECIAL_VARIABLE_NAME = /[*@#?$!_-]/;
 const EMPTY_ENTRIES = Object.freeze([]) as readonly ShellSyntaxEntry[];
+// A call site inlines the whole body, so branching recursion (`a() { a; a; }`) grows
+// exponentially where the depth cap alone never triggers. Real commands call a handful of
+// functions; anything past this budget fails closed instead of running the projection dry.
+const MAX_FUNCTION_EXPANSIONS = 256;
 
-type ProjectionFlags = { invalid: boolean; limited: boolean };
+type ProjectionFlags = { invalid: boolean; limited: boolean; expansions: number };
 
 type ProjectionContext = {
   readonly source: string;
   readonly suppressed: ReadonlySet<CommandSpan>;
   readonly flags: ProjectionFlags;
   readonly depth: number;
+  readonly functions: Map<string, CommandProgram>;
 };
 
 type QuoteState = { single: boolean; double: boolean };
@@ -44,8 +50,14 @@ export function projectShellSyntax(source: string, program: CommandProgram): She
     source,
   );
   if (hasUnclosedQuotes(masked)) return freezeFacts('unclosed-quote', masked, EMPTY_ENTRIES);
-  const flags: ProjectionFlags = { invalid: false, limited: false };
-  const entries = projectProgram(program, { source: masked, suppressed, flags, depth: 0 });
+  const flags: ProjectionFlags = { invalid: false, limited: false, expansions: 0 };
+  const entries = projectProgram(program, {
+    source: masked,
+    suppressed,
+    flags,
+    depth: 0,
+    functions: new Map(),
+  });
   if (flags.limited) return freezeFacts('structural-limit', masked, EMPTY_ENTRIES);
   if (flags.invalid) return freezeFacts('invalid', masked, EMPTY_ENTRIES);
   return freezeFacts('complete', masked, entries);
@@ -80,18 +92,45 @@ function projectNode(
   if (node.kind === 'unknown') {
     return [{ start: node.span.start, entries: [operatorEntry(node.source)] }];
   }
+  if (node.kind === 'function') {
+    context.functions.set(node.name, node.body);
+    return [];
+  }
   if (node.kind === 'group') {
     const brace = node.style !== 'subshell';
     const closed = context.source[node.span.end - 1] === (brace ? '}' : ')');
+    const groupContext = brace ? context : { ...context, functions: new Map(context.functions) };
     return [
       {
         start: node.span.start,
         entries: [
-          brace ? wordEntry('{') : operatorEntry('('),
-          ...projectProgram(node.body, context),
-          ...(closed ? [brace ? wordEntry('}') : operatorEntry(')')] : []),
+          brace ? boundaryOperatorEntry('{') : operatorEntry('('),
+          ...projectProgram(node.body, groupContext),
+          ...(closed ? [brace ? boundaryOperatorEntry('}') : operatorEntry(')')] : []),
         ],
       },
+    ];
+  }
+  const functionBody = getCalledFunctionBody(node, context.functions);
+  if (functionBody) {
+    if (
+      context.depth >= DEFAULT_COMMAND_PARSER_LIMITS.maxDepth ||
+      ++context.flags.expansions > MAX_FUNCTION_EXPANSIONS
+    ) {
+      context.flags.limited = true;
+      return [];
+    }
+    return [
+      {
+        start: node.span.start,
+        entries: [
+          ...projectView(node, context),
+          boundaryOperatorEntry(';'),
+          ...projectProgram(functionBody, { ...context, depth: context.depth + 1 }),
+          boundaryOperatorEntry(';'),
+        ],
+      },
+      ...projectHeredocs(node, program, index, context),
     ];
   }
   return [
@@ -220,14 +259,20 @@ function projectText(text: string, context: ProjectionContext): ShellSyntaxEntry
   // A body is often not shell at all (code, prose), so its invalid marks stay contained: an
   // unclosed `${` aborts a real shell before anything in the text it swallows runs, which keeps
   // the surviving entries faithful without failing the whole command's projection.
-  const flags: ProjectionFlags = { invalid: false, limited: false };
+  const flags: ProjectionFlags = {
+    invalid: false,
+    limited: false,
+    expansions: context.flags.expansions,
+  };
   const entries = projectProgram(program, {
     source: text,
     suppressed: new Set<CommandSpan>(),
     flags,
     depth: context.depth + 1,
+    functions: new Map(),
   });
   context.flags.limited ||= flags.limited;
+  context.flags.expansions = flags.expansions;
   return entries;
 }
 
@@ -428,6 +473,10 @@ function operatorEntry(operator: string): ShellSyntaxEntry {
   });
 }
 
+function boundaryOperatorEntry(operator: string): ShellSyntaxEntry {
+  return Object.freeze({ kind: 'operator' as const, operator, boundary: true });
+}
+
 function wordEntry(text: string): ShellSyntaxEntry {
   return Object.freeze({ kind: 'word' as const, text });
 }
@@ -442,7 +491,9 @@ function getRedirectionRole(operator: string) {
 // command, an output process substitution) must stay scannable; only inert data sinks qualify.
 function collectDataSinkHeredocSpans(program: CommandProgram): CommandSpan[] {
   return program.nodes.flatMap((node, index): CommandSpan[] => {
-    if (node.kind === 'group') return collectDataSinkHeredocSpans(node.body);
+    if (node.kind === 'group' || node.kind === 'function') {
+      return collectDataSinkHeredocSpans(node.body);
+    }
     if (node.kind !== 'command') return [];
     const nestedSpans = node.nested.flatMap((nested) => collectDataSinkHeredocSpans(nested));
     const next = program.nodes[index + 1];
@@ -455,6 +506,14 @@ function collectDataSinkHeredocSpans(program: CommandProgram): CommandSpan[] {
       ),
     ];
   });
+}
+
+function getCalledFunctionBody(
+  view: CommandView,
+  functions: ReadonlyMap<string, CommandProgram>,
+): CommandProgram | undefined {
+  const name = getCalledCommandName(view);
+  return name === undefined ? undefined : functions.get(name);
 }
 
 function isBareWord(word: CommandWord | undefined, text: string): boolean {

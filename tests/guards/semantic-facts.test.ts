@@ -451,6 +451,46 @@ describe('semantic facts', () => {
     ]);
   });
 
+  test('projects executed brace groups as segments and keeps inert function bodies out', () => {
+    const grouped = createCommandFacts('{ rm -rf /project/cache; }').commands[0]?.shell.entries;
+    const defined = createCommandFacts('cleanup() { rm -rf /project/cache; }').commands[0]?.shell
+      .entries;
+    const called = createCommandFacts('cleanup() { rm -rf /project/cache; }; X=1 cleanup')
+      .commands[0]?.shell.entries;
+
+    expect(grouped).toEqual([
+      { kind: 'operator', operator: '{', boundary: true },
+      { kind: 'word', text: 'rm' },
+      { kind: 'word', text: '-rf' },
+      { kind: 'word', text: '/project/cache' },
+      { kind: 'operator', operator: ';', boundary: true },
+      { kind: 'operator', operator: '}', boundary: true },
+    ]);
+    expect(defined).toEqual([]);
+    expect(called?.filter((entry) => entry.kind === 'word').map((entry) => entry.text)).toEqual([
+      'X=1',
+      'cleanup',
+      'rm',
+      '-rf',
+      '/project/cache',
+    ]);
+  });
+
+  test('fails closed when recursive POSIX function projection reaches the structural limit', () => {
+    const source = 'loop() { loop; }; loop';
+    const program = parseCommand(source, 'posix');
+
+    expect(program.status).toBe('complete');
+    expect(projectShellSyntax(source, program).status).toBe('structural-limit');
+  });
+
+  test('fails closed when branching POSIX function projection exhausts the expansion budget', () => {
+    const source = 'fan() { fan; fan; }; fan';
+    const program = parseCommand(source, 'posix');
+
+    expect(projectShellSyntax(source, program).status).toBe('structural-limit');
+  });
+
   test('parses equal roots and repeated nested bodies once per evaluation', () => {
     const canonicalCalls = new Map<string, number>();
     const projectionCalls = new Map<string, number>();

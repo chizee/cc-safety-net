@@ -203,6 +203,25 @@ describe('policy config protection', () => {
     });
   });
 
+  test('protects an outside-home policy through executed brace groups and called functions', () => {
+    const safetyNetHome = join(cwd, 'shared-policy');
+    withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
+      for (const command of [
+        `rm -rf ${safetyNetHome}`,
+        `( rm -rf ${safetyNetHome} )`,
+        `{ rm -rf ${safetyNetHome}; }`,
+        `cleanup() { rm -rf ${safetyNetHome}; }; cleanup`,
+        `cleanup() { rm -rf ${safetyNetHome}; }; X=1 cleanup`,
+      ]) {
+        expect(findPolicyMutation('Bash', { command }, cwd)?.target, command).toBe(safetyNetHome);
+      }
+
+      expect(
+        findPolicyMutation('Bash', { command: `cleanup() { rm -rf ${safetyNetHome}; }` }, cwd),
+      ).toBeNull();
+    });
+  });
+
   test('blocks destructive find roots that contain the policy file', () => {
     const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
     withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {

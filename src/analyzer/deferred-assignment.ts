@@ -39,7 +39,7 @@ function nodesHaveOnlyDataReferences(
 ): boolean {
   return nodes.every((node) => {
     if (node.kind === 'connector') return true;
-    if (node.kind === 'group') {
+    if (node.kind === 'group' || node.kind === 'function') {
       return nodesHaveOnlyDataReferences(node.body.nodes, assignment, references);
     }
     if (node.kind === 'unknown') return !references.loose.test(node.source);

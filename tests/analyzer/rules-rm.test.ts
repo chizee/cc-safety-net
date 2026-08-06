@@ -213,6 +213,82 @@ describe('rm -rf allowed', () => {
   });
 });
 
+describe('POSIX function execution', () => {
+  test('allows an inert destructive function definition', () => {
+    assertAllowed('cleanup() { rm -rf ../outside; }', '/project');
+  });
+
+  test('analyzes a directly called function body', () => {
+    assertBlocked('cleanup() { rm -rf ../outside; }; cleanup', 'outside cwd', '/project');
+    assertBlocked('cleanup() { rm -rf ../outside; }; X=1 cleanup', 'outside cwd', '/project');
+  });
+
+  test('preserves function CWD changes for following commands', () => {
+    assertBlocked(
+      'cleanup() { cd ..; }; cleanup && rm -rf build',
+      'outside cwd',
+      '/project/subdir',
+    );
+  });
+
+  test('uses the latest function definition', () => {
+    assertAllowed(
+      'cleanup() { rm -rf ../outside; }; cleanup() { rm -rf build; }; cleanup',
+      '/project',
+    );
+  });
+
+  test('does not leak a subshell-local function definition', () => {
+    assertAllowed('( cleanup() { rm -rf ../outside; } ); cleanup', '/project');
+  });
+
+  test('shares brace-group function definitions', () => {
+    assertBlocked('{ cleanup() { rm -rf ../outside; }; }; cleanup', 'outside cwd', '/project');
+  });
+
+  test('fails closed on recursive function execution', () => {
+    assertBlocked('loop() { loop; }; loop', 'exceeds maximum recursion depth', '/project');
+  });
+
+  test('fails closed when branching function calls exhaust the work budget', () => {
+    const definitions = Array.from(
+      { length: 8 },
+      (_, level) => `f${level + 1}() { ${Array(6).fill(`f${level}`).join('; ')}; }`,
+    );
+
+    assertBlocked(
+      ['f0() { rm -rf build; }', ...definitions, 'f8'].join('; '),
+      'work limit',
+      '/project',
+    );
+  });
+
+  test('analyzes a quoted or escaped call', () => {
+    assertBlocked(`cleanup() { rm -rf ../outside; }; 'cleanup'`, 'outside cwd', '/project');
+    assertBlocked('cleanup() { rm -rf ../outside; }; "cleanup"', 'outside cwd', '/project');
+    assertBlocked('cleanup() { rm -rf ../outside; }; \\cleanup', 'outside cwd', '/project');
+  });
+
+  test('analyzes a call behind a time or ! prefix', () => {
+    assertBlocked('cleanup() { rm -rf ../outside; }; time cleanup', 'outside cwd', '/project');
+    assertBlocked('cleanup() { rm -rf ../outside; }; ! cleanup', 'outside cwd', '/project');
+  });
+
+  test('keeps function definitions visible to eval', () => {
+    assertBlocked('cleanup() { rm -rf ../outside; }; eval cleanup', 'outside cwd', '/project');
+    assertBlocked('cleanup() { rm -rf ../outside; }; eval "cleanup"', 'outside cwd', '/project');
+  });
+
+  test('does not leak function definitions into a child shell', () => {
+    assertAllowed('cleanup() { rm -rf ../outside; }; sh -c cleanup', '/project');
+  });
+
+  test('blocks a deferred assignment executed inside a function body', () => {
+    assertBlocked(`W='rm -rf ~'; f() { $W; }; f`, 'destructive pattern', '/project');
+    assertAllowed(`W='rm -rf ~'; f() { echo "$W"; }; f`, '/project');
+  });
+});
+
 describe('rm -rf allow paths', () => {
   const policy = { destructiveCommandAllowPaths: ['/some/allowed'] };
 

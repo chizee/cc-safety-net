@@ -1,5 +1,6 @@
 import type {
   CommandDialect,
+  CommandFunction,
   CommandGroup,
   CommandIssue,
   CommandNode,
@@ -49,6 +50,11 @@ type AnsiEscapeResult = {
   text: string;
   next: number;
   invalidCodePoint?: number;
+};
+
+type FunctionOpening = {
+  readonly name: string;
+  readonly braceIndex: number;
 };
 
 const CONTINUATION_CONNECTORS = new Set(['&&', '||', '|', '|&']);
@@ -181,6 +187,67 @@ function scanSequence(
 
     if (char === '#') {
       while (i < end && source[i] !== '\n' && source[i] !== '\r') i++;
+      continue;
+    }
+
+    const functionOpening =
+      accumulator.start === -1 ? readFunctionOpening(source, i, end) : undefined;
+    if (functionOpening) {
+      appendMissingConnectorIssue(nodes, issues, i);
+      if (depth >= limits.maxDepth) {
+        return limitedResult(nodes, issues, i, 'depth-limit', limits.maxDepth);
+      }
+      if (!consumeWord(wordBudget)) {
+        return limitedResult(nodes, issues, i, 'word-limit', limits.maxWords);
+      }
+      const inner = scanSequence(
+        source,
+        functionOpening.braceIndex + 1,
+        end,
+        dialect,
+        limits,
+        wordBudget,
+        depth + 1,
+        '}',
+      );
+      const functionEnd = inner.next;
+      const bodySpan = {
+        start: functionOpening.braceIndex + 1,
+        end: inner.closed ? functionEnd - 1 : functionEnd,
+      };
+      const body = {
+        kind: 'program',
+        dialect,
+        source: source.slice(bodySpan.start, bodySpan.end),
+        span: bodySpan,
+        status: getParseStatus(inner.issues, inner.limited),
+        issues: inner.issues,
+        nodes: inner.nodes,
+      } satisfies CommandProgram;
+      nodes.push({
+        kind: 'function',
+        name: functionOpening.name,
+        span: { start: i, end: functionEnd },
+        body,
+      } satisfies CommandFunction);
+      issues.push(...inner.issues);
+      if (inner.pendingHeredocs.length > 0 || containsHeredoc(inner.nodes)) {
+        issues.push({
+          code: 'unsupported-heredoc-context',
+          message: 'heredocs attached inside function bodies are not supported safely',
+          span: { start: i, end: functionEnd },
+        });
+      }
+      pendingHeredocs.push(...inner.pendingHeredocs);
+      if (inner.limited) return propagatedLimitResult(nodes, issues, inner.next);
+      if (!inner.closed) {
+        issues.push({
+          code: 'unclosed-function-body',
+          message: 'function body is not closed',
+          span: { start: functionOpening.braceIndex, end: functionEnd },
+        });
+      }
+      i = functionEnd;
       continue;
     }
 
@@ -1511,6 +1578,17 @@ function consumeWord(budget: WordBudget): boolean {
   return budget.used <= budget.max;
 }
 
+function readFunctionOpening(
+  source: string,
+  start: number,
+  end: number,
+): FunctionOpening | undefined {
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)[ \t]*\([ \t]*\)[ \t]*\{/.exec(source.slice(start, end));
+  const name = match?.[1];
+  if (!match || !name) return undefined;
+  return { name, braceIndex: start + match[0].lastIndexOf('{') };
+}
+
 function containsHeredoc(nodes: readonly CommandNode[]): boolean {
   return nodes.some((node) => {
     if (node.kind === 'command') {
@@ -1519,7 +1597,7 @@ function containsHeredoc(nodes: readonly CommandNode[]): boolean {
         node.nested.some((program) => containsHeredoc(program.nodes))
       );
     }
-    return node.kind === 'group' && containsHeredoc(node.body.nodes);
+    return (node.kind === 'group' || node.kind === 'function') && containsHeredoc(node.body.nodes);
   });
 }
 
@@ -1532,7 +1610,7 @@ function unterminatedHeredocIssues(pending: readonly PendingHeredoc[]): CommandI
 }
 
 function isExecutableNode(node: CommandNode | undefined): boolean {
-  return node?.kind === 'command' || node?.kind === 'group';
+  return node?.kind === 'command' || node?.kind === 'group' || node?.kind === 'function';
 }
 
 function appendMissingCommandIssue(nodes: readonly CommandNode[], issues: CommandIssue[]): void {
