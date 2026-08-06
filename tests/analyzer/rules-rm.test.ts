@@ -269,14 +269,25 @@ describe('POSIX function execution', () => {
     assertBlocked('cleanup() { rm -rf ../outside; }; \\cleanup', 'outside cwd', '/project');
   });
 
-  test('analyzes a call behind a time, time -p, or ! prefix', () => {
+  test('analyzes a call behind a time, time options, or ! prefix', () => {
     assertBlocked('cleanup() { rm -rf ../outside; }; time cleanup', 'outside cwd', '/project');
     assertBlocked('cleanup() { rm -rf ../outside; }; time -p cleanup', 'outside cwd', '/project');
+    assertBlocked('cleanup() { rm -rf ../outside; }; time -- cleanup', 'outside cwd', '/project');
+    assertBlocked(
+      'cleanup() { rm -rf ../outside; }; time -p -- cleanup',
+      'outside cwd',
+      '/project',
+    );
+    assertBlocked(
+      'cleanup() { rm -rf ../outside; }; time -p -- ! cleanup',
+      'outside cwd',
+      '/project',
+    );
     assertBlocked('cleanup() { rm -rf ../outside; }; ! cleanup', 'outside cwd', '/project');
   });
 
   test('does not treat invalid prefix shapes as function calls', () => {
-    assertAllowed('cleanup() { rm -rf ../outside; }; time -- cleanup', '/project');
+    assertAllowed('cleanup() { rm -rf ../outside; }; time "--" cleanup', '/project');
     assertAllowed('cleanup() { rm -rf ../outside; }; !cleanup', '/project');
     assertAllowed('cleanup() { rm -rf ../outside; }; X=1 time cleanup', '/project');
     assertAllowed('cleanup() { rm -rf ../outside; }; X=1 ! cleanup', '/project');

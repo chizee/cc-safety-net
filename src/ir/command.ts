@@ -112,9 +112,13 @@ export function getCalledCommandName(view: CommandView): string | undefined {
     afterTimeIndex === 1 && isBareCallPrefix(view.words[afterTimeIndex], '-p')
       ? afterTimeIndex + 1
       : afterTimeIndex;
-  const commandStartIndex = isBareCallPrefix(view.words[afterTimeOptionIndex], '!')
-    ? afterTimeOptionIndex + 1
-    : afterTimeOptionIndex;
+  const afterTimeTerminatorIndex =
+    afterTimeIndex === 1 && isBareCallPrefix(view.words[afterTimeOptionIndex], '--')
+      ? afterTimeOptionIndex + 1
+      : afterTimeOptionIndex;
+  const commandStartIndex = isBareCallPrefix(view.words[afterTimeTerminatorIndex], '!')
+    ? afterTimeTerminatorIndex + 1
+    : afterTimeTerminatorIndex;
   const command = view.words
     .slice(commandStartIndex)
     .find((word) => !ASSIGNMENT_PREFIX.test(word.text));

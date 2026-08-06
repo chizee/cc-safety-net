@@ -459,6 +459,9 @@ describe('semantic facts', () => {
       .commands[0]?.shell.entries;
     const timed = createCommandFacts('cleanup() { rm -rf /project/cache; }; time -p cleanup')
       .commands[0]?.shell.entries;
+    const timedWithTerminator = createCommandFacts(
+      'cleanup() { rm -rf /project/cache; }; time -p -- cleanup',
+    ).commands[0]?.shell.entries;
 
     expect(grouped).toEqual([
       { kind: 'operator', operator: '{', boundary: true },
@@ -484,6 +487,9 @@ describe('semantic facts', () => {
       '-rf',
       '/project/cache',
     ]);
+    expect(
+      timedWithTerminator?.filter((entry) => entry.kind === 'word').map((entry) => entry.text),
+    ).toEqual(['time', '-p', '--', 'cleanup', 'rm', '-rf', '/project/cache']);
   });
 
   test('fails closed when recursive POSIX function projection reaches the structural limit', () => {
