@@ -81,6 +81,16 @@ describe('PowerShell command parser boundary', () => {
     expect(JSON.stringify(limited)).toContain('depth-limit');
   });
 
+  test('reports an unclosed script block without losing its nested command', () => {
+    const program = parseCommand('& { Remove-Item . -Recurse -Force', 'powershell');
+
+    expect(program.status).toBe('partial');
+    expect(program.issues.map(({ code }) => code)).toContain('unclosed-script-block');
+    expect(projectCommandViews(program).map((view) => view.words.map((word) => word.text))).toEqual(
+      [['&'], ['Remove-Item', '.', '-Recurse', '-Force']],
+    );
+  });
+
   test('auto is quote-aware and chooses one parser from recognized syntax', () => {
     expect(parseCommand('Remove-Item . -Recurse -Force', 'auto').dialect).toBe('powershell');
     expect(parseCommand("echo 'Remove-Item . -Recurse -Force'", 'auto').dialect).toBe('posix');

@@ -25,24 +25,79 @@ function countManagedHooks(config: unknown) {
   return JSON.stringify(config).match(/cc-safety-net hook --agy-cli/g)?.length ?? 0;
 }
 
+function installAndReadAntigravityConfig(homeDir: string, configPath: string) {
+  const result = installAntigravityCli(homeDir);
+  return { config: readAntigravityConfig(configPath), result };
+}
+
 describe('installAntigravityCli', () => {
-  test('re-enables a disabled definition that lacks the managed command', () => {
+  test('creates a managed config when no config exists', () => {
+    const homeDir = makeTempHome('safety-net-antigravity-install');
+
+    try {
+      const result = installAntigravityCli(homeDir);
+      const config = readAntigravityConfig(result.path);
+
+      expect(result).toEqual({ path: getAntigravityHooksPath(homeDir), alreadyInstalled: false });
+      expect(countManagedHooks(config)).toBe(1);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    ['the managed command without a duplicate', ANTIGRAVITY_HOOK_COMMAND],
+    ['an unrelated command and preserves it', './scripts/legacy.sh'],
+  ] as const)('enables a disabled definition with %s', (_case, command) => {
     const homeDir = makeTempHome('safety-net-antigravity-install');
     const configPath = writeAntigravityConfig(homeDir, {
       'cc-safety-net': {
         enabled: false,
-        PreToolUse: [{ hooks: [{ type: 'command', command: './scripts/legacy.sh' }] }],
+        PreToolUse: [{ hooks: [{ type: 'command', command }] }],
       },
     });
 
     try {
-      const result = installAntigravityCli(homeDir);
-      const config = readAntigravityConfig(configPath);
+      const { config, result } = installAndReadAntigravityConfig(homeDir, configPath);
 
       expect(result).toEqual({ path: configPath, alreadyInstalled: false });
       expect(config['cc-safety-net'].enabled).toBe(true);
       expect(countManagedHooks(config)).toBe(1);
-      expect(JSON.stringify(config)).toContain('./scripts/legacy.sh');
+      expect(JSON.stringify(config)).toContain(command);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('adds the managed hook without changing unrelated definitions', () => {
+    const homeDir = makeTempHome('safety-net-antigravity-install');
+    const other = {
+      PreToolUse: [{ hooks: [{ type: 'command', command: './scripts/check.sh' }] }],
+    };
+    const configPath = writeAntigravityConfig(homeDir, { other });
+
+    try {
+      const { config, result } = installAndReadAntigravityConfig(homeDir, configPath);
+
+      expect(result).toEqual({ path: configPath, alreadyInstalled: false });
+      expect(config.other).toEqual(other);
+      expect(countManagedHooks(config)).toBe(1);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects malformed JSON without changing it', () => {
+    const homeDir = makeTempHome('safety-net-antigravity-install');
+    const configPath = getAntigravityHooksPath(homeDir);
+    mkdirSync(join(configPath, '..'), { recursive: true });
+    writeFileSync(configPath, '{ invalid');
+
+    try {
+      expect(() => installAntigravityCli(homeDir)).toThrow(
+        `Failed to parse Antigravity hooks config ${configPath}`,
+      );
+      expect(readFileSync(configPath, 'utf8')).toBe('{ invalid');
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }

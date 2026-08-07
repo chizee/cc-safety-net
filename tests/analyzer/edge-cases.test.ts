@@ -560,6 +560,7 @@ describe('edge cases', () => {
         'find . -ok $(printf rm) -f {} ;',
         'find . -okdir $(printf rm) -f {} ;',
         'find . -exec rm -$(printf rf) {} ;',
+        'find . -exec echo {} \\; $(printf -delete)',
       ]) {
         expect(analyzeCommand(command)?.ruleId).not.toBe('shell.dynamic-structure');
         expect(analyzeCommand(command, { strict: true })?.ruleId).toBe('shell.dynamic-structure');

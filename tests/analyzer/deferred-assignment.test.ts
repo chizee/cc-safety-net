@@ -23,6 +23,14 @@ describe('quoted-literal assignments with dangerous text', () => {
     test('assignment without any later reference', () => {
       assertAllowed(`${ASSIGN}; echo done`);
     });
+
+    test('single-quoted variable text is not a reference', () => {
+      assertAllowed(`${ASSIGN}; printf '%s' '$W'`);
+    });
+
+    test('escaped variable text is not a reference', () => {
+      assertAllowed(`${ASSIGN}; printf '%s' "\\$W"`);
+    });
   });
 
   describe('risky references keep the assignment-time block', () => {

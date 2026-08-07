@@ -43,6 +43,21 @@ describe('policy GUI helpers', () => {
     expect(existsSync(join(safetyNetHome, 'policy.json'))).toBe(false);
   });
 
+  test('empty user policy reports the error and returns editable defaults', () => {
+    mkdirSync(safetyNetHome, { recursive: true });
+    writeFileSync(join(safetyNetHome, 'policy.json'), '  \n', 'utf-8');
+
+    const result = readUserPolicyForGui({ userConfigDir: join(safetyNetHome, 'rules') });
+
+    expect(result).toEqual({
+      path: join(safetyNetHome, 'policy.json'),
+      exists: true,
+      raw: '  \n',
+      policy: DEFAULT_GUI_POLICY,
+      errors: ['Config file is empty'],
+    });
+  });
+
   test('valid user policy reads and rewrites as canonical JSON', () => {
     mkdirSync(safetyNetHome, { recursive: true });
     writeFileSync(

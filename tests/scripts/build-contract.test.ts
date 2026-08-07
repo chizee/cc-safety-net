@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { AMP_MANAGED_HEADER, buildAmpArtifactHeader } from '@/integrations/amp/artifact';
 import pkg from '../../package.json';
+import { buildAmpBundle } from '../../scripts/build-runtime';
 import {
   getRuntimeImportSpecifiers,
   requiresRepositoryExecutableMode,
@@ -33,6 +34,18 @@ function writeBuildFixture(directory: string) {
 }
 
 describe('generated artifact contract', () => {
+  test('builds the managed Amp artifact from the current source', async () => {
+    await withTempDir('cc-safety-net-build-amp-source-', async (directory) => {
+      const result = await buildAmpBundle(join(directory, 'dist'));
+      const artifact = readFileSync(join(directory, 'dist', 'amp', 'cc-safety-net.ts'), 'utf8');
+
+      expect(result.success).toBeTrue();
+      expect(artifact.startsWith(buildAmpArtifactHeader(pkg.version))).toBeTrue();
+      expect(artifact).toContain('ZodError');
+      expect(unbundledRuntimeImports(artifact)).toEqual([]);
+    });
+  });
+
   test('tracks required entry artifacts and their shared chunks', async () => {
     const files = await verifyBuildArtifacts();
     expect(files).toContain('dist/bin/cc-safety-net.js');

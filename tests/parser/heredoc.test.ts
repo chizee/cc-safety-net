@@ -71,6 +71,28 @@ describe('POSIX heredoc parsing', () => {
     });
   });
 
+  test('removes supported escapes from a double-quoted delimiter', () => {
+    const source = String.raw`cat <<"E\$OF"
+body
+E$OF`;
+
+    expect(
+      projectCommandViews(parseCommand(source, 'posix'))[0]?.redirections[0]?.heredoc,
+    ).toMatchObject({
+      body: 'body\n',
+      delimiter: 'E$OF',
+      quotedDelimiter: true,
+      stripTabs: false,
+    });
+  });
+
+  test('marks a trailing delimiter escape as ambiguous', () => {
+    const program = parseCommand(['cat <<', '\\'].join(''), 'posix');
+
+    expect(program.status).toBe('invalid');
+    expect(program.issues.map(({ code }) => code)).toContain('ambiguous-heredoc-delimiter');
+  });
+
   test('keeps here-strings separate from heredocs', () => {
     const view = projectCommandViews(parseCommand("cat <<<'rm -rf ~'", 'posix'))[0];
 

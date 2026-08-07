@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildAmpArtifactHeader } from '@/integrations/amp/artifact';
 import { getAmpPluginPath } from '@/integrations/amp/install';
+import { hasClaudeInstalledPlugin } from '@/integrations/claude-code/detect';
 import { detectAllHooks } from '@/integrations/detect';
 import type { HookStatus } from '@/integrations/doctor-types';
 import { stripJsonComments } from '@/integrations/jsonc';
@@ -138,6 +139,8 @@ describe('detectAllHooks', () => {
         join(homeDir, '.claude', 'plugins', 'installed_plugins.json'),
       );
       expect(claude).not.toHaveProperty('selfTest');
+      expect(hasClaudeInstalledPlugin(homeDir, 'cc-safety-net@cc-marketplace')).toBeTrue();
+      expect(hasClaudeInstalledPlugin(homeDir, 'safety-net@cc-marketplace')).toBeFalse();
 
       const opencode = hooks.find((hook) => hook.platform === 'opencode');
       expectHookState(opencode, 'configured');

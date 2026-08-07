@@ -18,6 +18,22 @@ function writeKimiConfig(homeDir: string, content: string) {
 }
 
 describe('installKimiCode', () => {
+  test('creates a managed config when no config exists', () => {
+    const homeDir = makeTempHome('safety-net-kimi-install');
+
+    try {
+      const result = installKimiCode(homeDir);
+
+      expect(result).toEqual({
+        path: join(homeDir, '.kimi-code', 'config.toml'),
+        alreadyInstalled: false,
+      });
+      expect(readFileSync(result.path, 'utf8')).toBe(`${KIMI_HOOK_BLOCK}\n`);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   test('leaves a hooks array nested under a table untouched and appends a table block', () => {
     const homeDir = makeTempHome('safety-net-kimi-install');
     const nestedTable = `[agent.hooks_config]
@@ -100,9 +116,48 @@ model = "kimi-k2"
       rmSync(homeDir, { recursive: true, force: true });
     }
   });
+
+  test('aborts on an unterminated hooks array after a final comment', () => {
+    const homeDir = makeTempHome('safety-net-kimi-install');
+    const original = 'hooks = [\n# final comment';
+    const configPath = writeKimiConfig(homeDir, original);
+
+    try {
+      expect(() => installKimiCode(homeDir)).toThrow('Unmatched hooks array in Kimi Code config');
+      expect(readFileSync(configPath, 'utf8')).toBe(original);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('uninstallKimiCode', () => {
+  test('removes only the managed item from an inline hooks array', () => {
+    const homeDir = makeTempHome('safety-net-kimi-uninstall');
+    const otherHook = '{ event = "Stop", command = ".kimi/hooks/check.sh" }';
+    const configPath = writeKimiConfig(
+      homeDir,
+      `hooks = [
+  ${otherHook},
+  ${KIMI_INLINE_HOOK},
+]
+model = "kimi-k2"
+`,
+    );
+
+    try {
+      const result = uninstallKimiCode(homeDir);
+      const content = readFileSync(configPath, 'utf8');
+
+      expect(result).toEqual({ path: configPath, alreadyInstalled: true });
+      expect(content).toContain(otherHook);
+      expect(content).toContain('model = "kimi-k2"');
+      expect(content).not.toContain('cc-safety-net');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   test('removes only the managed block and keeps tables that follow it', () => {
     const homeDir = makeTempHome('safety-net-kimi-uninstall');
     const configPath = writeKimiConfig(

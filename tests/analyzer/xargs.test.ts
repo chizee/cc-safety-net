@@ -132,6 +132,7 @@ describe('xargs dynamic source analysis', () => {
   test('blocks dynamic Git subcommand selection', () => {
     expectDynamicSourceBlocked(`printf 'reset --hard\\n' | xargs git`);
     expectDynamicSourceBlocked('xargs -I{} git {}');
+    expectDynamicSourceBlocked('xargs git -C /tmp');
   });
 
   test.each([
