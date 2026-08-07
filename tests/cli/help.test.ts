@@ -58,7 +58,7 @@ describe('help output', () => {
 
       expect(output).toBe(`cc-safety-net vdev
 
-Blocks destructive git and filesystem commands before execution.
+Blocks destructive commands and secret access.
 
 COMMANDS:
   cc-safety-net status                       Show what the runtime is enforcing right now
@@ -93,6 +93,8 @@ LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):
   CC_SAFETY_NET_PARANOID=1                Force paranoid_rm and paranoid_interpreters on
   CC_SAFETY_NET_PARANOID_RM=1             Force safety.overrides.paranoid_rm on
   CC_SAFETY_NET_PARANOID_INTERPRETERS=1   Force safety.overrides.paranoid_interpreters on
+
+Documentation:        https://ccsafetynet.com/docs
 `);
     });
   });

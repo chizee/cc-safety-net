@@ -117,7 +117,7 @@ export function printHelp(): void {
   // Header
   lines.push(`${PROGRAM_NAME} v${version}`);
   lines.push('');
-  lines.push('Blocks destructive git and filesystem commands before execution.');
+  lines.push('Blocks destructive commands and secret access.');
   lines.push('');
 
   // Commands
@@ -191,6 +191,8 @@ export function printHelp(): void {
       'Force safety.overrides.paranoid_interpreters on',
     ),
   );
+  lines.push('');
+  lines.push('Documentation:        https://ccsafetynet.com/docs');
 
   console.log(lines.join('\n'));
 }
