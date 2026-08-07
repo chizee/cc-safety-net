@@ -1,3 +1,4 @@
+import { formatSchemaIssues, getRulesLockfileSchema } from '@/policy/schema';
 import {
   bindDelegatedPolicyFilesystemTarget,
   PolicyFilesystemError,
@@ -5,10 +6,7 @@ import {
   readPolicyFile,
 } from './filesystem';
 import { getRulebookLockEntrySourceIdentityError } from './sources';
-import type { GitHubRulebookLockEntry, RulebookLockEntry, RulesLockfile } from './types';
-
-const SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
-const RULEBOOK_SOURCE_KINDS = new Set(['local-directory', 'github']);
+import type { RulebookLockEntry, RulesLockfile } from './types';
 
 export function readLockfile(path: string | PolicyFilesystemTarget): {
   lock: RulesLockfile | null;
@@ -20,28 +18,61 @@ export function readLockfile(path: string | PolicyFilesystemTarget): {
       typeof path === 'string' ? bindDelegatedPolicyFilesystemTarget(path) : path,
     );
     if (content === null) return { lock: null, errors: [] };
-    const parsed = JSON.parse(content) as unknown;
-    if (!parsed || typeof parsed !== 'object') {
+    const document = JSON.parse(content) as unknown;
+    if (!document || typeof document !== 'object') {
       return { lock: null, errors: [`malformed lockfile ${displayPath}: must be an object`] };
     }
-    const lock = parsed as Record<string, unknown>;
+    const lock = document as Record<string, unknown>;
     if (lock.version !== 1 || !Array.isArray(lock.rulebooks)) {
       return { lock: null, errors: [`malformed lockfile ${displayPath}`] };
     }
-    const parsedEntries = lock.rulebooks.map((entry, index) =>
-      parseLockEntry(entry, `${displayPath}: rulebooks[${index}]`),
-    );
-    const entryErrors = parsedEntries.flatMap((entry) => entry.errors);
-    if (entryErrors.length > 0) {
+    const parsed = getRulesLockfileSchema().safeParse(lock);
+    // Each entry reports independently: its own schema errors, or — when it has none —
+    // its source identity error, so one bad entry never hides another's diagnostics.
+    const entryErrors = lock.rulebooks.flatMap((entry, index) => {
+      const issues = parsed.success
+        ? []
+        : parsed.error.issues.filter((issue) => issue.path[1] === index);
+      if (issues.length > 0) {
+        return formatSchemaIssues(issues).map((error) => `${displayPath}: ${error}`);
+      }
+      // An entry the schema left unflagged is a lock entry, even when a sibling failed.
+      const identityError = getRulebookLockEntrySourceIdentityError(entry as RulebookLockEntry);
+      return identityError ? [`${displayPath}: rulebooks[${index}]: ${identityError}`] : [];
+    });
+    if (!parsed.success || entryErrors.length > 0) {
       return { lock: null, errors: [`malformed lockfile ${displayPath}`, ...entryErrors] };
     }
-    return {
-      lock: {
-        version: 1,
-        rulebooks: parsedEntries.flatMap((entry) => (entry.entry ? [entry.entry] : [])),
-      },
-      errors: [],
-    };
+    // Keys are written in the order the resolver builds them, so re-reading and
+    // rewriting an untouched entry leaves the lockfile byte-identical.
+    const rulebooks = parsed.data.rulebooks.map((entry) => {
+      if (entry.kind === 'local-directory') {
+        return {
+          spec: entry.spec,
+          kind: entry.kind,
+          path: entry.path,
+          name: entry.name,
+          version: entry.version,
+          digest: entry.digest,
+        };
+      }
+      const github = {
+        spec: entry.spec,
+        kind: entry.kind,
+        owner: entry.owner,
+        repo: entry.repo,
+        ref: entry.ref,
+        commit: entry.commit,
+        path: entry.path,
+        name: entry.name,
+        version: entry.version,
+        digest: entry.digest,
+      };
+      return typeof entry.display_ref === 'string' && entry.display_ref !== ''
+        ? { ...github, display_ref: entry.display_ref }
+        : github;
+    });
+    return { lock: { version: 1, rulebooks }, errors: [] };
   } catch (error) {
     if (error instanceof PolicyFilesystemError) {
       return { lock: null, errors: [error.message] };
@@ -51,112 +82,4 @@ export function readLockfile(path: string | PolicyFilesystemTarget): {
       errors: ['malformed lockfile'],
     };
   }
-}
-
-function parseLockEntry(
-  entry: unknown,
-  prefix: string,
-): { entry: RulebookLockEntry | null; errors: string[] } {
-  if (!entry || typeof entry !== 'object') {
-    return { entry: null, errors: [`${prefix}: must be an object`] };
-  }
-  const candidate = entry as Record<string, unknown>;
-  const errors = [
-    ...validateRequiredString(candidate, prefix, 'spec'),
-    ...validateRequiredString(candidate, prefix, 'name'),
-    ...validateRequiredString(candidate, prefix, 'version'),
-    ...validateDigest(candidate, prefix),
-    ...validateKind(candidate, prefix),
-    ...validateKindFields(candidate, prefix),
-  ];
-  if (errors.length > 0) return { entry: null, errors };
-
-  if (candidate.kind === 'local-directory') {
-    const localEntry: RulebookLockEntry = {
-      spec: requiredString(candidate, 'spec'),
-      kind: 'local-directory',
-      path: requiredString(candidate, 'path'),
-      name: requiredString(candidate, 'name'),
-      version: requiredString(candidate, 'version'),
-      digest: requiredString(candidate, 'digest'),
-    };
-    const identityError = getLockEntrySourceIdentityError(localEntry, prefix);
-    if (identityError) return { entry: null, errors: [identityError] };
-    return {
-      entry: localEntry,
-      errors: [],
-    };
-  }
-
-  const githubEntry: GitHubRulebookLockEntry = {
-    spec: requiredString(candidate, 'spec'),
-    kind: 'github',
-    owner: requiredString(candidate, 'owner'),
-    repo: requiredString(candidate, 'repo'),
-    ref: requiredString(candidate, 'ref'),
-    commit: requiredString(candidate, 'commit'),
-    path: requiredString(candidate, 'path'),
-    name: requiredString(candidate, 'name'),
-    version: requiredString(candidate, 'version'),
-    digest: requiredString(candidate, 'digest'),
-  };
-  const identityError = getLockEntrySourceIdentityError(githubEntry, prefix);
-  if (identityError) return { entry: null, errors: [identityError] };
-  return {
-    entry:
-      typeof candidate.display_ref === 'string' && candidate.display_ref !== ''
-        ? { ...githubEntry, display_ref: candidate.display_ref }
-        : githubEntry,
-    errors: [],
-  };
-}
-
-function validateRequiredString(
-  candidate: Record<string, unknown>,
-  prefix: string,
-  field: string,
-): string[] {
-  return typeof candidate[field] === 'string' && candidate[field].trim() !== ''
-    ? []
-    : [`${prefix}.${field}: required string`];
-}
-
-function validateDigest(candidate: Record<string, unknown>, prefix: string): string[] {
-  return typeof candidate.digest === 'string' && SHA256_DIGEST_PATTERN.test(candidate.digest)
-    ? []
-    : [`${prefix}.digest: required sha256 digest`];
-}
-
-function validateKind(candidate: Record<string, unknown>, prefix: string): string[] {
-  if (typeof candidate.kind !== 'string') {
-    return [`${prefix}.kind: required string`];
-  }
-  return RULEBOOK_SOURCE_KINDS.has(candidate.kind)
-    ? []
-    : [`${prefix}.kind: unknown kind "${candidate.kind}"`];
-}
-
-function validateKindFields(candidate: Record<string, unknown>, prefix: string): string[] {
-  if (candidate.kind === 'local-directory') {
-    return validateRequiredString(candidate, prefix, 'path');
-  }
-  if (candidate.kind === 'github') {
-    return ['owner', 'repo', 'ref', 'commit', 'path'].flatMap((field) =>
-      validateRequiredString(candidate, prefix, field),
-    );
-  }
-  return [];
-}
-
-function getLockEntrySourceIdentityError(entry: RulebookLockEntry, prefix: string): string | null {
-  const error = getRulebookLockEntrySourceIdentityError(entry);
-  return error ? `${prefix}: ${error}` : null;
-}
-
-function requiredString(candidate: Record<string, unknown>, field: string): string {
-  const value = candidate[field];
-  if (typeof value !== 'string') {
-    throw new Error(`Expected ${field} to be validated before reading`);
-  }
-  return value;
 }

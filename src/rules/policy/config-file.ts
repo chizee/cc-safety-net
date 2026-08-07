@@ -9,13 +9,7 @@ import {
 import { DEFAULT_CONFIG, type RulesConfig, type SyncRulesConfigResult } from './types';
 
 export function validateRulesConfig(config: unknown): { errors: string[]; sources: Set<string> } {
-  const validation = getRulesConfigValidation(config);
-  if (validation.errors.length > 0) return validation;
-  const parsed = getRulesConfigSchema().safeParse(config);
-  return {
-    errors: parsed.success ? [] : validation.errors,
-    sources: validation.sources,
-  };
+  return getRulesConfigValidation(config);
 }
 
 export function readRulesConfig(path: string | PolicyFilesystemTarget): {

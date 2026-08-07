@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { iterateCustomRuleErrors } from './custom-rule-validation';
+import { collectCustomRuleNames, formatSchemaIssues, getLegacyConfigSchema } from '@/policy/schema';
 import { validateRulesConfig } from './policy/config-file';
 import {
   bindDelegatedPolicyFilesystemTarget,
@@ -18,31 +18,11 @@ export interface ValidationResult {
 
 /** @internal Exported for testing */
 export function validateConfig(config: unknown): ValidationResult {
-  const errors: string[] = [];
-  const ruleNames = new Set<string>();
-
-  if (!config || typeof config !== 'object') {
-    errors.push('Config must be an object');
-    return { errors, ruleNames };
-  }
-
-  const cfg = config as Record<string, unknown>;
-
-  if (cfg.version !== 1) {
-    errors.push('version must be 1');
-  }
-
-  if (cfg.rules !== undefined) {
-    if (!Array.isArray(cfg.rules)) {
-      errors.push('rules must be an array');
-    } else {
-      for (let i = 0; i < cfg.rules.length; i++) {
-        errors.push(...iterateCustomRuleErrors(cfg.rules[i], i, ruleNames));
-      }
-    }
-  }
-
-  return { errors, ruleNames };
+  const parsed = getLegacyConfigSchema().safeParse(config);
+  return {
+    errors: parsed.success ? [] : formatSchemaIssues(parsed.error.issues),
+    ruleNames: new Set(collectCustomRuleNames(config).map((name) => name.toLowerCase())),
+  };
 }
 
 export function validateConfigFile(path: string | PolicyFilesystemTarget): ValidationResult {
