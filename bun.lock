@@ -25,6 +25,7 @@
     },
   },
   "overrides": {
+    "js-yaml": "^4.3.1",
     "picomatch@^2.3.1": "2.3.2",
     "picomatch@^4.0.1": "^4.0.5",
     "smol-toml": "^1.7.0",
@@ -275,7 +276,7 @@
 
     "js-stringify": ["js-stringify@1.0.2", "", {}, "sha512-rtS5ATOo2Q5k1G+DADISilDA6lv79zIiwFd6CcjuIxGKLFm5C+RLImRscVap9k55i+MOZwgliw+NejvkLuGD5g=="],
 
-    "js-yaml": ["js-yaml@4.3.0", "", { "dependencies": { "argparse": "^2.0.1" }, "bin": { "js-yaml": "bin/js-yaml.js" } }, "sha512-1td788aAnnZ5qs7V2QIRl1owjtYpbKt749Y3xauqQgwIIGF/xXWz1wMTEBx5O3LK3lXLVuqXPdPxj2BoFHaW9Q=="],
+    "js-yaml": ["js-yaml@4.3.1", "", { "dependencies": { "argparse": "^2.0.1" }, "bin": { "js-yaml": "bin/js-yaml.js" } }, "sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ=="],
 
     "jscpd": ["jscpd@4.2.5", "", { "dependencies": { "@jscpd/badge-reporter": "4.2.5", "@jscpd/core": "4.2.5", "@jscpd/finder": "4.2.5", "@jscpd/html-reporter": "4.2.5", "@jscpd/tokenizer": "4.2.5", "colors": "^1.4.0", "commander": "^15.0.0", "fs-extra": "^11.2.0", "jscpd-sarif-reporter": "4.2.5" }, "bin": { "jscpd": "bin/jscpd" } }, "sha512-KDpApYw1ChGelfHb7MwYTEx694OnW52pv3McAasidUV4ILcGDQMiVJzB+vI8ox+ZPVfOSvdXQCk8uRa9B0LXnw=="],
 
