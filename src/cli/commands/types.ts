@@ -1,7 +1,7 @@
 /**
  * Command option definition for CLI help generation.
  */
-export interface CommandOption {
+interface CommandOption {
   /** Flag notation, e.g., "--json" or "-h, --help" */
   flags: string;
   /** Human-readable description */
@@ -15,7 +15,7 @@ export interface CommandOption {
 /**
  * Command subcommand definition for CLI help generation.
  */
-export interface CommandSubcommand {
+interface CommandSubcommand {
   /** Usage pattern, e.g., "sync [--check]" */
   usage: string;
   /** Human-readable description */

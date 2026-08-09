@@ -35,7 +35,7 @@
     "lint": "biome check --write",
     "lint:ci": "biome ci .",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.gui.json --noEmit",
-    "knip": "knip --production",
+    "knip": "knip-bun --production",
     "check-duplicates": "bunx jscpd src tests --noTips --exitCode 1 --reporters ai --ignore '**/*.svg'",
     "test": "bun test",
     "test:e2e": "bun test tests/e2e",
@@ -64,8 +64,9 @@
     "@opencode-ai/plugin": "^1.18.3",
     "@types/bun": "latest",
     "jscpd": "^4.0.9",
-    "knip": "^5.79.0",
-    "lefthook": "^2.1.10"
+    "knip": "^6.32.0",
+    "lefthook": "^2.1.10",
+    "typescript": "7.0.2"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": "^1.18.3"

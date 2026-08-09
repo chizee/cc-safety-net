@@ -10,7 +10,7 @@ import { statuslineCommand } from './statusline';
 import type { Command } from './types';
 
 /** @internal Exported for testing */
-export type { Command, CommandOption, CommandSubcommand } from './types';
+export type { Command } from './types';
 
 /**
  * All registered commands.

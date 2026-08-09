@@ -2,6 +2,7 @@
   "compilerOptions": {
     // Environment setup & latest features
     "lib": ["ESNext"],
+    "types": ["bun"],
     "outDir": "dist",
     "rootDir": ".",
     "target": "ESNext",
@@ -17,9 +18,8 @@
     "noEmit": true,
 
     // Path aliases
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     },
 
     // Best practices

@@ -26,7 +26,7 @@ export type AuditErrorCode = (typeof AUDIT_ERROR_CODES)[number];
 
 /** @internal */
 export const AUDIT_LOG_DECISIONS = Object.freeze(['allow', 'deny'] as const);
-export type AuditLogDecision = (typeof AUDIT_LOG_DECISIONS)[number];
+type AuditLogDecision = (typeof AUDIT_LOG_DECISIONS)[number];
 
 /** Audit log entry */
 export interface AuditLogEntry {

@@ -19,7 +19,7 @@ export type HookPlatform = IntegrationId;
  * `not-inspected` means the runtime's own state file exists but could not be read, so its
  * configuration is unknown rather than absent.
  */
-export type HookInspectionStatus = 'verified' | 'failed' | 'not-applicable' | 'not-inspected';
+type HookInspectionStatus = 'verified' | 'failed' | 'not-applicable' | 'not-inspected';
 
 /** Hook discovery and configuration inspection result */
 export interface HookStatus {
@@ -70,7 +70,7 @@ export interface EnvVarInfo {
   defaultBehavior: string;
 }
 
-export interface EffectiveSafetyInfo {
+interface EffectiveSafetyInfo {
   selectedPreset: 'standard' | 'strict' | 'paranoid';
   level: EffectiveSafetyLevel;
   capabilities: EffectiveSafetyCapabilities;

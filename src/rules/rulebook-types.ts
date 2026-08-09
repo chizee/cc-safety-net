@@ -1,6 +1,6 @@
 import type { CustomRule } from '@/ir/policy';
 
-export interface RulebookFixture {
+interface RulebookFixture {
   command: string;
   expect: 'blocked' | 'allowed';
   rule?: string;
