@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getActivityFeed } from '@/gui/activity';
 import { writeJsonlFixture } from '../../helpers';
+import { writeDeniedLogFixture } from '../../helpers/denied-log-fixture';
 import { captureLogsCommand } from '../../helpers/logs';
 
 async function withUnreadableFixture<T>(fn: (logsDir: string) => T | Promise<T>): Promise<T> {
@@ -83,15 +84,7 @@ describe('logs incomplete audit reads', () => {
     const logsDir = join(root, 'logs');
     try {
       mkdirSync(logsDir, { recursive: true });
-      writeJsonlFixture(join(logsDir, 'readable.jsonl'), [
-        {
-          ts: new Date().toISOString(),
-          decision: 'deny',
-          command: 'visible blocked',
-          segment: 'visible blocked',
-          reason: 'blocked',
-        },
-      ]);
+      writeDeniedLogFixture(join(logsDir, 'readable.jsonl'), 'visible blocked');
 
       const result = await captureLogsCommand([], logsDir);
 

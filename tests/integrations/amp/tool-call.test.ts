@@ -4,11 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAmpToolCallHandler, handleAmpToolCall } from '@/integrations/amp/tool-call';
-import type { AnalyzeOptions } from '@/ir/analysis';
 import { getUserPolicyPath } from '@/policy/store';
 import { readAuditLogEntriesForSession, readLatestAuditLogEntry, withEnv } from '../../helpers';
-
-type AnalyzeCall = { command: string; cwd?: string; shell?: string };
+import { type AnalyzeCall, captureAnalyzeCalls } from '../../helpers/analyze-capture';
 
 type FakeShellCommand = { command: string; dir?: string } | null;
 
@@ -405,13 +403,6 @@ describe('Amp tool.call event', () => {
     });
   });
 });
-
-function captureAnalyzeCalls(calls: AnalyzeCall[]) {
-  return (command: string, options: AnalyzeOptions) => {
-    calls.push({ command, cwd: options.cwd, shell: options.shell });
-    return null;
-  };
-}
 
 function ampEvent(tool: string, input: Record<string, unknown>, threadId = 'T-amp-session') {
   return { toolUseID: 'amp-tool-use', tool, input, thread: { id: threadId } };

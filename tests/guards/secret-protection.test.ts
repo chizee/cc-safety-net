@@ -31,6 +31,13 @@ const COMMAND_TOOL_NAMES = new Set([
   'shell',
 ]);
 
+const CONFIG_WITH_CODING_CLI_RULES_DISABLED: SecretProtectionConfig = {
+  disabledRules: new Set(
+    SECRET_PROTECTION_RULE_IDS.filter((ruleId) => ruleId.startsWith('secret.cli.')),
+  ),
+  denyPaths: [],
+};
+
 function findSensitiveTargetInToolInput(
   toolName: string,
   input: unknown,
@@ -41,6 +48,17 @@ function findSensitiveTargetInToolInput(
     ? { kind: 'command', shell: 'auto' }
     : { kind: getNonCommandToolInputKind(toolName) };
   return findSensitiveTargetWithRoute(input, route, cwd, config);
+}
+
+function expectAllowedOnlyInStandardMode(command: string, cwd: string) {
+  expect(
+    findSensitiveTargetInCommand(command, cwd, undefined, { strict: false }),
+    command,
+  ).toBeNull();
+  expect(
+    findSensitiveTargetInCommand(command, cwd, undefined, { strict: true }),
+    command,
+  ).not.toBeNull();
 }
 
 describe('secret protection rule metadata', () => {
@@ -101,18 +119,12 @@ describe('secret protection rule metadata', () => {
 describe('secret protection path matching', () => {
   test('reuses repeated canonicalization work across the complete target set', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'secret-protection-path-budget-'));
-    const config: SecretProtectionConfig = {
-      disabledRules: new Set(
-        SECRET_PROTECTION_RULE_IDS.filter((ruleId) => ruleId.startsWith('secret.cli.')),
-      ),
-      denyPaths: [],
-    };
     try {
       expect(
         findSensitivePathTarget(
           Array(PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts + 1).fill(cwd),
           cwd,
-          config,
+          CONFIG_WITH_CODING_CLI_RULES_DISABLED,
         ),
       ).toBeNull();
     } finally {
@@ -122,21 +134,21 @@ describe('secret protection path matching', () => {
 
   test('shares one canonicalization budget across distinct targets', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'secret-protection-path-budget-'));
-    const config: SecretProtectionConfig = {
-      disabledRules: new Set(
-        SECRET_PROTECTION_RULE_IDS.filter((ruleId) => ruleId.startsWith('secret.cli.')),
-      ),
-      denyPaths: [],
-    };
     try {
       const boundaryTargetCount = PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2 - 1;
       const targets = Array.from({ length: boundaryTargetCount }, (_, index) =>
         join(cwd, `ordinary-${index}.txt`),
       );
-      expect(findSensitivePathTarget(targets, cwd, config)).toBeNull();
+      expect(
+        findSensitivePathTarget(targets, cwd, CONFIG_WITH_CODING_CLI_RULES_DISABLED),
+      ).toBeNull();
 
       expect(() =>
-        findSensitivePathTarget([...targets, join(cwd, 'over-budget.txt')], cwd, config),
+        findSensitivePathTarget(
+          [...targets, join(cwd, 'over-budget.txt')],
+          cwd,
+          CONFIG_WITH_CODING_CLI_RULES_DISABLED,
+        ),
       ).toThrow(PathCanonicalizationLimitError);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -500,14 +512,7 @@ describe('secret protection command target extraction', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
     for (const command of ['test -f ~/.ssh/id_rsa', 'find ~/.ssh -type f']) {
-      expect(
-        findSensitiveTargetInCommand(command, cwd, undefined, { strict: false }),
-        command,
-      ).toBeNull();
-      expect(
-        findSensitiveTargetInCommand(command, cwd, undefined, { strict: true }),
-        command,
-      ).not.toBeNull();
+      expectAllowedOnlyInStandardMode(command, cwd);
     }
   });
 
@@ -609,14 +614,7 @@ describe('secret protection command target extraction', () => {
       `node -e 'console.log("Bun.file(\\".env\\")")'`,
       "node -e 'console.log(`.env`)'",
     ]) {
-      expect(
-        findSensitiveTargetInCommand(command, cwd, undefined, { strict: false }),
-        command,
-      ).toBeNull();
-      expect(
-        findSensitiveTargetInCommand(command, cwd, undefined, { strict: true }),
-        command,
-      ).not.toBeNull();
+      expectAllowedOnlyInStandardMode(command, cwd);
     }
   });
 

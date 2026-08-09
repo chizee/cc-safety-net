@@ -17,6 +17,10 @@ import {
   isLinkedWorktree,
   normalizePathForComparison,
 } from '@/analyzer/git/worktree';
+import {
+  withSymlinkedLinkedWorktreeDirectory,
+  withSymlinkToMainWorktreeSubdirectory,
+} from '../../helpers/git-worktree';
 import { createLinkedWorktreeFixture, createSubmoduleLikeGitFileFixture } from '../../helpers.ts';
 
 function getLinkedGitDir(worktree: string): string {
@@ -109,37 +113,23 @@ describe('worktree git execution context', () => {
   );
 
   test('resolves git -C targets with physical chdir semantics', () => {
-    const fixture = createLinkedWorktreeFixture();
-    const mainSubdir = join(fixture.mainWorktree, 'subdir');
-    const symlinkedMainSubdir = join(fixture.linkedWorktree, 'link');
-    mkdirSync(mainSubdir);
-    symlinkSync(mainSubdir, symlinkedMainSubdir, 'dir');
-    try {
+    withSymlinkToMainWorktreeSubdirectory('link', (fixture) => {
       expect(
         getGitExecutionContext(['git', '-C', 'link/..', 'status'], fixture.linkedWorktree),
       ).toEqual({
         gitCwd: realpathSync(fixture.mainWorktree),
         hasExplicitGitContext: false,
       });
-    } finally {
-      fixture.cleanup();
-    }
+    });
   });
 
   test('resolves git -C targets from a physical starting cwd', () => {
-    const fixture = createLinkedWorktreeFixture();
-    const mainSubdir = join(fixture.mainWorktree, 'subdir');
-    const symlinkedMainSubdir = join(fixture.linkedWorktree, 'main-subdir-link');
-    mkdirSync(mainSubdir);
-    symlinkSync(mainSubdir, symlinkedMainSubdir, 'dir');
-    try {
-      expect(getGitExecutionContext(['git', '-C', '..', 'status'], symlinkedMainSubdir)).toEqual({
+    withSymlinkToMainWorktreeSubdirectory('main-subdir-link', (fixture, symlinkedCwd) => {
+      expect(getGitExecutionContext(['git', '-C', '..', 'status'], symlinkedCwd)).toEqual({
         gitCwd: realpathSync(fixture.mainWorktree),
         hasExplicitGitContext: false,
       });
-    } finally {
-      fixture.cleanup();
-    }
+    });
   });
 
   test('fails closed for missing or unresolved git -C targets', () => {
@@ -214,17 +204,10 @@ describe('linked worktree detection', () => {
   });
 
   test('detects linked worktrees and symlinked directories inside them', () => {
-    const fixture = createLinkedWorktreeFixture();
-    const nested = join(fixture.linkedWorktree, 'nested');
-    const symlinkedCwd = join(fixture.rootDir, 'nested-link');
-    mkdirSync(nested);
-    symlinkSync(nested, symlinkedCwd, 'dir');
-    try {
+    withSymlinkedLinkedWorktreeDirectory((fixture, symlinkedCwd) => {
       expect(isLinkedWorktree(fixture.linkedWorktree)).toBe(true);
       expect(isLinkedWorktree(symlinkedCwd)).toBe(true);
-    } finally {
-      fixture.cleanup();
-    }
+    });
   });
 
   test('rejects main worktrees, non-repos, and submodule-like git files', () => {

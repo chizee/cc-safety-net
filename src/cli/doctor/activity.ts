@@ -4,21 +4,14 @@
 
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
-import { getAuditLogsDir, listAuditLogFiles, pruneExpiredAuditLogs } from '@/engine/facade';
+import {
+  formatRelativeTime,
+  getAuditLogsDir,
+  listAuditLogFiles,
+  pruneExpiredAuditLogs,
+} from '@/engine/facade';
 import type { ActivitySummary } from '@/integrations/doctor-types';
 import type { AuditLogEntry } from '@/ir/audit';
-
-function formatRelativeTime(date: Date): string {
-  const diff = Date.now() - date.getTime();
-  const minutes = Math.floor(diff / (1000 * 60));
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const days = Math.floor(hours / 24);
-
-  if (days > 0) return `${days}d ago`;
-  if (hours > 0) return `${hours}h ago`;
-  if (minutes > 0) return `${minutes}m ago`;
-  return 'just now';
-}
 
 export function getActivitySummary(
   days: number = 7,

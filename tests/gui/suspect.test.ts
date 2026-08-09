@@ -3,12 +3,18 @@ import { renderPolicyGuiHtml } from '@/gui/page';
 
 const html = renderPolicyGuiHtml('test-token');
 // The ranking lives in the page script that ships inlined in the document.
-// Evaluate just that block of the built script — it is pure and depends only on
-// commandSignature directly above it — instead of restructuring it for tests.
-const helperSource = html.slice(
-  html.indexOf('var commandSignature = (source) => {'),
-  html.indexOf('var clearCommandFilter'),
-);
+// Evaluate only the two pure helper blocks from their separate bundle locations
+// instead of running the DOM setup that now sits between them.
+const helperSource = [
+  html.slice(
+    html.indexOf('var commandSignature = (source) => {'),
+    html.indexOf('// src/integrations/catalog.ts'),
+  ),
+  html.slice(
+    html.indexOf('var findSuspects = (entries) => {'),
+    html.indexOf('var clearCommandFilter'),
+  ),
+].join('\n');
 type FeedEntry = {
   decision: string;
   command: string;

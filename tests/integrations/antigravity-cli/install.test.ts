@@ -7,15 +7,9 @@ import {
   uninstallAntigravityCli,
 } from '@/integrations/antigravity-cli/install';
 import { makeTempHome } from '../hook-helpers';
+import { writeAntigravityConfig } from '../install/install-test-helpers';
 
 const ANTIGRAVITY_HOOK_COMMAND = 'npx -y cc-safety-net hook --agy-cli';
-
-function writeAntigravityConfig(homeDir: string, config: unknown) {
-  const configPath = getAntigravityHooksPath(homeDir);
-  mkdirSync(join(configPath, '..'), { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2));
-  return configPath;
-}
 
 function readAntigravityConfig(configPath: string) {
   return JSON.parse(readFileSync(configPath, 'utf-8'));

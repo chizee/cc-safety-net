@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { writeAuditLog } from '@/engine/audit';
 import type { AuditLogEntry } from '@/ir/audit';
 import { withEnv, writeJsonlFixture, writeNestedAuditLogFixture } from '../../helpers';
+import { writeDeniedLogFixture } from '../../helpers/denied-log-fixture';
 import { captureLogsCommand } from '../../helpers/logs';
 
 type LogsFixture = {
@@ -203,25 +204,9 @@ describe('runLogsCommand', () => {
 
     try {
       mkdirSync(logsDir, { recursive: true });
-      writeJsonlFixture(join(logsDir, 'readable.jsonl'), [
-        {
-          ts: new Date().toISOString(),
-          decision: 'deny',
-          command: 'visible blocked',
-          segment: 'visible blocked',
-          reason: 'blocked',
-        },
-      ]);
+      writeDeniedLogFixture(join(logsDir, 'readable.jsonl'), 'visible blocked');
       mkdirSync(unreadableDir);
-      writeJsonlFixture(join(unreadableDir, 'hidden.jsonl'), [
-        {
-          ts: new Date().toISOString(),
-          decision: 'deny',
-          command: 'hidden blocked',
-          segment: 'hidden blocked',
-          reason: 'blocked',
-        },
-      ]);
+      writeDeniedLogFixture(join(unreadableDir, 'hidden.jsonl'), 'hidden blocked');
       chmodSync(unreadableDir, 0o000);
 
       const result = await captureLogsCommand([], logsDir);

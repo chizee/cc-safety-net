@@ -57,6 +57,11 @@ type FunctionOpening = {
   readonly braceIndex: number;
 };
 
+type LexicalScanState = {
+  single: boolean;
+  double: boolean;
+};
+
 const CONTINUATION_CONNECTORS = new Set(['&&', '||', '|', '|&']);
 
 export function parsePosixCommand(
@@ -214,15 +219,7 @@ function scanSequence(
         start: functionOpening.braceIndex + 1,
         end: inner.closed ? functionEnd - 1 : functionEnd,
       };
-      const body = {
-        kind: 'program',
-        dialect,
-        source: source.slice(bodySpan.start, bodySpan.end),
-        span: bodySpan,
-        status: getParseStatus(inner.issues, inner.limited),
-        issues: inner.issues,
-        nodes: inner.nodes,
-      } satisfies CommandProgram;
+      const body = buildNestedCommandProgram(source, dialect, bodySpan, inner);
       nodes.push({
         kind: 'function',
         name: functionOpening.name,
@@ -295,15 +292,7 @@ function scanSequence(
       const inner = scanSequence(source, i + 1, end, dialect, limits, wordBudget, depth + 1, close);
       const groupEnd = inner.next;
       const bodySpan = { start: i + 1, end: inner.closed ? groupEnd - 1 : groupEnd };
-      const body = {
-        kind: 'program',
-        dialect,
-        source: source.slice(bodySpan.start, bodySpan.end),
-        span: bodySpan,
-        status: getParseStatus(inner.issues, inner.limited),
-        issues: inner.issues,
-        nodes: inner.nodes,
-      } satisfies CommandProgram;
+      const body = buildNestedCommandProgram(source, dialect, bodySpan, inner);
       nodes.push({
         kind: 'group',
         style: char === '(' ? 'subshell' : 'brace',
@@ -490,6 +479,23 @@ function scanSequence(
     closed: closing === undefined,
     limited: false,
     pendingHeredocs: [],
+  };
+}
+
+function buildNestedCommandProgram(
+  source: string,
+  dialect: CommandDialect,
+  span: { start: number; end: number },
+  result: ScanResult,
+): CommandProgram {
+  return {
+    kind: 'program',
+    dialect,
+    source: source.slice(span.start, span.end),
+    span,
+    status: getParseStatus(result.issues, result.limited),
+    issues: result.issues,
+    nodes: result.nodes,
   };
 }
 
@@ -858,15 +864,10 @@ function findSubstitutionEnd(
     return -1;
   }
   let depth = 1;
-  let single = false;
-  let double = false;
+  const lexicalState = { single: false, double: false };
   const pendingHeredocs: PendingHeredoc[] = [];
   for (let i = start; i < end; i++) {
     const char = source[i];
-    if (char === '\\' && !single) {
-      i++;
-      continue;
-    }
     if ((char === '\n' || char === '\r') && pendingHeredocs.length > 0) {
       const lineEnd = char === '\r' && source[i + 1] === '\n' ? i + 2 : i + 1;
       const bodies = consumeHeredocBodies(source, lineEnd, end, pendingHeredocs.splice(0));
@@ -874,14 +875,12 @@ function findSubstitutionEnd(
       i = bodies.next - 1;
       continue;
     }
-    if (!double && char === "'") single = !single;
-    if (!single && char === '"') double = !double;
-    if (single) continue;
-    if (!double && char === '#' && isCommentStart(source, i, start)) {
-      while (i + 1 < end && source[i + 1] !== '\n' && source[i + 1] !== '\r') i++;
+    const lexicalEnd = scanLexicalQuoteOrComment(source, i, start, end, lexicalState);
+    if (lexicalEnd !== null) {
+      i = lexicalEnd;
       continue;
     }
-    if (!double && source.startsWith('$((', i)) {
+    if (!lexicalState.double && source.startsWith('$((', i)) {
       const arithmeticClose = findArithmeticEnd(source, i + 3, end);
       if (arithmeticClose === -1) return -1;
       i = arithmeticClose + 1;
@@ -889,7 +888,7 @@ function findSubstitutionEnd(
     }
     if (
       closing === ')' &&
-      !double &&
+      !lexicalState.double &&
       char === '<' &&
       source[i + 1] === '<' &&
       source[i + 2] !== '<'
@@ -915,8 +914,8 @@ function findSubstitutionEnd(
       i++;
       continue;
     }
-    if (char === '(' && !double) depth++;
-    if (char === ')' && !double) {
+    if (char === '(' && !lexicalState.double) depth++;
+    if (char === ')' && !lexicalState.double) {
       depth--;
       if (depth === 0) return closing === '))' && source[i + 1] !== ')' ? -1 : i;
     }
@@ -926,19 +925,12 @@ function findSubstitutionEnd(
 
 function findArithmeticEnd(source: string, start: number, end: number): number {
   let depth = 1;
-  let single = false;
-  let double = false;
+  const lexicalState = { single: false, double: false };
   for (let i = start; i < end; i++) {
     const char = source[i];
-    if (char === '\\' && !single) {
-      i++;
-      continue;
-    }
-    if (!double && char === "'") single = !single;
-    if (!single && char === '"') double = !double;
-    if (single) continue;
-    if (!double && char === '#' && isCommentStart(source, i, start)) {
-      while (i + 1 < end && source[i + 1] !== '\n' && source[i + 1] !== '\r') i++;
+    const lexicalEnd = scanLexicalQuoteOrComment(source, i, start, end, lexicalState);
+    if (lexicalEnd !== null) {
+      i = lexicalEnd;
       continue;
     }
     if (source.startsWith('$(', i) && !source.startsWith('$((', i)) {
@@ -946,12 +938,37 @@ function findArithmeticEnd(source: string, start: number, end: number): number {
       i++;
       continue;
     }
-    if (char === '(' && !double) depth++;
-    if (char !== ')' || double) continue;
+    if (char === '(' && !lexicalState.double) depth++;
+    if (char !== ')' || lexicalState.double) continue;
     depth--;
     if (depth === 0) return source[i + 1] === ')' ? i : -1;
   }
   return -1;
+}
+
+function scanLexicalQuoteOrComment(
+  source: string,
+  index: number,
+  start: number,
+  end: number,
+  state: LexicalScanState,
+): number | null {
+  const char = source[index];
+  if (char === '\\' && !state.single) return index + 1;
+  if (!state.double && char === "'") state.single = !state.single;
+  if (!state.single && char === '"') state.double = !state.double;
+  if (state.single) return index;
+  if (state.double || char !== '#' || !isCommentStart(source, index, start)) return null;
+
+  let commentEnd = index;
+  while (
+    commentEnd + 1 < end &&
+    source[commentEnd + 1] !== '\n' &&
+    source[commentEnd + 1] !== '\r'
+  ) {
+    commentEnd++;
+  }
+  return commentEnd;
 }
 
 function readConnector(source: string, index: number): string | null {
@@ -1318,10 +1335,7 @@ export function expandPosixLiteralBraceWord(
     ) {
       return { limited: true as const };
     }
-    const replacements = expansion.alternatives.map(
-      (alternative) =>
-        `${value.slice(0, expansion.start)}${alternative}${value.slice(expansion.end)}`,
-    );
+    const replacements = buildBraceReplacements(value, expansion);
     values.splice(valueIndex, 1, ...replacements);
     totalLength += replacementsLength - value.length;
   }
@@ -1379,10 +1393,7 @@ function expandLiteralCommandWord(
     if (values.length - 1 + alternatives.length > maxWords) {
       return { limitCode: 'word-limit' };
     }
-    const replacements = alternatives.map(
-      (alternative) =>
-        `${value.slice(0, expansion.start)}${alternative}${value.slice(expansion.end)}`,
-    );
+    const replacements = buildBraceReplacements(value, { ...expansion, alternatives });
     values.splice(valueIndex, 1, ...replacements);
     totalLength += replacementsLength - value.length;
   }
@@ -1419,13 +1430,10 @@ function findBraceExpansion(
     }
   }
   if (!selected) return undefined;
-  const boundaries = [selected.start, ...selected.commas, selected.end - 1];
   return {
     start: selected.start,
     end: selected.end,
-    alternatives: boundaries
-      .slice(0, -1)
-      .map((start, index) => value.slice(start + 1, boundaries[index + 1])),
+    alternatives: sliceBraceAlternatives(value, selected),
   };
 }
 
@@ -1482,15 +1490,32 @@ function findActiveBraceExpansion(value: string) {
   }
 
   if (!selected || selected.kind === 'range') return selected;
-  const boundaries = [selected.start, ...selected.commas, selected.end - 1];
   return {
     kind: selected.kind,
     start: selected.start,
     end: selected.end,
-    alternatives: boundaries
-      .slice(0, -1)
-      .map((start, index) => value.slice(start + 1, boundaries[index + 1])),
+    alternatives: sliceBraceAlternatives(value, selected),
   };
+}
+
+function buildBraceReplacements(
+  value: string,
+  expansion: { start: number; end: number; alternatives: readonly string[] },
+) {
+  return expansion.alternatives.map(
+    (alternative) =>
+      `${value.slice(0, expansion.start)}${alternative}${value.slice(expansion.end)}`,
+  );
+}
+
+function sliceBraceAlternatives(
+  value: string,
+  expansion: { start: number; end: number; commas: readonly number[] },
+) {
+  const boundaries = [expansion.start, ...expansion.commas, expansion.end - 1];
+  return boundaries
+    .slice(0, -1)
+    .map((start, index) => value.slice(start + 1, boundaries[index + 1]));
 }
 
 function isActiveBraceRange(value: string): boolean {

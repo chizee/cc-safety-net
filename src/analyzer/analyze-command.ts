@@ -737,25 +737,14 @@ function analyzeCommandView(
       };
     }
     options.trace?.recordSegment({ type: 'dangerous-text', token: segment[0], matched: false });
-    const heredocResult = analyzeUnsupportedHeredoc(
+    return finalizeAnalyzedCommandView(
       commandView,
       heredocReason,
       state,
-      segmentEnvAssignments ?? new Map(),
+      segmentEnvAssignments,
+      literalShellInput,
       options,
     );
-    if (heredocResult) return heredocResult;
-    invalidateLiteralHeredocFiles(commandView, state, 'after-consumer', options.environment.paths);
-    state.literalHeredocFiles.clear();
-    trackLiteralHeredocFiles(commandView, heredocReason, state, options.environment.paths);
-    updateCwdAfterCommandView(
-      commandView,
-      state,
-      literalShellInput,
-      options.environment,
-      options.trace,
-    );
-    return null;
   }
 
   const result = analyzeSegment(commandView.words, depth, {
@@ -800,6 +789,27 @@ function analyzeCommandView(
   });
   if (result) return { ...result, segment: segmentStr };
 
+  const postCommandResult = finalizeAnalyzedCommandView(
+    commandView,
+    heredocReason,
+    state,
+    segmentEnvAssignments,
+    literalShellInput,
+    options,
+  );
+  if (postCommandResult) return postCommandResult;
+  applyShellGitContextEnvSegment(segment, state.shellGitContextState);
+  return null;
+}
+
+function finalizeAnalyzedCommandView(
+  commandView: CommandView,
+  heredocReason: string | undefined,
+  state: AnalysisState,
+  segmentEnvAssignments: ReadonlyMap<string, string> | undefined,
+  literalShellInput: string | undefined,
+  options: ActiveInternalOptions,
+): AnalyzeResult | null {
   const heredocResult = analyzeUnsupportedHeredoc(
     commandView,
     heredocReason,
@@ -819,7 +829,6 @@ function analyzeCommandView(
     options.environment,
     options.trace,
   );
-  applyShellGitContextEnvSegment(segment, state.shellGitContextState);
   return null;
 }
 

@@ -1,3 +1,4 @@
+import { commandSignature, formatRelativeTime } from '@/engine/browser-facade';
 import { integrationDisplayNames } from '@/integrations/catalog';
 
 type SafetyLevel = 'standard' | 'strict' | 'paranoid';
@@ -347,6 +348,11 @@ const collectFormPolicy = () => ({
   },
   audit: draftPolicy.audit,
 });
+const requestPolicyPreview = (policy = collectFormPolicy()) =>
+  requestJson('/api/policy/preview', {
+    method: 'POST',
+    body: JSON.stringify(policy),
+  });
 const viewNames = ['overview', 'activity', 'policy', 'rules', 'integrations', 'settings'] as const;
 type ViewName = (typeof viewNames)[number];
 const viewTitles: Record<ViewName, string> = {
@@ -395,17 +401,6 @@ const applyView = () => {
   // rule can be scrolled into view.
   if (view === 'rules' && rulesData && pendingRuleFocus) renderRules();
 };
-const relativeTime = (ts: string) => {
-  const diff = Date.now() - new Date(ts).getTime();
-  if (!Number.isFinite(diff)) return '';
-  const minutes = Math.floor(diff / 60000);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-  if (days > 0) return `${days}d ago`;
-  if (hours > 0) return `${hours}h ago`;
-  if (minutes > 0) return `${minutes}m ago`;
-  return 'just now';
-};
 const isActivityFeed = (value: ActivityFeed | undefined): value is ActivityFeed =>
   !!value &&
   typeof value === 'object' &&
@@ -430,7 +425,7 @@ const feedItemHtml = (entry: FeedEntry, index: number) => {
       <span class="decision-badge ${badgeClass}">${badgeLabel}</span>
       ${entry.agent && entry.agent !== 'unknown' ? `<span class="agent-badge">${escapeHtml(agentLabels[entry.agent] ?? entry.agent)}</span>` : ''}
       ${entry.ruleId ? (knownRuleIds.has(entry.ruleId) ? `<button type="button" class="rule-id" data-jump-rule="${escapeHtml(entry.ruleId)}" title="Show this rule in Policy">${escapeHtml(entry.ruleId)}</button>` : `<code class="rule-id">${escapeHtml(entry.ruleId)}</code>`) : ''}
-      <time datetime="${escapeHtml(entry.ts)}" title="${escapeHtml(entry.ts)}">${relativeTime(entry.ts)}</time>
+      <time datetime="${escapeHtml(entry.ts)}" title="${escapeHtml(entry.ts)}">${formatRelativeTime(entry.ts)}</time>
       <button type="button" class="icon-button feed-copy" data-log-copy="${index}" aria-label="Copy log entry as JSON">${rawCopyIcons.copy}</button>
       ${deny ? `<button type="button" class="icon-button feed-report" data-report-fp="${index}" aria-label="Report false positive" title="Report false positive">${reportIcon}</button>` : `<button type="button" class="feed-toggle feed-block" data-block-future="${index}">Block this in future</button>`}
     </div>
@@ -576,20 +571,6 @@ const renderTopList = (
 const renderTopRules = () => {
   if (!overview) return;
   renderTopList('top-rules', overview.counts.rules, 'top-rule', 'data-rule-id');
-};
-// Mirrors commandSignature in activity.ts so the drill-down can match the same
-// blocked entries the Top blocked commands count is built from.
-// A denied entry can carry neither a segment nor a command, so the caller has
-// nothing to hand over and the signature is simply absent.
-const commandSignature = (source: string | undefined) => {
-  const tokens = (source ?? '')
-    .trim()
-    .split(/\s+/)
-    .filter((token) => token && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token));
-  const binary = tokens[0]?.split('/').pop();
-  if (!binary) return null;
-  const next = tokens[1];
-  return next && /^[a-z][a-z0-9-]*$/.test(next) ? `${binary} ${next}` : binary;
 };
 // Blocks that look like false positives rather than catches: a fail-closed
 // denial reports that analysis failed, not that the command was dangerous, and
@@ -1415,10 +1396,7 @@ const pathLists = {
         ...candidate.secret_protection,
         deny_paths: paths,
       };
-      const result = await requestJson('/api/policy/preview', {
-        method: 'POST',
-        body: JSON.stringify(candidate),
-      });
+      const result = await requestPolicyPreview(candidate);
       if (result.ok && result.data?.preview) return null;
       return errorText(result);
     },
@@ -1436,10 +1414,7 @@ const pathLists = {
         ...candidate.destructive_command_protection,
         allow_paths: paths,
       };
-      const result = await requestJson('/api/policy/preview', {
-        method: 'POST',
-        body: JSON.stringify(candidate),
-      });
+      const result = await requestPolicyPreview(candidate);
       if (result.ok && result.data?.preview) return null;
       return errorText(result);
     },
@@ -1791,10 +1766,7 @@ const renderDestructiveCommands = () => {
 };
 const refreshPolicyPreview = async () => {
   const requestId = ++previewRequestId;
-  const result = await requestJson('/api/policy/preview', {
-    method: 'POST',
-    body: JSON.stringify(collectFormPolicy()),
-  });
+  const result = await requestPolicyPreview();
   if (requestId !== previewRequestId) return false;
   if (!result.ok || !result.data?.preview) {
     setAppStatus('Preview failed', 'error');

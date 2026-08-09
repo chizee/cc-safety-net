@@ -1630,11 +1630,7 @@ function normalizeCandidatePath(
   cwd: string,
   budget: PathCanonicalizationBudget,
 ): string {
-  const homeValue = process.env.HOME ?? homedir();
-  const home = homeValue
-    ? normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget))
-    : '';
-  const normalized = normalizePathText(normalizeFileUriPath(projectSensitiveShellText(target)));
+  const { home, normalized } = prepareCandidatePath(target, budget);
   if (!normalized) {
     return '';
   }
@@ -1661,11 +1657,7 @@ function normalizeAbsoluteCandidatePath(
   cwd: string,
   budget: PathCanonicalizationBudget,
 ): string {
-  const homeValue = process.env.HOME ?? homedir();
-  const home = homeValue
-    ? normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget))
-    : '';
-  const normalized = normalizePathText(normalizeFileUriPath(projectSensitiveShellText(target)));
+  const { home, normalized } = prepareCandidatePath(target, budget);
   if (!normalized) return '';
   const expanded = home ? expandHomePath(normalized, home) : normalized;
   return normalizePathText(
@@ -1675,6 +1667,15 @@ function normalizeAbsoluteCandidatePath(
       budget,
     ),
   );
+}
+
+function prepareCandidatePath(target: string, budget: PathCanonicalizationBudget) {
+  const homeValue = process.env.HOME ?? homedir();
+  const home = homeValue
+    ? normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget))
+    : '';
+  const normalized = normalizePathText(normalizeFileUriPath(projectSensitiveShellText(target)));
+  return { home, normalized };
 }
 
 function normalizeFileUriPath(value: string): string {

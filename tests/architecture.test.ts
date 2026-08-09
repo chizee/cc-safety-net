@@ -73,7 +73,7 @@ describe('source architecture', () => {
           .filter(
             (specifier) =>
               !/^@\/(?:cli|gui|ir|integrations)(?:\/|$)/.test(specifier) &&
-              specifier !== '@/engine/facade' &&
+              !['@/engine/facade', '@/engine/browser-facade'].includes(specifier) &&
               !adminExceptions.some(
                 ([prefix, allowed]) => file.startsWith(prefix) && allowed.test(specifier),
               ),

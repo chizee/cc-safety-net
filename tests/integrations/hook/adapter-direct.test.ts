@@ -69,6 +69,17 @@ async function expectAntigravityFailClosed(input: object): Promise<void> {
   expect(output.reason).toContain('CC Safety Net failed closed');
 }
 
+async function expectClaudeReadAllowed(cwd: string): Promise<void> {
+  const result = await runWithInput(runClaudeCodeHook, {
+    hook_event_name: 'PreToolUse',
+    cwd,
+    tool_name: 'Read',
+    tool_input: { file_path: 'README.md' },
+  });
+
+  expect(result.stdout).toBe('');
+}
+
 describe('hook adapter direct integration', () => {
   test('Claude Code hook blocks supported Bash commands', async () => {
     const output = await runHookJson(runClaudeCodeHook, claudeCodeBashInput('git reset --hard'));
@@ -292,14 +303,7 @@ describe('hook adapter direct integration', () => {
         }),
         'utf-8',
       );
-      const result = await runWithInput(runClaudeCodeHook, {
-        hook_event_name: 'PreToolUse',
-        cwd,
-        tool_name: 'Read',
-        tool_input: { file_path: 'README.md' },
-      });
-
-      expect(result.stdout).toBe('');
+      await expectClaudeReadAllowed(cwd);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -309,15 +313,8 @@ describe('hook adapter direct integration', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-direct-rule-repair-'));
     try {
       writeDefaultRulesConfig(join(cwd, '.cc-safety-net/rules/rule.json'), ['project-rules']);
-      const result = await runWithInput(runClaudeCodeHook, {
-        hook_event_name: 'PreToolUse',
-        cwd,
-        tool_name: 'Read',
-        tool_input: { file_path: 'README.md' },
-      });
-
       // The unsynchronized source is dropped, not enforced, so nothing is denied.
-      expect(result.stdout).toBe('');
+      await expectClaudeReadAllowed(cwd);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

@@ -1,9 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { analyzeGit, getGitWorktreeRelaxation } from '@/analyzer/git';
 import { testEnvironment } from '../helpers/environment.ts';
+import {
+  runGit,
+  withSymlinkedLinkedWorktreeDirectory,
+  withSymlinkToMainWorktreeSubdirectory,
+} from '../helpers/git-worktree';
 import {
   assertAllowed,
   assertBlocked,
@@ -637,43 +641,32 @@ describe('git linked worktree mode', () => {
   });
 
   test('SAFETY_NET_WORKTREE allows symlinked cwd inside linked worktree', () => {
-    const fixture = createLinkedWorktreeFixture();
-    const nested = join(fixture.linkedWorktree, 'nested');
-    const symlinkedCwd = join(fixture.rootDir, 'nested-link');
-    mkdirSync(nested);
-    symlinkSync(nested, symlinkedCwd, 'dir');
-    try {
+    withSymlinkedLinkedWorktreeDirectory((_fixture, symlinkedCwd) => {
       withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
         assertAllowed('git reset --hard', symlinkedCwd);
       });
-    } finally {
-      fixture.cleanup();
-    }
+    });
   });
 
   test('SAFETY_NET_WORKTREE uses physical cwd for wrapper chdir targets', () => {
-    const fixture = createLinkedWorktreeFixture();
-    const mainSubdir = join(fixture.mainWorktree, 'subdir');
-    const symlinkedMainSubdir = join(fixture.linkedWorktree, 'main-subdir-link');
-    mkdirSync(mainSubdir);
-    symlinkSync(mainSubdir, symlinkedMainSubdir, 'dir');
-    try {
+    withSymlinkToMainWorktreeSubdirectory('main-subdir-link', (_fixture, symlinkedCwd) => {
       withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
-        assertBlocked('env -C .. git reset --hard', 'git reset --hard', symlinkedMainSubdir);
-        assertBlocked('sudo -D .. git reset --hard', 'git reset --hard', symlinkedMainSubdir);
+        assertBlocked('env -C .. git reset --hard', 'git reset --hard', symlinkedCwd);
+        assertBlocked('sudo -D .. git reset --hard', 'git reset --hard', symlinkedCwd);
       });
-    } finally {
-      fixture.cleanup();
-    }
+    });
   });
 
   test('SAFETY_NET_WORKTREE allows nested linked worktrees', () => {
     const fixture = createLinkedWorktreeFixture();
     const nestedWorktree = join(fixture.linkedWorktree, 'inner-worktree');
-    execFileSync('git', ['worktree', 'add', '-b', 'feature/nested-worktree-test', nestedWorktree], {
-      cwd: fixture.mainWorktree,
-      stdio: 'ignore',
-    });
+    runGit(fixture.mainWorktree, [
+      'worktree',
+      'add',
+      '-b',
+      'feature/nested-worktree-test',
+      nestedWorktree,
+    ]);
     try {
       withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
         assertAllowed('git reset --hard', nestedWorktree);
@@ -882,12 +875,7 @@ describe('git linked worktree mode', () => {
   });
 
   test('SAFETY_NET_WORKTREE resolves wrapper chdir targets physically', () => {
-    const fixture = createLinkedWorktreeFixture();
-    const mainSubdir = join(fixture.mainWorktree, 'subdir');
-    const symlinkedMainSubdir = join(fixture.linkedWorktree, 'link');
-    mkdirSync(mainSubdir);
-    symlinkSync(mainSubdir, symlinkedMainSubdir, 'dir');
-    try {
+    withSymlinkToMainWorktreeSubdirectory('link', (fixture) => {
       withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
         assertBlocked(
           'env -C link/.. git reset --hard',
@@ -900,9 +888,7 @@ describe('git linked worktree mode', () => {
           fixture.linkedWorktree,
         );
       });
-    } finally {
-      fixture.cleanup();
-    }
+    });
   });
 
   test('SAFETY_NET_WORKTREE parses env split strings before relaxing', () => {
@@ -1594,10 +1580,7 @@ describe('git linked worktree mode', () => {
   test('SAFETY_NET_WORKTREE keeps configured recursive submodule discards blocked', () => {
     const fixture = createLinkedWorktreeFixture();
     try {
-      execFileSync('git', ['config', 'submodule.recurse', 'true'], {
-        cwd: fixture.linkedWorktree,
-        stdio: 'ignore',
-      });
+      runGit(fixture.linkedWorktree, ['config', 'submodule.recurse', 'true']);
 
       withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
         assertBlocked('git reset --hard', 'git reset --hard', fixture.linkedWorktree);
@@ -1610,14 +1593,13 @@ describe('git linked worktree mode', () => {
   test('SAFETY_NET_WORKTREE verifies worktree config before relaxing', () => {
     const fixture = createLinkedWorktreeFixture();
     try {
-      execFileSync('git', ['config', 'extensions.worktreeConfig', 'true'], {
-        cwd: fixture.mainWorktree,
-        stdio: 'ignore',
-      });
-      execFileSync('git', ['config', '--worktree', 'core.worktree', fixture.mainWorktree], {
-        cwd: fixture.linkedWorktree,
-        stdio: 'ignore',
-      });
+      runGit(fixture.mainWorktree, ['config', 'extensions.worktreeConfig', 'true']);
+      runGit(fixture.linkedWorktree, [
+        'config',
+        '--worktree',
+        'core.worktree',
+        fixture.mainWorktree,
+      ]);
 
       withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
         assertBlocked('git reset --hard', 'git reset --hard', fixture.linkedWorktree);

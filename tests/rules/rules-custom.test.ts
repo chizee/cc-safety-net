@@ -13,6 +13,16 @@ const blockGitAddAllRule: CustomRule = {
   reason: 'Use specific files.',
 };
 
+function makeGitRule(blockArgs: string[], subcommand?: string): CustomRule {
+  return {
+    name: 'test',
+    command: 'git',
+    subcommand,
+    block_args: blockArgs,
+    reason: 'test',
+  };
+}
+
 describe('custom rule matching', () => {
   test('basic command match', () => {
     const result = checkCustomRules(['git', 'add', '-A'], [blockGitAddAllRule]);
@@ -107,15 +117,7 @@ describe('custom rule matching', () => {
   });
 
   test('command matching normalizes executable token case', () => {
-    const rules: CustomRule[] = [
-      {
-        name: 'test',
-        command: 'git',
-        subcommand: undefined,
-        block_args: ['-A'],
-        reason: 'test',
-      },
-    ];
+    const rules = [makeGitRule(['-A'])];
     let result = checkCustomRules(['git', '-A'], rules);
     expect(result).toBe('[test] test');
 
@@ -127,15 +129,7 @@ describe('custom rule matching', () => {
   });
 
   test('case sensitive arg matching', () => {
-    const rules: CustomRule[] = [
-      {
-        name: 'test',
-        command: 'git',
-        subcommand: undefined,
-        block_args: ['-A'],
-        reason: 'test',
-      },
-    ];
+    const rules = [makeGitRule(['-A'])];
     // -A matches
     let result = checkCustomRules(['git', '-A'], rules);
     expect(result).not.toBeNull();
@@ -335,45 +329,21 @@ describe('custom rule matching', () => {
   });
 
   test('combined short options expanded', () => {
-    const rules: CustomRule[] = [
-      {
-        name: 'test',
-        command: 'git',
-        subcommand: 'add',
-        block_args: ['-A'],
-        reason: 'test',
-      },
-    ];
+    const rules = [makeGitRule(['-A'], 'add')];
     // -Ap contains -A, so it should be blocked
     const result = checkCustomRules(['git', 'add', '-Ap'], rules);
     expect(result).toBe('[test] test');
   });
 
   test('combined short options case sensitive', () => {
-    const rules: CustomRule[] = [
-      {
-        name: 'test',
-        command: 'git',
-        subcommand: 'add',
-        block_args: ['-A'],
-        reason: 'test',
-      },
-    ];
+    const rules = [makeGitRule(['-A'], 'add')];
     // -ap does NOT contain -A (lowercase a != uppercase A)
     const result = checkCustomRules(['git', 'add', '-ap'], rules);
     expect(result).toBeNull();
   });
 
   test('combined short options multiple flags', () => {
-    const rules: CustomRule[] = [
-      {
-        name: 'test',
-        command: 'git',
-        subcommand: 'add',
-        block_args: ['-u'],
-        reason: 'test',
-      },
-    ];
+    const rules = [makeGitRule(['-u'], 'add')];
     // -Aup contains -u
     const result = checkCustomRules(['git', 'add', '-Aup'], rules);
     expect(result).toBe('[test] test');

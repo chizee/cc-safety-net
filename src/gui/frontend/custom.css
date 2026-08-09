@@ -991,8 +991,8 @@ button.rule-id:hover {
   font-weight: 600;
 }
 
-.feed-command {
-  padding: 8px 10px;
+.feed-command,
+.rule-example-popover code {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
@@ -1000,6 +1000,10 @@ button.rule-id:hover {
   font-size: 12px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.feed-command {
+  padding: 8px 10px;
   max-width: 85ch;
   max-height: 7.2em;
   overflow: hidden;
@@ -1266,13 +1270,6 @@ button.rule-id:hover {
 
 .rule-example-popover code {
   padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
 }
 
 .confirm-dialog::backdrop {
@@ -1409,6 +1406,10 @@ h2 {
 label.row {
   display: flex;
   gap: 12px;
+}
+
+label.row,
+.rule-row {
   align-items: flex-start;
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -1729,15 +1730,7 @@ label.row.safety-override-row select {
 .rule-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: flex-start;
   gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease;
 }
 
 .rule-row:hover {

@@ -51,6 +51,31 @@ function recursionLimitErrorStep(command: string) {
   );
 }
 
+function expectExplainMatchesEnforcement(command: string, options?: TestExplainOptions): void {
+  const enforced = analyzeTestCommand(command, options);
+  const explained = explainCommand(command, options);
+
+  expect(explained.result).toBe(enforced ? 'blocked' : 'allowed');
+  expect(explained.reason).toBe(enforced?.reason);
+}
+
+function analyzeAtDepth(command: string, depth: number) {
+  const snapshot = policySnapshot();
+  const recorder = createCommandTraceRecorder();
+  const trace = createCommandTraceContext(recorder);
+  trace.currentSegmentIndex = 0;
+  const result = analyzeCommandInternal(command, depth, {
+    cwd: '/tmp',
+    policySnapshot: snapshot,
+    environment: TEST_ENVIRONMENT,
+    protectedGitMetadata: null,
+    effectiveCapabilities: testModes().capabilities,
+    policy: commandAnalysisPolicy(snapshot),
+    trace,
+  });
+  return { result, events: recorder.finish({ result: 'allowed' }).events };
+}
+
 function expectDangerousTextStep(command: string): void {
   const result = explainCommand(command);
   expect(result.result).toBe('blocked');
@@ -126,11 +151,7 @@ describe('explainCommand', () => {
       'xargs r$(printf m) -rf',
       'parallel r$(printf m) -rf ::: child',
     ]) {
-      const enforced = analyzeTestCommand(command);
-      const explained = explainCommand(command);
-
-      expect(explained.result).toBe(enforced ? 'blocked' : 'allowed');
-      expect(explained.reason).toBe(enforced?.reason);
+      expectExplainMatchesEnforcement(command);
     }
   });
 
@@ -157,11 +178,7 @@ describe('explainCommand', () => {
       'find . -fprintf $(printf output) $(printf format)',
       'find . -fprintf $(printf output) $(printf format) $(printf -delete)',
     ]) {
-      const enforced = analyzeTestCommand(command);
-      const explained = explainCommand(command);
-
-      expect(explained.result).toBe(enforced ? 'blocked' : 'allowed');
-      expect(explained.reason).toBe(enforced?.reason);
+      expectExplainMatchesEnforcement(command);
     }
   });
 
@@ -187,11 +204,7 @@ describe('explainCommand', () => {
         'env FOO=bar git reset --ha$(printf rd)',
         'command -- find . -exec rm -$(printf rf) {} ;',
       ]) {
-        const enforced = analyzeTestCommand(command, { cwd });
-        const explained = explainCommand(command, { cwd });
-
-        expect(explained.result).toBe(enforced ? 'blocked' : 'allowed');
-        expect(explained.reason).toBe(enforced?.reason);
+        expectExplainMatchesEnforcement(command, { cwd });
       }
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -1251,42 +1264,18 @@ describe('getConfigSource user config paths', () => {
 
 describe('explainSegment direct depth limit', () => {
   test('intrinsic evaluator trace records the recursion limit at MAX_RECURSION_DEPTH', () => {
-    const snapshot = policySnapshot();
-    const recorder = createCommandTraceRecorder();
-    const trace = createCommandTraceContext(recorder);
-    trace.currentSegmentIndex = 0;
-    const result = analyzeCommandInternal('rm -rf /', MAX_RECURSION_DEPTH, {
-      cwd: '/tmp',
-      policySnapshot: snapshot,
-      environment: TEST_ENVIRONMENT,
-      protectedGitMetadata: null,
-      effectiveCapabilities: testModes().capabilities,
-      policy: commandAnalysisPolicy(snapshot),
-      trace,
-    });
+    const { result, events } = analyzeAtDepth('rm -rf /', MAX_RECURSION_DEPTH);
     expect(result?.reason).toBe(REASON_RECURSION_LIMIT);
-    expect(recorder.finish({ result: 'allowed' }).events[0]?.step).toEqual({
+    expect(events[0]?.step).toEqual({
       type: 'error',
       message: REASON_RECURSION_LIMIT,
     });
   });
 
   test('intrinsic evaluator trace remains bounded above MAX_RECURSION_DEPTH', () => {
-    const snapshot = policySnapshot();
-    const recorder = createCommandTraceRecorder();
-    const trace = createCommandTraceContext(recorder);
-    trace.currentSegmentIndex = 0;
-    const result = analyzeCommandInternal('git status', MAX_RECURSION_DEPTH + 5, {
-      cwd: '/tmp',
-      policySnapshot: snapshot,
-      environment: TEST_ENVIRONMENT,
-      protectedGitMetadata: null,
-      effectiveCapabilities: testModes().capabilities,
-      policy: commandAnalysisPolicy(snapshot),
-      trace,
-    });
+    const { result, events } = analyzeAtDepth('git status', MAX_RECURSION_DEPTH + 5);
     expect(result?.reason).toBe(REASON_RECURSION_LIMIT);
-    expect(recorder.finish({ result: 'allowed' }).events).toHaveLength(1);
+    expect(events).toHaveLength(1);
   });
 });
 

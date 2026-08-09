@@ -1,29 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { AMP_MANAGED_HEADER } from '@/integrations/amp/artifact';
 import { getCursorHooksPath } from '@/integrations/cursor/install';
 import { makeTempHome, runCli } from '../../integrations/hook-helpers';
-
-function writeClaudePluginRecords(
-  homeDir: string,
-  pluginIds: readonly string[],
-  enabled: Record<string, boolean> = {},
-) {
-  mkdirSync(join(homeDir, '.claude', 'plugins'), { recursive: true });
-  writeFileSync(
-    join(homeDir, '.claude', 'plugins', 'installed_plugins.json'),
-    JSON.stringify({
-      plugins: Object.fromEntries(pluginIds.map((id) => [id, [{ scope: 'user' }]])),
-    }),
-  );
-  writeFileSync(
-    join(homeDir, '.claude', 'settings.json'),
-    JSON.stringify({
-      enabledPlugins: Object.fromEntries(pluginIds.map((id) => [id, enabled[id] ?? true])),
-    }),
-  );
-}
+import {
+  makeLoggedFakeCommandHome,
+  writeClaudePluginRecords,
+} from '../../integrations/install/install-test-helpers';
 
 function writeCursorHook(homeDir: string) {
   const path = getCursorHooksPath(homeDir);
@@ -47,26 +31,10 @@ function writeCursorHook(homeDir: string) {
 }
 
 function makeFakeBinHome(name: string, commands: readonly string[]) {
-  const homeDir = makeTempHome(name);
-  const binDir = join(homeDir, 'bin');
-  const logPath = join(homeDir, 'commands.log');
-  mkdirSync(binDir, { recursive: true });
-
-  commands.forEach((command) => {
-    const path = join(binDir, command);
-    writeFileSync(
-      path,
-      `#!/usr/bin/env sh
-printf '%s\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
-`,
-    );
-    chmodSync(path, 0o755);
-  });
-
+  const fake = makeLoggedFakeCommandHome(name, commands);
   return {
-    homeDir,
-    logPath,
-    path: [binDir, dirname(process.execPath), '/usr/bin', '/bin'].join(delimiter),
+    ...fake,
+    path: [fake.binDir, dirname(process.execPath), '/usr/bin', '/bin'].join(delimiter),
   };
 }
 
@@ -108,7 +76,9 @@ function runUpdate(options: { homeDir: string; path: string; logPath?: string })
 describe('update command', () => {
   test('updates a configured Claude Code integration', async () => {
     const fake = makeFakeBinHome('safety-net-update-claude', ['claude']);
-    writeClaudePluginRecords(fake.homeDir, ['cc-safety-net@cc-marketplace']);
+    writeClaudePluginRecords(fake.homeDir, ['cc-safety-net@cc-marketplace'], {
+      enableByDefault: true,
+    });
 
     try {
       const result = await runUpdate(fake);
@@ -128,7 +98,8 @@ describe('update command', () => {
   test('updates and re-enables a disabled Claude Code integration', async () => {
     const fake = makeFakeBinHome('safety-net-update-disabled-claude', ['claude']);
     writeClaudePluginRecords(fake.homeDir, ['cc-safety-net@cc-marketplace'], {
-      'cc-safety-net@cc-marketplace': false,
+      enabled: { 'cc-safety-net@cc-marketplace': false },
+      enableByDefault: true,
     });
 
     try {
@@ -161,7 +132,9 @@ describe('update command', () => {
 
   test('migrates a legacy-only Claude Code integration', async () => {
     const fake = makeFakeBinHome('safety-net-update-legacy-claude', ['claude']);
-    writeClaudePluginRecords(fake.homeDir, ['safety-net@cc-marketplace']);
+    writeClaudePluginRecords(fake.homeDir, ['safety-net@cc-marketplace'], {
+      enableByDefault: true,
+    });
 
     try {
       const result = await runUpdate(fake);
@@ -246,7 +219,9 @@ fi
 
   test('skips a configured native integration when its CLI is missing', async () => {
     const homeDir = makeTempHome('safety-net-update-missing-cli');
-    writeClaudePluginRecords(homeDir, ['cc-safety-net@cc-marketplace']);
+    writeClaudePluginRecords(homeDir, ['cc-safety-net@cc-marketplace'], {
+      enableByDefault: true,
+    });
 
     try {
       const result = await runUpdate({ homeDir, path: dirname(process.execPath) });
@@ -297,7 +272,9 @@ fi
 
   test('stops at the first target failure', async () => {
     const fake = makeFakeBinHome('safety-net-update-failure', ['claude', 'codex']);
-    writeClaudePluginRecords(fake.homeDir, ['cc-safety-net@cc-marketplace']);
+    writeClaudePluginRecords(fake.homeDir, ['cc-safety-net@cc-marketplace'], {
+      enableByDefault: true,
+    });
     writeFileSync(
       join(fake.homeDir, 'bin', 'claude'),
       `#!/usr/bin/env sh

@@ -3,7 +3,6 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { dirname, join, toNamespacedPath } from 'node:path';
 import { createPiToolCallHandler, handlePiToolCall } from '@/integrations/pi/tool-call';
-import type { AnalyzeOptions } from '@/ir/analysis';
 import { getUserPolicyPath } from '@/policy/store';
 import { syncRulesConfig, writeDefaultRulesConfig } from '@/rules/policy';
 import {
@@ -12,14 +11,13 @@ import {
   withEnv,
   withLinkedWorktreeFixture,
 } from '../../helpers';
+import { type AnalyzeCall, captureAnalyzeCalls } from '../../helpers/analyze-capture';
 import {
   initialGitRule,
   syncInitialGitRulebook,
   updatedGitRule,
   writeUpdatedGitRulebook,
 } from '../../helpers/rulebook';
-
-type AnalyzeCall = { command: string; cwd?: string; shell?: string };
 
 describe('Pi tool_call event', () => {
   test('allows safe bash commands', () => {
@@ -950,13 +948,6 @@ describe('Pi tool_call event', () => {
     ).toBeUndefined();
   });
 });
-
-function captureAnalyzeCalls(calls: AnalyzeCall[]) {
-  return (command: string, options: AnalyzeOptions) => {
-    calls.push({ command, cwd: options.cwd, shell: options.shell });
-    return null;
-  };
-}
 
 function bashToolCall(command: string) {
   return {

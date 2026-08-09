@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { Writable } from 'node:stream';
 import { runInstallCommand } from '@/cli/install';
@@ -7,6 +7,10 @@ import type { InstallTargetChoice } from '@/integrations/install/choices';
 import type { InstallTarget } from '@/integrations/install/targets';
 import { withEnv } from '../../helpers';
 import { makeTempHome, runCli } from '../../integrations/hook-helpers';
+import {
+  writeClaudePluginRecords,
+  writeFakeCommands,
+} from '../../integrations/install/install-test-helpers';
 
 const PROBED_CLIS = [
   'agy',
@@ -24,14 +28,7 @@ const PROBED_CLIS = [
 ] as const;
 
 function makeFakeBin(homeDir: string, bodies: Readonly<Record<string, string>>) {
-  const binDir = join(homeDir, 'bin');
-  mkdirSync(binDir, { recursive: true });
-  Object.entries(bodies).forEach(([command, body]) => {
-    const path = join(binDir, command);
-    writeFileSync(path, `#!/usr/bin/env sh\n${body}\n`);
-    chmodSync(path, 0o755);
-  });
-  return `${binDir}${delimiter}${process.env.PATH ?? ''}`;
+  return `${writeFakeCommands(homeDir, bodies)}${delimiter}${process.env.PATH ?? ''}`;
 }
 
 /** Runs a real `install --<target>` against a hand-written settings file and returns its final text. */
@@ -138,15 +135,9 @@ describe('interactive uninstall detection', () => {
       'safety-net-uninstall-claude-disabled',
       {},
       (homeDir) => {
-        mkdirSync(join(homeDir, '.claude', 'plugins'), { recursive: true });
-        writeFileSync(
-          join(homeDir, '.claude', 'plugins', 'installed_plugins.json'),
-          JSON.stringify({ plugins: { 'cc-safety-net@cc-marketplace': [{ scope: 'user' }] } }),
-        );
-        writeFileSync(
-          join(homeDir, '.claude', 'settings.json'),
-          JSON.stringify({ enabledPlugins: { 'cc-safety-net@cc-marketplace': false } }),
-        );
+        writeClaudePluginRecords(homeDir, ['cc-safety-net@cc-marketplace'], {
+          enabled: { 'cc-safety-net@cc-marketplace': false },
+        });
       },
     );
 

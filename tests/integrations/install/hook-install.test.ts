@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -22,6 +21,11 @@ import {
 import { getAntigravityHooksPath } from '@/integrations/antigravity/hook';
 import { getCursorHooksPath, installCursor, uninstallCursor } from '@/integrations/cursor/install';
 import { makeTempHome, runCli } from '../hook-helpers';
+import {
+  makeLoggedFakeCommandHome,
+  writeAntigravityConfig,
+  writeClaudePluginRecords,
+} from './install-test-helpers';
 
 const CURSOR_CANONICAL_ENTRY = {
   command: 'npx -y cc-safety-net hook --cursor',
@@ -35,25 +39,12 @@ command = "npx -y cc-safety-net hook --kimi-code"`;
 const KIMI_INLINE_HOOK =
   '{ event = "PreToolUse", command = "npx -y cc-safety-net hook --kimi-code" }';
 const ANTIGRAVITY_HOOK_COMMAND = 'npx -y cc-safety-net hook --agy-cli';
-
-function writeClaudePluginRecords(
-  homeDir: string,
-  pluginIds: readonly string[],
-  enabled: Record<string, boolean> = {},
-) {
-  mkdirSync(join(homeDir, '.claude', 'plugins'), { recursive: true });
-  writeFileSync(
-    join(homeDir, '.claude', 'plugins', 'installed_plugins.json'),
-    JSON.stringify({
-      version: 2,
-      plugins: Object.fromEntries(pluginIds.map((id) => [id, [{ scope: 'user' }]])),
-    }),
-  );
-  writeFileSync(
-    join(homeDir, '.claude', 'settings.json'),
-    JSON.stringify({ enabledPlugins: enabled }),
-  );
-}
+const COPILOT_INSTALL_COMMANDS = [
+  'copilot plugin list',
+  'copilot plugin marketplace list',
+  'copilot plugin marketplace add kenryu42/cc-marketplace',
+  'copilot plugin install cc-safety-net@cc-marketplace',
+] as const;
 
 function writeGeminiExtension(homeDir: string, options: { disabled?: boolean } = {}) {
   const extensionsDir = join(homeDir, '.gemini', 'extensions');
@@ -71,13 +62,6 @@ function writeKimiConfig(homeDir: string, content: string) {
   const configPath = join(shareDir, 'config.toml');
   mkdirSync(shareDir, { recursive: true });
   writeFileSync(configPath, content);
-  return configPath;
-}
-
-function writeAntigravityConfig(homeDir: string, config: unknown) {
-  const configPath = getAntigravityHooksPath(homeDir);
-  mkdirSync(join(configPath, '..'), { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2));
   return configPath;
 }
 
@@ -105,23 +89,8 @@ function writeNpxCacheEntry(homeDir: string, entry: string, packageName: string)
 }
 
 function makeFakeBinHome(name: string, commands: readonly string[]) {
-  const homeDir = makeTempHome(name);
-  const binDir = join(homeDir, 'bin');
-  const logPath = join(homeDir, 'commands.log');
-  mkdirSync(binDir, { recursive: true });
-
-  commands.forEach((command) => {
-    const path = join(binDir, command);
-    writeFileSync(
-      path,
-      `#!/usr/bin/env sh
-printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
-`,
-    );
-    chmodSync(path, 0o755);
-  });
-
-  return { homeDir, logPath, path: `${binDir}${delimiter}${process.env.PATH ?? ''}` };
+  const fake = makeLoggedFakeCommandHome(name, commands);
+  return { ...fake, path: `${fake.binDir}${delimiter}${process.env.PATH ?? ''}` };
 }
 
 function readCommandLog(logPath: string): string[] {
@@ -131,6 +100,24 @@ function readCommandLog(logPath: string): string[] {
 
 function normalizedCommandLog(logPath: string): string[] {
   return readCommandLog(logPath).map((entry) => entry.replace(/^.*\/bin\//, ''));
+}
+
+function runNativeCli(
+  fake: ReturnType<typeof makeFakeBinHome>,
+  action: 'install' | 'uninstall',
+  targetFlag: string,
+) {
+  return runCli([action, targetFlag], '', {
+    HOME: fake.homeDir,
+    PATH: fake.path,
+    CC_SAFETY_NET_TEST_COMMAND_LOG: fake.logPath,
+  });
+}
+
+function expectCodexTrustReminder(result: Awaited<ReturnType<typeof runCli>>) {
+  expect(result.stdout).toContain('Start Codex');
+  expect(result.stdout).toContain('/hooks');
+  expect(result.stdout).toContain('press `t`');
 }
 
 type NativeActionOptions = {
@@ -153,11 +140,7 @@ async function expectNativeAction(
 
   try {
     options.setup?.(fake);
-    const result = await runCli([action, targetFlag], '', {
-      HOME: fake.homeDir,
-      PATH: fake.path,
-      CC_SAFETY_NET_TEST_COMMAND_LOG: fake.logPath,
-    });
+    const result = await runNativeCli(fake, action, targetFlag);
 
     expect(result.exitCode).toBe(0);
     expect(normalizedCommandLog(fake.logPath)).toEqual([...expectedCommands]);
@@ -181,6 +164,16 @@ async function expectNativeInstall(
     fakeCommands,
     expectedCommands,
     stdoutContains,
+    options,
+  );
+}
+
+function expectCopilotInstall(options: NativeActionOptions = {}) {
+  return expectNativeInstall(
+    '--copilot-cli',
+    ['copilot'],
+    COPILOT_INSTALL_COMMANDS,
+    'Installed GitHub Copilot CLI integration',
     options,
   );
 }
@@ -212,6 +205,16 @@ async function runAntigravityInstall(homeDir: string, configPath: string) {
 async function runAntigravityUninstall(homeDir: string, configPath: string) {
   const result = await runCli(['uninstall', '--agy-cli'], '', { HOME: homeDir });
   return { result, config: JSON.parse(readFileSync(configPath, 'utf-8')) };
+}
+
+function getCopilotSettingsPath(homeDir: string) {
+  return join(homeDir, '.copilot', 'settings.json');
+}
+
+function writeCopilotSettings(homeDir: string, content: string) {
+  const settingsPath = getCopilotSettingsPath(homeDir);
+  mkdirSync(join(settingsPath, '..'), { recursive: true });
+  writeFileSync(settingsPath, content);
 }
 
 function expectInstalledKimiInlineHook(
@@ -275,11 +278,7 @@ describe('install command', () => {
       ],
       'Installed Codex integration',
       {
-        assert: (_fake, result) => {
-          expect(result.stdout).toContain('Start Codex');
-          expect(result.stdout).toContain('/hooks');
-          expect(result.stdout).toContain('press `t`');
-        },
+        assert: (_fake, result) => expectCodexTrustReminder(result),
       },
     );
   });
@@ -309,7 +308,8 @@ describe('install command', () => {
       {
         setup: (fake) => {
           writeClaudePluginRecords(fake.homeDir, ['safety-net@cc-marketplace'], {
-            'safety-net@cc-marketplace': true,
+            enabled: { 'safety-net@cc-marketplace': true },
+            version: 2,
           });
         },
       },
@@ -328,7 +328,8 @@ describe('install command', () => {
       {
         setup: (fake) => {
           writeClaudePluginRecords(fake.homeDir, ['cc-safety-net@cc-marketplace'], {
-            'cc-safety-net@cc-marketplace': true,
+            enabled: { 'cc-safety-net@cc-marketplace': true },
+            version: 2,
           });
         },
       },
@@ -351,8 +352,11 @@ describe('install command', () => {
             fake.homeDir,
             ['cc-safety-net@cc-marketplace', 'safety-net@cc-marketplace'],
             {
-              'cc-safety-net@cc-marketplace': true,
-              'safety-net@cc-marketplace': true,
+              enabled: {
+                'cc-safety-net@cc-marketplace': true,
+                'safety-net@cc-marketplace': true,
+              },
+              version: 2,
             },
           );
         },
@@ -373,7 +377,8 @@ describe('install command', () => {
       {
         setup: (fake) => {
           writeClaudePluginRecords(fake.homeDir, ['cc-safety-net@cc-marketplace'], {
-            'cc-safety-net@cc-marketplace': false,
+            enabled: { 'cc-safety-net@cc-marketplace': false },
+            version: 2,
           });
         },
       },
@@ -429,11 +434,7 @@ fi
 `,
           );
         },
-        assert: (_fake, result) => {
-          expect(result.stdout).toContain('Start Codex');
-          expect(result.stdout).toContain('/hooks');
-          expect(result.stdout).toContain('press `t`');
-        },
+        assert: (_fake, result) => expectCodexTrustReminder(result),
       },
     );
   });
@@ -586,16 +587,12 @@ fi
 `,
     );
     writeClaudePluginRecords(fake.homeDir, ['safety-net@cc-marketplace'], {
-      'safety-net@cc-marketplace': true,
+      enabled: { 'safety-net@cc-marketplace': true },
+      version: 2,
     });
-    chmodSync(join(fake.homeDir, 'bin', 'claude'), 0o755);
 
     try {
-      const result = await runCli(['install', '--claude-code'], '', {
-        HOME: fake.homeDir,
-        PATH: fake.path,
-        CC_SAFETY_NET_TEST_COMMAND_LOG: fake.logPath,
-      });
+      const result = await runNativeCli(fake, 'install', '--claude-code');
 
       expect(result.exitCode).toBe(1);
       expect(normalizedCommandLog(fake.logPath)).toEqual([
@@ -647,17 +644,7 @@ fi
   });
 
   test('GitHub Copilot CLI: installs marketplace plugin through native CLI', async () => {
-    await expectNativeInstall(
-      '--copilot-cli',
-      ['copilot'],
-      [
-        'copilot plugin list',
-        'copilot plugin marketplace list',
-        'copilot plugin marketplace add kenryu42/cc-marketplace',
-        'copilot plugin install cc-safety-net@cc-marketplace',
-      ],
-      'Installed GitHub Copilot CLI integration',
-    );
+    await expectCopilotInstall();
   });
 
   test('GitHub Copilot CLI: skips an already registered marketplace', async () => {
@@ -713,34 +700,19 @@ fi
   });
 
   test('GitHub Copilot CLI: enables a disabled plugin in settings after install', async () => {
-    await expectNativeInstall(
-      '--copilot-cli',
-      ['copilot'],
-      [
-        'copilot plugin list',
-        'copilot plugin marketplace list',
-        'copilot plugin marketplace add kenryu42/cc-marketplace',
-        'copilot plugin install cc-safety-net@cc-marketplace',
-      ],
-      'Installed GitHub Copilot CLI integration',
-      {
-        setup: (fake) => {
-          const settingsDir = join(fake.homeDir, '.copilot');
-          mkdirSync(settingsDir, { recursive: true });
-          writeFileSync(
-            join(settingsDir, 'settings.json'),
-            `${JSON.stringify({ enabledPlugins: { 'cc-safety-net@cc-marketplace': false } }, null, 2)}\n`,
-          );
-        },
-        assert: (fake, result) => {
-          const settings = JSON.parse(
-            readFileSync(join(fake.homeDir, '.copilot', 'settings.json'), 'utf-8'),
-          );
-          expect(settings.enabledPlugins['cc-safety-net@cc-marketplace']).toBe(true);
-          expect(result.stdout).toContain('Enabled cc-safety-net@cc-marketplace plugin');
-        },
+    await expectCopilotInstall({
+      setup: (fake) => {
+        writeCopilotSettings(
+          fake.homeDir,
+          `${JSON.stringify({ enabledPlugins: { 'cc-safety-net@cc-marketplace': false } }, null, 2)}\n`,
+        );
       },
-    );
+      assert: (fake, result) => {
+        const settings = JSON.parse(readFileSync(getCopilotSettingsPath(fake.homeDir), 'utf-8'));
+        expect(settings.enabledPlugins['cc-safety-net@cc-marketplace']).toBe(true);
+        expect(result.stdout).toContain('Enabled cc-safety-net@cc-marketplace plugin');
+      },
+    });
   });
 
   test('GitHub Copilot CLI: tolerates JSONC comments in settings.json', async () => {
@@ -751,29 +723,14 @@ fi
   },
 }
 `;
-    await expectNativeInstall(
-      '--copilot-cli',
-      ['copilot'],
-      [
-        'copilot plugin list',
-        'copilot plugin marketplace list',
-        'copilot plugin marketplace add kenryu42/cc-marketplace',
-        'copilot plugin install cc-safety-net@cc-marketplace',
-      ],
-      'Installed GitHub Copilot CLI integration',
-      {
-        setup: (fake) => {
-          const settingsDir = join(fake.homeDir, '.copilot');
-          mkdirSync(settingsDir, { recursive: true });
-          writeFileSync(join(settingsDir, 'settings.json'), jsoncSettings);
-        },
-        assert: (fake) => {
-          expect(readFileSync(join(fake.homeDir, '.copilot', 'settings.json'), 'utf-8')).toBe(
-            jsoncSettings,
-          );
-        },
+    await expectCopilotInstall({
+      setup: (fake) => {
+        writeCopilotSettings(fake.homeDir, jsoncSettings);
       },
-    );
+      assert: (fake) => {
+        expect(readFileSync(getCopilotSettingsPath(fake.homeDir), 'utf-8')).toBe(jsoncSettings);
+      },
+    });
   });
 
   test('GitHub Copilot CLI: enabling a disabled plugin preserves JSONC comments and formatting', async () => {
@@ -785,52 +742,28 @@ fi
   },
 }
 `;
-    await expectNativeInstall(
-      '--copilot-cli',
-      ['copilot'],
-      [
-        'copilot plugin list',
-        'copilot plugin marketplace list',
-        'copilot plugin marketplace add kenryu42/cc-marketplace',
-        'copilot plugin install cc-safety-net@cc-marketplace',
-      ],
-      'Installed GitHub Copilot CLI integration',
-      {
-        setup: (fake) => {
-          const settingsDir = join(fake.homeDir, '.copilot');
-          mkdirSync(settingsDir, { recursive: true });
-          writeFileSync(join(settingsDir, 'settings.json'), jsoncSettings);
-        },
-        assert: (fake, result) => {
-          expect(readFileSync(join(fake.homeDir, '.copilot', 'settings.json'), 'utf-8')).toBe(
-            jsoncSettings.replace(
-              '"cc-safety-net@cc-marketplace": false',
-              '"cc-safety-net@cc-marketplace": true',
-            ),
-          );
-          expect(result.stdout).toContain('Enabled cc-safety-net@cc-marketplace plugin');
-        },
+    await expectCopilotInstall({
+      setup: (fake) => {
+        writeCopilotSettings(fake.homeDir, jsoncSettings);
       },
-    );
+      assert: (fake, result) => {
+        expect(readFileSync(getCopilotSettingsPath(fake.homeDir), 'utf-8')).toBe(
+          jsoncSettings.replace(
+            '"cc-safety-net@cc-marketplace": false',
+            '"cc-safety-net@cc-marketplace": true',
+          ),
+        );
+        expect(result.stdout).toContain('Enabled cc-safety-net@cc-marketplace plugin');
+      },
+    });
   });
 
   test('GitHub Copilot CLI: does not create settings.json when absent', async () => {
-    await expectNativeInstall(
-      '--copilot-cli',
-      ['copilot'],
-      [
-        'copilot plugin list',
-        'copilot plugin marketplace list',
-        'copilot plugin marketplace add kenryu42/cc-marketplace',
-        'copilot plugin install cc-safety-net@cc-marketplace',
-      ],
-      'Installed GitHub Copilot CLI integration',
-      {
-        assert: (fake) => {
-          expect(existsSync(join(fake.homeDir, '.copilot', 'settings.json'))).toBe(false);
-        },
+    await expectCopilotInstall({
+      assert: (fake) => {
+        expect(existsSync(getCopilotSettingsPath(fake.homeDir))).toBe(false);
       },
-    );
+    });
   });
 
   test('Pi: removes the disabling extensions filter after install', async () => {
@@ -929,14 +862,9 @@ echo "native stderr" >&2
 exit 42
 `,
     );
-    chmodSync(join(fake.homeDir, 'bin', 'codex'), 0o755);
 
     try {
-      const result = await runCli(['install', '--codex'], '', {
-        HOME: fake.homeDir,
-        PATH: fake.path,
-        CC_SAFETY_NET_TEST_COMMAND_LOG: fake.logPath,
-      });
+      const result = await runNativeCli(fake, 'install', '--codex');
 
       expect(result.exitCode).toBe(1);
       expect(normalizedCommandLog(fake.logPath)).toEqual([
@@ -1615,6 +1543,11 @@ function readCursorConfig(configPath: string): {
   return JSON.parse(readFileSync(configPath, 'utf-8'));
 }
 
+function installAndReadCursorConfig(homeDir: string, configPath: string) {
+  const result = installCursor(homeDir);
+  return { config: readCursorConfig(configPath), result };
+}
+
 describe('Cursor install', () => {
   test('creates hooks.json with version 1 and the canonical entry when missing', () => {
     const homeDir = makeTempHome('safety-net-cursor-install');
@@ -1687,8 +1620,7 @@ describe('Cursor install', () => {
     });
 
     try {
-      const result = installCursor(homeDir);
-      const config = readCursorConfig(configPath);
+      const { config, result } = installAndReadCursorConfig(homeDir, configPath);
 
       expect(result.alreadyInstalled).toBe(false);
       expect(config.hooks?.preToolUse).toEqual([CURSOR_CANONICAL_ENTRY]);
@@ -1711,8 +1643,7 @@ describe('Cursor install', () => {
     });
 
     try {
-      const result = installCursor(homeDir);
-      const config = readCursorConfig(configPath);
+      const { config, result } = installAndReadCursorConfig(homeDir, configPath);
 
       expect(result.alreadyInstalled).toBe(false);
       expect(config.hooks?.preToolUse).toEqual([

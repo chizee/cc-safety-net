@@ -117,6 +117,41 @@ const DEFAULT_POLICY_BODY = {
   secret_protection: { enabled: true, overrides: {}, deny_paths: [] },
 };
 
+const PROJECT_RULE = {
+  name: 'project-rules/block-git-add-all',
+  command: 'git',
+  subcommand: 'add',
+  block_args: ['-A'],
+  reason: 'Stage specific files.',
+};
+
+const PROJECT_RULEBOOK = {
+  source: 'project' as const,
+  spec: 'project-rules',
+  name: 'project-rules',
+  version: '1.0.0',
+  rules: [PROJECT_RULE],
+};
+
+const policyWithToggle = (toggle: 'on' | 'off' | 'maybe') => ({
+  ...DEFAULT_POLICY_BODY,
+  destructive_command_protection: {
+    enabled: true,
+    overrides: { 'powershell.remove-item-recursive-force-outside-cwd': toggle },
+  },
+});
+
+const writeClaudePluginState = (homeDir: string, enabled: boolean) => {
+  const claudeDir = join(homeDir, '.claude');
+  mkdirSync(join(claudeDir, 'plugins'), { recursive: true });
+  writeFileSync(
+    join(claudeDir, 'plugins', 'installed_plugins.json'),
+    JSON.stringify({ plugins: { 'cc-safety-net@cc-marketplace': [{ scope: 'user' }] } }),
+  );
+  const enabledPlugins = { 'cc-safety-net@cc-marketplace': enabled };
+  writeFileSync(join(claudeDir, 'settings.json'), JSON.stringify({ enabledPlugins }));
+};
+
 describe('policy GUI server', () => {
   let tempDir: string;
   let safetyNetHome: string;
@@ -140,6 +175,43 @@ describe('policy GUI server', () => {
       'utf-8',
     );
   };
+
+  const writeActivityLog = (
+    entries: readonly Record<string, unknown>[],
+    filename = 'feed.jsonl',
+  ) => {
+    const logsDir = join(safetyNetHome, 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    const logFile = join(logsDir, filename);
+    writeJsonlFixture(logFile, entries);
+    return { logFile, logsDir };
+  };
+
+  const withActivityServer = async <T>(
+    logsDir: string,
+    run: (server: Awaited<ReturnType<typeof createPolicyGuiServer>>) => Promise<T>,
+  ) => {
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      activityLogsDir: logsDir,
+    });
+    try {
+      return await run(server);
+    } finally {
+      await server.close();
+    }
+  };
+
+  const createInstallApiServer = (
+    runIntegrationHandler: (
+      action: InstallAction,
+      target: InstallTarget,
+    ) => Promise<{ ok: boolean; output: string }>,
+  ) =>
+    createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      runIntegration: runIntegrationHandler,
+    });
 
   test('binds localhost and rejects missing or wrong tokens', async () => {
     const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
@@ -922,13 +994,7 @@ describe('policy GUI server', () => {
           headers: { 'content-type': 'application/json', 'x-cc-safety-net-token': server.token },
           body: JSON.stringify({
             command: TOGGLE_COMMAND,
-            policy: {
-              ...DEFAULT_POLICY_BODY,
-              destructive_command_protection: {
-                enabled: true,
-                overrides: { [TOGGLE_RULE_ID]: 'maybe' },
-              },
-            },
+            policy: policyWithToggle('maybe'),
           }),
         },
       );
@@ -942,13 +1008,7 @@ describe('policy GUI server', () => {
         server.token,
         {
           command: TOGGLE_COMMAND,
-          policy: {
-            ...DEFAULT_POLICY_BODY,
-            destructive_command_protection: {
-              enabled: true,
-              overrides: { [TOGGLE_RULE_ID]: 'off' },
-            },
-          },
+          policy: policyWithToggle('off'),
         },
       );
       expect(allowed.result).toBe('allowed');
@@ -958,13 +1018,7 @@ describe('policy GUI server', () => {
         server.token,
         {
           command: TOGGLE_COMMAND,
-          policy: {
-            ...DEFAULT_POLICY_BODY,
-            destructive_command_protection: {
-              enabled: true,
-              overrides: { [TOGGLE_RULE_ID]: 'on' },
-            },
-          },
+          policy: policyWithToggle('on'),
         },
       );
       expect(blocked.result).toBe('blocked');
@@ -1092,23 +1146,7 @@ describe('policy GUI server', () => {
       // the suite, so only the shape is asserted here; the decision itself is
       // covered in tests/bin/gui/choose-directory.test.ts.
       canPickDirectory: expect.any(Boolean),
-      rulebooks: [
-        {
-          source: 'project',
-          spec: 'project-rules',
-          name: 'project-rules',
-          version: '1.0.0',
-          rules: [
-            {
-              name: 'project-rules/block-git-add-all',
-              command: 'git',
-              subcommand: 'add',
-              block_args: ['-A'],
-              reason: 'Stage specific files.',
-            },
-          ],
-        },
-      ],
+      rulebooks: [PROJECT_RULEBOOK],
       errors: [],
       warnings: [],
     });
@@ -1508,13 +1546,11 @@ describe('policy GUI server', () => {
   });
 
   test('GET /api/activity aggregates the audit log window newest-first', async () => {
-    const logsDir = join(safetyNetHome, 'logs');
-    mkdirSync(logsDir, { recursive: true });
     // The wide case below asks for 90 days, which the default retention refuses.
     writeRetentionPolicy(90);
     const now = Date.now();
     const hour = 60 * 60 * 1000;
-    writeJsonlFixture(join(logsDir, 'feed.jsonl'), [
+    const { logFile, logsDir } = writeActivityLog([
       {
         ts: new Date(now - 2 * hour).toISOString(),
         decision: 'deny',
@@ -1556,13 +1592,9 @@ describe('policy GUI server', () => {
         agent: 'claude-code',
       },
     ]);
-    appendFileSync(join(logsDir, 'feed.jsonl'), '\nnot json');
+    appendFileSync(logFile, '\nnot json');
 
-    const server = await createPolicyGuiServer({
-      userConfigDir: join(safetyNetHome, 'rules'),
-      activityLogsDir: logsDir,
-    });
-    try {
+    await withActivityServer(logsDir, async (server) => {
       const feed = await getJson<ActivityApiResponse>(
         `${server.origin}/api/activity?token=${server.token}`,
       );
@@ -1603,36 +1635,34 @@ describe('policy GUI server', () => {
       expect(wide.counts.blockedByDay.reduce((total, count) => total + count, 0)).toBe(4);
       expect(wide.counts.analyzedByDay).toHaveLength(90);
       expect(wide.counts.analyzedByDay.reduce((total, count) => total + count, 0)).toBe(5);
-    } finally {
-      await server.close();
-    }
+    });
   });
 
   test('GET /api/activity excludes entries older than the window still present on disk', async () => {
-    const logsDir = join(safetyNetHome, 'logs');
-    mkdirSync(logsDir, { recursive: true });
     writeRetentionPolicy(90);
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
-    const logFile = join(logsDir, 'retained.jsonl');
     // A legacy root-level file with a fresh modification time is never
     // automatically pruned, so its expired entry stays physically on disk.
-    writeJsonlFixture(logFile, [
-      { ts: new Date(now - 1000).toISOString(), decision: 'deny', command: 'rm -rf /' },
-      { ts: new Date(now - 1000).toISOString(), decision: 'allow', command: 'git status' },
-      {
-        ts: new Date(now - 88 * day).toISOString(),
-        decision: 'deny',
-        command: 'shred /etc/passwd',
-      },
-      { ts: new Date(now - 100 * day).toISOString(), decision: 'deny', command: 'chmod -R 000 /' },
-    ]);
+    const { logFile, logsDir } = writeActivityLog(
+      [
+        { ts: new Date(now - 1000).toISOString(), decision: 'deny', command: 'rm -rf /' },
+        { ts: new Date(now - 1000).toISOString(), decision: 'allow', command: 'git status' },
+        {
+          ts: new Date(now - 88 * day).toISOString(),
+          decision: 'deny',
+          command: 'shred /etc/passwd',
+        },
+        {
+          ts: new Date(now - 100 * day).toISOString(),
+          decision: 'deny',
+          command: 'chmod -R 000 /',
+        },
+      ],
+      'retained.jsonl',
+    );
 
-    const server = await createPolicyGuiServer({
-      userConfigDir: join(safetyNetHome, 'rules'),
-      activityLogsDir: logsDir,
-    });
-    try {
+    await withActivityServer(logsDir, async (server) => {
       const narrow = await getJson<ActivityApiResponse>(
         `${server.origin}/api/activity?days=7&token=${server.token}`,
       );
@@ -1645,17 +1675,13 @@ describe('policy GUI server', () => {
       // though the file holding both is still on disk.
       expect(wide.counts.blocked).toBe(2);
       expect(existsSync(logFile)).toBe(true);
-    } finally {
-      await server.close();
-    }
+    });
   });
 
   test('GET /api/activity counts blocks beyond the 500-entry cap', async () => {
-    const logsDir = join(safetyNetHome, 'logs');
-    mkdirSync(logsDir, { recursive: true });
     const now = Date.now();
     const minute = 60 * 1000;
-    writeJsonlFixture(join(logsDir, 'feed.jsonl'), [
+    const { logsDir } = writeActivityLog([
       {
         ts: new Date(now - 501 * minute).toISOString(),
         decision: 'deny',
@@ -1670,11 +1696,7 @@ describe('policy GUI server', () => {
       })),
     ]);
 
-    const server = await createPolicyGuiServer({
-      userConfigDir: join(safetyNetHome, 'rules'),
-      activityLogsDir: logsDir,
-    });
-    try {
+    await withActivityServer(logsDir, async (server) => {
       const feed = await getJson<ActivityApiResponse>(
         `${server.origin}/api/activity?token=${server.token}`,
       );
@@ -1692,18 +1714,14 @@ describe('policy GUI server', () => {
       expect(
         feed.entries.slice(0, -1).every((entry) => entry.command.startsWith('git status')),
       ).toBe(true);
-    } finally {
-      await server.close();
-    }
+    });
   });
 
   test('GET /api/activity buckets the per-day series by local calendar day', async () => {
-    const logsDir = join(safetyNetHome, 'logs');
-    mkdirSync(logsDir, { recursive: true });
     const noon = new Date();
     const at = (daysAgo: number) =>
       new Date(noon.getFullYear(), noon.getMonth(), noon.getDate() - daysAgo, 12).toISOString();
-    writeJsonlFixture(join(logsDir, 'feed.jsonl'), [
+    const { logsDir } = writeActivityLog([
       {
         ts: at(0),
         decision: 'deny',
@@ -1715,11 +1733,7 @@ describe('policy GUI server', () => {
       { ts: at(10), decision: 'deny', command: 'chmod -R 000 /', reason: 'destructive' },
     ]);
 
-    const server = await createPolicyGuiServer({
-      userConfigDir: join(safetyNetHome, 'rules'),
-      activityLogsDir: logsDir,
-    });
-    try {
+    await withActivityServer(logsDir, async (server) => {
       const feed = await getJson<ActivityApiResponse>(
         `${server.origin}/api/activity?days=5&token=${server.token}`,
       );
@@ -1737,17 +1751,13 @@ describe('policy GUI server', () => {
       expect(feed.counts.analyzedByDay.reduce((total, count) => total + count, 0)).toBe(
         feed.totalInWindow,
       );
-    } finally {
-      await server.close();
-    }
+    });
   });
 
   test('GET /api/activity aggregates blocked commands into binary + subcommand keys', async () => {
-    const logsDir = join(safetyNetHome, 'logs');
-    mkdirSync(logsDir, { recursive: true });
     const now = Date.now();
     const minute = 60 * 1000;
-    writeJsonlFixture(join(logsDir, 'feed.jsonl'), [
+    const { logsDir } = writeActivityLog([
       { ts: new Date(now - 1 * minute).toISOString(), decision: 'deny', command: 'rm -rf /' },
       {
         ts: new Date(now - 2 * minute).toISOString(),
@@ -1772,20 +1782,14 @@ describe('policy GUI server', () => {
       },
     ]);
 
-    const server = await createPolicyGuiServer({
-      userConfigDir: join(safetyNetHome, 'rules'),
-      activityLogsDir: logsDir,
-    });
-    try {
+    await withActivityServer(logsDir, async (server) => {
       const feed = await getJson<ActivityApiResponse>(
         `${server.origin}/api/activity?token=${server.token}`,
       );
       // rm collapses across env-prefixed variants; segment wins over command and
       // is path-stripped; dd's `if=` arg is not a subcommand; curl's URL is not one.
       expect(feed.counts.commands).toEqual({ rm: 2, 'git push': 1, dd: 1, curl: 1 });
-    } finally {
-      await server.close();
-    }
+    });
   });
 
   test('GET /api/integrations rejects missing and wrong tokens', async () => {
@@ -1839,12 +1843,9 @@ describe('policy GUI server', () => {
 
   test('POST /api/install requires the header token as well as the URL token', async () => {
     let ran = false;
-    const server = await createPolicyGuiServer({
-      userConfigDir: join(safetyNetHome, 'rules'),
-      runIntegration: async () => {
-        ran = true;
-        return { ok: true, output: '' };
-      },
+    const server = await createInstallApiServer(async () => {
+      ran = true;
+      return { ok: true, output: '' };
     });
     try {
       const response = await fetch(`${server.origin}/api/install?token=${server.token}`, {
@@ -1861,12 +1862,9 @@ describe('policy GUI server', () => {
 
   test('POST /api/install rejects unknown targets and malformed JSON', async () => {
     let ran = false;
-    const server = await createPolicyGuiServer({
-      userConfigDir: join(safetyNetHome, 'rules'),
-      runIntegration: async () => {
-        ran = true;
-        return { ok: true, output: '' };
-      },
+    const server = await createInstallApiServer(async () => {
+      ran = true;
+      return { ok: true, output: '' };
     });
     try {
       const unknown = await fetch(`${server.origin}/api/install?token=${server.token}`, {
@@ -2001,15 +1999,7 @@ describe('policy GUI server', () => {
 
   test('fetchIntegrations reads plugin state from disk instead of spawning the runtime', async () => {
     const homeDir = join(tempDir, 'integrations-home');
-    mkdirSync(join(homeDir, '.claude', 'plugins'), { recursive: true });
-    writeFileSync(
-      join(homeDir, '.claude', 'plugins', 'installed_plugins.json'),
-      JSON.stringify({ plugins: { 'cc-safety-net@cc-marketplace': [{ scope: 'user' }] } }),
-    );
-    writeFileSync(
-      join(homeDir, '.claude', 'settings.json'),
-      JSON.stringify({ enabledPlugins: { 'cc-safety-net@cc-marketplace': true } }),
-    );
+    writeClaudePluginState(homeDir, true);
     mkdirSync(join(homeDir, '.copilot', 'installed-plugins', 'cc-marketplace', 'cc-safety-net'), {
       recursive: true,
     });

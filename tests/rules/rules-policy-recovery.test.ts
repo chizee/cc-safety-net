@@ -159,6 +159,45 @@ function writeProjectConfigOnly(tempDir: string): void {
   writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['project-rules']);
 }
 
+async function prepareProjectRulesSnapshot(tempDir: string, userConfigDir: string) {
+  const configPath = getProjectRulesConfigPath(tempDir);
+  const lockPath = getProjectRulesLockPath(tempDir);
+  writeProjectRulebookConfig(tempDir);
+  expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+  return {
+    configPath,
+    lockPath,
+    configBytes: readFileSync(configPath, 'utf-8'),
+    lockBytes: readFileSync(lockPath, 'utf-8'),
+  };
+}
+
+function expectPolicySnapshotRestored(
+  result: { ok: boolean; errors: string[] },
+  snapshot: Awaited<ReturnType<typeof prepareProjectRulesSnapshot>>,
+  tempDir: string,
+  userConfigDir: string,
+) {
+  expect(result.ok).toBe(false);
+  expect(result.errors).toEqual(['Unable to access project policy filesystem safely.']);
+  expect(readFileSync(snapshot.configPath, 'utf-8')).toBe(snapshot.configBytes);
+  expect(readFileSync(snapshot.lockPath, 'utf-8')).toBe(snapshot.lockBytes);
+  expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toEqual([]);
+}
+
+async function writeAndSyncUserRulebook(tempDir: string, userConfigDir: string) {
+  writeRulebook(join(userConfigDir, 'user-rules', 'rulebook.json'), 'user-rules');
+  writeDefaultRulesConfig(getUserRulesConfigPath({ userConfigDir }), ['user-rules']);
+  expect((await syncRulesConfig({ cwd: tempDir, userConfigDir, global: true })).ok).toBe(true);
+}
+
+async function syncAndLoadRulesPolicy(tempDir: string, userConfigDir: string) {
+  expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+  const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
+  expect(policy.errors).toEqual([]);
+  return policy;
+}
+
 async function expectProjectRulesDeleteSourceRemoved(tempDir: string): Promise<void> {
   const removed = await removeRulebookSource('project-rules', {
     cwd: tempDir,
@@ -353,14 +392,9 @@ describe('rules policy recovery coverage', () => {
   test('remove restores exact config and lock bytes when cache pruning fails after publication', async () => {
     const tempDir = makeTempDir('rules-policy-remove-lock-rollback');
     const userConfigDir = join(tempDir, 'user', 'rules');
-    const configPath = getProjectRulesConfigPath(tempDir);
-    const lockPath = getProjectRulesLockPath(tempDir);
     const outside = makeTempDir('rules-policy-remove-lock-rollback-outside');
     try {
-      writeProjectRulebookConfig(tempDir);
-      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
-      const originalConfig = readFileSync(configPath, 'utf-8');
-      const originalLock = readFileSync(lockPath, 'utf-8');
+      const snapshot = await prepareProjectRulesSnapshot(tempDir, userConfigDir);
       const stale = join(tempDir, '.cc-safety-net', 'cache', 'rulebooks', 'stale');
       mkdirSync(stale, { recursive: true });
       writeFileSync(join(outside, 'sentinel'), 'TOPSECRET');
@@ -371,12 +405,8 @@ describe('rules policy recovery coverage', () => {
         userConfigDir,
       });
 
-      expect(result.ok).toBe(false);
-      expect(result.errors).toEqual(['Unable to access project policy filesystem safely.']);
-      expect(readFileSync(configPath, 'utf-8')).toBe(originalConfig);
-      expect(readFileSync(lockPath, 'utf-8')).toBe(originalLock);
+      expectPolicySnapshotRestored(result, snapshot, tempDir, userConfigDir);
       expect(readFileSync(join(outside, 'sentinel'), 'utf-8')).toBe('TOPSECRET');
-      expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toEqual([]);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
       rmSync(outside, { recursive: true, force: true });
@@ -386,29 +416,20 @@ describe('rules policy recovery coverage', () => {
   test('post-rename lock failure restores exact prior lock bytes', async () => {
     const tempDir = makeTempDir('rules-policy-lock-post-rename');
     const userConfigDir = join(tempDir, 'user', 'rules');
-    const configPath = getProjectRulesConfigPath(tempDir);
-    const lockPath = getProjectRulesLockPath(tempDir);
     try {
-      writeProjectRulebookConfig(tempDir);
-      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
-      const originalConfig = readFileSync(configPath, 'utf-8');
-      const originalLock = readFileSync(lockPath, 'utf-8');
+      const snapshot = await prepareProjectRulesSnapshot(tempDir, userConfigDir);
       writeRulebook(join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json'));
       const options = {
         cwd: tempDir,
         userConfigDir,
         _testAfterPolicyRename: (path: string) => {
-          if (path === lockPath) throw new Error('post-rename lock fault');
+          if (path === snapshot.lockPath) throw new Error('post-rename lock fault');
         },
       } satisfies PolicyRenameFaultOptions;
 
       const result = await syncRulesConfigWithHooks(options, options);
 
-      expect(result.ok).toBe(false);
-      expect(result.errors).toEqual(['Unable to access project policy filesystem safely.']);
-      expect(readFileSync(configPath, 'utf-8')).toBe(originalConfig);
-      expect(readFileSync(lockPath, 'utf-8')).toBe(originalLock);
-      expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toEqual([]);
+      expectPolicySnapshotRestored(result, snapshot, tempDir, userConfigDir);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -435,17 +456,10 @@ describe('rules policy recovery coverage', () => {
       expect(existsSync(configPath)).toBe(false);
       expect(existsSync(lockPath)).toBe(false);
 
-      writeProjectRulebookConfig(tempDir);
-      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
-      const originalConfig = readFileSync(configPath, 'utf-8');
-      const originalLock = readFileSync(lockPath, 'utf-8');
+      const snapshot = await prepareProjectRulesSnapshot(tempDir, userConfigDir);
 
       const remove = await removeRulebookSourceWithHooks('project-rules', fault, fault);
-      expect(remove.ok).toBe(false);
-      expect(remove.errors).toEqual(['Unable to access project policy filesystem safely.']);
-      expect(readFileSync(configPath, 'utf-8')).toBe(originalConfig);
-      expect(readFileSync(lockPath, 'utf-8')).toBe(originalLock);
-      expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toEqual([]);
+      expectPolicySnapshotRestored(remove, snapshot, tempDir, userConfigDir);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -515,9 +529,7 @@ describe('rules policy recovery coverage', () => {
     const userConfigDir = join(tempDir, 'user', 'rules');
     const outside = join(tempDir, 'TOPSECRET-user-rulebook');
     try {
-      writeRulebook(join(userConfigDir, 'user-rules', 'rulebook.json'), 'user-rules');
-      writeDefaultRulesConfig(getUserRulesConfigPath({ userConfigDir }), ['user-rules']);
-      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir, global: true })).ok).toBe(true);
+      await writeAndSyncUserRulebook(tempDir, userConfigDir);
       expect(
         (await syncRulesConfig({ cwd: tempDir, userConfigDir, global: true, check: true })).ok,
       ).toBe(true);
@@ -879,11 +891,7 @@ describe('rules policy recovery coverage', () => {
         }),
         'utf-8',
       );
-      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
-
-      const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
-
-      expect(policy.errors).toEqual([]);
+      const policy = await syncAndLoadRulesPolicy(tempDir, userConfigDir);
       expect(policy.rules.map((rule) => rule.name)).toEqual([]);
       expect(
         analyzeCommand('docker system prune', {
@@ -1078,9 +1086,7 @@ describe('rules policy recovery coverage', () => {
     const userConfigDir = join(tempDir, 'user');
 
     try {
-      writeRulebook(join(userConfigDir, 'user-rules', 'rulebook.json'), 'user-rules');
-      writeDefaultRulesConfig(getUserRulesConfigPath({ userConfigDir }), ['user-rules']);
-      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir, global: true })).ok).toBe(true);
+      await writeAndSyncUserRulebook(tempDir, userConfigDir);
 
       const userOnlyConfig = loadedRulesTestPolicy(
         loadRulesPolicy({ cwd: tempDir, userConfigDir }),
@@ -1304,59 +1310,55 @@ describe('rules policy recovery coverage', () => {
     );
   });
 
-  test('refuses to delete symlinked local source directory', async () => {
-    const tempDir = makeTempDir('rules-policy-remove-delete-source-symlink-dir');
-    const sourceDir = join(getProjectRulesDir(tempDir), 'project-rules');
-    const targetDir = join(tempDir, 'outside-source');
+  for (const scenario of [
+    {
+      name: 'refuses to delete symlinked local source directory',
+      tempName: 'rules-policy-remove-delete-source-symlink-dir',
+      createSymlink: (tempDir: string, sourceDir: string) => {
+        const targetDir = join(tempDir, 'outside-source');
+        mkdirSync(targetDir);
+        writeRulebook(join(targetDir, 'rulebook.json'));
+        symlinkSync(targetDir, sourceDir, 'dir');
+        return join(targetDir, 'rulebook.json');
+      },
+    },
+    {
+      name: 'refuses to delete symlinked local source rulebook file',
+      tempName: 'rules-policy-remove-delete-source-symlink-rulebook',
+      createSymlink: (tempDir: string, sourceDir: string) => {
+        const targetPath = join(tempDir, 'outside-rulebook.json');
+        mkdirSync(sourceDir);
+        writeRulebook(targetPath);
+        symlinkSync(targetPath, join(sourceDir, 'rulebook.json'));
+        return targetPath;
+      },
+    },
+  ]) {
+    test(scenario.name, async () => {
+      const tempDir = makeTempDir(scenario.tempName);
+      try {
+        writeProjectConfigOnly(tempDir);
+        const protectedPath = scenario.createSymlink(
+          tempDir,
+          join(getProjectRulesDir(tempDir), 'project-rules'),
+        );
 
-    try {
-      writeProjectConfigOnly(tempDir);
-      mkdirSync(targetDir);
-      writeRulebook(join(targetDir, 'rulebook.json'));
-      symlinkSync(targetDir, sourceDir, 'dir');
+        const result = await removeRulebookSource('project-rules', {
+          cwd: tempDir,
+          deleteSource: true,
+        });
 
-      const result = await removeRulebookSource('project-rules', {
-        cwd: tempDir,
-        deleteSource: true,
-      });
-
-      expect(result.ok).toBe(false);
-      expect(result.errors[0]).toBe('Unable to access project policy filesystem safely.');
-      expect(existsSync(join(targetDir, 'rulebook.json'))).toBe(true);
-      expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([
-        'project-rules',
-      ]);
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test('refuses to delete symlinked local source rulebook file', async () => {
-    const tempDir = makeTempDir('rules-policy-remove-delete-source-symlink-rulebook');
-    const sourceDir = join(getProjectRulesDir(tempDir), 'project-rules');
-    const targetPath = join(tempDir, 'outside-rulebook.json');
-
-    try {
-      writeProjectConfigOnly(tempDir);
-      mkdirSync(sourceDir);
-      writeRulebook(targetPath);
-      symlinkSync(targetPath, join(sourceDir, 'rulebook.json'));
-
-      const result = await removeRulebookSource('project-rules', {
-        cwd: tempDir,
-        deleteSource: true,
-      });
-
-      expect(result.ok).toBe(false);
-      expect(result.errors[0]).toBe('Unable to access project policy filesystem safely.');
-      expect(existsSync(targetPath)).toBe(true);
-      expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([
-        'project-rules',
-      ]);
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
-  });
+        expect(result.ok).toBe(false);
+        expect(result.errors[0]).toBe('Unable to access project policy filesystem safely.');
+        expect(existsSync(protectedPath)).toBe(true);
+        expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([
+          'project-rules',
+        ]);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  }
 
   test('handles GitHub repository inspection errors', async () => {
     const tempDir = makeTempDir('rules-policy-github');
@@ -1481,9 +1483,7 @@ describe('rules policy recovery coverage', () => {
         }),
       );
 
-      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
-      const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
-      expect(policy.errors).toEqual([]);
+      const policy = await syncAndLoadRulesPolicy(tempDir, userConfigDir);
       expect(policy.rules.map((rule) => rule.name)).toEqual(['project-rules/early-match']);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });

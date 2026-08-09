@@ -11,6 +11,7 @@
 
 export { isReservedTransparentWrapper } from '@/analyzer/transparent-wrappers';
 export { getAuditLogHomeDir, getAuditLogsDir } from '@/engine/audit';
+export { formatRelativeTime } from '@/engine/audit-display';
 export { pruneExpiredAuditLogs, resolveAuditRetentionDays } from '@/engine/audit-retention';
 export {
   commandSignature,

@@ -1,6 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { commandSignature } from '@/engine/audit-display';
 import type { AuditLogEntry } from '@/ir/audit';
+
+export { commandSignature } from '@/engine/audit-display';
 
 /**
  * `skips` counts what the scan had to drop — an unreadable directory or file, a
@@ -20,23 +23,6 @@ export function listAuditLogFiles(logsDir: string, skips?: { count: number }): s
     if (skips && existsSync(logsDir)) skips.count++;
     return [];
   }
-}
-
-/**
- * Reduce a blocked command to a stable "binary" or "binary subcommand" key so
- * callers can group the commands that trip protection. Leading `VAR=value`
- * assignments and path prefixes are stripped; a following bare word (not a
- * flag, path, or number) is kept as the subcommand.
- */
-export function commandSignature(source: string): string | null {
-  const tokens = source
-    .trim()
-    .split(/\s+/)
-    .filter((token) => token && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token));
-  const binary = tokens[0]?.split('/').pop();
-  if (!binary) return null;
-  const next = tokens[1];
-  return next && /^[a-z][a-z0-9-]*$/.test(next) ? `${binary} ${next}` : binary;
 }
 
 /**
