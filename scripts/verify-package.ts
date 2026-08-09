@@ -22,9 +22,10 @@ const PACKAGE_ROOT_FILES = [
   'package/THIRD_PARTY_LICENSES.txt',
   'package/package.json',
 ] as const;
-// The standalone Amp plugin bundles its own zod copy (~183 KB gzipped), so the
-// tarball is materially larger than the pure-Node bundles alone.
-const MAX_TARBALL_BYTES = 470_000;
+// The standalone Amp and OpenClaw plugins each bundle their own trimmed zod
+// copy, so the tarball is materially larger than the pure-Node bundles alone.
+// Current size is ~468 KB; the cap leaves ~44 KB of headroom.
+const MAX_TARBALL_BYTES = 512_000;
 
 interface PackResult {
   filename: string;
