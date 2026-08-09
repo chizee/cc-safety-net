@@ -1,4 +1,4 @@
-var CC_SAFETY_NET_TEMPLATE=`
+var e=`
 ## Workflow
 
 Help the user configure custom blocking rules for CC Safety Net.
@@ -42,4 +42,4 @@ Use information already provided in the user's prompt. Ask only when the scope, 
 - A duplicate rulebook name keeps the first claim, user scope before project scope, and ignores the later rulebook.
 - \`rule sync\` reports failure with the remaining diagnostic instead of success when the synchronized scope still does not load cleanly.
 `;
-export{CC_SAFETY_NET_TEMPLATE};
+export{e as a};

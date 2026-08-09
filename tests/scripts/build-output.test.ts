@@ -26,10 +26,17 @@ describe('getBundledOutputs', () => {
   });
 
   test('keeps the runtime Zod dependency external to the built artifacts', async () => {
+    // The self-contained plugin artifacts ship without node_modules, so they
+    // inline Zod on purpose; every other artifact must resolve it at runtime.
     const sources = (await verifyBuildArtifacts())
-      .filter((path) => path.endsWith('.js'))
+      .filter((path) => path.endsWith('.js') && !path.startsWith('dist/openclaw/'))
       .map((path) => readFileSync(path, 'utf-8'));
 
-    expect(sources.some((source) => /(?:from|require\w*\()"zod"/.test(source))).toBeTrue();
+    // The build minifies identifiers, so the `createRequire` binding schema.ts
+    // calls has no stable name; the specifier it is called with does.
+    expect(sources.some((source) => /(?:from|\w+\()"zod"/.test(source))).toBeTrue();
+    // Zod names its internal schema classes with string literals minification
+    // cannot rewrite, so their absence proves no copy was inlined.
+    expect(sources.some((source) => source.includes('"$ZodString"'))).toBeFalse();
   });
 });

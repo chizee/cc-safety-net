@@ -11,6 +11,36 @@ import {
 } from '../src/integrations/openclaw/artifact';
 import { guiAssetsPlugin } from './gui-assets';
 
+// zod modules the inlined copy replaces with a stub. Every one of them is
+// reachable only through an entry point the guard runtime never calls, and each
+// costs the two self-contained plugin artifacts real bytes:
+//   - locales/index.js is the `z.locales` barrel over ~40 translations. zod
+//     imports `en` directly and installs it as the default error map, so a
+//     translation is reachable only through `z.config(z.locales.xx())`.
+//   - the JSON Schema converters back `z.toJSONSchema`, `z.fromJSONSchema`, and
+//     the per-schema `.toJSONSchema()` method. Only scripts/build-schema.ts
+//     converts schemas, and it imports zod from node_modules, not from a bundle.
+// A stub that drops a name zod still imports by name fails the build, so a zod
+// upgrade cannot silently turn one of these into dead weight or a bad reference.
+const UNSUPPORTED_ZOD_EXPORT = 'JSON Schema conversion is not bundled into this plugin artifact';
+const ZOD_MODULE_STUBS: readonly [RegExp, string][] = [
+  [/zod[\\/]v4[\\/]locales[\\/]index\.js$/, 'export {};'],
+  [
+    /zod[\\/]v4[\\/]classic[\\/]from-json-schema\.js$/,
+    `export const fromJSONSchema = () => { throw new Error(${JSON.stringify(UNSUPPORTED_ZOD_EXPORT)}); };`,
+  ],
+  [
+    /zod[\\/]v4[\\/]core[\\/]to-json-schema\.js$/,
+    `const unsupported = () => { throw new Error(${JSON.stringify(UNSUPPORTED_ZOD_EXPORT)}); };
+     export const createToJSONSchemaMethod = () => unsupported;
+     export const createStandardJSONSchemaMethod = () => unsupported;
+     export const initializeContext = unsupported;
+     export const process = unsupported;
+     export const extractDefs = unsupported;
+     export const finalize = unsupported;`,
+  ],
+];
+
 // The Node/Pi bundles keep zod external and resolve it from the installed
 // package's node_modules. The Amp and OpenClaw plugins ship as copied files with
 // no node_modules, so they must inline zod. schema.ts loads zod lazily through
@@ -33,6 +63,9 @@ const inlineZod: BunPlugin = {
       }, source);
       return { contents, loader: 'ts' };
     });
+    for (const [filter, contents] of ZOD_MODULE_STUBS) {
+      build.onLoad({ filter }, () => ({ contents, loader: 'js' }));
+    }
   },
 };
 
@@ -47,7 +80,7 @@ export async function buildRuntimeBundles(outdir: string) {
       entry: '[dir]/[name].[ext]',
       chunk: 'chunks/[name]-[hash].[ext]',
     },
-    minify: { syntax: true, whitespace: true },
+    minify: true,
     define: {
       __PKG_VERSION__: JSON.stringify(pkg.version),
     },
@@ -90,7 +123,7 @@ export async function buildAmpBundle(outdir: string) {
     entrypoints: ['src/integrations/amp/index.ts'],
     target: 'bun',
     splitting: false,
-    minify: { syntax: true, whitespace: true },
+    minify: true,
     define: {
       __PKG_VERSION__: JSON.stringify(pkg.version),
     },
@@ -115,7 +148,7 @@ export async function buildOpenClawBundle(outdir: string) {
     entrypoints: ['src/integrations/openclaw/index.ts'],
     target: 'node',
     splitting: false,
-    minify: { syntax: true, whitespace: true },
+    minify: true,
     define: {
       __PKG_VERSION__: JSON.stringify(pkg.version),
     },
