@@ -19,6 +19,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
+import { HERMES_AGENT_PLUGIN_NAME } from '@/integrations/hermes-agent/artifact';
 import { getHermesAgentPluginDir } from '@/integrations/hermes-agent/install';
 import { OPENCLAW_PLUGIN_ENTRY_FILE, OPENCLAW_PLUGIN_ID } from '@/integrations/openclaw/artifact';
 import { buildOpenClawBundle, buildRuntimeBundles } from '../../scripts/build-runtime';
@@ -43,6 +44,23 @@ const python3Bin = Bun.which('python3');
 let buildRoot = '';
 let cliPath = '';
 let openClawEntryPath = '';
+let hermesStubBinDir = '';
+
+/**
+ * The stub `hermes` the built CLI's install step drives: it runs `hermes plugins enable`, so a
+ * machine without the real binary would fail this gate on the installer rather than on the
+ * protection it is meant to prove. Its bytes are fixed and it is written once — macOS scans each
+ * newly written executable on its first exec — with the log path arriving by environment.
+ */
+function writeHermesStub(binDir: string) {
+  mkdirSync(binDir, { recursive: true });
+  writeFileSync(
+    join(binDir, 'hermes'),
+    '#!/usr/bin/env sh\nprintf \'%s\\n\' "$*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"\n',
+  );
+  chmodSync(join(binDir, 'hermes'), 0o755);
+  return binDir;
+}
 
 beforeAll(async () => {
   buildRoot = await buildE2EArtifacts('cc-safety-net-e2e-hosts-', [
@@ -50,6 +68,7 @@ beforeAll(async () => {
     buildOpenClawBundle,
   ]);
   cliPath = join(buildRoot, 'dist', 'bin', 'cc-safety-net.js');
+  hermesStubBinDir = writeHermesStub(join(buildRoot, 'host-bin'));
   openClawEntryPath = join(
     buildRoot,
     'dist',
@@ -126,7 +145,19 @@ function writeHermesModules(home: string) {
 const hermesPluginGate = {
   agent: 'hermes-agent',
   async run(command: string, cwd: string, home: string, sessionId: string, action: () => void) {
-    await runNode([cliPath, 'install', '--hermes-agent'], '', cwd, home);
+    // The stub wins the lookup whether or not the machine has Hermes, so the gate installs the
+    // same way everywhere. An enable that never ran would leave Hermes ignoring the plugin.
+    const hermesCommandLog = join(home, 'hermes-cli.log');
+    await runCommand(['node', cliPath, 'install', '--hermes-agent'], '', cwd, home, {
+      env: {
+        PATH: `${hermesStubBinDir}${delimiter}${process.env.PATH ?? ''}`,
+        CC_SAFETY_NET_TEST_COMMAND_LOG: hermesCommandLog,
+      },
+    });
+    expect(readFileSync(hermesCommandLog, 'utf8').trim()).toBe(
+      `plugins enable ${HERMES_AGENT_PLUGIN_NAME} --no-allow-tool-override`,
+    );
+
     const modulesDir = writeHermesModules(home);
     const binDir = join(home, 'bin');
     mkdirSync(binDir, { recursive: true });
