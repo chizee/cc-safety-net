@@ -15,7 +15,16 @@ function formatCommandFailure(command: NativeCommand, status: number | null, out
     .join('\n');
 }
 
-export function runNativeCommand(command: NativeCommand): string {
+/**
+ * Run a command, returning stdout and stderr merged so a caller showing human output sees all of
+ * it. `stdoutOnly` narrows the success value to stdout for callers that parse it: a tool writing
+ * its machine-readable report to stdout keeps it parseable however much trace or warning text
+ * lands on stderr. Failures always report both streams.
+ */
+export function runNativeCommand(
+  command: NativeCommand,
+  options?: { stdoutOnly: boolean },
+): string {
   const result = spawnSync(command[0], command.slice(1), {
     encoding: 'utf-8',
     stdio: 'pipe',
@@ -30,7 +39,7 @@ export function runNativeCommand(command: NativeCommand): string {
   if (result.status !== 0) {
     throw new Error(formatCommandFailure(command, result.status, output));
   }
-  return output;
+  return options?.stdoutOnly ? result.stdout : output;
 }
 
 export function runNativeCommands(commands: readonly NativeCommand[]): void {

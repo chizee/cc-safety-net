@@ -24,6 +24,13 @@ import {
 import { installCursor, uninstallCursor } from '@/integrations/cursor/install';
 import { detectAllHooks } from '@/integrations/detect';
 import { detectGeminiCLI } from '@/integrations/gemini-cli/detect';
+import { HERMES_AGENT_PLUGIN_NAME } from '@/integrations/hermes-agent/artifact';
+import { isHermesAgentPluginEnabled } from '@/integrations/hermes-agent/detect';
+import {
+  installHermesAgent,
+  readOwnedHermesAgentFiles,
+  uninstallHermesAgent,
+} from '@/integrations/hermes-agent/install';
 import { atomicWriteFile } from '@/integrations/install/atomic-write';
 import {
   applyInstallTargetState,
@@ -49,16 +56,23 @@ import {
 import type { InstallResult } from '@/integrations/install/types';
 import { stripJsonComments } from '@/integrations/jsonc';
 import { installKimiCode, uninstallKimiCode } from '@/integrations/kimi-code/install';
+import { OPENCLAW_PLUGIN_ID } from '@/integrations/openclaw/artifact';
+import {
+  assertOpenClawPluginDirIsOurs,
+  getOpenClawInstallCommands,
+  verifyOpenClawPluginRuntime,
+} from '@/integrations/openclaw/install';
 import { clearOpenCodeCache, uninstallOpenCode } from '@/integrations/opencode/install';
 import { getPiSettingsPath, isPiSafetyNetPackageSource } from '@/integrations/pi/detect';
 import { defaultVersionFetcher } from '@/integrations/system-info';
 
 type ConfigInstallTarget = Extract<InstallTarget, 'antigravity-cli' | 'kimi-code' | 'cursor'>;
-type NativeInstallTarget = Exclude<InstallTarget, ConfigInstallTarget | 'amp'>;
+// Integrations whose install writes a managed artifact directly instead of driving a host CLI.
+type ManagedArtifactTarget = Extract<InstallTarget, 'amp' | 'hermes-agent'>;
+type NativeInstallTarget = Exclude<InstallTarget, ConfigInstallTarget | ManagedArtifactTarget>;
 type NativeInstallPlan = { commands: readonly NativeCommand[]; update?: boolean };
 type InstallTargetSelection = readonly InstallTarget[] | null | 'update';
 
-const AMP_RESTART_NOTE = 'Restart Amp or run "plugins: reload" to apply the change.';
 export type RunInstallCommandOptions = {
   input?: NodeJS.ReadStream;
   output?: NodeJS.WriteStream;
@@ -83,11 +97,14 @@ type InstallTargetResolution = {
 };
 // Removed on install when Claude Code still records the pre-rename plugin id.
 const CLAUDE_LEGACY_PLUGIN_ID = 'safety-net@cc-marketplace';
+// Targets whose install drives a host CLI, so `update` skips them when that CLI is gone.
 const NATIVE_UPDATE_TARGETS = new Set<InstallTarget>([
   'claude-code',
   'codex',
   'copilot-cli',
   'gemini-cli',
+  'hermes-agent',
+  'openclaw',
   'opencode',
   'pi',
 ]);
@@ -223,6 +240,15 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
       };
     },
     uninstallCommands: [['gemini', 'extensions', 'uninstall', 'gemini-safety-net']],
+  },
+  openclaw: {
+    beforeInstall: assertOpenClawPluginDirIsOurs,
+    installCommands: () => ({ commands: getOpenClawInstallCommands() }),
+    uninstallCommands: [['openclaw', 'plugins', 'uninstall', OPENCLAW_PLUGIN_ID, '--force']],
+    postInstallMessage: [
+      'Restart the OpenClaw Gateway to apply the change.',
+      'If plugins.allow is set in openclaw.json, it must also list cc-safety-net.',
+    ].join('\n'),
   },
   opencode: {
     beforeInstall: clearOpenCodeCache,
@@ -468,12 +494,72 @@ function runConfigInstallTarget(
   );
 }
 
-function runAmpInstallTarget(action: InstallAction, homeDir: string, updating = false): void {
-  const result = action === 'install' ? installAmp(homeDir) : uninstallAmp(homeDir);
-  const name = getIntegrationInstallLabel('amp');
+const MANAGED_ARTIFACT_INSTALLS: Record<
+  ManagedArtifactTarget,
+  {
+    install: (homeDir: string) => InstallResult;
+    uninstall: (homeDir: string) => InstallResult;
+    /** Returns whether it changed host state, which an unchanged artifact alone cannot tell. */
+    afterInstall?: (homeDir: string) => boolean;
+    beforeUninstall?: (homeDir: string) => void;
+    restartNote: string;
+  }
+> = {
+  amp: {
+    install: installAmp,
+    uninstall: uninstallAmp,
+    restartNote: 'Restart Amp or run "plugins: reload" to apply the change.',
+  },
+  'hermes-agent': {
+    install: installHermesAgent,
+    uninstall: uninstallHermesAgent,
+    // Hermes loads a user plugin only when config.yaml lists it, so the artifact alone is inert —
+    // and enabling a plugin the user had switched off is a change even when nothing was written.
+    afterInstall: (homeDir) => {
+      const wasEnabled = isHermesAgentPluginEnabled(homeDir);
+      runNativeCommand([
+        'hermes',
+        'plugins',
+        'enable',
+        HERMES_AGENT_PLUGIN_NAME,
+        '--no-allow-tool-override',
+      ]);
+      return !wasEnabled;
+    },
+    // Left enabled, the config entry would auto-load any future plugin of the same name. Hermes
+    // only resolves a plugin that is still on disk, so this runs before the files are removed —
+    // and its failure is reported rather than thrown, so it can never keep them.
+    beforeUninstall: (homeDir) => {
+      // `plugins disable` edits the user's config, so an uninstall that is going to refuse the
+      // files must refuse before it runs, not after.
+      readOwnedHermesAgentFiles(homeDir);
+      try {
+        runNativeCommand(['hermes', 'plugins', 'disable', HERMES_AGENT_PLUGIN_NAME]);
+      } catch (error) {
+        console.warn(
+          `${error instanceof Error ? error.message : String(error)}\nRemoving the plugin files anyway; ${HERMES_AGENT_PLUGIN_NAME} may still be listed in the Hermes config.`,
+        );
+      }
+    },
+    restartNote: 'Restart Hermes to apply the change.',
+  },
+};
+
+function runManagedArtifactInstallTarget(
+  action: InstallAction,
+  target: ManagedArtifactTarget,
+  homeDir: string,
+  updating = false,
+): void {
+  const definition = MANAGED_ARTIFACT_INSTALLS[target];
+  if (action === 'uninstall') definition.beforeUninstall?.(homeDir);
+  const result = action === 'install' ? definition.install(homeDir) : definition.uninstall(homeDir);
+  const changedHostState = action === 'install' && definition.afterInstall?.(homeDir);
+  const name = getIntegrationInstallLabel(target);
   const noChange =
-    (action === 'install' && result.alreadyInstalled) ||
-    (action === 'uninstall' && !result.alreadyInstalled);
+    !changedHostState &&
+    ((action === 'install' && result.alreadyInstalled) ||
+      (action === 'uninstall' && !result.alreadyInstalled));
   const pastTense = action !== 'install' ? 'Uninstalled' : updating ? 'Updated' : 'Installed';
   const message = noChange
     ? action === 'install'
@@ -481,14 +567,14 @@ function runAmpInstallTarget(action: InstallAction, homeDir: string, updating = 
       : `${name} plugin not installed at ${result.path}`
     : `${pastTense} ${name} plugin ${action === 'install' ? 'at' : 'from'} ${result.path}`;
 
-  console.log([message, noChange ? undefined : AMP_RESTART_NOTE].filter(Boolean).join('\n'));
+  console.log([message, noChange ? undefined : definition.restartNote].filter(Boolean).join('\n'));
 }
 
 const INSTALL_OPERATIONS = {
   amp: {
     install: (homeDir: string, updating?: boolean) =>
-      runAmpInstallTarget('install', homeDir, updating),
-    uninstall: (homeDir: string) => runAmpInstallTarget('uninstall', homeDir),
+      runManagedArtifactInstallTarget('install', 'amp', homeDir, updating),
+    uninstall: (homeDir: string) => runManagedArtifactInstallTarget('uninstall', 'amp', homeDir),
   },
   'antigravity-cli': {
     install: (homeDir: string, updating?: boolean) =>
@@ -522,10 +608,31 @@ const INSTALL_OPERATIONS = {
       installNativeTarget('gemini-cli', homeDir, updating),
     uninstall: () => uninstallNativeTarget('gemini-cli'),
   },
+  'hermes-agent': {
+    install: (homeDir: string, updating?: boolean) => {
+      // The managed plugin shells out to `npx cc-safety-net`, so a stale npx cache would
+      // keep running the previous version after an update.
+      clearNpxSafetyNetCache(homeDir);
+      runManagedArtifactInstallTarget('install', 'hermes-agent', homeDir, updating);
+    },
+    uninstall: (homeDir: string) =>
+      runManagedArtifactInstallTarget('uninstall', 'hermes-agent', homeDir),
+  },
   'kimi-code': {
     install: (homeDir: string, updating?: boolean) =>
       runConfigInstallTarget('install', 'kimi-code', homeDir, updating),
     uninstall: (homeDir: string) => runConfigInstallTarget('uninstall', 'kimi-code', homeDir),
+  },
+  openclaw: {
+    install: (homeDir: string, updating?: boolean) => {
+      installNativeTarget('openclaw', homeDir, updating);
+      verifyOpenClawPluginRuntime();
+    },
+    uninstall: (homeDir: string) => {
+      // `plugins uninstall --force` deletes the extension directory outright.
+      assertOpenClawPluginDirIsOurs(homeDir);
+      uninstallNativeTarget('openclaw');
+    },
   },
   opencode: {
     install: (homeDir: string, updating?: boolean) =>

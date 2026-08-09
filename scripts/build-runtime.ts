@@ -3,16 +3,22 @@ import { dirname, join } from 'node:path';
 import type { BunPlugin } from 'bun';
 import pkg from '../package.json';
 import { buildAmpArtifactHeader } from '../src/integrations/amp/artifact';
+import {
+  buildOpenClawArtifactHeader,
+  buildOpenClawPluginManifests,
+  OPENCLAW_PLUGIN_ENTRY_FILE,
+  OPENCLAW_PLUGIN_ID,
+} from '../src/integrations/openclaw/artifact';
 import { guiAssetsPlugin } from './gui-assets';
 
 // The Node/Pi bundles keep zod external and resolve it from the installed
-// package's node_modules. The Amp plugin ships as a single copied file with no
-// node_modules, so it must inline zod. schema.ts loads zod lazily through
+// package's node_modules. The Amp and OpenClaw plugins ship as copied files with
+// no node_modules, so they must inline zod. schema.ts loads zod lazily through
 // `createRequire('zod')` (a runtime require the bundler cannot follow); this
-// amp-only plugin rewrites that one call into a static import so zod is bundled,
-// without changing schema.ts or the other bundles' lazy-load behavior.
-const inlineZodForAmp: BunPlugin = {
-  name: 'inline-zod-for-amp',
+// plugin rewrites that one call into a static import so zod is bundled, without
+// changing schema.ts or the other bundles' lazy-load behavior.
+const inlineZod: BunPlugin = {
+  name: 'inline-zod',
   setup(build) {
     // `args.path` is native, so the separator is a backslash on Windows.
     build.onLoad({ filter: /src[\\/]policy[\\/]schema\.ts$/ }, async (args) => {
@@ -22,7 +28,7 @@ const inlineZodForAmp: BunPlugin = {
         ["const z = require('zod') as typeof Zod;", 'const z = Zod;'],
       ];
       const contents = replacements.reduce((current, [from, to]) => {
-        if (!current.includes(from)) throw new Error(`inline-zod-for-amp: missing "${from}"`);
+        if (!current.includes(from)) throw new Error(`inline-zod: missing "${from}"`);
         return current.replace(from, to);
       }, source);
       return { contents, loader: 'ts' };
@@ -88,7 +94,7 @@ export async function buildAmpBundle(outdir: string) {
     define: {
       __PKG_VERSION__: JSON.stringify(pkg.version),
     },
-    plugins: [inlineZodForAmp],
+    plugins: [inlineZod],
   });
   if (!result.success) return result;
   const artifact = result.outputs[0];
@@ -96,5 +102,38 @@ export async function buildAmpBundle(outdir: string) {
   const destination = join(outdir, 'amp', 'cc-safety-net.ts');
   mkdirSync(dirname(destination), { recursive: true });
   await Bun.write(destination, buildAmpArtifactHeader(pkg.version) + (await artifact.text()));
+  return result;
+}
+
+/**
+ * Build the complete OpenClaw plugin directory: the bundled runtime entry plus the manifest
+ * and package metadata OpenClaw reads before it loads plugin code. Everything is inlined so a
+ * local directory install, which gets no node_modules, still resolves at runtime.
+ */
+export async function buildOpenClawBundle(outdir: string) {
+  const result = await Bun.build({
+    entrypoints: ['src/integrations/openclaw/index.ts'],
+    target: 'node',
+    splitting: false,
+    minify: { syntax: true, whitespace: true },
+    define: {
+      __PKG_VERSION__: JSON.stringify(pkg.version),
+    },
+    plugins: [inlineZod],
+  });
+  if (!result.success) return result;
+  const artifact = result.outputs[0];
+  if (!artifact) throw new Error('OpenClaw bundle produced no output');
+  const directory = join(outdir, 'openclaw', OPENCLAW_PLUGIN_ID);
+  mkdirSync(directory, { recursive: true });
+  await Bun.write(
+    join(directory, OPENCLAW_PLUGIN_ENTRY_FILE),
+    buildOpenClawArtifactHeader(pkg.version) + (await artifact.text()),
+  );
+  await Promise.all(
+    buildOpenClawPluginManifests(pkg.version).map((file) =>
+      Bun.write(join(directory, file.name), file.content),
+    ),
+  );
   return result;
 }

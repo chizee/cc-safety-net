@@ -36,7 +36,9 @@ function createSystemInfo(overrides: Partial<SystemInfo> = {}): SystemInfo {
     codexPluginListOutput: null,
     geminiCliVersion: null,
     copilotCliVersion: null,
+    hermesAgentVersion: null,
     kimiCodeVersion: null,
+    openClawVersion: null,
     piCliVersion: null,
     cursorVersion: null,
     ampVersion: null,
@@ -622,8 +624,10 @@ describe('formatSystemInfoSection', () => {
     expect(output.indexOf('Codex')).toBeLessThan(output.indexOf('Cursor'));
     expect(output.indexOf('Cursor')).toBeLessThan(output.indexOf('Gemini CLI'));
     expect(output.indexOf('Gemini CLI')).toBeLessThan(output.indexOf('GitHub Copilot CLI'));
-    expect(output.indexOf('GitHub Copilot CLI')).toBeLessThan(output.indexOf('Kimi Code'));
-    expect(output.indexOf('Kimi Code')).toBeLessThan(output.indexOf('OpenCode'));
+    expect(output.indexOf('GitHub Copilot CLI')).toBeLessThan(output.indexOf('Hermes Agent'));
+    expect(output.indexOf('Hermes Agent')).toBeLessThan(output.indexOf('Kimi Code'));
+    expect(output.indexOf('Kimi Code')).toBeLessThan(output.indexOf('OpenClaw'));
+    expect(output.indexOf('OpenClaw')).toBeLessThan(output.indexOf('OpenCode'));
     expect(output.indexOf('OpenCode')).toBeLessThan(output.indexOf('Pi'));
     expect(output.indexOf('Pi')).toBeLessThan(output.indexOf('Node.js'));
     expect(output.indexOf('Node.js')).toBeLessThan(output.indexOf('npm'));

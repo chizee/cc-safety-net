@@ -9,6 +9,7 @@ import { runClaudeCodeHook as runClaudeCodeHookAdapter } from '@/integrations/cl
 import { runCopilotCliHook } from '@/integrations/copilot-cli/hook';
 import { runCursorHook } from '@/integrations/cursor/hook';
 import { runGeminiCLIHook } from '@/integrations/gemini-cli/hook';
+import { runHermesAgentHook } from '@/integrations/hermes-agent/hook';
 import type { InstallTargetChoice } from '@/integrations/install/choices';
 import type { InstallAction } from '@/integrations/install/targets';
 import { runKimiCodeHook } from '@/integrations/kimi-code/hook';
@@ -29,6 +30,7 @@ export type HookFormat =
   | 'copilot-cli'
   | 'cursor'
   | 'gemini-cli'
+  | 'hermes-agent'
   | 'kimi-code';
 
 export const TEST_HOOK_CWD = mkdtempSync(join(tmpdir(), 'safety-net-hook-cwd-'));
@@ -114,12 +116,14 @@ export type HookTestContext = {
   antigravityShellInput: typeof antigravityShellInput;
   geminiShellInput: typeof geminiShellInput;
   claudeCodeBashInput: typeof claudeCodeBashInput;
+  hermesTerminalInput: typeof hermesTerminalInput;
   kimiShellInput: typeof kimiShellInput;
   cursorShellInput: typeof cursorShellInput;
   runCli: typeof runCli;
   runAntigravityHook: typeof runAntigravityHook;
   runClaudeCodeHook: typeof runClaudeCodeHookDirect;
   runGeminiHook: typeof runGeminiHook;
+  runHermesHook: typeof runHermesHookDirect;
   runKimiHook: typeof runKimiHook;
   runCopilotHook: typeof runCopilotHook;
   runCursorHook: typeof runCursorHookDirect;
@@ -143,6 +147,7 @@ export async function withHookTestContext<T>(fn: (context: HookTestContext) => T
       antigravityShellInput: (command) => antigravityShellInput(command, cwd),
       geminiShellInput: (command) => geminiShellInput(command, cwd),
       claudeCodeBashInput: (command) => claudeCodeBashInput(command, cwd),
+      hermesTerminalInput: (command) => hermesTerminalInput(command, cwd),
       kimiShellInput: (command) => kimiShellInput(command, cwd),
       cursorShellInput: (command) => cursorShellInput(command, cwd),
       runCli: (args, input = '', env) =>
@@ -155,6 +160,12 @@ export async function withHookTestContext<T>(fn: (context: HookTestContext) => T
         ),
       runGeminiHook: (input, env) =>
         runGeminiHookDirect(
+          input,
+          { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
+          cwd,
+        ),
+      runHermesHook: (input, env) =>
+        runHermesHookDirect(
           input,
           { HOME: home, CC_SAFETY_NET_HOME: safetyNetHome, ...(env ?? {}) },
           cwd,
@@ -240,6 +251,17 @@ export function claudeCodeBashInput(command: string, cwd = TEST_HOOK_CWD) {
     cwd,
     tool_name: 'Bash',
     tool_input: { command },
+  };
+}
+
+export function hermesTerminalInput(command: string, cwd = TEST_HOOK_CWD) {
+  return {
+    hook_event_name: 'pre_tool_call',
+    tool_name: 'terminal',
+    tool_input: { command },
+    session_id: 'hermes-test-session',
+    cwd,
+    extra: { task_id: 'hermes-test-task', tool_call_id: 'hermes-test-tool-call' },
   };
 }
 
@@ -409,6 +431,14 @@ export function runGeminiHookDirect(
   return runHookDirect(runGeminiCLIHook, input, env, cwd);
 }
 
+export function runHermesHookDirect(
+  input: object | string,
+  env?: Record<string, string>,
+  cwd = TEST_HOOK_CWD,
+) {
+  return runHookDirect(runHermesAgentHook, input, env, cwd);
+}
+
 export function runKimiHookDirect(
   input: object | string,
   env?: Record<string, string>,
@@ -473,6 +503,11 @@ export function getHookDenyReason(result: HookResult, format: HookFormat): strin
   if (format === 'antigravity-cli') {
     expect(output.decision).toBe('deny');
     return output.reason;
+  }
+
+  if (format === 'hermes-agent') {
+    expect(output.action).toBe('block');
+    return output.message;
   }
 
   if (format === 'cursor') {

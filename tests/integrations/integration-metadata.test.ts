@@ -16,7 +16,9 @@ describe('integration metadata', () => {
       'Cursor',
       'Gemini CLI',
       'GitHub Copilot CLI',
+      'Hermes Agent',
       'Kimi Code',
+      'OpenClaw',
       'OpenCode',
       'Pi',
     ]);
@@ -31,7 +33,9 @@ describe('integration metadata', () => {
       'cursor',
       'gemini-cli',
       'copilot-cli',
+      'hermes-agent',
       'kimi-code',
+      'openclaw',
       'opencode',
       'pi',
     ]);
@@ -44,6 +48,7 @@ describe('integration metadata', () => {
       'cursor',
       'gemini-cli',
       'copilot-cli',
+      'hermes-agent',
       'kimi-code',
     ]);
     expect(runtimeHookIntegrationMetadata.map((integration) => integration.flags)).toEqual([
@@ -52,11 +57,13 @@ describe('integration metadata', () => {
       ['-cu', '--cursor'],
       ['-gc', '--gemini-cli'],
       ['-cp', '--copilot-cli'],
+      ['-ha', '--hermes-agent'],
       ['-kc', '--kimi-code'],
     ]);
     expect(runtimeHookIntegrationMetadata.map((integration) => integration.legacyFlags)).toEqual([
       [],
       ['--claude-code'],
+      [],
       [],
       [],
       [],
@@ -71,6 +78,7 @@ describe('integration metadata', () => {
       ['-gc', '--gemini-cli'],
       ['-cp', '--copilot-cli'],
       [],
+      [],
     ]);
   });
 
@@ -81,6 +89,7 @@ describe('integration metadata', () => {
       'Cursor',
       'Gemini CLI',
       'GitHub Copilot CLI',
+      'Hermes Agent',
       'Kimi Code',
     ]);
     expect(getIntegrationDisplayName('claude-code')).toBe('Claude Code');
@@ -95,7 +104,9 @@ describe('integration metadata', () => {
       'cursor',
       'gemini-cli',
       'copilot-cli',
+      'hermes-agent',
       'kimi-code',
+      'openclaw',
       'opencode',
       'pi',
     ]);
@@ -109,5 +120,26 @@ describe('integration metadata', () => {
       probeCommand: ['copilot', '--binary-version'],
     });
     expect(getIntegrationDisplayName('copilot-cli')).toBe('GitHub Copilot CLI');
+  });
+
+  test('describes the Hermes Agent and OpenClaw install targets', () => {
+    expect(
+      installIntegrationMetadata.find((integration) => integration.id === 'hermes-agent'),
+    ).toEqual({
+      id: 'hermes-agent',
+      flag: '--hermes-agent',
+      installLabel: 'Hermes Agent',
+      helpTarget: 'Hermes Agent plugin',
+      probeCommand: ['hermes', '--version'],
+    });
+    expect(installIntegrationMetadata.find((integration) => integration.id === 'openclaw')).toEqual(
+      {
+        id: 'openclaw',
+        flag: '--openclaw',
+        installLabel: 'OpenClaw',
+        helpTarget: 'OpenClaw plugin',
+        probeCommand: ['openclaw', '--version'],
+      },
+    );
   });
 });

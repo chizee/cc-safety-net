@@ -491,7 +491,9 @@ const VERSION_FIELDS = {
   'copilot-cli': 'copilotCliVersion',
   cursor: 'cursorVersion',
   'gemini-cli': 'geminiCliVersion',
+  'hermes-agent': 'hermesAgentVersion',
   'kimi-code': 'kimiCodeVersion',
+  openclaw: 'openClawVersion',
   opencode: 'openCodeVersion',
   pi: 'piCliVersion',
 } as const satisfies Record<InstallTarget, keyof SystemInfo>;

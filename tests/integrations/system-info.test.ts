@@ -59,6 +59,16 @@ describe('getSystemInfo', () => {
     expect(sysInfo.antigravityCliVersion).toBe('2.0.0');
   });
 
+  test('probes the Hermes executable with mock fetcher', async () => {
+    const sysInfo = await getSystemInfo(mockVersionFetcher);
+    expect(sysInfo.hermesAgentVersion).toBe('1.5.0');
+  });
+
+  test('probes the OpenClaw executable with mock fetcher', async () => {
+    const sysInfo = await getSystemInfo(mockVersionFetcher);
+    expect(sysInfo.openClawVersion).toBe('2026.8.1');
+  });
+
   test('includes Kimi Code version with mock fetcher', async () => {
     const sysInfo = await getSystemInfo(mockVersionFetcher);
     expect(sysInfo.kimiCodeVersion).toBe('0.3.0');

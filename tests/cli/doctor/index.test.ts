@@ -85,7 +85,9 @@ describe('doctor report verification ownership', () => {
           { platform: 'cursor', inspectionStatus: 'not-applicable' },
           { platform: 'gemini-cli', inspectionStatus: 'not-applicable' },
           { platform: 'copilot-cli', inspectionStatus: 'not-applicable' },
+          { platform: 'hermes-agent', inspectionStatus: 'not-applicable' },
           { platform: 'kimi-code', inspectionStatus: 'not-applicable' },
+          { platform: 'openclaw', inspectionStatus: 'not-applicable' },
           { platform: 'opencode', inspectionStatus: 'not-applicable' },
           { platform: 'pi', inspectionStatus: 'not-applicable' },
         ]);

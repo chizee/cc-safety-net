@@ -8,6 +8,7 @@ import { runClaudeCodeHook } from '@/integrations/claude-code/hook';
 import { runCopilotCliHook } from '@/integrations/copilot-cli/hook';
 import { runCursorHook } from '@/integrations/cursor/hook';
 import { runGeminiCLIHook } from '@/integrations/gemini-cli/hook';
+import { runHermesAgentHook } from '@/integrations/hermes-agent/hook';
 import { runKimiCodeHook } from '@/integrations/kimi-code/hook';
 
 export type HookIntegration = {
@@ -26,6 +27,7 @@ const hookRunners = {
   'copilot-cli': runCopilotCliHook,
   cursor: runCursorHook,
   'gemini-cli': runGeminiCLIHook,
+  'hermes-agent': runHermesAgentHook,
   'kimi-code': runKimiCodeHook,
 } satisfies Record<RuntimeHookIntegrationId, () => Promise<void>>;
 

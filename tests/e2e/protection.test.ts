@@ -1,21 +1,19 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
-import { redactSecrets } from '@/engine/audit';
+import { mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { buildRuntimeBundles } from '../../scripts/build-runtime';
 import { OPENCODE_HOST_SCRIPT, PI_HOST_SCRIPT } from '../../scripts/integration-host-scripts';
 import { readAuditLogEntriesForSession } from '../helpers';
+import {
+  buildE2EArtifacts,
+  expectAllowedAction,
+  expectSingleAudit,
+  parseJsonOutput,
+  runBuiltHost,
+  runNode,
+  type SafetyLevel,
+  withWorkspace,
+} from './harness';
 
 const adapters = [
   {
@@ -117,13 +115,7 @@ let openCodePath = '';
 let piPath = '';
 
 beforeAll(async () => {
-  const cacheRoot = join(process.cwd(), 'node_modules', '.cache');
-  mkdirSync(cacheRoot, { recursive: true });
-  buildRoot = mkdtempSync(join(cacheRoot, 'cc-safety-net-e2e-'));
-  const result = await buildRuntimeBundles(join(buildRoot, 'dist'));
-  if (!result.success) {
-    throw new Error(result.logs.map((log) => log.message).join('\n'));
-  }
+  buildRoot = await buildE2EArtifacts('cc-safety-net-e2e-', [buildRuntimeBundles]);
   cliPath = join(buildRoot, 'dist', 'bin', 'cc-safety-net.js');
   openCodePath = join(buildRoot, 'dist', 'index.js');
   piPath = join(buildRoot, 'dist', 'pi', 'index.js');
@@ -760,63 +752,13 @@ function policyMutation(
   return ['Write', { file_path: join(cwd, 'policy-alias.json'), content: '{}' }] as const;
 }
 
-async function withWorkspace<T>(run: (context: { cwd: string; home: string }) => T | Promise<T>) {
-  const root = mkdtempSync(join(tmpdir(), 'cc-safety-net-e2e-'));
-  const cwd = join(root, 'workspace');
-  const home = join(root, 'home');
-  mkdirSync(cwd);
-  mkdirSync(home);
-  try {
-    return await run({ cwd, home });
-  } catch (error) {
-    try {
-      preserveFailureEvidence(root, home, error);
-    } catch (artifactError) {
-      console.error(`Failed to preserve E2E evidence: ${redactSecrets(String(artifactError))}`);
-    }
-    throw error;
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-}
-
-function preserveFailureEvidence(root: string, home: string, error: unknown) {
-  const artifactRoot = process.env.CC_SAFETY_NET_E2E_ARTIFACTS?.trim();
-  if (!artifactRoot) return;
-  const destination = join(artifactRoot, basename(root));
-  mkdirSync(destination, { recursive: true });
-  writeFileSync(
-    join(destination, 'failure.txt'),
-    redactSecrets(error instanceof Error ? (error.stack ?? error.message) : String(error)),
-  );
-  const auditLogs = join(home, '.cc-safety-net', 'logs');
-  if (existsSync(auditLogs)) {
-    cpSync(auditLogs, join(destination, 'audit-logs'), { recursive: true });
-  }
-}
-
-async function expectAllowedAction(
-  cwd: string,
-  home: string,
-  sessionId: string,
-  run: (action: () => void) => Promise<{ allowed: true } | { allowed: false; reason: string }>,
-  recordsAllowDecision = true,
-) {
-  const action = join(cwd, `${sessionId}-ran`);
-  expect(await run(() => writeFileSync(action, 'ran'))).toEqual({ allowed: true });
-  expect(readFileSync(action, 'utf8')).toBe('ran');
-  expect(readAuditLogEntriesForSession(home, sessionId)).toMatchObject(
-    recordsAllowDecision ? [{ decision: 'allow', reason: 'allowed', sessionId }] : [],
-  );
-}
-
 async function runGated(
   adapter: (typeof adapters)[number],
   input: unknown,
   cwd: string,
   home: string,
   action: () => void,
-  level?: 'standard' | 'strict' | 'paranoid',
+  level?: SafetyLevel,
 ) {
   const stdout = await runBuiltHook(adapter.flag, input, cwd, home, level);
   const output = stdout ? parseJsonOutput('CLI hook', stdout) : undefined;
@@ -834,7 +776,7 @@ function runCodingCliTool(
   home: string,
   sessionId: string,
   action: () => void,
-  level?: 'standard' | 'strict' | 'paranoid',
+  level?: SafetyLevel,
 ) {
   return runGated(
     adapters[0],
@@ -858,7 +800,7 @@ async function runBuiltHook(
   input: unknown,
   cwd: string,
   home: string,
-  level?: 'standard' | 'strict' | 'paranoid',
+  level?: SafetyLevel,
 ) {
   return (await runNode([cliPath, 'hook', flag], input, cwd, home, level)).stdout.trim();
 }
@@ -921,92 +863,6 @@ async function runOpenCodeGated(
   if (!output.allowed) return { allowed: false, reason: String(output.reason) } as const;
   action();
   return { allowed: true } as const;
-}
-
-async function runBuiltHost(
-  bundlePath: string,
-  hostScript: string,
-  input: unknown,
-  cwd: string,
-  home: string,
-) {
-  const { stdout } = await runNode(
-    ['--input-type=module', '--eval', hostScript, bundlePath],
-    input,
-    cwd,
-    home,
-  );
-  return parseJsonOutput('integration host', stdout);
-}
-
-async function runNode(
-  args: string[],
-  input: unknown,
-  cwd: string,
-  home: string,
-  level?: 'standard' | 'strict' | 'paranoid',
-) {
-  const proc = Bun.spawn(['node', ...args], {
-    stdin: 'pipe',
-    stdout: 'pipe',
-    stderr: 'pipe',
-    cwd,
-    env: isolatedEnv(home, level),
-  });
-  proc.stdin.write(JSON.stringify(input));
-  proc.stdin.end();
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  const result = { command: ['node', ...args], cwd, input, stdout, stderr, exitCode };
-  if (exitCode === 0 && stderr.trim() === '') return result;
-  throw new Error(
-    `Node subprocess violated the E2E contract:\n${redactSecrets(JSON.stringify(result, null, 2))}`,
-  );
-}
-
-function parseJsonOutput(label: string, output: string) {
-  try {
-    return JSON.parse(output) as Record<string, unknown>;
-  } catch (error) {
-    throw new Error(`${label} returned invalid JSON:\n${redactSecrets(output)}`, { cause: error });
-  }
-}
-
-function isolatedEnv(home: string, level?: 'standard' | 'strict' | 'paranoid') {
-  return {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(
-        (entry): entry is [string, string] => entry[1] !== undefined,
-      ),
-    ),
-    HOME: home,
-    USERPROFILE: home,
-    CC_SAFETY_NET_HOME: join(home, '.cc-safety-net'),
-    CC_SAFETY_NET_AUDIT_HOME: home,
-    CC_SAFETY_NET_LEVEL: level ?? '',
-    CC_SAFETY_NET_STRICT: '',
-    CC_SAFETY_NET_PARANOID: '',
-    CC_SAFETY_NET_PARANOID_RM: '',
-    CC_SAFETY_NET_PARANOID_INTERPRETERS: '',
-    CC_SAFETY_NET_WORKTREE: '',
-  };
-}
-
-function expectSingleAudit(
-  home: string,
-  sessionId: string,
-  expected: { agent: string; command?: string; ruleId?: string },
-) {
-  const entries = readAuditLogEntriesForSession(home, sessionId);
-  expect(entries).toHaveLength(1);
-  expect(entries[0]).toMatchObject({
-    sessionId,
-    decision: 'deny',
-    ...expected,
-  });
 }
 
 function getClaudeStyleDenyReason(output: Record<string, unknown>) {

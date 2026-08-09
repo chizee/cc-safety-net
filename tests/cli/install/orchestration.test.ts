@@ -16,7 +16,9 @@ const PROBED_CLIS = [
   'copilot',
   'cursor',
   'gemini',
+  'hermes',
   'kimi',
+  'openclaw',
   'opencode',
   'pi',
 ] as const;

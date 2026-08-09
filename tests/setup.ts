@@ -20,5 +20,13 @@ delete process.env.CLAUDE_CODE_ENTRYPOINT;
 // The npx-cache helper honors npm_config_cache; under an npm-driven test run it
 // would point spawned CLIs at the developer's real npx cache.
 delete process.env.npm_config_cache;
+// The Hermes and OpenClaw resolvers read these before the homeDir a test passes, so a
+// developer who exports one runs the install and uninstall cases against their real
+// plugin directory. Cleared here rather than per suite: the subprocess helpers rebuild
+// their environment from process.env, so one deletion covers direct calls and spawned
+// CLIs alike. Cases that need a value set it with withEnv.
+delete process.env.HERMES_HOME;
+delete process.env.OPENCLAW_STATE_DIR;
+delete process.env.OPENCLAW_CONFIG_PATH;
 
 afterAll(() => rmSync(testHome, { recursive: true, force: true }));

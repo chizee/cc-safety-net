@@ -1962,7 +1962,9 @@ describe('policy GUI server', () => {
         'cursor',
         'gemini-cli',
         'copilot-cli',
+        'hermes-agent',
         'kimi-code',
+        'openclaw',
         'opencode',
         'pi',
       ]);
@@ -1980,6 +1982,8 @@ describe('policy GUI server', () => {
         pi: '0.4.0',
         cursor: null,
         amp: null,
+        'hermes-agent': '1.5.0',
+        openclaw: '2026.8.1',
       });
       const statuses = Object.fromEntries(
         status.targets.map((target) => [target.target, target.status]),

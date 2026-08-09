@@ -6,7 +6,7 @@
 
 import { statSync } from 'node:fs';
 import { getBundledOutputs, isRootDeclarationOutput } from './build-output';
-import { buildAmpBundle, buildRuntimeBundles } from './build-runtime';
+import { buildAmpBundle, buildOpenClawBundle, buildRuntimeBundles } from './build-runtime';
 import { generateThirdPartyLicenses } from './generate-third-party-licenses';
 import { formatSubprocessFailure } from './subprocess-output';
 import { verifyBuildArtifacts } from './verify-build';
@@ -26,6 +26,15 @@ const ampResult = await buildAmpBundle('dist');
 if (!ampResult.success) {
   console.error('Amp bundle failed:');
   for (const log of ampResult.logs) {
+    console.error(log);
+  }
+  process.exit(1);
+}
+
+const openClawResult = await buildOpenClawBundle('dist');
+if (!openClawResult.success) {
+  console.error('OpenClaw bundle failed:');
+  for (const log of openClawResult.logs) {
     console.error(log);
   }
   process.exit(1);
@@ -66,5 +75,8 @@ console.log(
 );
 console.log(
   `  dist/amp/cc-safety-net.ts  ${(statSync('dist/amp/cc-safety-net.ts').size / 1024).toFixed(2)} KB`,
+);
+console.log(
+  `  dist/openclaw/cc-safety-net/index.js  ${(statSync('dist/openclaw/cc-safety-net/index.js').size / 1024).toFixed(2)} KB`,
 );
 console.log('  ✓ Build verification passed');

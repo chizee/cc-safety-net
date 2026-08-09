@@ -37,7 +37,9 @@ function writeFakeInstallProbeBinaries(binDir: string) {
     'agy',
     'gemini',
     'copilot',
+    'hermes',
     'kimi',
+    'openclaw',
     'opencode',
     'pi',
     'cursor',
@@ -250,7 +252,9 @@ describe('install target availability', () => {
         'cursor',
         'gemini-cli',
         'copilot-cli',
+        'hermes-agent',
         'kimi-code',
+        'openclaw',
         'opencode',
         'pi',
       ]);
@@ -313,6 +317,8 @@ describe('install target availability', () => {
       'cursor',
       'gemini-cli',
       'copilot-cli',
+      'hermes-agent',
+      'openclaw',
       'opencode',
       'pi',
     ]);
@@ -515,10 +521,12 @@ describe('interactive install dispatch', () => {
         'probe:cursor',
         'probe:gemini',
         'probe:copilot',
+        'probe:hermes',
         'probe:kimi',
+        'probe:openclaw',
         'probe:opencode',
         'probe:pi',
-        'select:10',
+        'select:12',
       ]);
     });
   });
@@ -551,7 +559,7 @@ describe('interactive install dispatch', () => {
       const result = await runInstallDispatchProbe(homeDir, { selectedTargets: ['kimi-code'] });
 
       expect(result.exitCode).toBe(0);
-      expect(result.events.at(-1)).toBe('select:10');
+      expect(result.events.at(-1)).toBe('select:12');
     });
   });
 

@@ -180,7 +180,9 @@ describe('detectAllHooks', () => {
         'cursor',
         'gemini-cli',
         'copilot-cli',
+        'hermes-agent',
         'kimi-code',
+        'openclaw',
         'opencode',
         'pi',
       ]);

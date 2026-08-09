@@ -14,7 +14,9 @@ import { detect as detectCursor } from '@/integrations/cursor/detect';
 import type { DetectContext, HookDetection } from '@/integrations/detect/context';
 import type { HookStatus } from '@/integrations/doctor-types';
 import { detect as detectGeminiCli } from '@/integrations/gemini-cli/detect';
+import { detect as detectHermesAgent } from '@/integrations/hermes-agent/detect';
 import { detect as detectKimiCode } from '@/integrations/kimi-code/detect';
+import { detect as detectOpenClaw } from '@/integrations/openclaw/detect';
 import { detect as detectOpenCode } from '@/integrations/opencode/detect';
 import { detect as detectPi } from '@/integrations/pi/detect';
 
@@ -27,7 +29,9 @@ const detectors = {
   'copilot-cli': detectCopilotCli,
   cursor: detectCursor,
   'gemini-cli': detectGeminiCli,
+  'hermes-agent': detectHermesAgent,
   'kimi-code': detectKimiCode,
+  openclaw: detectOpenClaw,
   opencode: detectOpenCode,
   pi: detectPi,
 } satisfies Record<IntegrationId, (context: DetectContext) => HookDetection>;

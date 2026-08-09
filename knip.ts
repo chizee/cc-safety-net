@@ -6,6 +6,7 @@ const config: KnipConfig = {
     'src/cli/cc-safety-net.ts!',
     'src/integrations/pi/index.ts!',
     'src/integrations/amp/index.ts!',
+    'src/integrations/openclaw/index.ts!',
     // Built for the browser by src/gui/assets.ts, so no module imports it.
     'src/gui/frontend/main.ts!',
     // scripts invoked directly by package.json scripts or GitHub workflows

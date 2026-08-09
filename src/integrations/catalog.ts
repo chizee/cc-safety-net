@@ -111,17 +111,35 @@ const catalog = [
     },
   },
   {
-    id: 'kimi-code',
-    displayName: 'Kimi Code',
+    id: 'hermes-agent',
+    displayName: 'Hermes Agent',
     doctorOrder: 8,
     runtime: {
       order: 6,
+      flags: ['-ha', '--hermes-agent'],
+      description: 'Run as Hermes Agent pre_tool_call hook',
+      legacyTopLevelFlags: [],
+    },
+    install: {
+      order: 8,
+      flag: '--hermes-agent',
+      installLabel: 'Hermes Agent',
+      helpTarget: 'Hermes Agent plugin',
+      probeCommand: ['hermes', '--version'],
+    },
+  },
+  {
+    id: 'kimi-code',
+    displayName: 'Kimi Code',
+    doctorOrder: 9,
+    runtime: {
+      order: 7,
       flags: ['-kc', '--kimi-code'],
       description: 'Run as Kimi Code PreToolUse hook',
       legacyTopLevelFlags: [],
     },
     install: {
-      order: 8,
+      order: 9,
       flag: '--kimi-code',
       installLabel: 'Kimi Code',
       helpTarget: 'Kimi Code hook config',
@@ -129,11 +147,23 @@ const catalog = [
     },
   },
   {
+    id: 'openclaw',
+    displayName: 'OpenClaw',
+    doctorOrder: 10,
+    install: {
+      order: 10,
+      flag: '--openclaw',
+      installLabel: 'OpenClaw',
+      helpTarget: 'OpenClaw plugin',
+      probeCommand: ['openclaw', '--version'],
+    },
+  },
+  {
     id: 'opencode',
     displayName: 'OpenCode',
-    doctorOrder: 9,
+    doctorOrder: 11,
     install: {
-      order: 9,
+      order: 11,
       flag: '--opencode',
       installLabel: 'OpenCode',
       helpTarget: 'OpenCode plugin',
@@ -143,9 +173,9 @@ const catalog = [
   {
     id: 'pi',
     displayName: 'Pi',
-    doctorOrder: 10,
+    doctorOrder: 12,
     install: {
-      order: 10,
+      order: 12,
       flag: '--pi',
       installLabel: 'Pi',
       helpTarget: 'Pi package',

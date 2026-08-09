@@ -14,6 +14,9 @@ describe('hook integration registry', () => {
     expect(findHookIntegrationByFlag(['-cp'])?.id).toBe('copilot-cli');
     expect(findHookIntegrationByFlag(['-gc'])?.id).toBe('gemini-cli');
     expect(findHookIntegrationByFlag(['--kimi-code'])?.id).toBe('kimi-code');
+    expect(findHookIntegrationByFlag(['-ha'])?.id).toBe('hermes-agent');
+    expect(findHookIntegrationByFlag(['--hermes-agent'])?.id).toBe('hermes-agent');
+    expect(findHookIntegrationByFlag(['--openclaw'])).toBeUndefined();
     expect(findHookIntegrationByFlag(['--unknown'])).toBeUndefined();
   });
 
@@ -32,6 +35,7 @@ describe('hook integration registry', () => {
     expect(findLegacyTopLevelHookIntegration('-cp')?.id).toBe('copilot-cli');
     expect(findLegacyTopLevelHookIntegration('-gc')?.id).toBe('gemini-cli');
     expect(findLegacyTopLevelHookIntegration('--kimi-code')).toBeUndefined();
+    expect(findLegacyTopLevelHookIntegration('--hermes-agent')).toBeUndefined();
     expect(findLegacyTopLevelHookIntegration(undefined)).toBeUndefined();
   });
 

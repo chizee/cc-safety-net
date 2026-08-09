@@ -3,11 +3,22 @@ import { isBuiltin } from 'node:module';
 import { posix, relative, resolve } from 'node:path';
 import pkg from '../package.json';
 import { AMP_MANAGED_HEADER } from '../src/integrations/amp/artifact';
+import {
+  OPENCLAW_MANAGED_HEADER,
+  OPENCLAW_PLUGIN_ENTRY_FILE,
+  OPENCLAW_PLUGIN_ID,
+  OPENCLAW_PLUGIN_MANIFEST_FILE,
+} from '../src/integrations/openclaw/artifact';
 
 const AMP_ARTIFACT = 'dist/amp/cc-safety-net.ts';
+const OPENCLAW_PLUGIN_DIR = `dist/openclaw/${OPENCLAW_PLUGIN_ID}`;
+const OPENCLAW_ARTIFACT = `${OPENCLAW_PLUGIN_DIR}/${OPENCLAW_PLUGIN_ENTRY_FILE}`;
 
 const BUILD_ENTRY_ARTIFACTS = [
   AMP_ARTIFACT,
+  OPENCLAW_ARTIFACT,
+  `${OPENCLAW_PLUGIN_DIR}/${OPENCLAW_PLUGIN_MANIFEST_FILE}`,
+  `${OPENCLAW_PLUGIN_DIR}/package.json`,
   'dist/bin/cc-safety-net.js',
   'dist/index.d.ts',
   'dist/index.js',
@@ -120,20 +131,25 @@ export async function verifyBuildArtifacts(): Promise<string[]> {
   if (!(await readFile('dist/bin/cc-safety-net.js', 'utf8')).startsWith('#!/usr/bin/env node\n')) {
     throw new Error('dist/bin/cc-safety-net.js has the wrong shebang');
   }
-  await verifyAmpArtifact(await readFile(AMP_ARTIFACT, 'utf8'));
+  verifyManagedArtifact('Amp', AMP_MANAGED_HEADER, await readFile(AMP_ARTIFACT, 'utf8'));
+  verifyManagedArtifact(
+    'OpenClaw',
+    OPENCLAW_MANAGED_HEADER,
+    await readFile(OPENCLAW_ARTIFACT, 'utf8'),
+  );
   return files;
 }
 
 /** @internal */
-export function verifyAmpArtifact(source: string): void {
-  if (!source.startsWith(AMP_MANAGED_HEADER)) {
-    throw new Error('Amp artifact is missing the managed-file header');
+export function verifyManagedArtifact(label: string, header: string, source: string): void {
+  if (!source.startsWith(header)) {
+    throw new Error(`${label} artifact is missing the managed-file header`);
   }
   if (!source.includes(`// version: ${pkg.version}`)) {
-    throw new Error(`Amp artifact is missing the package version ${pkg.version}`);
+    throw new Error(`${label} artifact is missing the package version ${pkg.version}`);
   }
   const unresolved = unbundledRuntimeImports(source);
   if (unresolved.length > 0) {
-    throw new Error(`Amp artifact has unresolved runtime imports:\n${unresolved.join('\n')}`);
+    throw new Error(`${label} artifact has unresolved runtime imports:\n${unresolved.join('\n')}`);
   }
 }

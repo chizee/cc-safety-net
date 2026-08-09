@@ -70,6 +70,50 @@ const result = await handler({
 process.stdout.write(JSON.stringify(result));
 `;
 
+/**
+ * Emulates the OpenClaw plugin host: import the built plugin directory's entry, hand its
+ * `register` the documented plugin API, then fire the handler it registered for
+ * `before_tool_call`. `resolveAgentWorkspaceDir` answers only for the agent the request names,
+ * so a plugin that resolves the workspace from anything but `api.config` + `ctx.agentId` fails.
+ *
+ * @internal
+ */
+export const OPENCLAW_HOST_SCRIPT = `
+import { pathToFileURL } from 'node:url';
+
+let input = '';
+for await (const chunk of process.stdin) input += chunk;
+const request = JSON.parse(input);
+const plugin = (await import(pathToFileURL(process.argv[1]).href)).default;
+let registration;
+let handler;
+plugin.register({
+  config: { marker: 'openclaw-host-config' },
+  runtime: {
+    agent: {
+      resolveAgentWorkspaceDir: (config, agentId) =>
+        config.marker === 'openclaw-host-config' && agentId === request.agentId
+          ? request.workspaceDir
+          : undefined,
+    },
+  },
+  on: (hookName, registered, options) => {
+    registration = { hookName, ...options };
+    handler = registered;
+  },
+});
+const result = await handler(
+  { toolName: request.toolName, params: request.params },
+  { toolName: request.toolName, agentId: request.agentId, sessionId: request.sessionId },
+);
+process.stdout.write(JSON.stringify({
+  id: plugin.id,
+  name: plugin.name,
+  registration,
+  result: result ?? null,
+}));
+`;
+
 /** @internal */
 export const OPENCODE_HOST_SCRIPT = `
 import { pathToFileURL } from 'node:url';

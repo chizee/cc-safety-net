@@ -152,8 +152,12 @@ export interface SystemInfo {
   /** GitHub Copilot CLI version (from `copilot --binary-version`; `copilot --version` is never
    * run because it downloads a ~160 MB package cache) */
   copilotCliVersion: string | null;
+  /** Hermes Agent version (from `hermes --version`) */
+  hermesAgentVersion: string | null;
   /** Kimi Code version (from `kimi --version`) */
   kimiCodeVersion: string | null;
+  /** OpenClaw version (from `openclaw --version`) */
+  openClawVersion: string | null;
   /** Pi CLI version (from `pi --version`) */
   piCliVersion: string | null;
   /** Cursor version (from `cursor --version`) */
