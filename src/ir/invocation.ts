@@ -1,17 +1,13 @@
-/** @internal */
 export type CommandToolKind = 'posix' | 'powershell' | 'auto';
 
-/** @internal */
 export type NonCommandToolInputKind = 'patch' | 'path' | 'grep' | 'glob' | 'unknown';
 
 type NonCommandToolRoute = {
   [Kind in NonCommandToolInputKind]: { kind: Kind };
 }[NonCommandToolInputKind];
 
-/** @internal */
 export type ToolRoute = { kind: 'command'; shell: CommandToolKind } | NonCommandToolRoute;
 
-/** @internal */
 export type ToolCallContext = {
   configCwd: string;
   executionCwd: string;
@@ -24,7 +20,6 @@ type ToolInvocationBase = {
   context: ToolCallContext;
 };
 
-/** @internal */
 export type ToolInvocation =
   | (ToolInvocationBase & {
       route: Extract<ToolRoute, { kind: 'command' }>;
@@ -34,7 +29,6 @@ export type ToolInvocation =
       route: Exclude<ToolRoute, { kind: 'command' }>;
     });
 
-/** @internal */
 export function createToolInvocation(
   toolName: string,
   input: unknown,

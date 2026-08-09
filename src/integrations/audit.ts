@@ -27,7 +27,6 @@ type GuardAuditDescriptor = {
   errorCode?: AuditErrorCode;
 };
 
-/** @internal */
 export function projectGuardAudit(
   invocation: ToolInvocation,
   evaluation: GuardEvaluation,
@@ -73,7 +72,6 @@ function getInvocationCommand(invocation: ToolInvocation): string {
   return 'command' in invocation ? (invocation.command ?? '') : '';
 }
 
-/** @internal */
 export function writeGuardAudit(
   audit: GuardAuditDescriptor | undefined,
   getSessionId: () => string | undefined,
@@ -102,7 +100,6 @@ export function writeGuardAudit(
   });
 }
 
-/** @internal */
 export function writeIntegrationDenialAudit(
   denial: IntegrationDenial,
   getSessionId: () => string | undefined,

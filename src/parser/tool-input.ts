@@ -46,7 +46,6 @@ const UTF8_DECODER = new TextDecoder();
 const JS_WHITESPACE = /\s/;
 const MAX_GIT_DIFF_FALLBACK_CANDIDATES = 64;
 
-/** @internal */
 export class ToolInputLimitError extends Error {
   override readonly name = 'ToolInputLimitError';
 

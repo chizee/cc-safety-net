@@ -57,7 +57,7 @@ const PROVIDER_HINTS = [
 
 export type CommandTraceRecorder = ReturnType<typeof createCommandTraceRecorder>;
 
-/** @internal Adapts the bounded recorder to the evaluator's passive trace context. */
+/** Adapts the bounded recorder to the evaluator's passive trace context. */
 export function createCommandTraceContext(recorder: CommandTraceRecorder): CommandTraceContext {
   let nextSegmentIndex = 0;
   const context: CommandTraceContext = {
@@ -78,7 +78,7 @@ export function createCommandTraceContext(recorder: CommandTraceRecorder): Comma
   return context;
 }
 
-/** @internal Records bounded, sanitized diagnostics without participating in decisions. */
+/** Records bounded, sanitized diagnostics without participating in decisions. */
 export function createCommandTraceRecorder(options: RecorderOptions = {}) {
   const events: CommandTraceEvent[] = [];
   const maxEvents = options.maxEvents ?? 512;

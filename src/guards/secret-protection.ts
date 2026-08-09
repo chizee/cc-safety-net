@@ -289,7 +289,6 @@ export function findSensitiveTargetInToolInput(
   );
 }
 
-/** @internal */
 export function findSensitiveTargetInSemanticFacts(
   facts: SemanticFacts,
   config: SecretProtectionPolicy | undefined,

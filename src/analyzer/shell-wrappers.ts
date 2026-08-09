@@ -16,7 +16,6 @@ export type ShellStartupEnvironmentName = 'BASH_ENV' | 'ENV';
 export type ShellStartupArgvSource =
   | { readonly kind: 'literal'; readonly value: string }
   | { readonly kind: 'absent' };
-/** @internal */
 export type ShellStartupLoaderMetadata = {
   readonly argvSource: ShellStartupArgvSource | null;
   readonly argvSourceApplies: boolean;
@@ -78,7 +77,6 @@ function getCommandStringAfterDashC(
   return commandString;
 }
 
-/** @internal */
 export function extractShellStartupLoaderMetadata(
   tokens: readonly string[],
 ): ShellStartupLoaderMetadata {
@@ -198,7 +196,6 @@ function scanShellShortOptions(
   return { interactive, followingValues, commandSelected, stdinMode, syntaxCheck };
 }
 
-/** @internal */
 export function parseShellArgv(tokens: readonly string[]) {
   const shell = getBasename(tokens[0] ?? '').toLowerCase();
   let commandSelected = false;

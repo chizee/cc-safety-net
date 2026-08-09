@@ -28,7 +28,6 @@ export function advanceQuoteScanState(char: string, state: QuoteScanState): bool
   return false;
 }
 
-/** @internal */
 export function hasUnclosedQuotes(command: string): boolean {
   const state: QuoteScanState = { inSingle: false, inDouble: false, escaped: false };
 

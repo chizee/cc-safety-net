@@ -1,25 +1,20 @@
 export type ShellKind = 'posix' | 'powershell' | 'auto';
 
-/** @internal */
 export type CommandDialect = Exclude<ShellKind, 'auto'>;
 
-/** @internal */
 export type CommandParseStatus = 'complete' | 'partial' | 'invalid' | 'limited';
 
-/** @internal */
 export type CommandSpan = {
   readonly start: number;
   readonly end: number;
 };
 
-/** @internal */
 export type CommandIssue = {
   readonly code: string;
   readonly message: string;
   readonly span: CommandSpan;
 };
 
-/** @internal */
 export type WordProvenance =
   | 'literal'
   | 'variable'
@@ -28,14 +23,12 @@ export type WordProvenance =
   | 'glob'
   | 'unknown';
 
-/** @internal */
 export type CommandWordPart = {
   readonly raw: string;
   readonly span: CommandSpan;
   readonly provenance: WordProvenance;
 };
 
-/** @internal */
 export type CommandWord = {
   readonly kind: 'word';
   readonly text: string;
@@ -46,7 +39,6 @@ export type CommandWord = {
   readonly parts: readonly CommandWordPart[];
 };
 
-/** @internal */
 export type CommandHeredoc = {
   readonly body: string;
   readonly delimiter: string;
@@ -56,7 +48,6 @@ export type CommandHeredoc = {
   readonly terminatorSpan: CommandSpan;
 };
 
-/** @internal */
 export type CommandRedirection = {
   readonly kind: 'redirection';
   readonly operator: string;
@@ -66,7 +57,6 @@ export type CommandRedirection = {
   readonly heredoc?: CommandHeredoc;
 };
 
-/** @internal */
 export type CommandView = {
   readonly kind: 'command';
   readonly dialect: CommandDialect;
@@ -81,7 +71,7 @@ export type CommandView = {
 };
 
 /**
- * @internal Whether the words start with an executable the parse cannot name: substitution
+ * Whether the words start with an executable the parse cannot name: substitution
  * output in POSIX, anything but a literal in PowerShell, where `&`/`.` invoke the next word.
  */
 export function isDynamicExecutable(
@@ -103,7 +93,7 @@ function isBareCallPrefix(word: CommandWord | undefined, text: string) {
 }
 
 /**
- * @internal Names the command a word list runs: the first word that is neither a leading
+ * Names the command a word list runs: the first word that is neither a leading
  * assignment nor a keyword prefix, and that the parse can resolve to a literal.
  */
 export function getCalledCommandName(view: CommandView): string | undefined {
@@ -133,7 +123,6 @@ export type CommandConnector = {
   readonly span: CommandSpan;
 };
 
-/** @internal */
 export type CommandGroup = {
   readonly kind: 'group';
   readonly style: 'subshell' | 'brace' | 'grouping';
@@ -141,7 +130,7 @@ export type CommandGroup = {
   readonly body: CommandProgram;
 };
 
-/** @internal A POSIX name() brace-body definition. Its body is inert until a direct call. */
+/** A POSIX name() brace-body definition. Its body is inert until a direct call. */
 export type CommandFunction = {
   readonly kind: 'function';
   readonly name: string;
@@ -156,7 +145,6 @@ export type CommandUnknown = {
   readonly span: CommandSpan;
 };
 
-/** @internal */
 export type CommandNode =
   | CommandView
   | CommandConnector
@@ -164,7 +152,6 @@ export type CommandNode =
   | CommandFunction
   | CommandUnknown;
 
-/** @internal */
 export type CommandProgram = {
   readonly kind: 'program';
   readonly dialect: CommandDialect;
@@ -175,7 +162,6 @@ export type CommandProgram = {
   readonly nodes: readonly CommandNode[];
 };
 
-/** @internal */
 export type CommandParserLimits = {
   readonly maxInputLength: number;
   readonly maxWords: number;

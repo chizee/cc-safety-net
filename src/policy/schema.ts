@@ -525,7 +525,6 @@ export function getRulesConfigDiagnostics(config: unknown): string[] {
   return getRulesConfigValidation(config).errors;
 }
 
-/** @internal */
 export function getRulesConfigValidation(config: unknown): {
   errors: string[];
   sources: Set<string>;

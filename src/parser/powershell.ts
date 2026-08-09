@@ -42,7 +42,6 @@ const AUTO_POWERSHELL_HEADS = new Set(['remove-item', 'ri', 'del', 'erase', 'rd'
 const AUTO_POWERSHELL_PARAMETERS = ['-rec', '-for', '-path', '-literalpath', '-whatif'];
 const SELECTOR_LIMITS = { maxInputLength: 131_072, maxWords: 16_384, maxDepth: 64 };
 
-/** @internal */
 export function shouldUsePowerShellParser(source: string): boolean {
   const candidate = source.toLowerCase().replaceAll('`', '');
   if (
@@ -70,7 +69,6 @@ function isPowerShellSelectorCommand(words: readonly string[]): boolean {
   });
 }
 
-/** @internal */
 export function parsePowerShellCommand(
   source: string,
   limits: CommandParserLimits,

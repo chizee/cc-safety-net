@@ -43,7 +43,6 @@ const POSITIONAL_SHELL_PARAMETER_RE = /^(?:[0-9]+|[@*])$/;
 const MAX_POSITIONAL_EXPANSION_WORDS = DEFAULT_COMMAND_PARSER_LIMITS.maxWords;
 const MAX_POSITIONAL_EXPANSION_CHARACTERS = DEFAULT_COMMAND_PARSER_LIMITS.maxInputLength;
 
-/** @internal */
 export function extractLiteralPrintfOutput(command: CommandView | undefined): string | undefined {
   if (!command || getBasename(normalizeCommandToken(command.words[0]?.text ?? '')) !== 'printf') {
     return undefined;
@@ -64,7 +63,6 @@ export function extractLiteralPrintfOutput(command: CommandView | undefined): st
     .replaceAll('\\\\', '\\');
 }
 
-/** @internal */
 export function extractEvalSource(words: readonly CommandWord[]): ShellExecutionSource {
   const start = wordText(words[1]) === '--' ? 2 : 1;
   if (words.length <= start) return NO_SOURCE;
@@ -73,7 +71,6 @@ export function extractEvalSource(words: readonly CommandWord[]): ShellExecution
   return { kind: 'literal', source: args.map(analysisWordText).join(' ') };
 }
 
-/** @internal */
 export function extractTrapSource(words: readonly CommandWord[]): ShellExecutionSource {
   const actionIndex = wordText(words[1]) === '--' ? 2 : 1;
   const action = words[actionIndex];
@@ -92,7 +89,6 @@ export function extractTrapSource(words: readonly CommandWord[]): ShellExecution
   return { kind: 'literal', source };
 }
 
-/** @internal */
 export function extractPositionalShellSource(
   words: readonly CommandWord[],
   script: string,
@@ -133,7 +129,6 @@ export function extractPositionalShellSource(
   };
 }
 
-/** @internal */
 export function extractShellStdinSource(
   words: readonly CommandWord[],
   redirections: readonly CommandRedirection[],
@@ -162,7 +157,6 @@ export function extractShellStdinSource(
     : { kind: 'literal', source: literalPipelineInput };
 }
 
-/** @internal */
 export function extractShellScriptOperandSource(
   words: readonly CommandWord[],
 ): ShellExecutionSource {

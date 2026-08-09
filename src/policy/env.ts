@@ -64,7 +64,6 @@ export function shouldRecordAllowedCommands(): boolean {
   return resolveAuditScope(getEnvFlagValue(ENV_FLAGS.auditScope)) === 'all';
 }
 
-/** @internal */
 export function deriveEffectiveSafetyLevel(
   values: Record<Capability, boolean>,
 ): EffectiveSafetyLevel {

@@ -44,7 +44,6 @@ type RuntimeAuditOptions = {
   homeDir?: string;
 };
 
-/** @internal */
 export function evaluateRuntimeGuard(
   invocation: ToolInvocation,
   options: { guard?: GuardOptions; audit: RuntimeAuditOptions },

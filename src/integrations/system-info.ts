@@ -90,7 +90,6 @@ function getSpawnCommand(args: string[], env: NodeJS.ProcessEnv): { cmd: string;
 /**
  * Default version fetcher that runs shell commands.
  * Uses Node.js child_process.spawn for compatibility with both Node and Bun runtimes.
- * @internal Exported for testing
  */
 export const defaultVersionFetcher = async (
   args: string[],

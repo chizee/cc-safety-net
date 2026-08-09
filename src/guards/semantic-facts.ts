@@ -39,7 +39,6 @@ const GREP_KEYS = new Set([...PATH_LIKE_KEYS, 'glob']);
 const GLOB_KEYS = new Set([...GREP_KEYS, 'pattern']);
 const EMPTY_SHELL_SYNTAX_ENTRIES = Object.freeze([]) as readonly ShellSyntaxEntry[];
 
-/** @internal */
 export type FactParserDependencies = {
   parseCommand: typeof parseCommand;
   projectShellSyntax: typeof projectShellSyntax;
@@ -47,7 +46,6 @@ export type FactParserDependencies = {
 
 const DEFAULT_PARSERS: FactParserDependencies = { parseCommand, projectShellSyntax };
 
-/** @internal */
 export class StructuralShellSyntaxLimitError extends Error {
   override readonly name = 'StructuralShellSyntaxLimitError';
 
@@ -56,7 +54,6 @@ export class StructuralShellSyntaxLimitError extends Error {
   }
 }
 
-/** @internal */
 export function createSemanticFacts(
   invocation: ToolInvocation,
   parserDependencies: Partial<FactParserDependencies> = {},
@@ -117,7 +114,6 @@ export function createSemanticFacts(
   });
 }
 
-/** @internal */
 export function getCommandSyntaxFact(
   facts: SemanticFacts,
   usage: CommandFactUsage,
@@ -125,7 +121,6 @@ export function getCommandSyntaxFact(
   return facts.commands.find((fact) => fact.usages.includes(usage));
 }
 
-/** @internal */
 export function projectSensitiveShellText(source: string): string {
   // Scanning asks for this per token and per candidate path, so text that cannot expand
   // must not pay for a snapshot of the whole process environment.
@@ -133,7 +128,7 @@ export function projectSensitiveShellText(source: string): string {
   return expandSupportedPathEnvironmentVariables(source, createProcessEnvironment());
 }
 
-/** @internal Shared cache that parses each unique command/dialect pair at most once. */
+/** Shared cache that parses each unique command/dialect pair at most once. */
 export function createSemanticFactStore(
   parserDependencies: Partial<FactParserDependencies> = {},
 ): SemanticFactStore {

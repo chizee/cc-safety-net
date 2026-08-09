@@ -116,7 +116,6 @@ export function buildInstallTargetChoicesAsync(
   return buildInstallTargetChoices(probe, { ...options, async: true });
 }
 
-/** @internal */
 export function applyInstallTargetState(
   choices: readonly InstallTargetChoice[],
   options: Omit<BuildInstallTargetChoicesOptions, 'async'>,

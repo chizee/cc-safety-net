@@ -300,7 +300,6 @@ function expandTmpdirTarget(target: string, tmpdirValue: string | undefined): st
   return target.replace(/^(?:\$TMPDIR|\$\{TMPDIR\})/, () => tmpdirValue);
 }
 
-/** @internal */
 export function getFindStartingPoints(words: readonly CommandWord[]): CommandWord[] | null {
   const tokenAt = (index: number) => {
     const word = words[index];
@@ -343,7 +342,6 @@ function analyzeFindExecCommand(
   return null;
 }
 
-/** @internal */
 export function getFindExecCommand(
   tokens: readonly string[],
   execIndex: number,
@@ -369,7 +367,6 @@ export function getFindExecCommand(
  * Check if find command has -delete action (not as argument to another option).
  * Handles cases like "find -name -delete" where -delete is a filename pattern.
  */
-/** @internal */
 export function findHasDelete(tokens: readonly string[], start: number): boolean {
   let i = start;
 
@@ -404,12 +401,10 @@ export function findHasDelete(tokens: readonly string[], start: number): boolean
   return false;
 }
 
-/** @internal */
 export function getFindPrimaryArity(token: string): number {
   return FIND_PRIMARY_ARITY.get(token) ?? (/^-newer[A-Za-z]{2}$/.test(token) ? 1 : 0);
 }
 
-/** @internal */
 export function isFindExecPrimary(token: string | undefined): boolean {
   return token !== undefined && FIND_EXEC_PRIMARIES.has(token);
 }

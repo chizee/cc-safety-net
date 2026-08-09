@@ -8,15 +8,12 @@ import { loadPolicyConfig } from '@/policy/store';
 import { loadRulesPolicy } from '@/rules/policy/scope-policy';
 import type { LoadedRulesPolicy, RulesPolicyOptions } from '@/rules/policy/types';
 
-/** @internal */
 export type PolicySnapshotOptions = RulesPolicyOptions;
 
 /**
  * Loads the effective runtime policy from local configuration, lockfiles, and
  * verified rulebook cache entries. This function performs no writes, network
  * requests, or in-memory caching.
- *
- * @internal
  */
 export function loadPolicySnapshot(options: PolicySnapshotOptions = {}): PolicySnapshot {
   const rules = loadRulesPolicy(options);
@@ -70,8 +67,6 @@ export function loadPolicySnapshot(options: PolicySnapshotOptions = {}): PolicyS
  * Projects a snapshot onto what diagnostic surfaces report: the state plus, when
  * a fallback policy is enforced, the reason naming the failing source, what is no
  * longer active, and the repair.
- *
- * @internal
  */
 export function describeConfigState(snapshot: PolicySnapshot): ConfigStateInfo {
   if (snapshot.state === 'ready') return { state: snapshot.state };
@@ -128,7 +123,6 @@ function isPublicRuleSource(source: string): boolean {
   );
 }
 
-/** @internal */
 export function createPolicySnapshot(
   policy: EffectivePolicy,
   failure?: { readonly diagnostics: readonly string[]; readonly reason: string },

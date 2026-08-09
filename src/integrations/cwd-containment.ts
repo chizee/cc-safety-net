@@ -32,7 +32,6 @@ function canonicalDirectory(path: string): string[] {
   }
 }
 
-/** @internal */
 export function isSameOrInsidePath(path: string, root: string): boolean {
   const rel = relative(root, path);
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));

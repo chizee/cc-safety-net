@@ -61,7 +61,6 @@ type PartialPolicy = {
   secretProtection: SecretProtectionConfig;
 };
 
-/** @internal */
 export type GuiPolicy = {
   version: 1;
   safety: {
@@ -128,7 +127,6 @@ export interface GuiPolicyWriteResult {
   errors: string[];
 }
 
-/** @internal */
 export interface PolicyPreview {
   selectedPreset: PolicySafetyLevel;
   effectiveLevel: ReturnType<typeof getCCSafetyNetEnvModes>['effectiveLevel'];
@@ -211,7 +209,6 @@ export function writeUserPolicyFromGui(
   return { path, policy: normalizedPolicy, errors: [] };
 }
 
-/** @internal */
 export function previewUserPolicyForGui(policy: unknown): {
   preview?: PolicyPreview;
   errors: string[];
@@ -221,7 +218,6 @@ export function previewUserPolicyForGui(policy: unknown): {
   return { preview: createPolicyPreview(normalizeGuiPolicy(policy)), errors: [] };
 }
 
-/** @internal */
 export function createPolicyPreview(policy: GuiPolicy): PolicyPreview {
   const modes = getCCSafetyNetEnvModes({ safety: normalizeSafety(policy.safety) });
   const rules = resolveEffectiveDestructiveCommandRules(

@@ -42,8 +42,6 @@ const onPath = (binary: string, env: NodeJS.ProcessEnv) =>
  * macOS and Windows ship one with the OS. Linux needs both a dialog binary and
  * a session to draw into: minimal, container and server installs have neither,
  * and WSL without WSLg has the binary but no display.
- *
- * @internal Exported for testing; callers want `chooseDirectory`.
  */
 export function isDirectoryPickerAvailable(
   platform: NodeJS.Platform | string,

@@ -13,7 +13,6 @@ export type DecisionEvidence =
   | { kind: 'command'; command: string; segment?: string }
   | { kind: 'path'; target: string };
 
-/** @internal */
 export type Decision =
   | { kind: 'allow' }
   | {

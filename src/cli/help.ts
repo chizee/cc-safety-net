@@ -50,7 +50,6 @@ function formatEnvironmentVariable(name: string, description: string): string {
 /**
  * Print help for a specific command.
  * Failure paths pass `console.error` so stdout stays free for machine output.
- * @internal Exported for testing
  */
 export function printCommandHelp(command: Command, write: (text: string) => void = console.log) {
   const lines: string[] = [];

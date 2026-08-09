@@ -9,7 +9,6 @@ import { statusCommand } from './status';
 import { statuslineCommand } from './statusline';
 import type { Command } from './types';
 
-/** @internal Exported for testing */
 export type { Command } from './types';
 
 /**

@@ -1,4 +1,3 @@
-/** @internal */
 export const PARALLEL_ANALYSIS_LIMITS = Object.freeze({
   maxChildAnalyses: 1_024,
   maxDerivedTokens: 16_384,
@@ -6,11 +5,9 @@ export const PARALLEL_ANALYSIS_LIMITS = Object.freeze({
   maxPlaceholderReplacements: 16_384,
 });
 
-/** @internal */
 export const REASON_PARALLEL_ANALYSIS_LIMIT =
   "Parallel command expands beyond CC Safety Net's analysis limits. Reduce the template or explicit argument list and retry.";
 
-/** @internal */
 export type ParallelAnalysisBudget = {
   childAnalyses: number;
   derivedTokens: number;
@@ -18,10 +15,8 @@ export type ParallelAnalysisBudget = {
   placeholderReplacements: number;
 };
 
-/** @internal */
 export type ParallelAnalysisReservation = Partial<ParallelAnalysisBudget>;
 
-/** @internal */
 export class ParallelAnalysisLimitError extends Error {
   constructor() {
     super(REASON_PARALLEL_ANALYSIS_LIMIT);
@@ -29,7 +24,6 @@ export class ParallelAnalysisLimitError extends Error {
   }
 }
 
-/** @internal */
 export function createParallelAnalysisBudget(): ParallelAnalysisBudget {
   return {
     childAnalyses: 0,
@@ -39,7 +33,6 @@ export function createParallelAnalysisBudget(): ParallelAnalysisBudget {
   };
 }
 
-/** @internal */
 export function reserveParallelAnalysis(
   budget: ParallelAnalysisBudget,
   reservation: ParallelAnalysisReservation,

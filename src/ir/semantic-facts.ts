@@ -1,10 +1,8 @@
 import type { CommandIssue, CommandProgram, CommandView, ShellKind } from '@/ir/command';
 import type { ToolCallContext, ToolRoute } from '@/ir/invocation';
 
-/** @internal */
 export type CommandFactUsage = 'input-candidate' | 'declared-command';
 
-/** @internal */
 export type ShellSyntaxEntry =
   | { readonly kind: 'word'; readonly text: string }
   | { readonly kind: 'operator'; readonly operator: string; readonly boundary: boolean }
@@ -16,7 +14,6 @@ export type ShellSyntaxEntry =
       readonly target?: string;
     };
 
-/** @internal */
 export type ShellSyntaxFacts = {
   readonly status: 'complete' | 'unclosed-quote' | 'invalid' | 'structural-limit';
   readonly source: string;
@@ -24,7 +21,6 @@ export type ShellSyntaxFacts = {
   readonly assignmentFallbacks: readonly string[];
 };
 
-/** @internal */
 export type CommandSyntaxFacts = {
   readonly usages: readonly CommandFactUsage[];
   readonly source: string;
@@ -34,20 +30,17 @@ export type CommandSyntaxFacts = {
   readonly shell: ShellSyntaxFacts;
 };
 
-/** @internal */
 export type SemanticFactStore = {
   readonly getShellSyntax: (source: string, program?: CommandProgram) => ShellSyntaxFacts;
   readonly getCommandProgram: (source: string, dialect: ShellKind) => CommandProgram;
 };
 
-/** @internal */
 export type PathFact = {
   readonly raw: string;
   readonly role: 'tool-path' | 'patch-target';
   readonly access: 'read' | 'write' | 'unknown';
 };
 
-/** @internal */
 export type SemanticFacts = {
   readonly invocation: {
     readonly toolName: string;

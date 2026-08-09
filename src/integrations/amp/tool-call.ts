@@ -41,7 +41,6 @@ type AmpHandlerOptions = {
   policyOptions?: PolicySnapshotOptions;
 };
 
-/** @internal - exported for test coverage */
 export const handleAmpToolCall = createAmpToolCallHandler();
 
 /** @internal */

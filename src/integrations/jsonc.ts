@@ -1,4 +1,3 @@
-/** @internal */
 export function stripJsonComments(content: string): string {
   let result = '';
   let i = 0;

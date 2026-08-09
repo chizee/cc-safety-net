@@ -9,13 +9,10 @@ import {
 import { RULEBOOK_FILE, RULES_DIR } from './source-syntax';
 import type { RulebookLockEntry, RulesPolicyOptions, SyncRulesConfigOptions } from './types';
 
-/** @internal Compatibility re-exports for existing direct module consumers. */
-export {
-  GITHUB_RULEBOOK_SOURCE_FORMAT,
-  getRepositoryRulebookPath,
-  RULEBOOK_FILE,
-  RULES_DIR,
-} from './source-syntax';
+/** Compatibility re-exports for existing direct module consumers. */
+export { RULEBOOK_FILE, RULES_DIR };
+/** @internal */
+export { GITHUB_RULEBOOK_SOURCE_FORMAT, getRepositoryRulebookPath } from './source-syntax';
 
 const RULES_CONFIG_FILE = 'rule.json';
 /** Lives here rather than in core/policy so audit retention can resolve the
@@ -65,7 +62,6 @@ export function getProjectRulesLockPath(cwd?: string): string {
   return join(getProjectRulesDir(cwd), RULES_LOCK_FILE);
 }
 
-/** @internal */
 export function getUserRulesDir(options?: RulesPolicyOptions): string {
   return (
     options?.userConfigDir ??
@@ -190,7 +186,7 @@ export function getRulebookCacheRoot(options?: RulesPolicyOptions): string {
   return join(getRulesCacheDir(options), 'rulebooks');
 }
 
-/** @internal Builds cache lookup options without forwarding unknown caller fields. */
+/** Builds cache lookup options without forwarding unknown caller fields. */
 export function getRulebookCacheOptions(
   configDir: string,
   options: RulesPolicyOptions,

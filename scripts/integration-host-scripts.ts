@@ -1,4 +1,3 @@
-/** @internal */
 export const PI_HOST_SCRIPT = `
 import { pathToFileURL } from 'node:url';
 
@@ -41,7 +40,6 @@ if (request.kind === 'registration') {
 }
 `;
 
-/** @internal */
 export const AMP_HOST_SCRIPT = `
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
@@ -114,7 +112,6 @@ process.stdout.write(JSON.stringify({
 }));
 `;
 
-/** @internal */
 export const OPENCODE_HOST_SCRIPT = `
 import { pathToFileURL } from 'node:url';
 

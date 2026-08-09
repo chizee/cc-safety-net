@@ -13,7 +13,6 @@ type PolicyContextOptions = Pick<
   | 'worktreeMode'
 >;
 
-/** @internal */
 export function resolveCommandAnalysisContext(options: PolicyContextOptions) {
   const capabilities = options.effectiveCapabilities;
   const strict = options.strict ?? capabilities.fail_closed.enabled;

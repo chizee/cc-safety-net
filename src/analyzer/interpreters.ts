@@ -138,7 +138,6 @@ const INTERPRETER_SHELL_CONTINUATION = /\\\r?\n/g;
 /** @internal */
 export type InterpreterExecutableSourceKind = 'inline-code' | 'main-script' | 'module-file';
 
-/** @internal */
 export interface InterpreterExecutableSource {
   readonly tokenIndex: number;
   readonly kind: InterpreterExecutableSourceKind;
@@ -152,14 +151,12 @@ export type ExecutableSourceSelectorValueForm =
   | 'equals-or-separate'
   | 'separate-only';
 
-/** @internal */
 export interface InterpreterExecutableSourceSelector {
   readonly selector: string;
   readonly kind: InterpreterExecutableSourceKind;
   readonly valueForm: ExecutableSourceSelectorValueForm;
 }
 
-/** @internal */
 export interface InterpreterArgvMetadata {
   readonly code: string | null;
   readonly sources: readonly InterpreterExecutableSource[];
@@ -217,21 +214,18 @@ export function extractInterpreterCodeArg(tokens: readonly string[]): string | n
   return parseInterpreterArgv(tokens).code;
 }
 
-/** @internal */
 export function extractInterpreterExecutableSources(
   tokens: readonly string[],
 ): readonly InterpreterExecutableSource[] {
   return parseInterpreterArgv(tokens).sources;
 }
 
-/** @internal */
 export function getInterpreterExecutableSourceSelectors(
   command: string,
 ): readonly InterpreterExecutableSourceSelector[] {
   return INTERPRETER_EXECUTABLE_SOURCE_SELECTORS.get(normalizeInterpreter(command)) ?? [];
 }
 
-/** @internal */
 export function parseInterpreterArgv(tokens: readonly string[]): InterpreterArgvMetadata {
   const interpreter = normalizeInterpreter(tokens[0] ?? '');
 

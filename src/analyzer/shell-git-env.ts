@@ -52,7 +52,6 @@ export function createShellGitContextEnvState(
   };
 }
 
-/** @internal */
 export function cloneShellGitContextEnvState(
   state: ShellGitContextEnvState,
 ): ShellGitContextEnvState {

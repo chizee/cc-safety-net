@@ -9,14 +9,12 @@ export const PATH_CANONICALIZATION_LIMITS = Object.freeze({
   maxProcessedCandidateBytes: 4 * 1024 * 1024,
 });
 
-/** @internal */
 export type PathCanonicalizationBudget = {
   realpathAttempts: number;
   processedCandidateBytes: number;
   resolvedPaths: Map<string, string>;
 };
 
-/** @internal */
 export class PathCanonicalizationLimitError extends Error {
   override readonly name = 'PathCanonicalizationLimitError';
 
@@ -25,7 +23,6 @@ export class PathCanonicalizationLimitError extends Error {
   }
 }
 
-/** @internal */
 export function createPathCanonicalizationBudget(): PathCanonicalizationBudget {
   return { realpathAttempts: 0, processedCandidateBytes: 0, resolvedPaths: new Map() };
 }
@@ -33,13 +30,11 @@ export function createPathCanonicalizationBudget(): PathCanonicalizationBudget {
 /**
  * A budget plus the process state path candidates are resolved against, so the scanners
  * that expand `$HOME`, `~` and environment path variables never read them ambiently.
- * @internal
  */
 export type PathCanonicalizationContext = PathCanonicalizationBudget & {
   environment: EnvironmentContext;
 };
 
-/** @internal */
 export function createPathCanonicalizationContext(
   environment: EnvironmentContext,
 ): PathCanonicalizationContext {

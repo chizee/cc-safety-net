@@ -71,7 +71,6 @@ interface ParsedRemoveItem {
   hasDynamicTarget: boolean;
 }
 
-/** @internal */
 export function analyzePowerShellCommandViewMatch(
   command: CommandView,
   hasPipelineInput: boolean,

@@ -2,10 +2,8 @@ import { isAbsolute, resolve } from 'node:path';
 import { resolveExistingPath } from '@/analyzer/path-canonicalization';
 import type { PathResolver } from '@/ir/analysis';
 
-/** @internal */
 export const MAX_TRACKED_HEREDOC_FILES = 64;
 
-/** @internal */
 export function resolveTrackedHeredocPath(
   source: string,
   effectiveCwd: string | null | undefined,
@@ -24,7 +22,6 @@ export function resolveTrackedHeredocPath(
   }
 }
 
-/** @internal */
 export function isPersistentHeredocFilePath(path: string): boolean {
   return !['/dev', '/proc', '/sys'].some((root) => path === root || path.startsWith(`${root}/`));
 }

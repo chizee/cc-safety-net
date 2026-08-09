@@ -1,5 +1,7 @@
 import { RULE_SYNC_COMMAND } from './paths';
 import {
+  assertBareRulebookName,
+  GITHUB_RULEBOOK_PATH_RE,
   getRulebookSourceSyntaxError,
   isGitHubRepositorySource,
   isGitHubRulebookSource,
@@ -7,16 +9,16 @@ import {
   parseGitHubSource,
 } from './source-syntax';
 
-/** @internal Compatibility re-exports for existing direct module consumers. */
+/** Compatibility re-exports for existing direct module consumers. */
 export {
   assertBareRulebookName,
   GITHUB_RULEBOOK_PATH_RE,
-  getRulebookSourceSyntaxError,
   isGitHubRepositorySource,
   isGitHubRulebookSource,
-  type ParsedGitHubSource,
   parseGitHubSource,
-} from './source-syntax';
+};
+/** @internal */
+export { getRulebookSourceSyntaxError, type ParsedGitHubSource } from './source-syntax';
 
 import type { RulebookLockEntry, RulesConfig, RulesLockfile, SyncRulesConfigResult } from './types';
 

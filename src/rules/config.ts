@@ -16,7 +16,6 @@ export interface ValidationResult {
   ruleNames: Set<string>;
 }
 
-/** @internal Exported for testing */
 export function validateConfig(config: unknown): ValidationResult {
   const parsed = getLegacyConfigSchema().safeParse(config);
   return {

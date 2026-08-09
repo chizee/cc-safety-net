@@ -12,27 +12,23 @@ const AWK_REGEX_PREFIX_KEYWORDS = new Set(['print', 'printf', 'return']);
 /** @internal */
 export type AwkExecutableSourceKind = 'inline-code' | 'main-program' | 'program-file';
 
-/** @internal */
 export interface AwkExecutableSource {
   readonly tokenIndex: number;
   readonly kind: AwkExecutableSourceKind;
   readonly value: string;
 }
 
-/** @internal */
 export interface AwkExecutableSourceSelector {
   readonly selector: string;
   readonly kind: Exclude<AwkExecutableSourceKind, 'main-program'>;
   readonly valueForm: 'attached-or-separate' | 'equals-or-separate';
 }
 
-/** @internal */
 export interface AwkArgvMetadata {
   readonly sources: readonly AwkExecutableSource[];
   readonly optionsOpen: boolean;
 }
 
-/** @internal */
 export const AWK_EXECUTABLE_SOURCE_SELECTORS: readonly AwkExecutableSourceSelector[] = [
   { selector: '-e', kind: 'inline-code', valueForm: 'attached-or-separate' },
   { selector: '--source', kind: 'inline-code', valueForm: 'equals-or-separate' },
@@ -81,7 +77,6 @@ export function analyzeAwkSystemCallMatch(
   return dynamic ? destructiveCommandMatch('awk.system-dynamic', REASON_AWK_SYSTEM_DYNAMIC) : null;
 }
 
-/** @internal */
 export function parseAwkArgv(tokens: readonly string[]): AwkArgvMetadata {
   const sources: AwkExecutableSource[] = [];
   let hasExplicitSource = false;
@@ -181,7 +176,6 @@ export function parseAwkArgv(tokens: readonly string[]): AwkArgvMetadata {
   return { sources: valid ? sources : [], optionsOpen: options && valid };
 }
 
-/** @internal */
 export function extractAwkExecutableSources(
   tokens: readonly string[],
 ): readonly AwkExecutableSource[] {

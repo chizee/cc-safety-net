@@ -45,10 +45,8 @@ import {
   filterDestructiveCommandMatch,
 } from '@/rules/destructive-command-rules';
 
-/** @internal */
 export const REASON_PARALLEL_RM =
   'parallel rm -rf with dynamic input is dangerous. Use explicit file list instead.';
-/** @internal */
 export const REASON_PARALLEL_SHELL =
   'parallel with shell -c can execute arbitrary commands from dynamic input. Run the inner command directly on an explicit file list instead.';
 const REASON_PARALLEL_COMMAND_STREAM =

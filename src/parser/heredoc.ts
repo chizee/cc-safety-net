@@ -16,7 +16,6 @@ export type PendingHeredoc = {
   attach(heredoc: CommandHeredoc): void;
 };
 
-/** @internal */
 export function readHeredocDelimiter(
   source: string,
   start: number,
@@ -71,7 +70,6 @@ export function readHeredocDelimiter(
   return { delimiter, quoted, next: i, span: { start, end: i }, ambiguous };
 }
 
-/** @internal */
 export function consumeHeredocBodies(
   source: string,
   start: number,

@@ -40,7 +40,7 @@ export function redactSecrets(text: string): string {
   return redactNonAssignmentSecrets(result);
 }
 
-/** @internal Sanitizes non-assignment secrets in an already structured diagnostic payload. */
+/** Sanitizes non-assignment secrets in an already structured diagnostic payload. */
 export function redactNonAssignmentSecrets(text: string): string {
   let result = text
     .replace(
@@ -70,7 +70,7 @@ export function redactNonAssignmentSecrets(text: string): string {
     .replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, '<redacted>');
 }
 
-/** @internal Redacts assignment values without running provider-token patterns. */
+/** Redacts assignment values without running provider-token patterns. */
 export function redactEnvAssignmentValues(text: string): string {
   const assignments = findEnvAssignments(text);
   return assignments.reduceRight(
@@ -80,19 +80,19 @@ export function redactEnvAssignmentValues(text: string): string {
   );
 }
 
-/** @internal Canonical sanitizer for user-visible diagnostic text. */
+/** Canonical sanitizer for user-visible diagnostic text. */
 export function sanitizeDiagnosticText(text: string): string {
   return redactNonAssignmentSecrets(redactEnvAssignmentValues(text));
 }
 
-/** @internal Returns assignment values so trace recorders can redact derived parser events. */
+/** Returns assignment values so trace recorders can redact derived parser events. */
 export function getEnvAssignmentValues(text: string): readonly string[] {
   return findEnvAssignments(text).map((assignment) =>
     text.slice(assignment.valueStart, assignment.valueEnd),
   );
 }
 
-/** @internal Fast gate for whether assignment scanning is worth running. */
+/** Fast gate for whether assignment scanning is worth running. */
 export function mightContainEnvAssignment(text: string): boolean {
   return /[A-Za-z_][A-Za-z0-9_]*=/.test(text);
 }

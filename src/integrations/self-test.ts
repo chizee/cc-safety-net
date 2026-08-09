@@ -76,7 +76,6 @@ const STANDARD_MODES = {
   },
 };
 
-/** @internal */
 export function runIntegrationSelfTest(): SelfTestSummary {
   const cwd = join(tmpdir(), 'cc-safety-net-self-test');
   const results = CASES.map((testCase): SelfTestResult => {

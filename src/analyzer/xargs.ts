@@ -30,10 +30,8 @@ import {
   filterDestructiveCommandMatch,
 } from '@/rules/destructive-command-rules';
 
-/** @internal */
 export const REASON_XARGS_RM =
   'xargs rm -rf with dynamic input is dangerous. Use explicit file list instead.';
-/** @internal */
 export const REASON_XARGS_SHELL =
   'xargs dynamic input can supply arbitrary executable command source. Use an explicit child command and arguments instead.';
 const XARGS_APPENDED_INPUT = '__CC_SAFETY_NET_XARGS_INPUT__';
@@ -545,7 +543,6 @@ interface XargsParseResult {
   replacementToken: string | null;
 }
 
-/** @internal - exported for test coverage */
 export function extractXargsChildCommandWithInfo(tokens: readonly string[]): XargsParseResult {
   // Options that take a value as the next token
   const xargsOptsWithValue = new Set([

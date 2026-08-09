@@ -8,7 +8,6 @@ type GuardEvaluation = {
   configFallback?: { reason: string };
 };
 
-/** @internal */
 export type IntegrationDenial = {
   reason: string;
   ruleId?: string;
@@ -20,7 +19,6 @@ export type IntegrationDenial = {
   configWarning?: string;
 };
 
-/** @internal */
 export function projectGuardDenial(
   evaluation: GuardEvaluation,
   options: { includeEvidence: boolean; toolName?: string },
@@ -41,7 +39,6 @@ export function projectGuardDenial(
   };
 }
 
-/** @internal */
 export function createFailedClosedDenial(
   options: Pick<IntegrationDenial, 'command' | 'segment' | 'toolName'> = {},
 ): IntegrationDenial {
@@ -54,12 +51,10 @@ export function createFailedClosedDenial(
   };
 }
 
-/** @internal */
 export function formatDenial(denial: IntegrationDenial): string {
   return formatBlockedMessage({ ...denial, redact: redactSecrets });
 }
 
-/** @internal */
 export function formatIntegrationError(cause: unknown): string {
   return redactSecrets(cause instanceof Error ? cause.message : String(cause));
 }

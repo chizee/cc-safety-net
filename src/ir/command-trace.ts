@@ -58,7 +58,7 @@ export type CommandTrace = Readonly<{
   terminal: CommandTraceTerminal;
 }>;
 
-/** @internal Passive command-evaluator diagnostics; decisions never consult this interface. */
+/** Passive command-evaluator diagnostics; decisions never consult this interface. */
 export type CommandTraceContext = {
   currentSegmentIndex?: number;
   flattenNested?: boolean;

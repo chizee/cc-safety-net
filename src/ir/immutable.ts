@@ -9,17 +9,14 @@ import type {
   WordProvenance,
 } from '@/ir/command';
 
-/** @internal */
 export function createCommandNodes() {
   return [] as CommandNode[];
 }
 
-/** @internal */
 export function createCommandIssues() {
   return [] as CommandIssue[];
 }
 
-/** @internal */
 export function createCommandAccumulator() {
   return {
     words: [] as CommandWord[],
@@ -64,7 +61,6 @@ export function freezeCommandView(command: CommandView): CommandView {
   });
 }
 
-/** @internal */
 export function appendAccumulatedCommand(
   nodes: CommandNode[],
   accumulator: ReturnType<typeof createCommandAccumulator>,
@@ -86,7 +82,6 @@ export function appendCommandWordPart(
   parts.push({ raw: source.slice(start, end), span: { start, end }, provenance });
 }
 
-/** @internal */
 export function createCommandWordParts(source: string) {
   const parts: CommandWordPart[] = [];
   return {
@@ -96,7 +91,6 @@ export function createCommandWordParts(source: string) {
   };
 }
 
-/** @internal */
 export function freezeCommandWord(
   word: Omit<CommandWord, 'kind' | 'parts'> & Pick<Partial<CommandWord>, 'parts'>,
 ): CommandWord {
@@ -117,7 +111,6 @@ export function freezeCommandWord(
   });
 }
 
-/** @internal */
 export function freezeParsedCommandWord(
   source: string,
   start: number,
@@ -137,7 +130,6 @@ export function freezeParsedCommandWord(
   });
 }
 
-/** @internal */
 export function freezeCommandProgram(program: CommandProgram): CommandProgram {
   return Object.freeze({
     ...program,

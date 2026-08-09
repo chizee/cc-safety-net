@@ -71,10 +71,8 @@ export const DESTRUCTIVE_COMMAND_RULE_IDS = [
 
 export const DESTRUCTIVE_COMMAND_RULE_ID_SET = new Set<string>(DESTRUCTIVE_COMMAND_RULE_IDS);
 
-/** @internal */
 export type DestructiveCommandRuleId = (typeof DESTRUCTIVE_COMMAND_RULE_IDS)[number];
 
-/** @internal */
 export interface DestructiveCommandRuleMetadata {
   id: DestructiveCommandRuleId;
   category: string;
@@ -608,7 +606,6 @@ export function filterDestructiveCommandMatch(
   return policy?.destructiveCommandRuleOverrides[match.id] === 'off' ? null : match;
 }
 
-/** @internal */
 export function destructiveCommandRuleIsEnabled(
   policy:
     | (Pick<
@@ -628,7 +625,6 @@ export function destructiveCommandRuleIsEnabled(
   return override ? override === 'on' : inheritedEnabled;
 }
 
-/** @internal */
 export function resolveEffectiveDestructiveCommandRules(
   policy: Pick<
     EffectivePolicy,
@@ -689,7 +685,6 @@ export function resolveEffectiveDestructiveCommandRules(
   );
 }
 
-/** @internal */
 export function createCommandAnalysisPolicy(
   policy: EffectivePolicy,
   capabilities: EffectiveSafetyCapabilities,

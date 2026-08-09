@@ -148,7 +148,6 @@ function capField(value: string, maxLength: number) {
   return { value: value.slice(0, maxLength), truncated: value.length > maxLength };
 }
 
-/** @internal */
 export function getAuditLogHomeDir(
   homeFromEnv = process.env.CC_SAFETY_NET_AUDIT_HOME || process.env.HOME,
 ): string | null {

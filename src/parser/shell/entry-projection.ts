@@ -41,7 +41,7 @@ type QuoteState = { single: boolean; double: boolean };
 type PositionedEntries = { readonly start: number; readonly entries: readonly ShellSyntaxEntry[] };
 
 /**
- * @internal Projects the parsed program onto the flat entry stream the path scanners read.
+ * Projects the parsed program onto the flat entry stream the path scanners read.
  * Word text keeps shell expansions inert (`$NAME` becomes `${NAME}`) so downstream variable
  * tracking sees one spelling, and heredoc bodies fed to inert data sinks stay out of the stream.
  */

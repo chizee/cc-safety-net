@@ -77,7 +77,7 @@ export function getPolicyFilesystemTarget(
   };
 }
 
-/** @internal Binds an already-derived absolute path to an existing capability. */
+/** Binds an already-derived absolute path to an existing capability. */
 export function getPolicyFilesystemTargetForPath(
   scope: PolicyFilesystemScope,
   path: string,

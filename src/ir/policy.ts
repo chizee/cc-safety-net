@@ -34,23 +34,18 @@ export interface SecretProtectionConfig {
   denyPaths: string[];
 }
 
-/** @internal */
 export type DestructiveCommandRuleOverride = 'on' | 'off';
 
-/** @internal */
 export type RuleActivationCapability = 'fail_closed' | 'paranoid_rm' | 'paranoid_interpreters';
 
-/** @internal */
 export type EffectiveCapabilitySource = 'preset' | 'capability_override' | 'environment';
 
-/** @internal */
 export type EffectiveCapabilityState = Readonly<{
   enabled: boolean;
   source: EffectiveCapabilitySource;
   sources: readonly string[];
 }>;
 
-/** @internal */
 export type EffectiveSafetyCapabilities = Readonly<
   Record<RuleActivationCapability, EffectiveCapabilityState>
 >;
@@ -65,7 +60,6 @@ export type EffectiveRuleSource =
   | 'environment'
   | 'built_in_default';
 
-/** @internal */
 export type EffectiveDestructiveCommandRuleState = Readonly<{
   enabled: boolean;
   inheritedEnabled: boolean;
@@ -75,7 +69,6 @@ export type EffectiveDestructiveCommandRuleState = Readonly<{
   override?: DestructiveCommandRuleOverride;
 }>;
 
-/** @internal */
 export type PolicyRule = {
   readonly name: string;
   readonly command: string;
@@ -85,7 +78,6 @@ export type PolicyRule = {
   readonly intent?: BlockIntent;
 };
 
-/** @internal */
 export type EffectivePolicy = {
   readonly rules: readonly PolicyRule[];
   readonly transparentWrappers: readonly string[];
@@ -110,7 +102,6 @@ export type EffectivePolicy = {
   };
 };
 
-/** @internal */
 export type CommandAnalysisPolicy = EffectivePolicy & {
   readonly effectiveDestructiveCommandRules: Readonly<
     Record<string, EffectiveDestructiveCommandRuleState>
@@ -147,7 +138,7 @@ export type PolicySnapshot =
       readonly ruleMetadata: Readonly<Record<string, CustomRuleMetadata>>;
     };
 
-/** @internal The runtime configuration state as diagnostic surfaces report it. */
+/** The runtime configuration state as diagnostic surfaces report it. */
 export type ConfigStateInfo =
   | { readonly state: 'ready' }
   | {

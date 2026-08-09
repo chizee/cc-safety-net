@@ -21,7 +21,6 @@ type CCSafetyNetPluginInput = PluginInput & {
 const POWERSHELL_EXECUTABLES = new Set(['powershell', 'pwsh']);
 const POSIX_EXECUTABLES = new Set(['bash', 'dash', 'ksh', 'sh', 'zsh']);
 
-/** @internal */
 export function createCCSafetyNetPlugin(
   guardDependencies: Partial<guardEngine.GuardDependencies> = {},
 ) {

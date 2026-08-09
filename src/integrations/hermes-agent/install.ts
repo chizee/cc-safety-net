@@ -27,7 +27,6 @@ export function getHermesAgentPluginDir(homeDir: string): string {
   return join(getHermesHomeDir(homeDir), 'plugins', HERMES_AGENT_PLUGIN_NAME);
 }
 
-/** @internal */
 export function isManagedHermesAgentFile(content: string): boolean {
   return content.startsWith(HERMES_AGENT_MANAGED_HEADER);
 }

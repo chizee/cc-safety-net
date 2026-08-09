@@ -5,7 +5,6 @@ import type { EnvironmentContext, PathResolver } from '@/ir/analysis';
 /**
  * The real filesystem behind a PathResolver. Callers outside the analyzer that stay
  * ambient by choice pass this explicitly rather than getting it as a hidden default.
- * @internal
  */
 export const processPathResolver: PathResolver = {
   realpath: (path) => {

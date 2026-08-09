@@ -137,7 +137,6 @@ export function isLinkedWorktree(cwd: string): boolean {
   }
 }
 
-/** @internal */
 export function resolveDotGitFileTargets(dotGitPath: string): DotGitFileTargets | null {
   try {
     const rawGitDir = readDotGitTarget(dotGitPath);

@@ -65,7 +65,6 @@ export function findPolicyConfigMutationTargetInToolInput(
   );
 }
 
-/** @internal */
 export function findPolicyConfigMutationTargetInSemanticFacts(
   facts: SemanticFacts,
 ): PolicyConfigTarget | null {

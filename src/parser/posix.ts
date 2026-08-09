@@ -59,7 +59,6 @@ type FunctionOpening = {
 
 const CONTINUATION_CONNECTORS = new Set(['&&', '||', '|', '|&']);
 
-/** @internal */
 export function parsePosixCommand(
   source: string,
   dialect: CommandDialect,

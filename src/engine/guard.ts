@@ -34,10 +34,8 @@ import { ToolInputLimitError } from '@/parser/tool-input';
 import { getCCSafetyNetEnvModes } from '@/policy/env';
 import { loadPolicySnapshot, type PolicySnapshotOptions } from '@/policy/snapshot';
 
-/** @internal */
 export type GuardStage = AuditFailureStage;
 
-/** @internal */
 export type GuardEvaluation = {
   stage: GuardStage;
   decision: Decision;
@@ -55,7 +53,6 @@ export type GuardEvaluation = {
   configFallback?: { reason: string };
 };
 
-/** @internal */
 export type GuardDependencies = {
   findPolicyMutation: typeof findPolicyConfigMutationTargetInSemanticFacts;
   findGitMetadataMutation: typeof findGitMetadataMutationTargetInSemanticFacts;
@@ -71,7 +68,6 @@ export type GuardDependencies = {
   getModes: typeof getCCSafetyNetEnvModes;
 };
 
-/** @internal */
 export type GuardOptions = {
   auditAllowed?: boolean;
   policyOptions?: PolicySnapshotOptions;
@@ -79,7 +75,6 @@ export type GuardOptions = {
   factParserDependencies?: Partial<FactParserDependencies>;
 };
 
-/** @internal */
 export class GuardEvaluationError extends Error {
   override readonly name = 'GuardEvaluationError';
 
@@ -102,7 +97,6 @@ const DEFAULT_DEPENDENCIES: GuardDependencies = {
   getModes: getCCSafetyNetEnvModes,
 };
 
-/** @internal */
 export function evaluateGuard(
   invocation: ToolInvocation,
   options: GuardOptions = {},

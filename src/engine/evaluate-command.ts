@@ -8,7 +8,6 @@ import type { SemanticFactStore } from '@/ir/semantic-facts';
 import { projectSegmentWords } from '@/parser/traversal';
 import { createCommandTraceContext, createCommandTraceRecorder } from './command-trace';
 
-/** @internal */
 export type TracedCommandEvaluation = Readonly<{
   decision: Extract<Decision, { kind: 'deny' }> | null;
   trace: CommandTrace;
@@ -18,7 +17,6 @@ export type TracedCommandEvaluation = Readonly<{
 /**
  * Authoritative command evaluation with passive intrinsic diagnostics.
  * This entry point is intentionally internal; ordinary guard evaluation never creates a recorder.
- * @internal
  */
 export function evaluateCommandWithTrace(
   command: string,

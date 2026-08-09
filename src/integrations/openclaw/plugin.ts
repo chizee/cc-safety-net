@@ -60,7 +60,6 @@ type MalformedOpenClawToolCall = {
   cwd: string | null;
 };
 
-/** @internal */
 export function registerOpenClawPlugin(api: OpenClawPluginApi): void {
   api.on('before_tool_call', createOpenClawBeforeToolCallHandler(api), {
     matcher: [OPENCLAW_EXEC_TOOL],

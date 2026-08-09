@@ -5,12 +5,11 @@ import type { CommandProgram } from '@/ir/command';
 import type { Decision } from '@/ir/decision';
 import type { SemanticFactStore } from '@/ir/semantic-facts';
 
-/** @internal */
 export function analyzeCommand(command: string, options: AnalyzeInput) {
   return analyzeCommandWithProgram(command, options);
 }
 
-/** @internal Canonical pre-parsed command-analysis entry point. */
+/** Canonical pre-parsed command-analysis entry point. */
 export function analyzeCommandWithProgram(
   command: string,
   options: AnalyzeInput,

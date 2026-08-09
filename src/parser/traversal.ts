@@ -13,7 +13,7 @@ export function projectCommandViews(program: CommandProgram): readonly CommandVi
   return Object.freeze([...walkCommandViews(program)]);
 }
 
-/** @internal Command segments as their word texts, for trace display and fixture matching. */
+/** Command segments as their word texts, for trace display and fixture matching. */
 export function projectSegmentWords(program: CommandProgram): readonly (readonly string[])[] {
   return Object.freeze(
     projectCommandViews(program).map((view) => Object.freeze(view.words.map((word) => word.text))),
