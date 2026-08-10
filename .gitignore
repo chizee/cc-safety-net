@@ -1,18 +1,24 @@
 # --- Project Specific ---
-.cursor/
-.claude/
-log*
+.cursor
+.claude
+.agents
 .safety-net.json
 .opencode
 .gemini
-docs
+artifacts
 .cc-safetynet-rules
 .cc-safety-net
 coverage
 .codex
+.playwright
+.playwright-cli
 codex-security-scans
 
 # --- Node.js ---
-node_modules/
+node_modules
 droid-wiki
 plans
+
+.impeccable
+DESIGN.md
+PRODUCT.md

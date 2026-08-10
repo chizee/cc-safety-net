@@ -65,7 +65,7 @@ body:
       label: Logs or Error Messages
       description: |
         If applicable, paste any relevant logs or error output.
-        Audit logs can be found at `~/.cc-safety-net/logs/<session_id>.jsonl`
+        Browse recorded denials with `npx cc-safety-net logs`, then `npx cc-safety-net logs --id <id> --json` for a single entry.
       render: text
     validations:
       required: false

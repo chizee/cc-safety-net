@@ -1,10929 +1,5327 @@
 #!/usr/bin/env node
-var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
+import{$ as Ot,$a as Xr,A as dn,Aa as mr,B as kl,Ba as Vt,C as P,Ca as gr,D as U,Da as $r,E as Xt,Ea as O,F as kt,Fa as zt,G as Jn,Ga as Rt,H as qt,Ha as Yt,I as M2,Ia as T,J as y2,Ja as _l,K as At,Ka as Gt,L as d2,La as El,M as aa,Ma as lr,N as Ut,Na as Pl,O as Sn,Oa as Il,P as la,Pa as Nl,Q as da,Qa as nd,R as Qn,Ra as td,S as Xn,Sa as ed,T as un,Ta as Gr,U as pn,Ua as Ur,V as Ar,Va as Or,W as sn,Wa as Tr,X as w2,Xa as zl,Y as Ht,Ya as Zr,Z as W2,Za as Qr,_ as sa,_a as Bt,aa as La,ab as Rr,b as Lr,ba as oa,bb as u2,c as or,ca as Hr,cb as h2,d as A,da as fr,db as a2,e as ur,ea as Cr,eb as Yr,f as mt,fa as Mr,fb as H,g as S,ga as Wr,gb as on,h as $,ha as Ct,hb as cn,i as rn,ia as hr,ib as ca,j as m,ja as D,jb as vn,k as f2,ka as Mt,kb as s2,l as jr,la as ia,lb as wa,m as X2,ma as l2,mb as Zn,n as an,na as Ln,o as Ql,oa as Wt,p as Dt,pa as Kt,q as Fr,qa as Kr,r as ln,ra as Vr,s as zr,sa as yr,t as Qt,ta as H2,u as Br,ua as jt,v as Jr,va as Ft,w as _,wa as Sr,x as E,xa as Z2,y as Y2,ya as Tl,z as A2,za as xr}from"../chunks/index-y4yyw2x8.js";var id=["-h","--help"];function j(n,t){let e=Object.entries(n.booleans??{}),r=Object.entries(n.values??{}),a=Object.fromEntries(e.map(([L])=>[L,!1])),l={},d=[],s=[],i=!1,c=-1;for(let[L,u]of t.entries()){if(L<=c)continue;if(u==="--"){d.push(...t.slice(L+1));break}if(id.includes(u)){i=!0;continue}let p=e.find(([,b])=>b.includes(u));if(p){a[p[0]]=!0;continue}let o=r.find(([,b])=>b.includes(u));if(o){let b=t[L+1];if(b===void 0||b.startsWith("-")){s.push(`${u} requires a value`);continue}l[o[0]]=b,c=L+1;continue}if(u.startsWith("-")){s.push(`Unknown option for ${n.label}: ${u}`);continue}if(n.positionals==="tail"){d.push(...t.slice(L));break}d.push(u)}if(n.positionals!=="list"&&n.positionals!=="tail")s.push(...d.map((L)=>`Unexpected argument for ${n.label}: ${L}`));return{flags:a,values:l,positionals:d,help:i,errors:s}}function e2(n){for(let t of n)console.error(t);return n.length>0}import{readdirSync as Od,statSync as Er,unlinkSync as Td}from"node:fs";import{basename as Pr,dirname as _d,join as Ed,resolve as Pd}from"node:path";function F(n){return Array.from(n,(t)=>{let e=t.charCodeAt(0);if(e<=31||e>=127&&e<=159)return`\\x${e.toString(16).padStart(2,"0")}`;return t}).join("")}var ht=(n)=>{let t=Date.now()-new Date(n).getTime();if(!Number.isFinite(t))return"";let e=Math.floor(t/60000),r=Math.floor(e/60),a=Math.floor(r/24);if(a>0)return`${a}d ago`;if(r>0)return`${r}h ago`;if(e>0)return`${e}m ago`;return"just now"},B2=(n)=>{let t=(n??"").trim().split(/\s+/).filter((a)=>a&&!/^[A-Za-z_][A-Za-z0-9_]*=/.test(a)),e=t[0]?.split("/").pop();if(!e)return null;let r=t[1];return r&&/^[a-z][a-z0-9-]*$/.test(r)?`${e} ${r}`:e};import{existsSync as cd,readdirSync as Ld,readFileSync as od}from"node:fs";import{join as ud}from"node:path";function o2(n,t){try{return Ld(n,{withFileTypes:!0,encoding:"utf8"}).flatMap((e)=>{let r=ud(n,e.name);if(e.isDirectory())return o2(r,t);if(e.name.endsWith(".jsonl"))return[r];return[]})}catch{if(t&&cd(n))t.count++;return[]}}function yt(n){let t=(a)=>`${a.sessionId}
+${B2(a.segment||a.command)}`,e=n.filter((a)=>a.decision!=="allow"),r=e.filter((a)=>a.sessionId).reduce((a,l)=>a.set(t(l),(a.get(t(l))??0)+1),new Map);return new Set(e.filter((a)=>a.failureStage||(r.get(t(a))??0)>=2))}function en(n,t){try{return od(n,"utf-8").split(`
+`).filter(Boolean).flatMap((e)=>{try{return[JSON.parse(e)]}catch{if(t)t.count++;return[]}})}catch{if(t)t.count++;return[]}}import{resolve as Hd}from"node:path";var pd=["AKIA","ASIA","ghp_","gho_","ghu_","ghs_","ghr_","github_pat_","glpat-","xox","npm_","pypi-","rk_","sk-","sk_","gsk_","xai-","pplx-","bastn_","tgp_v1_","flp_","wfr_","fw_","fwp_","tp-","psk-"];function pr(n){let t=0,e={allocateSegment(){return t++},getNextSegmentIndex(){return t},recordGlobal(r){n.record({kind:"step",scope:"global",step:r})},recordSegment(r,a=e.currentSegmentIndex){if(a===void 0)return;n.record({kind:"step",scope:"segment",segmentIndex:a,step:r})}};return e}function vr(n={}){let t=[],e=n.maxEvents??512,r={maxTextLength:n.maxTextLength??2048,maxListLength:n.maxListLength??128,maxObjectProperties:n.maxObjectProperties??n.maxListLength??128,maxDepth:n.maxDepth??16},a=0,l,d=new Set;return{record(s){if(l)return;try{if(!s||t.length>=e){a++;return}t.push(xt(vd(s,r,d)))}catch{a++}},finish(s){if(l)return l;try{l=xt({events:Object.freeze(t),droppedEvents:a,terminal:bd(s,r,d)})}catch{a++,l=Object.freeze({events:Object.freeze(t),droppedEvents:a,terminal:Object.freeze({result:"blocked",reason:"trace unavailable".slice(0,r.maxTextLength),segment:"trace unavailable".slice(0,r.maxTextLength)})})}return l}}}function vd(n,t,e){if(n.kind!=="step")throw TypeError("invalid trace event");let{scope:r,step:a}=n;Fn(a,e,t);let l=J2(a,t,e);if(r==="global")return{kind:"step",scope:"global",step:l};if(r!=="segment")throw TypeError("invalid trace event scope");return{kind:"step",scope:"segment",segmentIndex:n.segmentIndex,step:l}}function bd(n,t,e){let r=n.result;if(r==="allowed")return Object.freeze({result:"allowed"});if(r!=="blocked")throw TypeError("invalid trace terminal");let a=n.ruleId;return Object.freeze({result:"blocked",reason:J2(n.reason,t,e),segment:J2(n.segment,t,e),...a?{ruleId:J2(a,t,e)}:{}})}function Fn(n,t,e,r=0,a=new WeakSet){if(typeof n==="string"){let s=n.slice(0,e.maxTextLength);if(!mt(s))return;for(let i of ur(s))for(let c of i.match(/[^\s"'()$]+/g)??[])t.add(br(c));return}if(!n||typeof n!=="object"||r>=e.maxDepth||a.has(n))return;if(a.add(n),Array.isArray(n)){let s=Math.min(n.length,e.maxListLength);for(let i=0;i<s;i++)Fn(n[i],t,e,r+1,a);return}let l=0,d=new Set;for(let s in n){if(!Object.hasOwn(n,s))continue;if(l>=e.maxObjectProperties)break;l++,Fn(s,t,e);let i=wt(s,e,t);if(d.has(i))continue;d.add(i),Fn(n[s],t,e,r+1,a)}}function J2(n,t,e,r=0,a=new WeakSet){if(typeof n==="string")return wt(n,t,e);if(!n||typeof n!=="object")return n;if(r>=t.maxDepth)return;if(a.has(n))return;if(a.add(n),Array.isArray(n)){let s=[],i=Math.min(n.length,t.maxListLength);for(let c=0;c<i;c++)s.push(J2(n[c],t,e,r+1,a));return s}let l={},d=0;for(let s in n){if(!Object.hasOwn(n,s))continue;if(d>=t.maxObjectProperties)break;d++;let i=wt(s,t,e);if(Object.hasOwn(l,i))continue;Object.defineProperty(l,i,{value:J2(n[s],t,e,r+1,a),enumerable:!0,configurable:!0,writable:!0})}return l}function wt(n,t,e){let r=n.slice(0,t.maxTextLength),a=mt(r)?or(r):r,l=e.size>0?hd(a,e):a;return(fd(l)?Lr(l):l).slice(0,t.maxTextLength)}function fd(n){return n.includes("PRIVATE KEY")||n.includes("://")||n.includes("eyJ")||n.includes(":")&&/(?:authorization|cookie|x-api-key|api-key|(?:^|\s)(?:-u|--user)(?:\s|=))/i.test(n)||n.length>=14&&pd.some((t)=>n.includes(t))||n.length>=49&&/\b[a-f0-9]{32}\.[A-Za-z0-9]{16}\b/.test(n)}function hd(n,t){return n.replace(/[^\s"'()$]+/g,(e)=>t.has(br(e))?"<redacted>":e)}function br(n){let t=2166136261,e=2166136261;for(let r=0;r<n.length;r++)t=Math.imul(t^n.charCodeAt(r),16777619),e=Math.imul(e^n.charCodeAt(n.length-r-1),16777619);return`${t>>>0}:${e>>>0}:${n.length}`}function xt(n){if(n&&typeof n==="object"&&!Object.isFrozen(n)){for(let t of Object.values(n))xt(t);Object.freeze(n)}return n}function wr(n,t,e,r){let a=r??fr(),l=e??a.getCommandProgram(n,t.shell??"auto"),d=vr(),s=pr(d),i=l.dialect==="powershell"?a.getCommandProgram(n,"posix"):l,c=hr(i);s.recordGlobal({type:"parse",input:n,segments:c.map((p)=>[...p])});let L=yr(n,{...t,analyzePartialProgram:!0,trace:s},l,a),u=s.getNextSegmentIndex();if(L&&u>0&&u<c.length)s.recordSegment({type:"segment-skipped",index:u,reason:"prior-segment-blocked"},u);return Object.freeze({decision:L,trace:d.finish(L?{result:"blocked",reason:L.reason,segment:L.evidence.find((p)=>p.kind==="command")?.segment??n,...L.ruleId?{ruleId:L.ruleId}:{}}:{result:"allowed"}),program:l})}import{resolve as yd}from"node:path";function gt(n){let t=xr().safeParse(n);return{errors:t.success?[]:gr(t.error.issues),ruleNames:new Set(mr(n).map((e)=>e.toLowerCase()))}}function $t(n){let t=Dr(n);if(!t.ok)return t.result;return gt(t.parsed)}function Dr(n){let t=[],e=new Set;try{let r=typeof n==="string"?rn(n):n,a=m(r);if(a===null)return t.push(`File not found: ${r.path}`),{ok:!1,result:{errors:t,ruleNames:e}};if(!a.trim())return t.push("Config file is empty"),{ok:!1,result:{errors:t,ruleNames:e}};return{ok:!0,parsed:JSON.parse(a)}}catch(r){return t.push(r instanceof S?r.message:"Invalid JSON"),{ok:!1,result:{errors:t,ruleNames:e}}}}function kr(n){return yd(n??process.cwd(),".safety-net.json")}function r2(n){let t=Dr(n);if(!t.ok)return t.result;let e=$r(t.parsed);return{errors:e.errors,ruleNames:e.sources}}import{isAbsolute as wd,join as zn,relative as xd,resolve as qr,sep as md}from"node:path";async function R2(n={}){let t=St(n);return gd(t,await Bn(t,Z2()))}function gd(n,t){if(!t.ok)return t;let e=U(n),r=[...new Set(a2(e.configPath,e.lockPath,n,e.filesystemScope))];if(r.length===0)return t;return{ok:!1,errors:r,warnings:t.warnings,entries:t.entries}}async function Bn(n,t,e,r={}){let a=null,l=!1;try{let d=U(n),s=zt(d.configTarget);if(!s.ok)return s.result;let i=s.config;if(n.check)return Fd(i,d,n);a={target:d.lockTarget,content:m(d.lockTarget)};let c=Bt(d.lockTarget);if(c.errors.some((f)=>f.startsWith("Unable to access ")))return{ok:!1,errors:c.errors,warnings:[],entries:[]};if(n.only&&c.errors.length>0)return{ok:!1,errors:c.errors,warnings:[],entries:[]};let L=c.errors.length>0?null:c.lock,u=n.only?Zr(i,L,n.only):{ok:!0,specs:i.rules};if(!u.ok)return u.result;if(n.only&&!L&&u.specs.length<i.rules.length)return{ok:!1,errors:[`No lockfile available for partial update; run ${Jr}`],warnings:[],entries:[]};let p=(await Dd(u.specs,(f)=>Xr(f,d.configDir,n,L,d.filesystemScope,t),t)).map((f)=>zd(f,L,e));for(let f of p)Sd(f.content,f.entry,d.configDir,n,d.filesystemScope);let o=n.only?Bd(i,L,p):p.map((f)=>f.entry);l=!0,T(d.lockTarget,{version:1,rulebooks:o},void 0,r._testAfterPolicyRename);let b=new Map(p.map((f)=>[f.entry.spec,f.rulebook.rules.length])),v=Zd(o,d.configDir,n,d.filesystemScope,r);return{ok:!0,errors:[],warnings:v,entries:o.map((f)=>Jd(f,b))}}catch(d){if(l&&a)try{S2(a.target,a.content)}catch(s){return Q2(s)}return Q2(d)}}async function Jt(n,t={}){return $d(n,St(t),Z2())}async function $d(n,t,e,r={}){let a=null,l=!1;try{let d=U(t),s=m(d.configTarget);a={target:d.configTarget,content:s};let i=zt(d.configTarget);if(!i.ok)return i.result;let c=i.config,L=Br(n)?await Rr(n,e):[{spec:n}],u=L.map((b)=>b.spec),p=[...new Set([...c.rules,...u])];if(p.length>jt)return kd();if(p.length!==c.rules.length)l=!0,T(d.configTarget,{version:1,rules:p,overrides:c.overrides??{},transparent_wrappers:c.transparent_wrappers??[]},void 0,r._testAfterPolicyRename);let o=await Bn(t,e,new Map(L.filter((b)=>!!b.display_ref).map((b)=>[b.spec,b.display_ref])),r);if(!o.ok)S2(d.configTarget,s);return o}catch(d){if(l&&a)try{S2(a.target,a.content)}catch(s){return Q2(s)}return Q2(d)}}async function Dd(n,t,e=Z2()){if(n.length>jt)throw Error(Ft);let r=Array(n.length),a=0,l,d=Array.from({length:Math.min(n.length,Sr.concurrency)},async()=>{while(!l){let s=a;if(s>=n.length)return;a++;try{r[s]=await t(n[s],s,e.controller.signal)}catch(i){if(!l)l={value:i},a=n.length,e.controller.abort(i);return}}});if(await Promise.all(d),l)throw l.value;return r}function kd(){return{ok:!1,errors:[Ft],warnings:[],entries:[]}}function St(n){return{cwd:n.cwd,cacheConfigDir:n.cacheConfigDir,userConfigDir:n.userConfigDir,userConfigPath:n.userConfigPath,projectConfigPath:n.projectConfigPath,global:n.global,check:n.check,only:n.only,refresh:n.refresh}}function qd(n){return{...St(n),deleteSource:n.deleteSource}}async function Zt(n,t={}){try{return await jd(n,qd(t),{})}catch(e){return Q2(e)}}async function jd(n,t,e){let r=U(t),a=O(r.configTarget);if(a.errors.length>0)return{ok:!1,errors:a.errors,warnings:[],entries:[]};if(!a.config)return{ok:!1,errors:[`No config found at ${r.configPath}`],warnings:[],entries:[]};let l=Bt(r.lockTarget);if(l.errors.length>0)return{ok:!1,errors:l.errors,warnings:[],entries:[]};let d=Qr(a.config.rules,l.lock,n);if(!d.ok)return d.result;let s=t.deleteSource?Qd(r.configDir,d.specs,l.lock,r.filesystemScope):{ok:!0,dirs:[]};if(!s.ok)return s.result;let i=m(r.configTarget);if(i===null)return Q2(Error("Rules config is unavailable."));try{T(r.configTarget,{version:1,rules:a.config.rules.filter((u)=>!d.specs.includes(u)),overrides:a.config.overrides??{},transparent_wrappers:a.config.transparent_wrappers??[]},void 0,e._testAfterPolicyRename)}catch(u){throw S2(r.configTarget,i),u}let c=await Bn(t,Z2(),void 0,e);if(!c.ok)return S2(r.configTarget,i),c;let L=Rd(s.dirs,e,r.filesystemScope);if(!L.ok){S2(r.configTarget,i);let u=await Bn(t,Z2(),void 0,e);if(!u.ok)return{ok:!1,errors:[...L.result.errors,...u.errors],warnings:u.warnings,entries:u.entries};return L.result}return c}async function Fd(n,t,e){let r=Yr(n,t.lockPath,t.configDir,e,e.global?"user":"project",t.filesystemScope);return{ok:r.errors.length===0&&r.warnings.length===0,errors:[...r.errors,...r.warnings],warnings:[],entries:r.entries}}function zd(n,t,e){let r=t?.rulebooks.find((l)=>l.spec===n.entry.spec&&l.kind==="github"),a=e?.get(n.entry.spec)??(r?.kind==="github"?r.display_ref:void 0);if(!a||n.entry.kind!=="github")return n;return{...n,entry:{...n.entry,display_ref:a}}}function Bd(n,t,e){let r=new Set(n.rules),a=new Set(t?.rulebooks.map((d)=>d.spec)??[]),l=new Map(e.map((d)=>[d.entry.spec,d.entry]));return[...(t?.rulebooks.filter((d)=>r.has(d.spec))??[]).map((d)=>l.get(d.spec)??d),...e.filter((d)=>!a.has(d.entry.spec)).map((d)=>d.entry)]}function Jd(n,t){return{...n,ruleCount:t.get(n.spec)}}function Sd(n,t,e,r,a){let l=kt(t,qt(e,r));f2($(a,l),n)}function Zd(n,t,e,r,a){let l=qt(t,e),d=Jn(l),s=$(r,d),i=X2(s);if(!i)return[];let c=n.map((u)=>$(r,kt(u,l))),L=i.filter((u)=>u.kind==="directory").map((u)=>({directory:$(r,zn(d,u.name)),identity:$(r,zn(d,u.name,zr))})).filter((u)=>!c.some((p)=>jr(u.identity,p))).map((u)=>u.directory);for(let u of L)Fr(u);return L.flatMap((u)=>{try{return Yd(u,a),[]}catch{return["Unable to prune rules policy cache safely."]}})}function Qd(n,t,e,r){let a=new Map(e?.rulebooks.map((c)=>[c.spec,c])??[]),l=t.flatMap((c)=>{let L=a.get(c);if(!L)return ln.test(c)?[]:["--delete-source can only delete local rulebook sources"];return L.kind==="local-directory"?[]:["--delete-source can only delete local rulebook sources"]}),d=t.map((c)=>{let L=a.get(c);return zn(n,L?.kind==="local-directory"?L.path:c)}),s=l.length>0?[]:d.flatMap((c)=>Xd(n,c,r)),i=[...l,...s];return i.length>0?{ok:!1,result:{ok:!1,errors:i,warnings:[],entries:[]}}:{ok:!0,dirs:d}}function Xd(n,t,e){let r=qr(n),a=qr(t),l=xd(r,a);if(l===""||l===".."||l.startsWith(`..${md}`)||wd(l))return[`Refusing to delete local rulebook source outside ${n}: ${t}`];let d=$(e,a),s=X2(d);if(!s)return[`Local rulebook source directory not found: ${t}`];let i=s.find((c)=>c.name==="rulebook.json");if(!i)return[`Local rulebook source directory is missing rulebook.json: ${t}`];if(i.kind!=="file")throw new S(e.label);if(m($(e,zn(a,"rulebook.json"))),s.length>1)return[`Local rulebook source directory contains extra files: ${t}. delete manually if you really want to remove the directory.`];return[]}function Rd(n,t,e){let r=n.flatMap((a)=>{try{return Ad($(e,a),t),[]}catch(l){return[`Failed to delete local rulebook source ${a}: ${l instanceof Error?l.message:String(l)}`]}});return r.length>0?{ok:!1,result:{ok:!1,errors:r,warnings:[],entries:[]}}:{ok:!0}}function Yd(n,t){if(t._testPruneRulebookCacheDir){t._testPruneRulebookCacheDir(n.path);return}Dt(n)}function Ad(n,t){if(t._testDeleteLocalSourceDir){t._testDeleteLocalSourceDir(n.path);return}Dt(n)}function S2(n,t){if(t===null){an(n);return}f2(n,t)}function Q2(n){return{ok:!1,errors:[n instanceof Error?n.message:String(n)],warnings:[],entries:[]}}function C2(n,t){let e=Md(t),r=Kr(e),a={effectiveLevel:r.effectiveLevel,selectedPreset:e.policySnapshot.policy.safety.level??"standard",effectiveCapabilities:r.effectiveCapabilities,destructiveCommandRuleOverrides:e.policySnapshot.policy.destructiveCommandRuleOverrides},{configSource:l,configValid:d}=Cd({cwd:t?.cwd,userConfigDir:t?.userConfigDir});if(!n||!n.trim())return{trace:{steps:[{type:"error",message:"No command provided"}],segments:[]},result:"allowed",configSource:l,configValid:d,...a};let s=Wd(n,e);if(s)return{trace:{steps:[],segments:[{index:0,steps:[{type:"rule-check",ruleModule:s.ruleModule,ruleFunction:s.ruleFunction,matched:!0,reason:s.reason}]}]},result:"blocked",reason:A(s.reason),segment:A(s.target),...s.ruleId?{ruleId:A(s.ruleId)}:{},configSource:l,configValid:d,...a};let i=wr(n,e),c=i.decision,L=c?.ruleId??Kd(n,e),u=sn.find((o)=>o.id===L&&o.activationCapability),p=u?r.policy.effectiveDestructiveCommandRules[u.id]:void 0;return{trace:Gd(i.trace),result:c?"blocked":"allowed",reason:c?A(c.reason):void 0,segment:c?A(c.evidence.find((o)=>o.kind==="command")?.segment??n):void 0,ruleId:c?.ruleId?A(c.ruleId):void 0,customRule:Vd(Ud(c?.ruleId,e.policySnapshot)),configSource:l,configValid:d,...a,...u&&p?{ruleActivation:{id:u.id,...p}}:{}}}function Cd(n){let t=_(n?.cwd),e=n?.userConfigPath??E(n),r=P({cwd:n?.cwd,userConfigDir:n?.userConfigDir,userConfigPath:n?.userConfigPath});try{if(m(r.projectConfigTarget)!==null){if(r2(r.projectConfigTarget).errors.length===0)return{configSource:t,configValid:!0};return{configSource:t,configValid:!1}}}catch(a){if(a instanceof S)return{configSource:t,configValid:!1};throw a}try{if(m(r.userConfigTarget)!==null){let a=r2(r.userConfigTarget);return{configSource:e,configValid:a.errors.length===0}}return{configSource:null,configValid:!0}}catch(a){if(a instanceof S)return{configSource:e,configValid:!1};throw a}}function Md(n){let t=Hd(n?.cwd??process.cwd()),e=n?.policySnapshot??H({cwd:t,userConfigDir:n?.userConfigDir}),r=l2(e.policy);return{cwd:t,effectiveCwd:t,policySnapshot:e,environment:Ar(),protectedGitMetadata:Wr(t),effectiveCapabilities:r.capabilities,strict:n?.strict??r.strict,paranoidRm:r.paranoidRm,paranoidInterpreters:r.paranoidInterpreters,worktreeMode:r.worktreeMode}}function Wd(n,t){let e=t.cwd??process.cwd(),r=Hr(H2("",{command:n},{kind:"command",shell:"posix"},{executionCwd:e,configCwd:e},n)),a=Ur(r);if(a)return{reason:Gr,target:a.target,ruleId:"policy-protection",ruleModule:"policy-protection",ruleFunction:"findPolicyConfigMutationTarget"};let l=Mr(r,t.protectedGitMetadata);if(l)return{reason:Cr,target:l.target,ruleId:"git-metadata-protection",ruleModule:"git-metadata-protection",ruleFunction:"findGitMetadataMutationTarget"};let d=t.policySnapshot.policy,s=d.secretProtection.enabled===!1?null:Tr(r,d.secretProtection,{strict:t.strict});if(s)return{reason:Or,target:s.target,ruleId:s.ruleId,ruleModule:"secret-protection",ruleFunction:"findSensitiveTarget"};return null}function Kd(n,t){let e=t.policySnapshot.policy,r=cn({...e,destructiveCommandProtectionEnabled:!0,destructiveCommandRuleOverrides:{...e.destructiveCommandRuleOverrides,...Object.fromEntries(sn.flatMap((a)=>a.activationCapability?[[a.id,"on"]]:[]))}},t.policySnapshot.state==="degraded"?{diagnostics:t.policySnapshot.diagnostics,reason:t.policySnapshot.reason}:void 0);return Vr(n,{...t,policySnapshot:r,strict:!0,paranoidRm:!0,paranoidInterpreters:!0})?.ruleId}function Vd(n){if(!n)return;return{id:A(n.id),...n.rulebook?{rulebook:{name:A(n.rulebook.name),version:A(n.rulebook.version)}}:{},...n.source?{source:A(n.source)}:{},...n.override?{override:{type:"reason",reason:A(n.override.reason)}}:{}}}function Gd(n){let t=n.events.flatMap((r)=>r.kind==="step"&&r.scope==="global"?[r.step]:[]),e=new Map;for(let r of n.events){if(r.kind!=="step"||r.scope!=="segment")continue;let a=e.get(r.segmentIndex)??{index:r.segmentIndex,steps:[]};a.steps.push(r.step),e.set(r.segmentIndex,a)}return{steps:t,segments:[...e.values()]}}function Ud(n,t){let e=n?.replace(/^custom\./,"");if(!e||!t.policy.rules.some((r)=>r.name===e))return;return t.ruleMetadata[e]??Object.freeze({id:e})}function Id(n){let t=M2(),e=j({label:"logs",booleans:{all:["--all"],suspect:["--suspect"],json:["--json"],pruneLegacy:["--prune-legacy"],dryRun:["--dry-run"]},values:{id:["--id"],limit:["--limit"],since:["--since"],agent:["--agent"],rule:["--rule"],session:["--session"],project:["--project"]}},n);if(e2(e.errors))return null;if(e.values.id!==void 0&&!/^[a-f0-9]{16}$/.test(e.values.id))return console.error("--id must be 16 hexadecimal characters"),null;let r=e.values.limit===void 0?20:_r(e.values.limit);if(r===null)return console.error("--limit must be a positive number"),null;let a=e.values.since===void 0?Math.min(30,t):_r(e.values.since);if(a===null||a>t)return console.error(`--since must be a positive number of days no greater than ${t}`),null;let l={limit:r,limitExplicit:e.values.limit!==void 0,since:a,sinceExplicit:e.values.since!==void 0,all:e.flags.all,json:e.flags.json,suspect:e.flags.suspect,pruneLegacy:e.flags.pruneLegacy,dryRun:e.flags.dryRun,id:e.values.id,agent:e.values.agent,rule:e.values.rule,session:e.values.session,project:e.values.project===void 0?void 0:Pd(e.values.project)};if(l.id&&(l.agent!==void 0||l.rule!==void 0||l.session!==void 0||l.project!==void 0||l.suspect||l.sinceExplicit||l.limitExplicit))return console.error("--id cannot be combined with --agent, --rule, --session, --project, --suspect, --since, or --limit"),null;if(l.pruneLegacy&&(l.id!==void 0||l.agent!==void 0||l.rule!==void 0||l.session!==void 0||l.project!==void 0||l.suspect||l.all||l.sinceExplicit||l.limitExplicit))return console.error("--prune-legacy cannot be combined with --id, --agent, --rule, --session, --project, --suspect, --all, --since, or --limit"),null;if(l.dryRun&&!l.pruneLegacy)return console.error("--dry-run requires --prune-legacy"),null;return l}async function Ir(n,t={}){let e=Id(n);if(!e)return 1;let r=t.logsDir??d2();if(e.pruneLegacy)return Nd(r,e.json,e.dryRun);if(!r)return console.log(e.json?"[]":e.id?`No retained audit log entry found for id ${F(e.id)}.`:"No audit log entries found."),0;y2(r);let a={count:0},l=o2(r,a).flatMap((L)=>en(L,a).map((u)=>({entry:u,file:L})));if(a.count>0)console.error(`warning: ${a.count} audit log ${a.count===1?"source":"sources"} could not be read; these results are incomplete`);if(e.id)return rs(l,e,t.timeZone);let d=Date.now()-e.since*24*60*60*1000,s=l.filter((L)=>as(L,e,r,d)),i=e.suspect?yt(s.map((L)=>L.entry)):null,c=(i?s.filter((L)=>i.has(L.entry)):s).sort((L,u)=>Date.parse(u.entry.ts)-Date.parse(L.entry.ts)).slice(0,e.limit);if(e.json)return console.log(JSON.stringify(c.map((L)=>L.entry),null,2)),0;if(c.length===0)return console.log("No audit log entries found."),0;for(let L of c)console.log(ss(L.entry,t.timeZone));return 0}function Nd(n,t,e){let r=n?ts(n).map((s)=>Ed(n,s)):[];if(e)return ns(r,t);let a=[],l=0,d=0;for(let s of r){let i=Er(s,{throwIfNoEntry:!1})?.size??0,c=es(s);if(c){a.push(`${Pr(s)}: ${c}`);continue}l++,d+=i}if(t)return console.log(JSON.stringify({removedFiles:l,removedBytes:d,failedFiles:a.length})),a.length===0?0:1;console.log(l===0&&a.length===0?"No legacy audit log files found.":`Removed ${l} legacy audit log ${l===1?"file":"files"} (${Nr(d)}).`);for(let s of a)console.error(`Could not remove ${F(s)}`);if(console.log("Nested v2 audit logs were not changed."),l>0)console.log("This deletion cannot be undone.");return a.length===0?0:1}function ns(n,t){let e=n.reduce((r,a)=>r+(Er(a,{throwIfNoEntry:!1})?.size??0),0);if(t)return console.log(JSON.stringify({dryRun:!0,files:n.length,bytes:e})),0;if(console.log(n.length===0?"No legacy audit log files found.":`Would remove ${n.length} legacy audit log ${n.length===1?"file":"files"} (${Nr(e)}).`),console.log("Nested v2 audit logs are not included."),n.length>0)console.log("Run the same command without --dry-run to delete them.");return 0}function ts(n){try{return Od(n,{withFileTypes:!0}).filter((t)=>t.isFile()&&t.name.endsWith(".jsonl")).map((t)=>t.name)}catch{return[]}}function es(n){try{return Td(n),null}catch(t){return t instanceof Error?t.message:String(t)}}function Nr(n){let t=["B","KiB","MiB","GiB"],e=Math.min(Math.floor(Math.log2(Math.max(n,1))/10),t.length-1);return`${Math.round(n/1024**e*10)/10} ${t[e]}`}function rs(n,t,e){let r=n.filter((l)=>l.entry.id===t.id);if(r.length>1)return console.error(`Multiple audit log entries found for id ${F(t.id??"")}.`),1;if(t.json)return console.log(JSON.stringify(r.map((l)=>l.entry),null,2)),0;let a=r[0];if(!a)return console.log(`No retained audit log entry found for id ${F(t.id??"")}.`),0;return console.log(is(a.entry,e)),0}function as(n,t,e,r){if(!t.all&&n.entry.decision==="allow")return!1;if(Date.parse(n.entry.ts)<r)return!1;if(t.agent!==void 0&&n.entry.agent!==t.agent)return!1;if(t.rule!==void 0&&n.entry.ruleId!==t.rule)return!1;if(t.session!==void 0&&!ls(n,e,t.session))return!1;if(t.project!==void 0&&!ds(n.entry.cwd,t.project))return!1;return!0}function ls(n,t,e){if(n.entry.sessionId===e)return!0;return _d(n.file)===t&&Pr(n.file,".jsonl")===e}function ds(n,t){if(!n)return!1;return n===t||n.startsWith(`${t}/`)}function ss(n,t){let e=F(n.id??"-"),r=F(n.decision??"deny"),a=n.cwd?`  [${F(n.cwd)}]`:"",l=n.segment||n.command,d=l===n.command?"":"↳ ",s=l.length>50?`${l.slice(0,50)}…`:l;return`${e.padEnd(16)}  ${F(na(n.ts,t))}  ${r.padEnd(5)}  ${F(n.agent??"-").padEnd(15)}  ${F(n.ruleId??"-").padEnd(20)}  ${d}${F(s)}${a}`}function is(n,t){let e=(a)=>F(a===void 0||a===null||a===""?"-":a),r=n.shape?`${n.agent??"-"} (shape: ${n.shape})`:n.agent??"-";return[`id:        ${e(n.id)}`,`ts:        ${e(na(n.ts,t))}`,`decision:  ${e(n.decision)}`,`agent:     ${e(r)}`,`level:     ${e(n.level)}`,`tool:      ${e(n.toolName)}`,`rule:      ${e(n.ruleId)}`,`intent:    ${e(n.intent)}`,`stage:     ${e(n.failureStage)}`,`error:     ${e(n.errorCode)}`,`session:   ${e(n.sessionId)}`,`cwd:       ${e(n.cwd)}`,`version:   ${e(n.v)}`,`truncated: ${e(n.truncated===!0?"yes":void 0)}`,`reason:    ${e(n.reason)}`,`command:   ${e(n.command)}`,`segment:   ${e(n.segment)}`].join(`
+`)}function na(n,t){let e=new Date(n);if(Number.isNaN(e.getTime()))return n;return new Intl.DateTimeFormat("sv-SE",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23",timeZone:t}).format(e)}function _r(n){let t=Number(n);return Number.isFinite(t)&&t>0?t:null}var ta={name:"doctor",aliases:["--doctor"],description:"Run diagnostic checks to verify installation and configuration",usage:"doctor [options]",options:[{flags:"--json",description:"Output diagnostics as JSON"},{flags:"--skip-update-check",description:"Skip npm registry version check"},{flags:"-h, --help",description:"Show this help"}],examples:["cc-safety-net doctor","cc-safety-net doctor --json","cc-safety-net doctor --skip-update-check"]};var ea={name:"explain",description:"Show step-by-step analysis trace of how a command would be analyzed",usage:"explain [options] <command>",argument:"<command>",options:[{flags:"--json",description:"Output analysis as JSON"},{flags:"--cwd",argument:"<path>",description:"Use custom working directory"},{flags:"-h, --help",description:"Show this help"}],examples:['cc-safety-net explain "git reset --hard"','cc-safety-net explain --json "rm -rf /"','cc-safety-net explain --cwd /tmp "git status"']};var ra={name:"gui",description:"Open the local policy editor GUI",usage:"gui [options]",options:[{flags:"--no-open",description:"Print the URL without opening a browser"},{flags:"-h, --help",description:"Show this help"}],examples:["cc-safety-net gui","cc-safety-net gui --no-open"]};import{isAbsolute as ua,relative as ws}from"node:path";var cs=8388608;function Ls(n,t){console.log(JSON.stringify(n(la(t))))}async function os(n){let t;try{t=(await Tt(process.stdin)).trim()}catch{n({reason:"Failed to parse hook input JSON."});return}if(!t){n({reason:"Missing hook input JSON."});return}return _t(t,n,"Failed to parse hook input JSON.")}async function Tt(n){let t=[],e=0;for await(let r of n){let a=typeof r==="string"?Buffer.from(r,"utf-8"):Buffer.from(r.buffer,r.byteOffset,r.byteLength);if(e+=a.byteLength,e>cs)throw us(n),Error("hook input byte limit exceeded");t.push(a)}return Buffer.concat(t,e).toString("utf-8")}function us(n){let t=n.destroy??n.cancel;if(!t)return;try{Promise.resolve(t.call(n)).catch(()=>{})}catch{}}function _t(n,t,e){try{return JSON.parse(n)}catch{t({reason:e});return}}function Q(n,t){let e=t.get(n);return e?{kind:"command",shell:e}:{kind:sa(n)}}function I(n,t,e,r){let a=n===void 0?process.cwd():n,l=typeof a==="string"&&a.trim()!==""?s2([a]):void 0;if(l)return{configCwd:l,executionCwd:l};return Y(r,t,e,fs(a)),null}function Y(n,t,e,r){let a;try{a=Ot(t)}catch(l){if(!(l instanceof W2))throw l}n(Sn({command:a,segment:r,toolName:e}))}async function ps(n){let t=await os(n.outputDeny);if(t===void 0)return;if(!t||typeof t!=="object"||Array.isArray(t)){Y(n.outputDeny);return}if(!n.isSupported(t))return;let e=n.getAgent?.(t)??n.agent,r=n.agent===e?void 0:n.agent,a=ys(t),l=(o,b)=>{aa(o,()=>n.getSessionId(t),{agent:e,shape:r,toolName:b,cwd:a}),n.outputDeny(o)},d=n.getToolName(t);if(typeof d!=="string"||d.trim()===""){Y((o)=>l(o),hs(t));return}let s=d,i=(o)=>l(o,s),c;try{c=n.getToolInput(t,s,i)}catch(o){if(!(o instanceof W2))throw o;Y(i,void 0,s);return}if(!c.ok)return;let L=n.getContext(t,c.input,s,i);if(!L)return;let u;try{u=Ot(c.input)}catch(o){if(!(o instanceof W2))throw o;Y(i,void 0,s);return}let p=H2(s,c.input,c.route,L,u??null);try{let o=Zn(p,{guard:{auditAllowed:ia(),dependencies:n.guardDependencies},audit:{agent:e,shape:r,getSessionId:()=>n.getSessionId(t)}}),b=Ut(o,{includeEvidence:!0,toolName:o.stage==="command-analysis"?void 0:s});if(b){n.outputDeny(b);return}n.outputAllow?.()}catch(o){if(!(o instanceof ca))throw o;vs(o);let b=Ut(o.evaluation,{includeEvidence:!0,toolName:o.evaluation.stage==="command-analysis"?void 0:s});if(b)n.outputDeny(b);return}}function vs(n){if(!Ln(D.debug))return;console.error(`CC Safety Net debug: ${bs(n.stage)}: ${da(n.cause)}`)}function bs(n){if(n==="policy-protection")return"hook policy protection failed";if(n==="config-load")return"hook config loading failed";if(n==="secret-protection")return"hook secret protection failed";return"hook analysis failed"}function fs(n){return typeof n==="string"?n:void 0}function hs(n){if(!n||typeof n!=="object"||Array.isArray(n))return;if(Object.hasOwn(n,"tool_input"))return n.tool_input;let t=n.toolCall;if(t&&typeof t==="object"&&!Array.isArray(t))return t.args;return}function ys(n){if(!n||typeof n!=="object"||Array.isArray(n))return null;let t=n.cwd;if(typeof t==="string")return t;let e=n.toolCall;if(!e||typeof e!=="object"||Array.isArray(e))return null;let r=e.args;if(!r||typeof r!=="object"||Array.isArray(r))return null;let a=r.Cwd;return typeof a==="string"?a:null}async function X(n){let t=(a)=>Ls(n.createDenyOutput,a),e=n.createAllowOutput;await ps({...n,outputDeny:t,outputAllow:e?()=>console.log(JSON.stringify(e())):void 0})}var xs=new Map([["run_command","auto"]]),ms=new Set(["absolutepath","directorypath","file_path","filepath","path","searchdirectory","searchpath","target_file","targetfile"]);function pa(n){return Q(n,xs)}async function va(){await X({agent:"antigravity-cli",createDenyOutput:(n)=>({decision:"deny",reason:n}),isSupported:()=>!0,getToolName:(n)=>n.toolCall?.name,getToolInput:(n,t)=>({ok:!0,input:qs(n.toolCall?.args,t),route:pa(t)}),getContext:gs,getSessionId:(n)=>n.conversationId})}function gs(n,t,e,r){let l=ks(n).flatMap((c)=>{let L=s2([c]);return L?[L]:[]});if(!l[0])return x2(r,t,e),null;if(e!=="run_command"){let c;try{c=$s(t,e,l)}catch(L){if(L instanceof W2)return x2(r,void 0,e),null;if(!(L instanceof Qn))throw L;return x2(r,t,e),null}if(!c)return x2(r,t,e),null;return{configCwd:c,executionCwd:c,policyConfigCwds:l}}let d=n.toolCall?.args;if(!d||!Object.hasOwn(d,"Cwd"))return{configCwd:l[0],executionCwd:l[0],policyConfigCwds:l};let s=d.Cwd;if(typeof s!=="string"||s.trim()==="")return x2(r,t,e),null;let i=vn(s,l);if(i){let c=ba(i,l);if(!c)return x2(r,t,e,s),null;return{configCwd:c,executionCwd:i,policyConfigCwds:l}}return x2(r,t,e,s),null}function $s(n,t,e){let r=pa(t),a=[...La(n,ms),...r.kind==="patch"?oa(n):[]].filter(ua),l=Xn(),d=new Set(a.flatMap((s)=>{let i=ba(un(s,pn,l),e);return i?[i]:[]}));if(d.size>1)return null;return[...d][0]??e[0]??null}function ba(n,t){return t.filter((e)=>Ds(n,e)).reduce((e,r)=>r.length>e.length?r:e,"")||null}function Ds(n,t){let e=ws(t,n);return e===""||!e.startsWith("..")&&!ua(e)}function x2(n,t,e,r){let a=t&&typeof t==="object"?t.command:void 0;n(Sn({command:typeof a==="string"?a:void 0,segment:r,toolName:e}))}function ks(n){if(n.workspacePaths===void 0)return[process.cwd()];let t=Array.isArray(n.workspacePaths)?n.workspacePaths.filter((e)=>typeof e==="string"&&e.trim()!==""):[];return s2(t)?t:[]}function qs(n,t){if(!n)return;if(t!=="run_command")return n;return{...n,command:typeof n.CommandLine==="string"&&n.CommandLine!==""?n.CommandLine:void 0}}var K2=[{id:"antigravity-cli",displayName:"Antigravity CLI",doctorOrder:3,runtime:{order:1,flags:["-ac","--agy-cli"],description:"Run as Antigravity CLI PreToolUse hook",legacyTopLevelFlags:[]},install:{order:2,flag:"--agy-cli",installLabel:"Antigravity CLI",helpTarget:"Antigravity CLI hook config",probeCommand:["agy","--version"]}},{id:"claude-code",displayName:"Claude Code",doctorOrder:1,runtime:{order:2,displayName:"Coding CLI",flags:["-cc","--coding-cli"],legacyFlags:["--claude-code"],description:"Run as Coding CLI PreToolUse hook",legacyTopLevelFlags:["-cc","--claude-code"]},install:{order:3,flag:"--claude-code",installLabel:"Claude Code",helpTarget:"Claude Code plugin",probeCommand:["claude","--version"]}},{id:"codex",displayName:"Codex",doctorOrder:4,install:{order:4,flag:"--codex",installLabel:"Codex",helpTarget:"Codex plugin",probeCommand:["codex","--version"]}},{id:"copilot-cli",displayName:"GitHub Copilot CLI",doctorOrder:7,runtime:{order:5,flags:["-cp","--copilot-cli"],description:"Run as GitHub Copilot CLI PreToolUse hook",legacyTopLevelFlags:["-cp","--copilot-cli"]},install:{order:7,flag:"--copilot-cli",installLabel:"GitHub Copilot CLI",helpTarget:"GitHub Copilot CLI plugin",probeCommand:["copilot","--binary-version"]}},{id:"gemini-cli",displayName:"Gemini CLI",doctorOrder:6,runtime:{order:4,flags:["-gc","--gemini-cli"],description:"Run as Gemini CLI BeforeTool hook",legacyTopLevelFlags:["-gc","--gemini-cli"]},install:{order:6,flag:"--gemini-cli",installLabel:"Gemini CLI",helpTarget:"Gemini CLI extension",probeCommand:["gemini","--version"]}},{id:"hermes-agent",displayName:"Hermes Agent",doctorOrder:8,runtime:{order:6,flags:["-ha","--hermes-agent"],description:"Run as Hermes Agent pre_tool_call hook",legacyTopLevelFlags:[]},install:{order:8,flag:"--hermes-agent",installLabel:"Hermes Agent",helpTarget:"Hermes Agent plugin",probeCommand:["hermes","--version"]}},{id:"kimi-code",displayName:"Kimi Code",doctorOrder:9,runtime:{order:7,flags:["-kc","--kimi-code"],description:"Run as Kimi Code PreToolUse hook",legacyTopLevelFlags:[]},install:{order:9,flag:"--kimi-code",installLabel:"Kimi Code",helpTarget:"Kimi Code hook config",probeCommand:["kimi","--version"]}},{id:"openclaw",displayName:"OpenClaw",doctorOrder:10,install:{order:10,flag:"--openclaw",installLabel:"OpenClaw",helpTarget:"OpenClaw plugin",probeCommand:["openclaw","--version"]}},{id:"opencode",displayName:"OpenCode",doctorOrder:11,install:{order:11,flag:"--opencode",installLabel:"OpenCode",helpTarget:"OpenCode plugin",probeCommand:["opencode","--version"]}},{id:"pi",displayName:"Pi",doctorOrder:12,install:{order:12,flag:"--pi",installLabel:"Pi",helpTarget:"Pi package",probeCommand:["pi","--version"]}},{id:"cursor",displayName:"Cursor",doctorOrder:5,runtime:{order:3,flags:["-cu","--cursor"],description:"Run as Cursor preToolUse hook",legacyTopLevelFlags:[]},install:{order:5,flag:"--cursor",installLabel:"Cursor",helpTarget:"Cursor hook config",probeCommand:["cursor","--version"]}},{id:"amp",displayName:"Amp Code",doctorOrder:2,install:{order:1,flag:"--amp",installLabel:"Amp Code",helpTarget:"Amp Code plugin",probeCommand:["amp","--version"]}}],fa=K2.slice().sort((n,t)=>n.doctorOrder-t.doctorOrder).map((n)=>n.id),ha=K2.filter((n)=>("runtime"in n)).slice().sort((n,t)=>n.runtime.order-t.runtime.order).map((n)=>({id:n.id,displayName:"displayName"in n.runtime?n.runtime.displayName:n.displayName,flags:n.runtime.flags,legacyFlags:"legacyFlags"in n.runtime?n.runtime.legacyFlags:[],description:n.runtime.description,legacyTopLevelFlags:n.runtime.legacyTopLevelFlags})),i2=K2.slice().sort((n,t)=>n.install.order-t.install.order).map((n)=>({id:n.id,...n.install})).map(({order:n,...t})=>t),ap=Object.fromEntries(K2.map((n)=>[n.id,n.displayName]));function p2(n){return K2.find((t)=>t.id===n)?.displayName??n}function m2(n){return K2.find((t)=>t.id===n)?.install.installLabel??n}import{homedir as js}from"node:os";import{isAbsolute as ya,join as Et}from"node:path";function xa(n){if(n!==void 0&&n!==null&&!ya(n))return"unknown";try{let t=Xn(),e=n?un(n,pn,t):void 0,r=process.env.HOME||js(),a=[["codex",process.env.CODEX_HOME||Et(r,".codex")],["copilot-cli",process.env.COPILOT_HOME||Et(r,".copilot")],["claude-code",process.env.CLAUDE_CONFIG_DIR||Et(r,".claude")]],l=e?a.flatMap(([d,s])=>{if(!ya(s))return[];return wa(e,un(s,pn,t))?[d]:[]}):[];if(l.length===1)return l[0]??"unknown";if(l.length>1)return"unknown"}catch(t){if(t instanceof Qn)return"unknown";return"unknown"}if(process.env.CLAUDECODE==="1"||Boolean(process.env.CLAUDE_CODE_ENTRYPOINT))return"claude-code";return"unknown"}var Pt="PreToolUse",ma="BeforeTool",ga="pre_tool_call",It="PreToolUse";var Fs=new Map([["Bash","posix"],["PowerShell","powershell"]]);function zs(n){return Q(n,Fs)}async function $a(){await X({agent:"claude-code",getAgent:(n)=>xa(n.transcript_path),createDenyOutput:(n)=>({hookSpecificOutput:{hookEventName:Pt,permissionDecision:"deny",permissionDecisionReason:n}}),isSupported:(n)=>n.hook_event_name===Pt,getToolName:(n)=>n.tool_name,getToolInput:(n,t)=>({ok:!0,input:n.tool_input,route:zs(t)}),getContext:(n,t,e,r)=>I(n.cwd,t,e,r),getSessionId:(n)=>n.session_id})}var Bs=new Map([["bash","auto"],["Bash","auto"]]);function Js(n){return Q(n,Bs)}async function Da(){await X({agent:"copilot-cli",createDenyOutput:(n)=>({permissionDecision:"deny",permissionDecisionReason:n}),isSupported:()=>!0,getToolName:(n)=>n.toolName,getToolInput:(n,t,e)=>{if(typeof n.toolArgs!=="string")return e({reason:"Failed to parse toolArgs JSON."}),{ok:!1};let r=_t(n.toolArgs,e,"Failed to parse toolArgs JSON.");if(r===void 0)return{ok:!1};return{ok:!0,input:r,route:Js(t)}},getContext:(n,t,e,r)=>I(n.cwd,t,e,r),getSessionId:(n)=>typeof n.sessionId==="string"&&n.sessionId.trim()?n.sessionId:void 0})}var Ss=new Map([["Shell","auto"]]);function Zs(n){return Q(n,Ss)}async function ka(){await X({agent:"cursor",createDenyOutput:(n)=>({permission:"deny",user_message:n,agent_message:n}),createAllowOutput:()=>({permission:"allow"}),isSupported:()=>!0,getToolName:(n)=>n.tool_name,getToolInput:(n,t)=>({ok:!0,input:n.tool_input,route:Zs(t)}),getContext:Qs,getSessionId:(n)=>n.conversation_id})}function Qs(n,t,e,r){let a=Xs(n);if(!a[0])return Y(r,t,e),null;let l=vn(Ys(n.cwd),a);if(!l)return Y(r,t,e,typeof n.cwd==="string"?n.cwd:void 0),null;if(t===null||typeof t!=="object"||Array.isArray(t))return{configCwd:l,executionCwd:l,policyConfigCwds:a};if(!Object.hasOwn(t,"working_directory"))return{configCwd:l,executionCwd:l,policyConfigCwds:a};let d=t.working_directory;if(typeof d!=="string"||d.trim()==="")return Y(r,t,e),null;let s=vn(d,a);if(!s)return Y(r,t,e,d),null;return{configCwd:l,executionCwd:s,policyConfigCwds:a}}function Xs(n){return Rs(n).flatMap((t)=>{let e=s2([t]);return e?[e]:[]})}function Rs(n){if(n.workspace_roots===void 0)return typeof n.cwd==="string"&&n.cwd.trim()!==""?[n.cwd]:[];if(!Array.isArray(n.workspace_roots))return[];return n.workspace_roots.filter((t)=>typeof t==="string"&&t.trim()!=="")}function Ys(n){return typeof n==="string"&&n.trim()!==""?n:"."}var As=new Map([["run_shell_command","auto"]]);function Hs(n){return Q(n,As)}async function qa(){await X({agent:"gemini-cli",createDenyOutput:(n)=>({decision:"deny",reason:n,systemMessage:n}),isSupported:(n)=>n.hook_event_name===ma,getToolName:(n)=>n.tool_name,getToolInput:(n,t)=>({ok:!0,input:n.tool_input,route:Hs(t)}),getContext:(n,t,e,r)=>I(n.cwd,t,e,r),getSessionId:(n)=>n.session_id})}import{resolve as Cs}from"node:path";var Ms=new Map([["terminal","posix"]]);async function ja(){await X({agent:"hermes-agent",createDenyOutput:(n)=>({action:"block",message:n}),isSupported:(n)=>n.hook_event_name===ga,getToolName:(n)=>n.tool_name,getToolInput:(n,t)=>({ok:!0,input:n.tool_input,route:Q(t,Ms)}),getContext:Ws,getSessionId:(n)=>n.session_id})}function Ws(n,t,e,r){let a=I(n.cwd,t,e,r);if(!a)return null;if(!t||typeof t!=="object"||Array.isArray(t))return a;if(!Object.hasOwn(t,"workdir"))return a;let l=t.workdir;if(typeof l!=="string"||l.trim()==="")return Y(r,t,e),null;let d=s2([Cs(a.configCwd,l)]);if(!d)return Y(r,t,e,l),null;return{...a,executionCwd:d}}var Ks=new Map([["Bash","posix"]]);function Vs(n){return Q(n,Ks)}async function Fa(){await X({agent:"kimi-code",createDenyOutput:(n)=>({hookSpecificOutput:{hookEventName:It,permissionDecision:"deny",permissionDecisionReason:n}}),isSupported:(n)=>n.hook_event_name===It,getToolName:(n)=>n.tool_name,getToolInput:(n,t)=>({ok:!0,input:n.tool_input,route:Vs(t)}),getContext:(n,t,e,r)=>I(n.cwd,t,e,r),getSessionId:(n)=>n.session_id})}var Gs={"antigravity-cli":va,"claude-code":$a,"copilot-cli":Da,cursor:ka,"gemini-cli":qa,"hermes-agent":ja,"kimi-code":Fa},V2=ha.map((n)=>({...n,run:Gs[n.id]}));function za(n){let t=j({label:"hook",booleans:Object.fromEntries(V2.map((r)=>[r.id,[...r.flags,...r.legacyFlags]]))},n);if(t.errors.length>0)return;let e=V2.filter((r)=>t.flags[r.id]);return e.length===1?e[0]:void 0}function Ba(n){return V2.find((t)=>t.legacyTopLevelFlags.some((e)=>e===n))}var Us=V2.map((n)=>({flags:n.flags.join(", "),description:n.description})),Os=V2.flatMap((n)=>n.flags.map((t)=>`cc-safety-net hook ${t}`)),Ja={name:"hook",description:"Run as an agent CLI hook (reads JSON from stdin)",usage:"hook INTEGRATION_FLAG",options:[...Us,{flags:"-h, --help",description:"Show this help"}],examples:Os};var Sa={name:"install",description:"Install CC Safety Net into a coding agent CLI",usage:"install [TARGET_FLAG]",options:[...i2.map((n)=>({flags:n.flag,description:`Install ${n.helpTarget}`})),{flags:"-h, --help",description:"Show this help"}],examples:["cc-safety-net install",...i2.map((n)=>`cc-safety-net install ${n.flag}`)]},Za={name:"uninstall",description:"Uninstall CC Safety Net from a coding agent CLI",usage:"uninstall [TARGET_FLAG]",options:[...i2.map((n)=>({flags:n.flag,description:`Uninstall ${n.helpTarget}`})),{flags:"-h, --help",description:"Show this help"}],examples:["cc-safety-net uninstall",...i2.map((n)=>`cc-safety-net uninstall ${n.flag}`)]},Qa={name:"update",description:"Update every installed CC Safety Net integration to the latest version",usage:"update",options:[{flags:"-h, --help",description:"Show this help"}],examples:["cc-safety-net update"]};var Xa={name:"logs",description:"Browse audit log entries recorded by hooks",usage:"logs [options]",options:[{flags:"--id",argument:"<id>",description:"Show one entry from retained history by its 16-character id (not guaranteed once it is older than the configured retention)"},{flags:"--limit",argument:"<n>",description:"Maximum entries to print",default:"20"},{flags:"--since",argument:"<days>",description:"Only include entries newer than this many days (max: the configured audit retention, 1-365)",default:"30"},{flags:"--agent",argument:"<name>",description:"Filter by agent name"},{flags:"--rule",argument:"<ruleId>",description:"Filter by rule id"},{flags:"--session",argument:"<id>",description:"Filter by session id"},{flags:"--project",argument:"<path>",description:"Filter by project path"},{flags:"--suspect",description:"Only denials that look like false positives"},{flags:"--all",description:"Include allow entries"},{flags:"--prune-legacy",description:"Permanently delete all legacy root-level logs; nested logs are untouched"},{flags:"--dry-run",description:"With --prune-legacy, report what would be deleted and delete nothing"},{flags:"--json",description:"Output entries as JSON"},{flags:"-h, --help",description:"Show this help"}],examples:["cc-safety-net logs --id 3fa9c2d1a70e8b42","cc-safety-net logs --agent claude-code","cc-safety-net logs --project . --since 7","cc-safety-net logs --suspect --since 7","cc-safety-net logs --json","cc-safety-net logs --prune-legacy --dry-run","cc-safety-net logs --prune-legacy"]};var G2={name:"rule",description:"Manage CC Safety Net rule config and rulebook sources",usage:"rule <subcommand>",subcommands:[{usage:"init [--example]",description:"Create inert rule config"},{usage:"add <source>",description:"Add a rulebook source and sync"},{usage:"remove <source>",description:"Remove a rulebook source and sync"},{usage:"update [source]",description:"Refresh rulebook lock/cache state"},{usage:"sync",description:"Sync configured rulebooks"},{usage:"list",description:"List active rulebooks"},{usage:"wrapper add <command>",description:"Trust a transparent command wrapper"},{usage:"wrapper remove <command>",description:"Remove a transparent command wrapper"},{usage:"wrapper list",description:"List transparent command wrappers"},{usage:"migrate [--cleanup]",description:"Migrate legacy inline rules"},{usage:"doc",description:"Print the rulebook authoring guide"},{usage:"verify",description:"Validate rule config files"}],options:[{flags:"-g, --global",description:"Use user-scope rule config"},{flags:"--check",description:"Check without changing lock/cache state"},{flags:"--cleanup",description:"Delete legacy files after rule migrate verifies them"},{flags:"--delete-source",description:"Delete clean local source directory on remove"},{flags:"--example",description:"Create an inactive example rulebook with rule init"},{flags:"-h, --help",description:"Show this help"}],examples:["cc-safety-net rule init","cc-safety-net rule init --example","cc-safety-net rule wrapper add rtk","cc-safety-net rule add project-rules","cc-safety-net rule sync","cc-safety-net rule migrate --cleanup","cc-safety-net rule verify"]};var Ra={name:"status",description:"Show what the runtime is enforcing right now",usage:"status",options:[{flags:"-h, --help",description:"Show this help"}],examples:["cc-safety-net status"]};var Ya={name:"statusline",description:"Print status line with mode indicators for shell integration",usage:"statusline --claude-code",options:[{flags:"-cc, --claude-code",description:"Print status line for Claude Code"},{flags:"-h, --help",description:"Show this help"}],examples:["cc-safety-net statusline -cc","cc-safety-net statusline --claude-code"]};var Aa=[Ra,ta,Xa,ea,G2,Sa,Qa,Za,Ja,ra,Ya];function Ts(n){return n.aliases??[]}function _s(n){return!n.hidden}function Rn(n){let t=n.toLowerCase();return Aa.find((e)=>e.name.toLowerCase()===t||Ts(e).some((r)=>r.toLowerCase()===t))}function Ha(){return Aa.filter(_s)}import{readFileSync as Es}from"node:fs";import{basename as Ps}from"node:path";function Yn(n=7,t=d2()){let e=Date.now()-n*24*60*60*1000,r=[],a=new Set,l=0,d,s,i,c;if(t)y2(t);let L={count:0},u=t?o2(t,L):[];for(let o of u)try{let v=Es(o,"utf-8").trim().split(`
+`).filter(Boolean);for(let f of v)try{let w=JSON.parse(f);if(w.decision==="allow")continue;let x=new Date(w.ts).getTime();if(x>=e){if(l++,a.add(w.sessionId??Ps(o,".jsonl")),s===void 0||x<=s)d=w.ts,s=x;if(c===void 0||x>c)i=w.ts,c=x;Is(r,w,x)}}catch{L.count++}}catch{L.count++}let p=r.map((o)=>({timestamp:o.ts,command:o.command,reason:o.reason,relativeTime:ht(new Date(o.ts))}));return{totalBlocked:l,sessionCount:a.size,recentEntries:p,oldestEntry:d,newestEntry:i,unreadable:L.count}}function Is(n,t,e){let r=n.findIndex((a)=>e>new Date(a.ts).getTime());if(r===-1){if(n.length<3)n.push(t);return}if(n.splice(r,0,t),n.length>3)n.pop()}import{dirname as Ns}from"node:path";function Ca(n,t,e,r,a){let l;try{if(m(r)===null)return{path:n,exists:!1,valid:!1,ruleCount:0};l=r2(r),l.errors.push(...a2(n,t,{userConfigDir:e},a))}catch(d){if(!(d instanceof S))throw d;l={errors:[d.message],ruleNames:new Set}}return{path:n,exists:!0,valid:l.errors.length===0,ruleCount:l.ruleNames.size,...l.errors.length>0?{errors:l.errors}:{}}}function n3(n,t){return{source:t,name:n.name,command:n.command,subcommand:n.subcommand,blockArgs:[...n.block_args],reason:n.reason}}function Ma(n,t){let e=t?.userConfigPath??E(),r=t?.projectConfigPath??_(n),a=Ns(e),l=u2({cwd:n,userConfigPath:e,projectConfigPath:r,userConfigDir:a}),d=P({cwd:n,userConfigPath:e,projectConfigPath:r,userConfigDir:a}),s=new Map(l.rulebooks.flatMap((i)=>i.rules.map((c)=>[c,i.source])));return{userConfig:Ca(e,Y2({userConfigPath:e}),a,d.userConfigTarget,d.userScope),projectConfig:Ca(r,A2(r),a,d.projectConfigTarget,d.projectScope),effectiveRules:l.rules.map((i)=>n3(i,s.get(i.name)??"project")),shadowedRules:[]}}var t3=[{flag:D.level,description:"Safety level preset: standard, strict, or paranoid",defaultBehavior:"standard"},{flag:D.strict,description:"Legacy; equivalent to safety.overrides.fail_closed",defaultBehavior:"permissive"},{flag:D.paranoid,description:"Legacy; equivalent to safety.overrides.paranoid_rm and paranoid_interpreters",defaultBehavior:"off"},{flag:D.paranoidRm,description:"Legacy; equivalent to safety.overrides.paranoid_rm",defaultBehavior:"off"},{flag:D.paranoidInterpreters,description:"Legacy; equivalent to safety.overrides.paranoid_interpreters",defaultBehavior:"off"},{flag:D.worktree,description:"Allow local git discards in linked worktrees",defaultBehavior:"off"},{flag:D.debug,description:"Print diagnostic messages to stderr",defaultBehavior:"off"},{flag:D.auditScope,description:"Command decisions recorded: all, or blocked (privacy-minimizing, denials only)",defaultBehavior:"all"}];function Wa(){return[...t3.map((n)=>({name:n.flag.name,value:Wt(n.flag),isSet:Kt(n.flag),legacyName:n.flag.legacyName,legacyValue:n.flag.legacyName?process.env[n.flag.legacyName]:void 0,legacyIsSet:n.flag.legacyName?process.env[n.flag.legacyName]!==void 0:void 0,description:n.description,defaultBehavior:n.defaultBehavior})),{name:"CC_SAFETY_NET_HOME",value:process.env.CC_SAFETY_NET_HOME,isSet:process.env.CC_SAFETY_NET_HOME!==void 0,description:"Override user-scope config/cache directory",defaultBehavior:"~/.cc-safety-net"}]}var Ka={error:0,warning:1,info:2},e3=["policy","config","audit"];function r3(n){return n.map((t)=>{if(t==="ownership")return"is not owned by the current user";if(t==="permissions")return"has unsafe permissions";if(t==="symlink")return"is a symbolic link";return"is not a directory"}).join(" and ")}var a3=[{derive:(n)=>n.hooks.length>0&&n.hooks.every((t)=>!t.configured)?[{checkId:"integration.none-configured",severity:"error",title:"No integration configured",detail:"CC Safety Net is not connected to any supported coding-agent integration.",fixHint:"Run `cc-safety-net install` and configure at least one integration."}]:[]},{derive:(n)=>n.hooks.filter((t)=>t.inspectionStatus==="failed").map((t)=>{let e=p2(t.platform);return{checkId:"integration.inspection-failed",severity:"error",title:`${e} inspection failed`,detail:`Doctor could not verify the ${e} integration configuration.`,fixHint:`Correct the reported ${e} configuration error, then run \`cc-safety-net doctor\` again.`,integration:t.platform}})},{derive:(n)=>n.userConfig.exists&&!n.userConfig.valid?[{checkId:"config.user-invalid",severity:"error",title:"User configuration is invalid",detail:"Doctor could not load a valid user rules configuration.",fixHint:"Run `cc-safety-net rule verify`, correct the reported error, then rerun doctor.",path:n.userConfig.path}]:[]},{derive:(n)=>n.projectConfig.exists&&!n.projectConfig.valid?[{checkId:"config.project-invalid",severity:"error",title:"Project configuration is invalid",detail:"Doctor could not load a valid project rules configuration.",fixHint:"Run `cc-safety-net rule verify`, correct the reported error, then rerun doctor.",path:n.projectConfig.path}]:[]},{derive:(n)=>n.configState.state==="degraded"?[{checkId:"config.runtime-degraded",severity:"warning",title:"Runtime is enforcing a fallback configuration",detail:`The rejected candidate configuration is not active: ${n.configState.reason}`,fixHint:"Correct the named source, run `cc-safety-net rule sync` for a rule source, then rerun doctor."}]:[]},{derive:(n)=>{let t=n.environment.find((e)=>e.name==="CC_SAFETY_NET_AUDIT_SCOPE");return Mt(t?.value)==="invalid"?[{checkId:"environment.audit-scope-invalid",severity:"warning",title:"Audit scope value is invalid",detail:"CC_SAFETY_NET_AUDIT_SCOPE is not `all` or `blocked`, so allowed command decisions are not recorded.",fixHint:"Set CC_SAFETY_NET_AUDIT_SCOPE to `all` or `blocked`, then restart the integration."}]:[]}},...e3.map((n)=>({derive:(t)=>t.posture.directories.filter((e)=>e.kind===n&&e.status==="unsafe").map((e)=>({checkId:`posture.${n}-directory-unsafe`,severity:"error",title:`${n[0]?.toUpperCase()}${n.slice(1)} directory is unsafe`,detail:`The ${n} directory ${r3(e.issues)}.`,fixHint:"Ensure this is a real directory owned by the current user with no group or other write access, then rerun doctor.",...e.path?{path:e.path}:{}}))})),{derive:(n)=>{let t=[...n.effectiveSafety.weakenedRuleOverrides].sort();return t.length>0?[{checkId:"posture.rule-overrides-weaken-preset",severity:"warning",title:"Rule overrides weaken the selected preset",detail:`Explicit overrides disable rules the resolved preset would enable: ${t.join(", ")}.`,fixHint:`Remove these \`off\` overrides or set them to \`on\`: ${t.join(", ")}.`}]:[]}}];function Va(n){return a3.flatMap((t,e)=>t.derive(n).map((r,a)=>({finding:r,catalogOrder:e,occurrence:a}))).sort((t,e)=>Ka[t.finding.severity]-Ka[e.finding.severity]||t.catalogOrder-e.catalogOrder||t.occurrence-e.occurrence).map((t)=>t.finding)}function N(){return Boolean(process.stdout.isTTY&&!process.env.NO_COLOR)}var l3=(n)=>N()?`\x1B[32m${n}\x1B[0m`:n,d3=(n)=>N()?`\x1B[33m${n}\x1B[0m`:n,s3=(n)=>N()?`\x1B[34m${n}\x1B[0m`:n,i3=(n)=>N()?`\x1B[35m${n}\x1B[0m`:n,c3=(n)=>N()?`\x1B[36m${n}\x1B[0m`:n,L3=(n)=>N()?`\x1B[31m${n}\x1B[0m`:n,o3=(n)=>N()?`\x1B[2m${n}\x1B[0m`:n,u3=(n)=>N()?`\x1B[1m${n}\x1B[0m`:n,h={green:l3,yellow:d3,blue:s3,magenta:i3,cyan:c3,red:L3,dim:o3,bold:u3},p3="\x1B[0m",v3=[39,82,198,226,208,51,196,46,201,214,93,154,220,27,49,190,200,33,129,227,45,160,63,118,123,202];function b3(n){let t=n;return()=>{return t=(t*1664525+1013904223)%4294967296,t/4294967296}}function f3(n){let t=[...v3],e=b3(n);for(let r=t.length-1;r>0;r--){let a=Math.floor(e()*(r+1)),l=t[r];t[r]=t[a],t[a]=l}return t}function h3(n,t=0){if(!N())return"";let e=f3(t);return`\x1B[38;5;${e[n%e.length]}m`}function Ga(n,t,e=0){if(!N())return`"${n}"`;return`${h3(t,e)}"${n}"${p3}`}var y3=new RegExp("\x1B\\[[0-9;]*m","g"),Nt=(n)=>n.replace(y3,"").length;function g2(n){let t=(n.headers??n.rows[0]??[]).map((d,s)=>{let i=Math.max(...n.rows.map((c)=>Nt(c[s]??"")));return Math.max(Nt(d),i)}),e=(d,s)=>d+" ".repeat(Math.max(0,s-Nt(d))),r=(d,s)=>s[0]+t.map((i)=>d.repeat(i+2)).join(s[1])+s[2],a=(d)=>`│ ${d.map((s,i)=>e(s,t[i]??0)).join(" │ ")} │`,l=n.headers?[`   ${a(n.headers)}`,`   ${r("─",["├","┼","┤"])}`]:[];return[`   ${r("─",["┌","┬","┐"])}`,...l,...n.rows.map((d)=>`   ${a(d)}`),`   ${r("─",["└","┴","┘"])}`].join(`
+`)}function Ua(n){let t=[];t.push("Hook Integration"),t.push(w3(n));let e=[],r=[];for(let a of n){let l=p2(a.platform);if(a.errors&&a.errors.length>0)for(let d of a.errors)if(a.configured)e.push({platform:l,message:d});else r.push({platform:l,message:d})}for(let a of e)t.push(`   Warning (${a.platform}): ${a.message}`);for(let a of r)t.push(h.red(`   Error (${a.platform}): ${a.message}`));return t.join(`
+`)}function w3(n){let t=["Platform","Discovery","Configuration","Inspection"],e=n.map((r)=>{let a=p2(r.platform);if(r.inspectionStatus==="not-inspected"){let i=h.dim("Not inspected");return[a,i,i,i]}let l=r.detected?h.green("Detected"):r.inspectionStatus==="failed"?h.red("Unknown"):h.dim("Not detected"),d=r.configured?h.green("Configured"):r.detected?h.yellow("Not configured"):r.inspectionStatus==="failed"?h.red("Unknown"):h.dim("Not applicable"),s=r.inspectionStatus==="verified"?h.green("Verified"):r.inspectionStatus==="failed"?h.red("Failed"):h.dim("Not applicable");return[a,l,d,s]});return g2({headers:t,rows:e})}function Oa(n){let e=["Guard Engine Verification",`   Synthetic self-test: ${n.failed>0?h.red(`${n.passed}/${n.total} FAIL`):h.green(`${n.passed}/${n.total} passed`)}`],r=n.results.filter((a)=>!a.passed);if(r.length>0){e.push(""),e.push(h.red("   Failures:"));for(let a of r)e.push(h.red(`   • ${a.description}`)),e.push(h.red(`     expected ${a.expected}, got ${a.actual}`))}return e.join(`
+`)}function x3(n){if(n.length===0)return"   (no custom rules)";let t=["Source","Name","Command","Block Args"],e=n.map((r)=>[r.source,r.name,r.subcommand?`${r.command} ${r.subcommand}`:r.command,r.blockArgs.join(", ")]);return g2({headers:t,rows:e})}function Ta(n){let t=[];if(t.push("Configuration"),t.push(m3(n.userConfig,n.projectConfig)),t.push(""),n.effectiveRules.length>0)t.push(`   Effective rules (${n.effectiveRules.length} total):`),t.push(x3(n.effectiveRules));else t.push("   Effective rules: (none - using built-in rules only)");for(let e of n.shadowedRules)t.push(""),t.push(`   Note: Project rule "${e.name}" shadows user rule with same name`);return t.join(`
+`)}function m3(n,t){let e=["Scope","Status"],r=(l)=>{if(!l.exists)return h.dim("N/A");if(!l.valid)return h.red(`Invalid (${l.errors?.[0]??"unknown error"})`);return h.green("Configured")},a=[["User",r(n)],["Project",r(t)]];return g2({headers:e,rows:a})}function _a(n){let t=[];return t.push("Environment"),t.push(g3(n)),t.join(`
+`)}function Ea(n){let t=["Effective Safety",`   Selected preset: ${n.effectiveSafety.selectedPreset}`,`   Effective: ${n.effectiveSafety.level}`],e=[["fail_closed","fail_closed"],["paranoid_rm","paranoid_rm"],["paranoid_interpreters","paranoid_interpreters"]];for(let[r,a]of e){let l=n.effectiveSafety.capabilities[r],d=l.enabled?h.green("ON"):h.dim("OFF"),s=l.sources.length>0?` (${l.sources.join(", ")})`:"";t.push(`   ${a}: ${d} via ${l.source}${s}`)}t.push(`   Stored rule customizations: ${n.effectiveSafety.ruleCounts.stored}`),t.push(`   Effective rule customizations: ${n.effectiveSafety.ruleCounts.effective}`);for(let[r,a]of Object.entries(n.effectiveSafety.ruleOverrides))t.push(`   ${r}: ${a}`);return t.join(`
+`)}function Pa(n){let t=["Findings"];if(n.length===0)return t.push("   No findings from inspected doctor facts."),t.join(`
+`);for(let e of n){let r=`[${e.severity.toUpperCase()}] ${e.checkId}: ${F(e.title)}`,a=e.severity==="error"?h.red:e.severity==="warning"?h.yellow:h.blue;if(t.push(`   ${a(r)}`),t.push(`      ${F(e.detail)}`),e.path)t.push(`      Path: ${F(e.path)}`);if(e.fixHint)t.push(`      Fix: ${F(e.fixHint)}`)}return t.join(`
+`)}function g3(n){let t=["Variable","Status","Legacy"],e=n.map((r)=>{let a=r.isSet?h.green("✓"):h.dim("✗"),l=r.legacyName&&r.legacyIsSet?`${r.legacyName} ${h.green("✓")}`:r.legacyName??"";return[r.name,a,l]});return g2({headers:t,rows:e})}function Ia(n){let t=[];if(n.totalBlocked===0)t.push("Recent Activity"),t.push("   No blocked commands in the last 7 days"),t.push("   Tip: This is normal for new installations");else t.push(`Recent Activity · last 7 days (${n.totalBlocked} blocked / ${n.sessionCount} sessions)`),t.push($3(n.recentEntries));if(n.unreadable>0)t.push(`   Warning: ${n.unreadable} audit log ${n.unreadable===1?"source":"sources"} could not be read; this summary is incomplete`);return t.join(`
+`)}function $3(n){let t=["Time","Command"],e=n.map((r)=>{let a=F(r.command.replace(/\r\n|\r|\n/g," ↵ ").replace(/\t/g," ")),l=a.length>40?`${a.slice(0,37)}...`:a;return[r.relativeTime,l]});return g2({headers:t,rows:e})}function Na(n){let t=[];if(t.push("Update Check"),n.latestVersion===null&&!n.error)return t.push(An([["Status",h.dim("Skipped")],["Installed",n.currentVersion]])),t.join(`
+`);if(n.error)return t.push(An([["Status",`${h.yellow("⚠")} Error`],["Installed",n.currentVersion],["Error",h.dim(n.error)]])),t.join(`
+`);if(n.updateAvailable)return t.push(An([["Status",`${h.yellow("⚠")} Update Available`],["Current",n.currentVersion],["Latest",h.green(n.latestVersion??"")]])),t.push(""),t.push("   Run: bunx cc-safety-net@latest doctor"),t.push("   Or:  npx cc-safety-net@latest doctor"),t.join(`
+`);return t.push(An([["Status",`${h.green("✓")} Up to date`],["Version",n.currentVersion]])),t.join(`
+`)}function An(n){return g2({rows:n})}function n1(n){let t=[];return t.push("System Info"),t.push(D3(n)),t.join(`
+`)}function D3(n){let t=["Component","Version"],e=(l)=>{if(l===null)return h.dim("not found");return l},a=[{label:"cc-safety-net",value:n.version},{label:"Claude Code",value:n.claudeCodeVersion},{label:"Amp Code",value:n.ampVersion},{label:"Antigravity CLI",value:n.antigravityCliVersion},{label:"Codex",value:n.codexCliVersion},{label:"Cursor",value:n.cursorVersion},{label:"Gemini CLI",value:n.geminiCliVersion},{label:"GitHub Copilot CLI",value:n.copilotCliVersion},{label:"Hermes Agent",value:n.hermesAgentVersion},{label:"Kimi Code",value:n.kimiCodeVersion},{label:"OpenClaw",value:n.openClawVersion},{label:"OpenCode",value:n.openCodeVersion},{label:"Pi",value:n.piCliVersion},{label:"Node.js",value:n.nodeVersion},{label:"npm",value:n.npmVersion},{label:"Bun",value:n.bunVersion},{label:"Platform",value:n.platform}].map((l)=>[l.label,e(l.value)]);return g2({headers:t,rows:a})}function t1(n){if(n.findings.length===0)return h.green(`
+No findings from inspected doctor facts.`);let t={error:n.findings.filter((l)=>l.severity==="error").length,warning:n.findings.filter((l)=>l.severity==="warning").length,info:n.findings.filter((l)=>l.severity==="info").length},e=["error","warning","info"].filter((l)=>t[l]>0).map((l)=>`${t[l]} ${l}`),r=n.findings.length===1?"finding":"findings",a=`
+${n.findings.length} ${r}: ${e.join(", ")}.`;if(t.error>0)return h.red(a);if(t.warning>0)return h.yellow(a);return h.blue(a)}import{lstatSync as k3}from"node:fs";import{dirname as ne}from"node:path";function te(n,t){try{let e=k3(t);if(e.isSymbolicLink())return{kind:n,path:t,status:"unsafe",issues:["symlink"]};if(!e.isDirectory())return{kind:n,path:t,status:"unsafe",issues:["not-directory"]};if(process.platform==="win32"||typeof process.getuid!=="function")return{kind:n,path:t,status:"unknown",issues:[]};let r=[...e.uid!==process.getuid()?["ownership"]:[],...(e.mode&18)!==0?["permissions"]:[]];return{kind:n,path:t,status:r.length>0?"unsafe":"safe",issues:r}}catch(e){if(typeof e==="object"&&e!==null&&"code"in e&&e.code==="ENOENT")return{kind:n,path:t,status:"not-applicable",issues:[]};return{kind:n,path:t,status:"unknown",issues:[]}}}function e1(n){let t=d2();return{directories:[te("policy",ne(ne(n))),te("config",ne(n)),...t?[te("audit",t)]:[{kind:"audit",status:"unknown",issues:[]}]]}}import{spawn as q3}from"node:child_process";import{existsSync as r1}from"node:fs";import{delimiter as j3,extname as F3,join as z3}from"node:path";import{stripVTControlCharacters as a1}from"node:util";var d1="1.0.6",B3=5000,J3="_CC_SAFETY_NET_TEST_SPAWN_PLATFORM";function z(){return d1}function ee(n,t){let e=n[t];if(e)return e;let r=Object.keys(n).find((a)=>a.toLowerCase()===t.toLowerCase()&&!!n[a]);return r?n[r]:e}function S3(n){return(ee(n,"PATHEXT")||".COM;.EXE;.BAT;.CMD").split(";").filter((t)=>t.length>0)}function Z3(n,t){let e=F3(n)?[n]:[...S3(t).map((r)=>`${n}${r}`),n];if(n.includes("/")||n.includes("\\"))return e.find((r)=>r1(r))??n;return(ee(t,"PATH")??"").split(j3).flatMap((r)=>e.map((a)=>z3(r,a))).find((r)=>r1(r))??n}function l1(n){if(!/[\s"&|<>^]/.test(n))return n;return`"${n.replace(/"/g,'""')}"`}function Q3(n,t){let[e,...r]=n,a=t[J3]==="win32"?"win32":process.platform;if(!e||a!=="win32")return{cmd:e??"",args:r};let l=Z3(e,t);if(!/\.(?:bat|cmd)$/i.test(l))return{cmd:l,args:r};return{cmd:ee(t,"COMSPEC")??"cmd.exe",args:["/d","/c",["call",l1(l),...r.map(l1)].join(" ")]}}var Hn=async(n,t=B3)=>{let e=await X3(n,{timeoutMs:t});if(e.code!==0)return null;return a1(e.stdout).trim()||a1(e.stderr).trim()||null};function X3(n,t){let[e,...r]=n;if(!e)return Promise.resolve({code:null,stdout:"",stderr:""});return new Promise((a)=>{try{let l=Q3([e,...r],process.env),d=q3(l.cmd,l.args,{stdio:["ignore","pipe","pipe"]}),s=!1,i="",c="";d.stdout.on("data",(p)=>{i+=p.toString()}),d.stderr.on("data",(p)=>{c+=p.toString()});let L=(p)=>{if(s)return;s=!0,clearTimeout(u),a(p)},u=setTimeout(()=>{d.kill(),L({code:null,stdout:i,stderr:c})},t.timeoutMs);d.on("close",(p)=>{L({code:p,stdout:i,stderr:c})}),d.on("error",()=>{L({code:null,stdout:i,stderr:c})})}catch{a({code:null,stdout:"",stderr:""})}})}function Z(n){if(!n)return null;let t=/Claude Code\s+(\d+\.\d+\.\d+)/i.exec(n);if(t)return t[1]??null;let e=/v?(\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?)/i.exec(n);if(e)return e[1]??null;return n.split(`
+`)[0]?.trim()||null}async function bn(n=Hn){let[t,e,r,a,l,d,s,i,c,L,u,p,o,b,v,f]=await Promise.all([n(["claude","--version"]),n(["agy","--version"]),n(["opencode","--version"]),n(["codex","--version"]),n(["codex","plugin","list"]),n(["gemini","--version"]),n(["copilot","--binary-version"]),n(["hermes","--version"]),n(["kimi","--version"]),n(["openclaw","--version"]),n(["pi","--version"]),n(["cursor","--version"]),n(["amp","--version"]),n(["node","--version"]),n(["npm","--version"]),n(["bun","--version"])]);return{version:d1,claudeCodeVersion:Z(t),antigravityCliVersion:Z(e),openCodeVersion:Z(r),codexCliVersion:Z(a),codexPluginListOutput:l,geminiCliVersion:Z(d),copilotCliVersion:Z(s),hermesAgentVersion:Z(i),kimiCodeVersion:Z(c),openClawVersion:Z(L),piCliVersion:Z(u),cursorVersion:Z(p),ampVersion:Z(o),nodeVersion:Z(b),npmVersion:Z(v),bunVersion:Z(f),platform:`${process.platform} ${process.arch}`}}function re(n,t){if(t==="dev")return!1;let e=n.split(".").map(Number),r=t.split(".").map(Number),[a=0,l=0,d=0]=e,[s=0,i=0,c=0]=r;if(a!==s)return a>s;if(l!==i)return l>i;return d>c}async function U2(){let n=z(),t=new AbortController,e=setTimeout(()=>t.abort(),3000);try{let r=await fetch("https://registry.npmjs.org/cc-safety-net/latest",{signal:t.signal});if(!r.ok)return{currentVersion:n,latestVersion:null,updateAvailable:!1,error:`npm registry returned ${r.status}`};let a=await r.json(),l=re(a.version,n);return{currentVersion:n,latestVersion:a.version,updateAvailable:l}}catch(r){return{currentVersion:n,latestVersion:null,updateAvailable:!1,error:r instanceof Error?r.message:"Network error"}}finally{clearTimeout(e)}}import*as v1 from"node:readline";var L1=(n)=>`\x1B[${n}B`,R3=(n)=>`\x1B[${n}A`;var s1=["░","▒","▓","╱","╲","┃","━","┏","┓","┗","┛","╋"];function Y3(n){return new Promise((t)=>setTimeout(t,n))}function A3(n,t,e){if(!e)return t(n);if(e.aborted)return Promise.resolve();return new Promise((r,a)=>{let l=()=>e.removeEventListener("abort",d),d=()=>{l(),r()};e.addEventListener("abort",d,{once:!0}),t(n).then(()=>{l(),r()},(s)=>{l(),a(s)})})}function fn(n,t){return n&&n>0?n:t}function Cn(n){return Math.max(0,Math.min(1,n))}function O2(n){return Math.max(0,Math.min(255,Math.round(n)))}function ae(n){return n<=0.0031308?12.92*n:1.055*n**0.4166666666666667-0.055}function H3(n,t,e){let r=e*Math.PI/180,a=t*Math.cos(r),l=t*Math.sin(r),d=(n+0.3963377774*a+0.2158037573*l)**3,s=(n-0.1055613458*a-0.0638541728*l)**3,i=(n-0.0894841775*a-1.291485548*l)**3;return{blue:O2(ae(Cn(-0.0041960863*d-0.7034186147*s+1.707614701*i))*255),green:O2(ae(Cn(-1.2684380046*d+2.6097574011*s-0.3413193965*i))*255),red:O2(ae(Cn(4.0767416621*d-3.3077115913*s+0.2309699292*i))*255)}}function le(n,t){let e=(t*n*180/Math.PI%360+360)%360;return H3(0.72,0.15,e)}function o1(n,t=0.1){let e=le(t,n);return`\x1B[38;2;${e.red};${e.green};${e.blue}m`}function C3(n,t){return{blue:O2(n.blue+(255-n.blue)*t),green:O2(n.green+(255-n.green)*t),red:O2(n.red+(255-n.red)*t)}}function u1(n,t,e){let r=Math.imul(n+2654435769,2246822507)^Math.imul(t+3266489909,668265263)^Math.imul(e+374761393,2654435761),a=r^r>>>15,l=Math.imul(a,739982445),d=l^l>>>12,s=Math.imul(d,695872825);return((s^s>>>15)>>>0)/4294967296}function M3(n,t,e){let r=Math.floor(u1(n,t,e)*s1.length);return s1[r]??"░"}function i1(n){let t=Cn(n);return t*t*t*(t*(t*6-15)+10)}function W3(n){if(n.length===0)return"";let t=[],e=!1,r="";for(let a of n){let l=`${a.red};${a.green};${a.blue}`;if(a.bold!==e)t.push(a.bold?"\x1B[1m":"\x1B[22m"),e=a.bold;if(l!==r)t.push(`\x1B[38;2;${l}m`),r=l;t.push(a.character)}return`${t.join("")}\x1B[22m\x1B[39m`}function K3(n,t,e,r,a){return n.map((l,d)=>({...le(e,r+t+d/a),bold:!1,character:l}))}function V3(n,t,e,r,a,l,d,s){let i=Math.max(1,r*0.75),c=Math.min(1,e/i),L=a*i1(c),u=Math.max(0,(e-i)/Math.max(1,r-i)),p=(1-i1(e/r))*s*2,o=0.35*Math.max(0,1-u*2),b=c>=1,v=Math.min(n.length,Math.ceil(L+2+1));return n.slice(0,v).map((f,w)=>{let x=le(l,d+t+w/s+p),y=w+u1(t,w,7919)*2-1;if(y>L+2)return{...x,bold:!1,character:" "};let J=L-y,z2=0.8*Math.exp(-(J*J)/12.5),tn=Math.min(0.9,z2+o),bt=!b&&y>L-4;return{...C3(x,tn),bold:tn>0.3,character:bt?M3(t,w,e):f}})}function c1(n){return`\x1B[?2026h${n.map((t,e)=>`\x1B8${e>0?L1(e):""}${W3(t)}`).join("")}\x1B[?2026l`}async function de(n,t={}){if(!n)return;let e=t.output??process.stdout,r=t.sleep??Y3,a=fn(t.frequency,0.1),l=t.seed??0,d=fn(t.speed,40),s=fn(t.spread,3),i=fn(t.frameRate,60),c=Math.max(1,Math.floor(fn(t.duration,12))),L=n.split(`
+`).map((v)=>Array.from(v)),u=Math.max(...L.map((v)=>v.length)),p=1000*c*L.filter((v)=>v.length>0).length/d,o=u>0?Math.max(1,Math.ceil(p/(1000/i))):0,b=o>0?p/o:0;e.write(`\x1B[?25l${L.length>1?`${`
+`.repeat(L.length-1)}${R3(L.length-1)}`:""}\x1B7`);try{for(let v=1;v<=o;v+=1){if(t.signal?.aborted)break;e.write(c1(L.map((f,w)=>V3(f,w,v,o,u,a,l,s)))),await A3(b,r,t.signal)}}finally{if(e.write(c1(L.map((v,f)=>K3(v,f,a,l,s)))),e.write("\x1B8"),L.length>1)e.write(L1(L.length-1));e.write(`
+\x1B[0m\x1B[?25h`)}}var p1=["┏━┛┏━┛  ┏━┛┏━┃┏━┛┏━┛━┏┛┃ ┃  ┏━ ┏━┛━┏┛","┃  ┃    ━━┃┏━┃┏━┛┏━┛ ┃ ━┏┛  ┃ ┃┏━┛ ┃ ","━━┛━━┛  ━━┛┛ ┛┛  ━━┛ ┛  ┛   ┛ ┛━━┛ ┛ "].join(`
+`);function G3(n){return Boolean(n.isTTY)}async function Mn(n={}){let t=n.output??process.stdout;if(!G3(t))return;let e=n.input??process.stdin,r={duration:n.duration,frequency:n.frequency,output:t,seed:n.seed??Math.random()*8192,sleep:n.sleep,speed:n.speed,spread:n.spread};if(!e.isTTY||typeof e.setRawMode!=="function"){await de(p1,r);return}let a=new AbortController,l=e.readableFlowing===!0,d=e.isRaw===!0,s=!1,i=(c,L)=>{if(L.ctrl&&L.name==="c")s=!0;if(s||L.name==="return"||L.name==="enter")a.abort()};v1.emitKeypressEvents(e),e.on("keypress",i),e.setRawMode(!0),e.resume();try{await de(p1,{...r,signal:a.signal})}finally{if(e.off("keypress",i),e.setRawMode(d),!l)e.pause()}if(!s)return;if(n.onInterrupt){n.onInterrupt();return}process.kill(process.pid,"SIGINT")}var b1="\r\x1B[2K",U3="\x1B[?25l",O3="\x1B[39m",T3="\x1B[?25h",_3=100,E3=0.55,P3=80,f1=["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];function I3(n){return new Promise((t)=>setTimeout(t,n))}async function N3(n,t){let e=t.output??process.stdout;if(!e.isTTY){await n;return}let r=t.sleep??I3,a=!1,l=n.then((s)=>{return a=!0,s},(s)=>{throw a=!0,s});if(await Promise.race([l.then(()=>!0),r(_3).then(()=>!1)]))return;e.write(U3);try{for(let s=0;!a;s+=1)e.write(`${b1}${o1(s*E3)}${f1[s%f1.length]}${O3} ${t.loadingMessage??"Loading…"}`),await Promise.race([l,r(P3)]);await l}finally{e.write(`${b1}${T3}`)}}async function Wn(n,t,e,r={}){let a=t();if(n)await e();if(n&&a.ready)await N3(a.ready,r);return a.finish()}import{homedir as hc}from"node:os";import{lstatSync as ii,readFileSync as ci}from"node:fs";var hn="// cc-safety-net managed Amp plugin. Do not edit. Reinstall with: npx -y cc-safety-net install --amp";import{existsSync as ei,lstatSync as y1,mkdirSync as ri,readFileSync as se,rmSync as ai}from"node:fs";import{dirname as w1,join as Kn}from"node:path";import{fileURLToPath as li}from"node:url";import{renameSync as ni,writeFileSync as ti}from"node:fs";function B(n,t){let e=`${n}.${process.pid}.tmp`;ti(e,t),ni(e,n)}var h1=Kn("amp","cc-safety-net.ts");function Vn(n){return Kn(n,".config","amp","plugins","cc-safety-net.ts")}function di(){let n=w1(li(import.meta.url));return[Kn(n,"..",h1),Kn(n,"..","..","..","dist",h1)]}function si(n=di()){let t=n.find((e)=>ei(e)&&y1(e).isFile());if(!t)throw Error("Packaged Amp plugin artifact not found. Reinstall cc-safety-net and try again.");return t}function x1(n){try{return y1(n)}catch{return}}function m1(n){return n.subarray(0,Buffer.byteLength(hn)).toString("utf-8")===hn}function g1(n,t=si()){let e=se(t),r=Vn(n),a=x1(r);if(!a)return ri(w1(r),{recursive:!0}),B(r,e),{path:r,alreadyInstalled:!1};if(a.isSymbolicLink()||!a.isFile())throw Error(`Refusing to overwrite ${r}: not a regular file. Move or remove it and rerun install --amp.`);let l=se(r);if(l.equals(e))return{path:r,alreadyInstalled:!0};if(m1(l))return B(r,e),{path:r,alreadyInstalled:!1};throw Error(`Refusing to overwrite unmanaged file at ${r}. Move or remove it and rerun install --amp.`)}function $1(n){let t=Vn(n),e=x1(t);if(!e)return{path:t,alreadyInstalled:!1};if(e.isSymbolicLink()||!e.isFile())throw Error(`Refusing to remove ${t}: not a regular file. Move or remove it manually.`);if(!m1(se(t)))throw Error(`Refusing to remove unmanaged file at ${t}. Move or remove it manually.`);return ai(t),{path:t,alreadyInstalled:!0}}function Li(n){return/^\/\/ version:\s*(.+)$/m.exec(n)?.[1]?.trim()}function D1(n){let t=Vn(n.homeDir),e=(()=>{try{return ii(t)}catch{return}})();if(!e)return{platform:"amp",status:"n/a",configPath:t};if(e.isSymbolicLink()||!e.isFile())return{platform:"amp",status:"n/a",configPath:t,errors:[`${t} is a symlink or not a regular file; move or remove it before installing`]};let r;try{r=ci(t,"utf-8")}catch(l){return{platform:"amp",status:"n/a",configPath:t,errors:[`Failed to read ${t}: ${l instanceof Error?l.message:String(l)}`]}}if(!r.startsWith(hn))return{platform:"amp",status:"n/a",configPath:t,errors:[`Unmanaged file occupies ${t}; move or remove it before installing`]};let a=Li(r)!==z();return{platform:"amp",status:"configured",method:"plugin file",configPath:t,errors:a?["Installed Amp plugin is outdated; run install --amp to update"]:void 0}}import{existsSync as ui,readFileSync as pi}from"node:fs";import{join as oi}from"node:path";function yn(n){return oi(n,".gemini","config","hooks.json")}var vi=/cc-safety-net\s+hook\s+(?:[^\s]+\s+)*(?:--agy-cli|-ac)(\s|["']|$)/;function bi(n){if(!n||typeof n!=="object"||Array.isArray(n))return[];return Object.values(n).flatMap((t)=>{if(!t||typeof t!=="object"||Array.isArray(t))return[];let e=t,r=e.PreToolUse;if(!Array.isArray(r))return[];return r.flatMap((a)=>{if(!a||typeof a!=="object"||Array.isArray(a))return[];let l=a.hooks;if(!Array.isArray(l))return[];return l.flatMap((d)=>{if(!d||typeof d!=="object"||Array.isArray(d))return[];let s=d.command;if(typeof s!=="string"||!vi.test(s))return[];return[{command:s,enabled:e.enabled!==!1}]})})})}function k1(n){let t=yn(n.homeDir);if(!ui(t))return{platform:"antigravity-cli",status:"n/a",configPath:t};let e;try{e=bi(JSON.parse(pi(t,"utf-8")))}catch(r){return{platform:"antigravity-cli",status:"n/a",configPath:t,errors:[`Failed to parse Antigravity hooks config ${t}: ${r instanceof Error?r.message:String(r)}`]}}if(e.some((r)=>r.enabled))return{platform:"antigravity-cli",status:"configured",method:"hook config",configPath:t};if(e.length>0)return{platform:"antigravity-cli",status:"disabled",method:"hook config",configPath:t};return{platform:"antigravity-cli",status:"n/a",configPath:t}}import{join as q1}from"node:path";import{existsSync as fi,lstatSync as hi,readFileSync as yi}from"node:fs";function n2(n,t=(e)=>e){if(!fi(n))return{kind:"missing"};try{return{kind:"ok",value:JSON.parse(t(yi(n,"utf-8")))}}catch{return{kind:"unreadable"}}}function R(n){try{return hi(n)}catch{return}}function Gn(n,t){let e=R(t);if(!e)return{platform:n,status:"n/a",configPath:t};if(!e.isSymbolicLink()&&e.isDirectory())return;return{platform:n,status:"n/a",configPath:t,errors:[`${t} is a symlink or not a directory; move or remove it before installing`]}}function g(n,t){return typeof n==="object"&&n!==null?n[t]:void 0}var ie="cc-safety-net@cc-marketplace";function j1(n){return q1(n,".claude","plugins","installed_plugins.json")}function F1(n,t){let e=g(g(n,"plugins"),t);return Array.isArray(e)&&e.length>0}function Un(n,t){let e=n2(j1(n));return e.kind==="ok"&&F1(e.value,t)}function ce(n){let t=j1(n),e=n2(t);if(e.kind==="unreadable")return{platform:"claude-code",status:"not-inspected"};if(e.kind==="missing")return{platform:"claude-code",status:"n/a"};if(!F1(e.value,ie))return{platform:"claude-code",status:"n/a"};let r=q1(n,".claude","settings.json"),a=n2(r);if(a.kind==="unreadable")return{platform:"claude-code",status:"not-inspected"};if(!(a.kind==="ok"&&g(g(a.value,"enabledPlugins"),ie)===!0))return{platform:"claude-code",status:"disabled",method:"plugin config",configPath:r,errors:[`${ie} is installed but not enabled in Claude Code`]};return{platform:"claude-code",status:"configured",method:"plugin config",configPath:t}}function z1(n){return ce(n.homeDir)}function B1(n){if(!n.codexPluginListOutput)return{platform:"codex",status:"n/a"};let t=n.codexPluginListOutput.split(`
+`).find((e)=>e.includes("https://github.com/kenryu42/cc-safety-net.git"));if(!t)return{platform:"codex",status:"n/a"};if(!t.includes("installed, enabled"))return{platform:"codex",status:"disabled",method:"codex plugin list",configPath:"codex plugin list",errors:["Codex plugin line for https://github.com/kenryu42/cc-safety-net.git must contain installed, enabled."]};return{platform:"codex",status:"configured",method:"codex plugin list",configPath:"codex plugin list"}}import{existsSync as Tn,readdirSync as wi,readFileSync as xi}from"node:fs";import{join as M}from"node:path";var t2="cc-safety-net@cc-marketplace",On=["cc-marketplace","cc-safety-net"],J1=["_direct","copilot-safety-net"];function Le(n,t){let e=t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");return new RegExp(`(^|[^a-z0-9-])${e}([^a-z0-9-]|$)`,"m").test(n??"")}function S1(n){return Le(n,"cc-safety-net@cc-marketplace")}function Z1(n){return Le(n,"cc-marketplace")}function Q1(n){return Le(n,"copilot-safety-net")}function C(n){let t="",e=0,r=!1,a=!1,l=-1;while(e<n.length){let d=n[e],s=n[e+1];if(a){t+=d,a=!1,e++;continue}if(d==='"'&&!r){r=!0,l=-1,t+=d,e++;continue}if(d==='"'&&r){r=!1,t+=d,e++;continue}if(d==="\\"&&r){a=!0,t+=d,e++;continue}if(r){t+=d,e++;continue}if(d==="/"&&s==="/"){while(e<n.length&&n[e]!==`
+`)e++;continue}if(d==="/"&&s==="*"){e+=2;while(e<n.length-1){if(n[e]==="*"&&n[e+1]==="/"){e+=2;break}e++}continue}if(d===","){l=t.length,t+=d,e++;continue}if(d==="}"||d==="]"){if(l!==-1){let i=t.slice(l+1);if(/^\s*$/.test(i))t=t.slice(0,l)+i}l=-1,t+=d,e++;continue}if(!/\s/.test(d))l=-1;t+=d,e++}return t}function oe(n){if(!n?.includes("cc-safety-net"))return!1;return/(^|\s)hook\s+(?:[^\s]+\s+)*(--copilot-cli|-cp)(\s|$)/.test(n)}function R1(n,t){if(!n)return null;let e=n.match(/(\d+)\.(\d+)\.(\d+)/);if(!e)return null;let r=[Number(e[1]),Number(e[2]),Number(e[3])];for(let a=0;a<t.length;a++){let l=r[a]??0,d=t[a]??0;if(l!==d)return l>d}return!0}function mi(n){return R1(n,[0,0,422])}function gi(n){return R1(n,[1,0,8])}function wn(n){return process.env.COPILOT_HOME||M(n,".copilot")}function pe(n){return(n.hooks?.preToolUse??[]).some((e)=>{if(e.type!=="command")return!1;return oe(e.command)||oe(e.bash)||oe(e.powershell)})}function ve(n,t){try{return JSON.parse(C(xi(n,"utf-8")))}catch(e){t?.push(`Failed to parse ${n}: ${e instanceof Error?e.message:String(e)}`);return}}function Y1(n,t){try{return wi(n).filter((e)=>e.endsWith(".json")).sort((e,r)=>e.localeCompare(r))}catch(e){return t?.push(`Failed to read ${n}: ${e instanceof Error?e.message:String(e)}`),[]}}function $i(n,t){if(!Tn(n))return[];let e=[];for(let r of Y1(n,t)){let a=M(n,r),l=ve(a,t);if(l&&pe(l))e.push(a)}return e}function ue(n,t){if(!Tn(n))return;let e=ve(n,t);if(!e)return;return{path:n,config:e}}function X1(n,t,e,r){if(t){n.push(`GitHub Copilot CLI ${t} does not support ${e}; requires ${r}+`);return}n.push(`GitHub Copilot CLI version unavailable; skipping ${e} because it requires ${r}+`)}function Di(n){let t=[n.localSettings,n.repoSettings,n.userConfig];for(let e of t){if(e?.config.disableAllHooks===!0)return e.path;if(e?.config.disableAllHooks===!1)return}return}function ki(n,t,e,r){let a=wn(n),l=M(t,".github","hooks"),d=M(a,"hooks"),s=M(t,".github","copilot"),i=gi(e),c=i===!0?r:void 0,L={userConfig:ue(M(a,"config.json"),c),repoSettings:ue(M(s,"settings.json"),c),localSettings:ue(M(s,"settings.local.json"),c)};if(i!==!1){let x=Di(L);if(x){if(i===null)r.push(`GitHub Copilot CLI version unavailable; treating disableAllHooks in ${x} as active`);return{activeConfigPaths:[],disabledBy:x}}}let u=$i(l,r),p=mi(e),o=p===!0?r:void 0,b=Tn(d)?Y1(d,o):[],v=[];for(let x of b){let y=M(d,x),J=ve(y,o);if(J&&pe(J))v.push(y)}if(p!==!0&&v.length>0)X1(r,e,`user hook files in ${d}`,"0.0.422"),v.length=0;let f=[],w=[L.localSettings,L.repoSettings,L.userConfig];for(let x of w){if(!x)continue;if(!pe(x.config))continue;if(i===!0){f.push(x.path);continue}X1(r,e,"inline hook definitions in Copilot config files","1.0.8");break}return{activeConfigPaths:[...f.filter((x)=>x.endsWith("settings.local.json")),...f.filter((x)=>x.endsWith("settings.json")),...u,...f.filter((x)=>x.endsWith("config.json")),...v]}}function A1(n){let t=[],e=ki(n.homeDir,n.cwd,n.copilotCliVersion,t);if(e.disabledBy)return{platform:"copilot-cli",status:"disabled",method:"hook config",configPath:e.disabledBy,configPaths:[e.disabledBy],errors:t.length>0?t:void 0};let r=wn(n.homeDir),a=M(r,"installed-plugins",...On),l=Tn(a),d=M(r,"settings.json"),s=n2(d,C);if(l&&s.kind==="unreadable")return{platform:"copilot-cli",status:"not-inspected"};if(l&&s.kind==="ok"&&g(g(s.value,"enabledPlugins"),t2)===!1)return{platform:"copilot-cli",status:"disabled",method:"plugin config",configPath:d,errors:[`${t2} is installed but not enabled in Copilot CLI`]};if(l||e.activeConfigPaths.length>0){let i=l,c=e.activeConfigPaths[0];return{platform:"copilot-cli",status:"configured",method:i?"plugin config":"hook config",configPath:c??(i?a:void 0),configPaths:e.activeConfigPaths.length>0?e.activeConfigPaths:void 0,errors:t.length>0?t:void 0}}return{platform:"copilot-cli",status:"n/a",errors:t.length>0?t:void 0}}import{existsSync as Zi,readFileSync as Qi}from"node:fs";import{existsSync as H1,mkdirSync as qi,readFileSync as ji}from"node:fs";import{dirname as Fi,join as zi}from"node:path";var xn="npx -y cc-safety-net hook --cursor",C1=30;function En(n){return zi(n,".cursor","hooks.json")}function $2(n){return typeof n==="object"&&n!==null&&!Array.isArray(n)}function be(){return{command:xn,timeout:C1,failClosed:!0}}function _n(n){return $2(n)&&n.command===xn}function Bi(n){return Object.keys(n).length===3&&n.command===xn&&n.timeout===C1&&n.failClosed===!0}function Ji(n){try{return JSON.parse(ji(n,"utf-8"))}catch(t){if(t instanceof SyntaxError)throw Error(`Failed to parse Cursor hooks config ${n}: ${t.message}`);throw t}}function M1(n){let t=Ji(n);if(!$2(t))throw Error(`Cursor hooks config ${n} must be a JSON object`);if(t.version!==1)throw Error(`Cursor hooks config ${n} must set "version": 1`);if(t.hooks!==void 0&&!$2(t.hooks))throw Error(`Cursor hooks config ${n} "hooks" must be an object`);let e=$2(t.hooks)?t.hooks.preToolUse:void 0;if(e!==void 0&&!Array.isArray(e))throw Error(`Cursor hooks config ${n} "hooks.preToolUse" must be an array`);return t}function W1(n){let t=$2(n.hooks)?n.hooks.preToolUse:void 0;return Array.isArray(t)?t:[]}function Si(n){if(!n.some(_n))return[...n,be()];return n.reduce((t,e)=>{if(!_n(e))return t.result.push(e),t;if(!t.inserted)t.result.push(be()),t.inserted=!0;return t},{result:[],inserted:!1}).result}function K1(n,t,e){let r=$2(t.hooks)?t.hooks:{},a={...t,hooks:{...r,preToolUse:e}};B(n,`${JSON.stringify(a,null,2)}
+`)}function V1(n){let t=En(n);if(!H1(t))return qi(Fi(t),{recursive:!0}),B(t,`${JSON.stringify({version:1,hooks:{preToolUse:[be()]}},null,2)}
+`),{path:t,alreadyInstalled:!1};let e=M1(t),r=W1(e),a=r.filter(_n);if($2(e.hooks)&&Array.isArray(e.hooks.preToolUse)&&a.length===1&&a[0]!==void 0&&Bi(a[0]))return{path:t,alreadyInstalled:!0};return K1(t,e,Si(r)),{path:t,alreadyInstalled:!1}}function G1(n){let t=En(n);if(!H1(t))return{path:t,alreadyInstalled:!1};let e=M1(t),r=W1(e),a=r.filter((l)=>!_n(l));if(a.length===r.length)return{path:t,alreadyInstalled:!1};return K1(t,e,a),{path:t,alreadyInstalled:!0}}function Xi(n){if(!n||typeof n!=="object"||Array.isArray(n))return[];let t=n.hooks;if(!t||typeof t!=="object"||Array.isArray(t))return[];let e=t.preToolUse;if(!Array.isArray(e))return[];return e.filter((r)=>!!r&&typeof r==="object"&&!Array.isArray(r)&&r.command===xn)}function Ri(n){let t=[];if(n.length>1)t.push("Multiple managed cc-safety-net hooks found; reinstall to collapse duplicates");let e=n[0];if(e&&e.failClosed!==!0)t.push('Managed hook is missing "failClosed": true; reinstall to repair');if(e&&e.timeout!==30)t.push('Managed hook "timeout" is not 30; reinstall to repair');return t}function U1(n){let t=En(n.homeDir);if(!Zi(t))return{platform:"cursor",status:"n/a",configPath:t};let e;try{e=JSON.parse(Qi(t,"utf-8"))}catch(l){return{platform:"cursor",status:"n/a",configPath:t,errors:[`Failed to parse Cursor hooks config ${t}: ${l instanceof Error?l.message:String(l)}`]}}let r=Xi(e);if(r.length===0)return{platform:"cursor",status:"n/a",configPath:t};let a=Ri(r);return{platform:"cursor",status:"configured",method:"hook config",configPath:t,errors:a.length>0?a:void 0}}import{existsSync as Yi}from"node:fs";import{join as fe}from"node:path";var he="gemini-safety-net";function ye(n){let t=fe(n,".gemini","extensions"),e=fe(t,he);if(!Yi(e))return{platform:"gemini-cli",status:"n/a"};let r=fe(t,"extension-enablement.json"),a=n2(r);if(a.kind==="unreadable")return{platform:"gemini-cli",status:"not-inspected"};let l=a.kind==="ok"?g(g(a.value,he),"overrides"):void 0;if(Array.isArray(l)&&l.some((s)=>typeof s==="string"&&s.startsWith("!")))return{platform:"gemini-cli",status:"disabled",method:"extension config",configPath:r,errors:[`${he} is disabled in Gemini CLI`]};return{platform:"gemini-cli",status:"configured",method:"extension config",configPath:e}}function O1(n){return ye(n.homeDir)}import{readFileSync as e0}from"node:fs";import{join as r0}from"node:path";var W="cc-safety-net",T1="# cc-safety-net managed Hermes Agent plugin. Do not edit. Reinstall with: npx -y cc-safety-net install --hermes-agent";function _1(n){return`# cc-safety-net managed Hermes Agent plugin. Do not edit. Reinstall with: npx -y cc-safety-net install --hermes-agent
+# version: ${n}
+`}function Ai(n){return`${_1(n)}name: cc-safety-net
+version: "${n}"
+description: "Block destructive commands and secret-file access before Hermes runs a tool."
+author: "cc-safety-net"
+provides_hooks:
+  - pre_tool_call
+`}function Hi(n){return`${_1(n)}"""CC Safety Net guard for Hermes Agent.
 
-// node_modules/shell-quote/quote.js
-var require_quote = __commonJS((exports, module) => {
-  var OPS = [
-    "||",
-    "&&",
-    ";;",
-    "|&",
-    "<(",
-    "<<<",
-    ">>",
-    ">&",
-    "<&",
-    "&",
-    ";",
-    "(",
-    ")",
-    "|",
-    "<",
-    ">"
-  ];
-  var LINE_TERMINATORS = /[\n\r\u2028\u2029]/;
-  var GLOB_SHELL_SPECIAL = /[\s#!"$&'():;<=>@\\^`|]/g;
-  module.exports = function quote(xs) {
-    return xs.map(function(s) {
-      if (s === "") {
-        return "''";
-      }
-      if (s && typeof s === "object") {
-        if (s.op === "glob") {
-          if (typeof s.pattern !== "string") {
-            throw new TypeError("glob token requires a string `pattern`");
-          }
-          if (LINE_TERMINATORS.test(s.pattern)) {
-            throw new TypeError("glob `pattern` must not contain line terminators");
-          }
-          return s.pattern.replace(GLOB_SHELL_SPECIAL, "\\$&");
-        }
-        if (typeof s.op === "string") {
-          if (OPS.indexOf(s.op) < 0) {
-            throw new TypeError("invalid `op` value: " + JSON.stringify(s.op));
-          }
-          return s.op.replace(/[\s\S]/g, "\\$&");
-        }
-        if (typeof s.comment === "string") {
-          if (LINE_TERMINATORS.test(s.comment)) {
-            throw new TypeError("`comment` must not contain line terminators");
-          }
-          return "#" + s.comment;
-        }
-        throw new TypeError("unrecognized object token shape");
-      }
-      if (/["\s\\]/.test(s) && !/'/.test(s)) {
-        return "'" + s.replace(/(['])/g, "\\$1") + "'";
-      }
-      if (/["'\s]/.test(s)) {
-        return '"' + s.replace(/(["\\$`!])/g, "\\$1") + '"';
-      }
-      return String(s).replace(/([A-Za-z]:)?([#!"$&'()*,:;<=>?@[\\\]^`{|}])/g, "$1\\$2");
-    }).join(" ");
-  };
-});
+Registers pre_tool_call and forwards the tool call to the packaged CC Safety Net
+adapter (cc-safety-net hook --hermes-agent) over JSON stdin. The adapter prints nothing
+when the call is allowed and an {"action": "block", ...} directive when it is denied.
+Hermes ignores a callback that raises, so every transport and analysis failure is turned
+into an explicit block here instead.
+"""
 
-// node_modules/shell-quote/parse.js
-var require_parse = __commonJS((exports, module) => {
-  var CONTROL = "(?:" + [
-    "\\|\\|",
-    "\\&\\&",
-    ";;",
-    "\\|\\&",
-    "\\<\\(",
-    "\\<\\<\\<",
-    ">>",
-    ">\\&",
-    "<\\&",
-    "[&;()|<>]"
-  ].join("|") + ")";
-  var controlRE = new RegExp("^" + CONTROL + "$");
-  var META = "|&;()<> \\t";
-  var SINGLE_QUOTE = '"((\\\\"|[^"])*?)"';
-  var DOUBLE_QUOTE = "'((\\\\'|[^'])*?)'";
-  var hash = /^#$/;
-  var SQ = "'";
-  var DQ = '"';
-  var DS = "$";
-  var TOKEN = "";
-  var mult = 4294967296;
-  for (i = 0;i < 4; i++) {
-    TOKEN += (mult * Math.random()).toString(16);
-  }
-  var i;
-  var startsWithToken = new RegExp("^" + TOKEN);
-  function matchAll(s, r) {
-    var origIndex = r.lastIndex;
-    var matches = [];
-    var matchObj;
-    while (matchObj = r.exec(s)) {
-      matches.push(matchObj);
-      if (r.lastIndex === matchObj.index) {
-        r.lastIndex += 1;
-      }
-    }
-    r.lastIndex = origIndex;
-    return matches;
-  }
-  function getVar(env, pre, key) {
-    var r = typeof env === "function" ? env(key) : env[key];
-    if (typeof r === "undefined" && key != "") {
-      r = "";
-    } else if (typeof r === "undefined") {
-      r = "$";
-    }
-    if (typeof r === "object") {
-      return pre + TOKEN + JSON.stringify(r) + TOKEN;
-    }
-    return pre + r;
-  }
-  function parseInternal(string, env, opts) {
-    if (!opts) {
-      opts = {};
-    }
-    var BS = opts.escape || "\\";
-    var BAREWORD = "(\\" + BS + `['"` + META + `]|[^\\s'"` + META + "])+";
-    var chunker = new RegExp([
-      "(" + CONTROL + ")",
-      "(" + BAREWORD + "|" + SINGLE_QUOTE + "|" + DOUBLE_QUOTE + ")+"
-    ].join("|"), "g");
-    var matches = matchAll(string, chunker);
-    if (matches.length === 0) {
-      return [];
-    }
-    if (!env) {
-      env = {};
-    }
-    var commented = false;
-    return matches.map(function(match) {
-      var s = match[0];
-      if (!s || commented) {
-        return;
-      }
-      if (controlRE.test(s)) {
-        return { op: s };
-      }
-      var quote = false;
-      var esc = false;
-      var out = "";
-      var isGlob = false;
-      var i2;
-      function parseEnvVar() {
-        i2 += 1;
-        var varend;
-        var varname;
-        var char = s.charAt(i2);
-        if (char === "{") {
-          i2 += 1;
-          if (s.charAt(i2) === "}") {
-            throw new Error("Bad substitution: " + s.slice(i2 - 2, i2 + 1));
-          }
-          varend = s.indexOf("}", i2);
-          if (varend < 0) {
-            throw new Error("Bad substitution: " + s.slice(i2));
-          }
-          varname = s.slice(i2, varend);
-          i2 = varend;
-        } else if (/[*@#?$!_-]/.test(char)) {
-          varname = char;
-          i2 += 1;
-        } else {
-          var slicedFromI = s.slice(i2);
-          varend = slicedFromI.match(/[^\w\d_]/);
-          if (!varend) {
-            varname = slicedFromI;
-            i2 = s.length;
-          } else {
-            varname = slicedFromI.slice(0, varend.index);
-            i2 += varend.index - 1;
-          }
-        }
-        return getVar(env, "", varname);
-      }
-      for (i2 = 0;i2 < s.length; i2++) {
-        var c = s.charAt(i2);
-        isGlob = isGlob || !quote && (c === "*" || c === "?");
-        if (esc) {
-          out += c;
-          esc = false;
-        } else if (quote) {
-          if (c === quote) {
-            quote = false;
-          } else if (quote == SQ) {
-            out += c;
-          } else {
-            if (c === BS) {
-              i2 += 1;
-              c = s.charAt(i2);
-              if (c === DQ || c === BS || c === DS) {
-                out += c;
-              } else {
-                out += BS + c;
-              }
-            } else if (c === DS) {
-              out += parseEnvVar();
-            } else {
-              out += c;
-            }
-          }
-        } else if (c === DQ || c === SQ) {
-          quote = c;
-        } else if (controlRE.test(c)) {
-          return { op: s };
-        } else if (hash.test(c)) {
-          commented = true;
-          var commentObj = { comment: string.slice(match.index + i2 + 1) };
-          if (out.length) {
-            return [out, commentObj];
-          }
-          return [commentObj];
-        } else if (c === BS) {
-          esc = true;
-        } else if (c === DS) {
-          out += parseEnvVar();
-        } else {
-          out += c;
-        }
-      }
-      if (isGlob) {
-        return { op: "glob", pattern: out };
-      }
-      return out;
-    }).reduce(function(prev, arg) {
-      return typeof arg === "undefined" ? prev : prev.concat(arg);
-    }, []);
-  }
-  module.exports = function parse(s, env, opts) {
-    var mapped = parseInternal(s, env, opts);
-    if (typeof env !== "function") {
-      return mapped;
-    }
-    return mapped.reduce(function(acc, s2) {
-      if (typeof s2 === "object") {
-        return acc.concat(s2);
-      }
-      var xs = s2.split(RegExp("(" + TOKEN + ".*?" + TOKEN + ")", "g"));
-      if (xs.length === 1) {
-        return acc.concat(xs[0]);
-      }
-      return acc.concat(xs.filter(Boolean).map(function(x) {
-        if (startsWithToken.test(x)) {
-          return JSON.parse(x.split(TOKEN)[1]);
-        }
-        return x;
-      }));
-    }, []);
-  };
-});
+import json
+import os
+import shutil
+import signal
+import subprocess
 
-// src/bin/commands/doctor.ts
-var doctorCommand = {
-  name: "doctor",
-  aliases: ["--doctor"],
-  description: "Run diagnostic checks to verify installation and configuration",
-  usage: "doctor [options]",
-  options: [
-    {
-      flags: "--json",
-      description: "Output diagnostics as JSON"
-    },
-    {
-      flags: "--skip-update-check",
-      description: "Skip npm registry version check"
-    },
-    {
-      flags: "-h, --help",
-      description: "Show this help"
-    }
-  ],
-  examples: [
-    "cc-safety-net doctor",
-    "cc-safety-net doctor --json",
-    "cc-safety-net doctor --skip-update-check"
-  ]
+HOOK_EVENT = "pre_tool_call"
+SUPPORTED_TOOLS = ("patch", "read_file", "terminal", "write_file")
+ANALYZER = ["npx", "-y", "cc-safety-net", "hook", "--hermes-agent"]
+TIMEOUT_SECONDS = ${"30"}
+
+
+def _block(detail):
+    return {"action": "block", "message": "CC Safety Net failed closed: " + detail}
+
+
+def _terminal_cwd(task_id, process_cwd):
+    """Return the directory Hermes will run this terminal command in.
+
+    A \`terminal\` call without \`workdir\` runs in the session's own cwd RECORD, not in the
+    Hermes process directory: \`_resolve_command_cwd\` in tools/terminal_tool.py returns
+    \`workdir or get_session_cwd(session_key) or default_cwd\`, and that record is rewritten
+    after every completed command, so it IS the session's \`cd\` state. The session key is
+    derived exactly as terminal_tool derives it: the contextvar when set, the raw task_id
+    otherwise. No record yet (first command of a session) means the process directory.
+    """
+    from tools.approval import get_current_session_key
+    from tools.terminal_tool import get_session_cwd
+
+    return get_session_cwd(get_current_session_key(default="") or (task_id or "")) or process_cwd
+
+
+def _pre_tool_call(tool_name="", args=None, session_id="", task_id="", **_):
+    if tool_name not in SUPPORTED_TOOLS:
+        return None
+
+    executable = shutil.which(ANALYZER[0])
+    if executable is None:
+        return _block(ANALYZER[0] + " was not found on PATH.")
+
+    try:
+        cwd = os.getcwd()
+    except OSError as error:
+        return _block("the working directory could not be resolved (%s)." % error)
+
+    if tool_name == "terminal":
+        try:
+            cwd = _terminal_cwd(task_id, cwd)
+        except ImportError as error:
+            # Without the session record we cannot tell which directory the command runs in,
+            # and analysing the wrong one clears every path-scoped protection.
+            return _block(
+                "the Hermes session directory could not be read (%s). Update cc-safety-net and "
+                "reinstall the plugin with: npx -y cc-safety-net install --hermes-agent." % error
+            )
+
+    payload = json.dumps(
+        {
+            "hook_event_name": HOOK_EVENT,
+            "tool_name": tool_name,
+            "tool_input": args if isinstance(args, dict) else None,
+            "session_id": session_id if isinstance(session_id, str) else "",
+            "cwd": cwd,
+        }
+    )
+
+    try:
+        process = subprocess.Popen(
+            [executable] + ANALYZER[1:],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            # Decode explicitly: the analyzer writes UTF-8, and a locale decoder would raise
+            # UnicodeDecodeError on output it cannot read — an exception Hermes swallows by
+            # allowing the tool call. "replace" turns that into unreadable output, which blocks.
+            encoding="utf-8",
+            errors="replace",
+            # Resolve the analyzer from a neutral directory: npx prefers a repository-local
+            # node_modules/.bin/cc-safety-net, so inheriting Hermes' working directory would
+            # let workspace contents stand in for the analyzer. The payload's "cwd" above is
+            # still the real Hermes working directory, which the analysis needs.
+            cwd=os.path.expanduser("~"),
+            # Own process group so the timeout below can kill the whole tree: npx's descendants
+            # outlive a kill aimed at npx alone and keep holding the pipes captured here.
+            start_new_session=True,
+        )
+    except OSError as error:
+        return _block("analysis could not start (%s)." % error)
+
+    try:
+        stdout, _ = process.communicate(payload, timeout=TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        try:
+            process.communicate(timeout=TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
+        return _block("analysis timed out after %ss." % TIMEOUT_SECONDS)
+
+    if process.returncode != 0:
+        return _block("analysis exited with status %s." % process.returncode)
+
+    directive = (stdout or "").strip()
+    if not directive:
+        return None
+
+    try:
+        parsed = json.loads(directive)
+    except ValueError:
+        return _block("analysis returned unreadable output.")
+
+    if isinstance(parsed, dict) and parsed.get("action") == "block":
+        message = parsed.get("message")
+        if isinstance(message, str) and message:
+            return parsed
+    return _block("analysis returned an unexpected directive.")
+
+
+def register(ctx):
+    ctx.register_hook("pre_tool_call", _pre_tool_call)
+`}function mn(n){return[{name:"__init__.py",content:Hi(n)},{name:"plugin.yaml",content:Ai(n)}]}import{mkdirSync as Ci,readdirSync as Mi,readFileSync as Wi,rmSync as we}from"node:fs";import{join as D2}from"node:path";var Ki="__pycache__";function xe(n){let t=process.env.HERMES_HOME?.trim();return t?t:D2(n,".hermes")}function me(n){return D2(xe(n),"plugins",W)}function ge(n){return n.startsWith(T1)}function $e(n,t){let e=me(n),r=R(e);if(r&&(r.isSymbolicLink()||!r.isDirectory()))throw Error(`Refusing to ${t} ${e}: not a regular directory. Move or remove it and rerun ${t==="install"?"install":"uninstall"} --hermes-agent.`);return e}function E1(n,t){let e=R(n);if(!e)return;if(e.isSymbolicLink()||!e.isFile())throw Error(`Refusing to ${t} ${n}: not a regular file. Move or remove it.`);let r=Wi(n,"utf-8");if(!ge(r))throw Error(`Refusing to ${t} unmanaged file at ${n}. Move or remove it.`);return r}function P1(n){let t=$e(n,"install"),e=mn(z());if(e.map((a)=>E1(D2(t,a.name),"overwrite")).every((a,l)=>a===e[l]?.content))return{path:t,alreadyInstalled:!0};return Ci(t,{recursive:!0}),e.forEach((a)=>{B(D2(t,a.name),a.content)}),{path:t,alreadyInstalled:!1}}function De(n){let t=$e(n,"remove");if(!R(t))return[];return mn(z()).filter((e)=>E1(D2(t,e.name),"remove")!==void 0)}function I1(n){let t=$e(n,"remove");if(!R(t))return{path:t,alreadyInstalled:!1};let e=De(n);if(e.forEach((r)=>{we(D2(t,r.name))}),we(D2(t,Ki),{recursive:!0,force:!0}),Mi(t).length===0)we(t,{recursive:!0});return{path:t,alreadyInstalled:e.length>0}}var Pn="hermes-agent",N1=/^([^\s#][^:]*):/,Vi=/^\s+([A-Za-z_][\w-]*):/,n0=/^\s+-\s*(.*)$/;function Gi(n){return n.trim().replace(/^(["'])(.*)\1$/,"$2")}function Ui(n){let t=n.split(/\r?\n/),e=t.findIndex((l)=>N1.exec(l)?.[1]?.trim()==="plugins");if(e===-1)return[];let r=t.slice(e+1),a=r.findIndex((l)=>N1.test(l));return a===-1?r:r.slice(0,a)}function t0(n,t){let e=Ui(n),r=e.findIndex((d)=>Vi.exec(d)?.[1]===t);if(r===-1)return[];let a=e.slice(r+1),l=a.findIndex((d)=>!n0.test(d));return(l===-1?a:a.slice(0,l)).map((d)=>Gi(n0.exec(d)?.[1]??""))}function Oi(n){try{return e0(r0(xe(n),"config.yaml"),"utf-8")}catch{return}}function ke(n){let t=Oi(n)??"";return t0(t,"enabled").includes(W)&&!t0(t,"disabled").includes(W)}function a0(n){return/^# version:\s*(.+)$/m.exec(n)?.[1]?.trim()}function Ti(n,t){let e=R(n);if(!e)return{error:`${t.name} is missing from ${n}; run install --hermes-agent`};if(e.isSymbolicLink()||!e.isFile())return{error:`${n} is a symlink or not a regular file; move or remove it`};try{let r=e0(n,"utf-8");if(!ge(r))return{error:`Unmanaged ${t.name} occupies ${n}; move or remove it`};if(a0(r)===z()&&r!==t.content)return{error:`Modified ${t.name} occupies ${n}; run install --hermes-agent to restore it`};return{content:r}}catch(r){return{error:`Failed to read ${n}: ${r instanceof Error?r.message:String(r)}`}}}function l0(n){let t=me(n.homeDir),e=Gn(Pn,t);if(e)return e;let r=mn(z()).map((s)=>Ti(r0(t,s.name),s)),a=r.flatMap((s)=>("error"in s)?[s.error]:[]);if(a.length>0)return{platform:Pn,status:"n/a",configPath:t,errors:a};let l=r.some((s)=>("content"in s)&&a0(s.content)!==z()),d=l?["Installed Hermes Agent plugin is outdated; run install --hermes-agent to update"]:[];if(!ke(n.homeDir))return{platform:Pn,status:"disabled",method:"plugin directory",configPath:t,errors:[`${W} is not enabled in Hermes; run \`hermes plugins enable ${W}\``,...d]};return{platform:Pn,status:"configured",method:"plugin directory",configPath:t,errors:l?d:void 0}}import{existsSync as _i,readFileSync as Ei}from"node:fs";import{join as d0}from"node:path";var Pi=/cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/;function Ii(n){return d0(process.env.KIMI_CODE_HOME||d0(n,".kimi-code"),"config.toml")}function s0(n){let t=Ii(n.homeDir);if(!_i(t))return{platform:"kimi-code",status:"n/a",configPath:t};try{if(!Pi.test(Ei(t,"utf-8")))return{platform:"kimi-code",status:"n/a",configPath:t}}catch(e){return{platform:"kimi-code",status:"n/a",configPath:t,errors:[`Failed to read ${t}: ${e instanceof Error?e.message:String(e)}`]}}return{platform:"kimi-code",status:"configured",method:"hook config",configPath:t}}import{readFileSync as h0}from"node:fs";import{join as $n}from"node:path";var q="cc-safety-net",K="index.js",T2="openclaw.plugin.json",_2="package.json";var In="// cc-safety-net managed OpenClaw plugin. Do not edit. Reinstall with: npx -y cc-safety-net install --openclaw";import{existsSync as tc,lstatSync as ec,readdirSync as rc,readFileSync as ac}from"node:fs";import{dirname as L0,join as k2}from"node:path";import{fileURLToPath as lc}from"node:url";import{spawnSync as Ni}from"node:child_process";function nc(n){return n.join(" ")}function i0(n,t,e){return[`Failed to run ${nc(n)}${t===null?"":` (exit ${t})`}.`,e.trim()].filter(Boolean).join(`
+`)}function c2(n,t){let e=Ni(n[0],n.slice(1),{encoding:"utf-8",stdio:"pipe"}),r=[e.stdout,e.stderr].filter(Boolean).join(`
+`);if(e.error)throw Error(i0(n,null,`${e.error.message}
+${r}`.trim()));if(e.status!==0)throw Error(i0(n,e.status,r));return t?.stdoutOnly?e.stdout:r}function qe(n){n.forEach((t)=>{c2(t)})}var c0=k2("openclaw",q),dc=[K,T2,_2];function o0(n){let t=process.env.OPENCLAW_STATE_DIR?.trim();if(t)return t;let e=process.env.OPENCLAW_CONFIG_PATH?.trim();return e?L0(e):k2(n,".openclaw")}function u0(n){let t=process.env.OPENCLAW_CONFIG_PATH?.trim();return t?t:k2(o0(n),"openclaw.json")}function je(n){return k2(o0(n),"extensions",q)}function sc(n){let t=rc(n);if(t.length===0)return!0;if(t.some((a)=>!dc.includes(a)))return!1;let e=k2(n,K),r=R(e);return r!==void 0&&!r.isSymbolicLink()&&r.isFile()&&ac(e,"utf-8").startsWith(In)}function Fe(n){let t=je(n),e=R(t);if(!e)return;if(!e.isSymbolicLink()&&e.isDirectory()&&sc(t))return;throw Error(`Refusing to modify ${t}: it does not hold a cc-safety-net managed OpenClaw plugin. Move or remove it, then run the command again.`)}function p0(){let n=L0(lc(import.meta.url));return[k2(n,"..",c0),k2(n,"..","..","..","dist",c0)]}function ze(n=p0()){return n.find((t)=>tc(t)&&ec(t).isDirectory())}function ic(n=p0()){let t=ze(n);if(!t)throw Error("Packaged OpenClaw plugin directory not found. Reinstall cc-safety-net and try again.");return t}function v0(n=ic()){return[["openclaw","plugins","install",n,"--force"],["openclaw","plugins","enable",q]]}function cc(n){let t=(()=>{try{return JSON.parse(n)}catch{return}})(),e=g(g(t,"plugin"),"status");return typeof e==="string"?e:void 0}function b0(){let n=cc(c2(["openclaw","plugins","inspect",q,"--runtime","--json"],{stdoutOnly:!0}));if(n==="loaded")return;throw Error(`${n===void 0?`The ${q} plugin's load state could not be verified: OpenClaw's runtime inspect report was unreadable.`:`OpenClaw reports the ${q} plugin with status "${n}".`} Run \`openclaw plugins inspect ${q} --runtime\` for details.`)}var Nn="openclaw",gn=`run \`openclaw plugins enable ${q}\``;function E2(n,t){let e=$n(n,t),r=R(e);if(!r)return{error:`${t} is missing from ${e}; run install --openclaw`};if(r.isSymbolicLink()||!r.isFile())return{error:`${e} is a symlink or not a regular file; move or remove it`};try{return{content:h0(e,"utf-8")}}catch(a){return{error:`Failed to read ${e}: ${a instanceof Error?a.message:String(a)}`}}}function y0(n){try{return JSON.parse(C(n))}catch{return}}function Lc(n){let t=E2(n,T2);if("error"in t)return t.error;if(g(y0(t.content),"id")===q)return;return`${$n(n,T2)} is not a valid ${q} manifest; run install --openclaw`}function oc(n){let t=E2(n,_2);if("error"in t)return t.error;let e=g(g(y0(t.content),"openclaw"),"extensions");if(Array.isArray(e)&&e.includes(`./${K}`))return;return`${$n(n,_2)} does not point OpenClaw at ${K}; run install --openclaw`}function f0(n){return Array.isArray(n)?n.filter((t)=>typeof t==="string"):[]}function uc(n){let t=u0(n);if(!R(t))return`${q} is not enabled; ${gn}`;let e=(()=>{try{return JSON.parse(C(h0(t,"utf-8")))}catch{return}})();if(e===void 0)return`Failed to read ${t}; fix it, then ${gn}`;let r=g(e,"plugins");if(g(r,"enabled")===!1)return`plugins.enabled is false in ${t}; no OpenClaw plugin loads`;let a=g(g(g(r,"entries"),q),"enabled");if(f0(g(r,"deny")).includes(q)||a===!1)return`${q} is disabled in ${t}; ${gn}`;let l=f0(g(r,"allow"));if(l.length>0&&!l.includes(q))return`plugins.allow in ${t} does not list ${q}; add it, then ${gn}`;if(l.includes(q)||a===!0)return;return`${q} is not enabled; ${gn}`}function w0(n){return/^\/\/ version:\s*(.+)$/m.exec(n)?.[1]?.trim()}function pc(n,t,e){if(e===void 0)return[];let r=E2(e,K);if("error"in r||w0(r.content)!==t)return[];return[K,T2,_2].flatMap((a)=>{let l=E2(n,a),d=E2(e,a);if("error"in l||"error"in d||l.content===d.content)return[];return[`Modified ${a} occupies ${$n(n,a)}; run install --openclaw to restore it`]})}function x0(n){let t=je(n.homeDir),e=Gn(Nn,t);if(e)return e;let r=E2(t,K),l=["error"in r?r.error:r.content.startsWith(In)?void 0:`Unmanaged ${K} occupies ${$n(t,K)}; move or remove it`,Lc(t),oc(t)].filter((L)=>L!==void 0),d="content"in r?w0(r.content):void 0,s=l.length>0?l:pc(t,d,ze());if(s.length>0)return{platform:Nn,status:"n/a",configPath:t,errors:s};let i=d===z()?[]:["Installed OpenClaw plugin is outdated; run install --openclaw to update"],c=uc(n.homeDir);if(c)return{platform:Nn,status:"disabled",method:"plugin directory",configPath:t,errors:[c,...i]};return{platform:Nn,status:"configured",method:"plugin directory",configPath:t,errors:i.length>0?i:void 0}}import{existsSync as vc,readFileSync as bc}from"node:fs";import{join as m0}from"node:path";function g0(n){let t=[],e=m0(n.homeDir,".config","opencode"),r=["opencode.json","opencode.jsonc"];for(let a of r){let l=m0(e,a);if(vc(l))try{let d=bc(l,"utf-8"),s=C(d);if((JSON.parse(s).plugin??[]).some((u)=>u.includes("cc-safety-net")))return{platform:"opencode",status:"configured",method:"plugin array",configPath:l,errors:t.length>0?t:void 0}}catch(d){t.push(`Failed to parse ${a}: ${d instanceof Error?d.message:String(d)}`)}}return{platform:"opencode",status:"n/a",errors:t.length>0?t:void 0}}import{join as fc}from"node:path";function Be(n){return fc(n,".pi","agent","settings.json")}function Je(n){if(typeof n!=="string")return!1;return n==="npm:cc-safety-net"||n.startsWith("npm:cc-safety-net@")}function $0(n){let t=Be(n.homeDir),e=n2(t);if(e.kind==="unreadable")return{platform:"pi",status:"not-inspected"};if(e.kind==="missing")return{platform:"pi",status:"n/a"};let r=g(e.value,"packages");if(!Array.isArray(r))return{platform:"pi",status:"n/a"};let a=r.find((s)=>Je(typeof s==="string"?s:g(s,"source")));if(a===void 0)return{platform:"pi",status:"n/a"};let l=g(a,"extensions");if(Array.isArray(l)&&l.some((s)=>typeof s==="string"&&s.startsWith("-")))return{platform:"pi",status:"disabled",method:"package config",configPath:t,errors:["npm:cc-safety-net is installed but its extension is disabled in Pi settings"]};return{platform:"pi",status:"configured",method:"package config",configPath:t}}var yc={amp:D1,"antigravity-cli":k1,"claude-code":z1,codex:B1,"copilot-cli":A1,cursor:U1,"gemini-cli":O1,"hermes-agent":l0,"kimi-code":s0,openclaw:x0,opencode:g0,pi:$0};function P2(n,t){let e={...t,cwd:n,homeDir:t?.homeDir??hc()};return fa.map((r)=>wc(yc[r](e)))}function wc(n){if(n.status==="not-inspected")return{platform:n.platform,detected:!1,configured:!1,inspectionStatus:"not-inspected"};return{platform:n.platform,detected:n.status!=="n/a",configured:n.status==="configured",inspectionStatus:n.status!=="n/a"?"verified":n.errors&&n.errors.length>0?"failed":"not-applicable",method:n.method,configPath:n.configPath,configPaths:n.configPaths,errors:n.errors}}import{tmpdir as xc}from"node:os";import{join as mc}from"node:path";var gc=Object.freeze([{command:"git reset --hard",description:"git reset --hard",expectBlocked:!0},{command:"rm -rf /",description:"rm -rf /",expectBlocked:!0},{command:"rm -rf ./node_modules",description:"rm in cwd (safe)",expectBlocked:!1}]),$c=Object.freeze({state:"ready",diagnostics:Object.freeze([]),ruleMetadata:Object.freeze({}),policy:Object.freeze({rules:Object.freeze([]),transparentWrappers:Object.freeze([]),safety:Object.freeze({}),worktreeMode:!1,destructiveCommandProtectionEnabled:!0,destructiveCommandRuleOverrides:Object.freeze({}),destructiveCommandAllowPaths:Object.freeze([]),secretProtection:Object.freeze({enabled:!0,disabledRules:Object.freeze([]),denyPaths:Object.freeze([])})})}),Dc={strict:!1,paranoidRm:!1,paranoidInterpreters:!1,worktreeMode:!1,effectiveLevel:"standard",capabilities:{fail_closed:{enabled:!1,source:"preset",sources:[]},paranoid_rm:{enabled:!1,source:"preset",sources:[]},paranoid_interpreters:{enabled:!1,source:"preset",sources:[]}},sources:{failClosed:[],paranoidRm:[],paranoidInterpreters:[],worktreeMode:[]}};function D0(){let n=mc(xc(),"cc-safety-net-self-test"),t=gc.map((e)=>{let r=Zn(H2("self-test",{command:e.command},{kind:"command",shell:"auto"},{configCwd:n,executionCwd:n},e.command),{guard:{dependencies:{loadPolicySnapshot:()=>$c,getModes:()=>Dc,findPolicyMutation:()=>null}},audit:{agent:"self-test",getSessionId:()=>{return}}}),a=e.expectBlocked?"blocked":"allowed",l=r.decision.kind==="deny"?"blocked":"allowed";return{command:e.command,description:e.description,expected:a,actual:l,passed:a===l,reason:r.decision.kind==="deny"?r.decision.reason:void 0,ruleId:r.decision.kind==="deny"?r.decision.ruleId:void 0}});return{passed:t.filter((e)=>e.passed).length,failed:t.filter((e)=>!e.passed).length,total:t.length,results:t}}function Se(n){let t=j({label:"doctor",booleans:{json:["--json"],skipUpdateCheck:["--skip-update-check"]}},n);if(e2(t.errors))return null;return{json:t.flags.json,skipUpdateCheck:t.flags.skipUpdateCheck}}async function k0(n={}){let t=await Wn(!n.json,()=>{let e=kc(n);return{ready:e,finish:()=>e}},()=>Mn(),{loadingMessage:"Checking system status…"});if(n.json)console.log(JSON.stringify(t,null,2));else jc(t);return qc(t.hooks,t.engineSelfTest,{userConfig:t.userConfig,projectConfig:t.projectConfig})?1:0}async function kc(n){let t=n.cwd??process.cwd(),e=await bn(),r=P2(t,{codexPluginListOutput:e.codexPluginListOutput,copilotCliVersion:e.copilotCliVersion}),a=Ma(t),l=Wa(),d=H({cwd:t}),s=d.policy,i=l2(s),c=w2(s,i.capabilities),L=Yn(7),u=n.skipUpdateCheck?{currentVersion:z(),latestVersion:null,updateAvailable:!1}:await U2(),p={hooks:r,engineSelfTest:D0(),userConfig:a.userConfig,projectConfig:a.projectConfig,configState:on(d),effectiveRules:a.effectiveRules,shadowedRules:a.shadowedRules,environment:l,effectiveSafety:{selectedPreset:s.safety.level??"standard",level:i.effectiveLevel,capabilities:i.capabilities,ruleOverrides:s.destructiveCommandRuleOverrides,weakenedRuleOverrides:Object.entries(c).filter(([,o])=>o.source==="rule_override"&&o.override==="off"&&o.inheritedEnabled&&o.changesInherited).map(([o])=>o),ruleCounts:{stored:Object.keys(s.destructiveCommandRuleOverrides).length,effective:Object.values(c).filter((o)=>o.changesInherited).length}},posture:e1(a.userConfig.path),activity:L,update:u,system:e};return{...p,findings:Va(p)}}function qc(n,t,e){return n.length>0&&n.every((r)=>!r.configured)||n.some((r)=>r.inspectionStatus==="failed")||t.failed>0||e.userConfig.exists&&!e.userConfig.valid||e.projectConfig.exists&&!e.projectConfig.valid}function jc(n){console.log(),console.log(Ua(n.hooks)),console.log(),console.log(Oa(n.engineSelfTest)),console.log(),console.log(Ta(n)),console.log(),console.log(_a(n.environment)),console.log(),console.log(Ea(n)),console.log(),console.log(Pa(n.findings)),console.log(),console.log(Ia(n.activity)),console.log(),console.log(n1(n.system)),console.log(),console.log(Na(n.update)),console.log(t1(n))}import{existsSync as Fc}from"node:fs";var zc=/^[A-Za-z0-9_@%+=:,./-]+$/,q0="Usage: cc-safety-net explain [--json] [--cwd <path>] <command>";function Ze(n){let t=j({label:"explain",booleans:{json:["--json"]},values:{cwd:["--cwd"]},positionals:"tail"},n);if(e2(t.errors))return console.error(q0),console.error("Pass -- before a command that starts with dashes."),null;if(t.values.cwd!==void 0&&!Fc(t.values.cwd))return console.error(`Error: --cwd path does not exist: ${t.values.cwd}`),null;let e=t.positionals.length===1?t.positionals[0]:t.positionals.map((r)=>zc.test(r)?r:`'${r.replaceAll("'","'\\''")}'`).join(" ");if(!e)return console.error("Error: No command provided"),console.error(q0),null;return{json:t.flags.json,cwd:t.values.cwd,command:e}}function j0(n){if(n)return{dh:"=",dv:"|",dtl:"+",dtr:"+",dbl:"+",dbr:"+",h:"-",v:"|",tl:"+",tr:"+",bl:"+",br:"+",sh:"="};return{dh:"═",dv:"║",dtl:"╔",dtr:"╗",dbl:"╚",dbr:"╝",h:"─",v:"│",tl:"┌",tr:"┐",bl:"└",br:"┘",sh:"━"}}function F0(n,t){let r=t-18;return[`${n.dtl}${n.dh.repeat(t)}${n.dtr}`,`${n.dv}  Command Analysis${" ".repeat(r)}${n.dv}`,`${n.dbl}${n.dh.repeat(t)}${n.dbr}`]}function Qe(n){return JSON.stringify(n)}function z0(n,t=0){return`[${n.map((r,a)=>Ga(r,a,t)).join(",")}]`}function nt(n,t,e=70){let r=n.split(" "),a=[],l="";for(let d of r)if(l&&l.length+d.length+1>e)a.push(l),l=d;else l=l?`${l} ${d}`:d;if(l)a.push(l);return a.map((d,s)=>s===0?d:`${t}${d}`)}function B0(n,t,e){let r=[];switch(n.type){case"parse":return null;case"env-strip":{r.push(""),r.push(`STEP ${t} ${e.h} Strip environment variables`);let a=Object.keys(n.envVars);return r.push(`  Removed: ${a.map((l)=>`${l}=<redacted>`).join(", ")}`),r.push(`  Tokens:  ${Qe(n.output)}`),{lines:r,incrementStep:!0}}case"leading-tokens-stripped":return r.push(""),r.push(`STEP ${t} ${e.h} Strip wrappers`),r.push(`  Removed: ${n.removed.join(", ")}`),r.push(`  Tokens:  ${Qe(n.output)}`),{lines:r,incrementStep:!0};case"shell-wrapper":return r.push(""),r.push(`STEP ${t} ${e.h} Detect shell wrapper`),r.push(`  Wrapper: ${n.wrapper} -c`),r.push(`  Inner:   ${n.innerCommand}`),{lines:r,incrementStep:!0};case"interpreter":{if(r.push(""),r.push(`STEP ${t} ${e.h} Detect interpreter`),r.push(`  Interpreter: ${n.interpreter}`),r.push(`  Code:        ${n.codeArg}`),n.paranoidBlocked)r.push("  Result:      ✗ BLOCKED (paranoid mode)");return{lines:r,incrementStep:!0}}case"busybox":return r.push(""),r.push(`STEP ${t} ${e.h} Busybox wrapper`),r.push(`  Subcommand: ${n.subcommand}`),{lines:r,incrementStep:!0};case"transparent-wrapper":return r.push(""),r.push(`STEP ${t} ${e.h} Transparent wrapper`),r.push(`  Wrapper: ${n.wrapper}`),r.push(`  Tokens:  ${Qe(n.output)}`),{lines:r,incrementStep:!0};case"recurse":return{lines:[],incrementStep:!1};case"rule-check":{r.push(""),r.push(`STEP ${t} ${e.h} Match rules`);let a=`${n.ruleModule}:${n.ruleFunction}()`;if(r.push(`  Rule:   ${a}`),n.matched)r.push("  Result: MATCHED");else r.push("  Result: No match");return{lines:r,incrementStep:!0}}case"worktree-relaxation":return r.push(""),r.push(`STEP ${t} ${e.h} Worktree relaxation`),r.push(`  Mode:   ${D.worktree.name}`),r.push(`  Git cwd: ${n.gitCwd}`),r.push("  Result: Allowed local discard in linked worktree"),{lines:r,incrementStep:!0};case"tmpdir-check":return null;case"fallback-scan":{if(n.embeddedCommandFound)return r.push(""),r.push(`STEP ${t} ${e.h} Fallback scan`),r.push(`  Found: ${n.embeddedCommandFound}`),{lines:r,incrementStep:!0};return null}case"custom-rules-check":{if(n.rulesChecked){if(r.push(""),r.push(`STEP ${t} ${e.h} Custom rules`),n.matched)r.push("  Result: MATCHED");else r.push("  Result: No match");return{lines:r,incrementStep:!0}}return null}case"cwd-change":return null;case"dangerous-text":{if(n.matched)return r.push(""),r.push(`STEP ${t} ${e.h} Dangerous text check`),r.push(`  Token:  ${n.token}`),r.push("  Result: MATCHED"),{lines:r,incrementStep:!0};return null}case"strict-unparseable":return r.push(""),r.push(`STEP ${t} ${e.h} Strict mode check`),r.push(`  Command: ${n.rawCommand}`),r.push("  Result:  ✗ UNPARSEABLE"),{lines:r,incrementStep:!0};case"segment-skipped":return null;case"error":return r.push(""),r.push(`ERROR: ${n.message}`),{lines:r,incrementStep:!1};default:return null}}function Xe(n,t){let e=j0(t?.asciiOnly??!1),r=58,a=[],l=1;a.push(...F0(e,58)),a.push("");let d=n.trace.steps.find((o)=>o.type==="error");if(d&&d.type==="error"){a.push("ERROR"),a.push(`  ${d.message}`),a.push(""),a.push("RESULT"),a.push(`  Status: ${n.result==="blocked"?h.red("BLOCKED"):h.green("ALLOWED")}`),a.push(""),a.push("CONFIG");let o=n.configSource??"none";return a.push(`  Path: ${o}`),a.join(`
+`)}let s=n.trace.steps.find((o)=>o.type==="parse");if(s&&s.type==="parse"){a.push("INPUT"),a.push(`  ${s.input}`),a.push(""),a.push(`STEP ${l} ${e.h} Split shell commands`),l++;for(let o=0;o<s.segments.length;o++){let b=s.segments[o];if(b){let v=Math.random();a.push(`  Segment ${o+1}: ${z0(b,v)}`)}}}let i=n.trace.segments,c=i.length>1;for(let o of i){if(c){a.push("");let w="";if(s&&s.type==="parse"){let ft=s.segments[o.index];if(ft)w=ft.join(" ")}let x=54,y=w,J=` Segment ${o.index+1}: `,z2=" ";if(w){if(J.length+w.length+z2.length>x){let sd=x-J.length-z2.length;y=`${w.substring(0,sd-1)}…`}}let tn=w?`${J}${y}${z2}`:` Segment ${o.index+1} `,bt=w?`${J}${h.cyan(y)}${z2}`:tn,ir=58-tn.length,cr=Math.floor(ir/2),dd=ir-cr;a.push(`${e.sh.repeat(cr)}${bt}${e.sh.repeat(dd)}`)}if(o.steps.find((w)=>w.type==="segment-skipped")){a.push(""),a.push("  (skipped — prior segment blocked)");continue}let v=!1,f=!1;for(let w of o.steps){let x=B0(w,l,e);if(x){if(f=!0,w.type==="recurse"){a.push("");let y=" RECURSING ",J=58-y.length-4;a.push(`  ${e.tl}${e.h}${y}${e.h.repeat(J)}`),a.push(`  ${e.v}`),v=!0;continue}for(let y of x.lines)if(v)a.push(`  ${e.v} ${y}`);else a.push(y);if(x.incrementStep)l++}}if(v)a.push(`  ${e.v}`),a.push(`  ${e.bl}${e.h.repeat(56)}`),v=!1;if(!f)a.push(""),a.push(`  ${h.green("✓")} Allowed (no matching rules)`)}if(a.push(""),a.push("RESULT"),n.result==="blocked"){if(a.push(`  Status: ${h.red("BLOCKED")}`),n.customRule){if(a.push(`  Rule: ${n.customRule.id}`),n.customRule.rulebook)a.push(`  Rulebook: ${n.customRule.rulebook.name} ${n.customRule.rulebook.version}`);if(n.customRule.source)a.push(`  Source: ${n.customRule.source}`);if(n.customRule.override)a.push(`  Override: reason ${n.customRule.override.reason}`)}if(n.reason){let o=nt(n.reason,"          ");a.push(`  Reason: ${o[0]}`);for(let b=1;b<o.length;b++)a.push(o[b]??"")}}else a.push(`  Status: ${h.green("ALLOWED")}`);a.push(""),a.push("CONFIG");let L=n.configSource??"none",u=n.configValid?"":" (invalid)";a.push(`  Path: ${L}${u}`),a.push(`  Safety preset: ${n.selectedPreset??"standard"}`),a.push(`  Effective capabilities: ${n.effectiveLevel}`);let p=Object.entries(n.destructiveCommandRuleOverrides??{});if(a.push(`  Rule customizations: ${p.length}`),n.ruleActivation)a.push(`  Rule activation: ${n.ruleActivation.id} — ${n.ruleActivation.enabled?"on":"off"} via ${n.ruleActivation.source}`);return a.join(`
+`)}function Re(n){return JSON.stringify(n,null,2)}var J0="1.0.6",V="  ",q2="cc-safety-net";function S0(n){return n.argument?`${n.flags} ${n.argument}`:n.flags}function Bc(n){return Math.max(...n.map((t)=>S0(t).length))}function Jc(n){return Math.max(...n.map((t)=>t.usage.length))}function Sc(n){return Math.max(...n.map((t)=>`${q2} ${t.usage}`.length))}function Zc(n,t){let e=`${q2} ${n.usage}`;return`${V}${e.padEnd(t+2)}${n.description}`}function L2(n,t){return`${V}${n.padEnd(Math.max(40,n.length+2))}${t}`}function tt(n,t=console.log){let e=[];if(e.push(`${q2} ${n.name}`),e.push(""),e.push(`${V}${n.description}`),e.push(""),e.push("USAGE:"),e.push(`${V}${q2} ${n.usage}`),e.push(""),n.subcommands&&n.subcommands.length>0){e.push("SUBCOMMANDS:");let r=Jc(n.subcommands);for(let a of n.subcommands)e.push(`${V}${a.usage.padEnd(r+2)}${a.description}`);e.push("")}if(n.options.length>0){e.push("OPTIONS:");let r=Bc(n.options);for(let a of n.options){let l=S0(a),d=a.default?`${a.description} (default: ${a.default})`:a.description;e.push(`${V}${l.padEnd(r+2)}${d}`)}e.push("")}if(n.examples&&n.examples.length>0){e.push("EXAMPLES:");for(let r of n.examples)e.push(`${V}${r}`)}t(e.join(`
+`))}function Ye(){let n=Ha(),t=Sc(n),e=[];e.push(`${q2} v${J0}`),e.push(""),e.push("Blocks destructive commands and secret access."),e.push(""),e.push("COMMANDS:");for(let r of n)e.push(Zc(r,t));e.push(""),e.push("GLOBAL OPTIONS:"),e.push(`${V}-h, --help       Show help (use with command for command-specific help)`),e.push(`${V}-V, --version    Show version`),e.push(""),e.push("HELP:"),e.push(`${V}${q2} help <command>     Show help for a specific command`),e.push(`${V}${q2} <command> --help   Show help for a specific command`),e.push(""),e.push("ENVIRONMENT VARIABLES:"),e.push(L2(`${D.level.name}=standard|strict|paranoid`,"Set session safety level")),e.push(L2(`${D.worktree.name}=1`,"Allow local git discards in linked worktrees")),e.push(L2(`${D.debug.name}=1`,"Print diagnostic messages to stderr")),e.push(L2(`${D.auditScope.name}=all|blocked`,"Record all command decisions, or denials only")),e.push(L2("CC_SAFETY_NET_HOME","Override rule config home directory")),e.push(""),e.push("LEGACY ENVIRONMENT VARIABLES (STILL SUPPORTED):"),e.push(L2(`${D.strict.name}=1`,"Force safety.overrides.fail_closed on")),e.push(L2(`${D.paranoid.name}=1`,"Force paranoid_rm and paranoid_interpreters on")),e.push(L2(`${D.paranoidRm.name}=1`,"Force safety.overrides.paranoid_rm on")),e.push(L2(`${D.paranoidInterpreters.name}=1`,"Force safety.overrides.paranoid_interpreters on")),e.push(""),e.push("Documentation:        https://ccsafetynet.com/docs"),console.log(e.join(`
+`))}function Z0(){console.log(J0)}function Dn(n,t=console.log){let e=Rn(n);if(!e)return!1;if(e.hidden||e.name.toLowerCase()!==n.toLowerCase())return!1;return tt(e,t),!0}import{existsSync as Pe,readFileSync as pl}from"node:fs";import{homedir as qL}from"node:os";import{join as _e}from"node:path";import*as v2 from"node:readline";function Qc(n){return n==="install"?"Install":"Uninstall"}function Xc(n){return n==="install"?"Installing":"Uninstalling"}function Rc(n){return n==="install"?"into":"from"}function X0(n){return n?.available===!0}function Yc(n,t){let e=new Set(t);return n.filter((r)=>e.has(r.target)).map((r)=>r.target)}function Q0(n,t,e){if(n.length===0||n.every((r)=>!r.available))return t;return Array.from({length:n.length},(r,a)=>a+1).map((r)=>(t+r*e+n.length)%n.length).find((r)=>X0(n[r]))}function Ac(n,t,e){if(e.ctrl&&e.name==="c")return"interrupt";if(e.name==="escape"||t==="q")return"abort";if(n==="install"&&(t==="u"||t==="U"))return"update";if(e.name==="up"||t==="k")return"up";if(e.name==="down"||t==="j")return"down";if(e.name==="space"||t===" ")return"toggle";if(e.name==="return"||e.name==="enter")return"confirm";return null}function Hc(n){return{cursor:n.findIndex((t)=>t.available),selected:[]}}function Cc(n,t,e){if(e==="confirm"||e==="update"||e==="abort"||e==="interrupt")return{state:n,done:e};if(e==="up")return{state:{...n,cursor:Q0(t,n.cursor,-1)}};if(e==="down")return{state:{...n,cursor:Q0(t,n.cursor,1)}};let r=t[n.cursor];if(!X0(r))return{state:n};let a=n.selected.includes(r.target)?n.selected.filter((l)=>l!==r.target):Yc(t,[...n.selected,r.target]);return{state:{...n,selected:a}}}var Mc="◉",Wc="◯",Kc=">",Vc=" ";function Gc(n,t,e,r={}){let a=r.color!==!1,l=a?h.dim:(i)=>i,d=a?h.green:(i)=>i,s=a?h.bold:(i)=>i;return["",`${Qc(n)} CC Safety Net ${Rc(n)}:`,"",...t.map((i,c)=>{let L=e.selected.includes(i.target),u=c===e.cursor,p=L?Mc:Wc,o=u?Kc:Vc,b=i.available?"":` (${i.unavailableReason??"not installed"})`,v=`${p} ${i.label}${b}`,f=!i.available?l(v):L?d(v):u?s(v):v;return`${o} ${f}`}),"",n==="install"?"Space: select  Enter: confirm  u: update installed  Up/Down: move  q/Esc: cancel":t.some((i)=>i.available)?"Space: select  Enter: confirm  Up/Down: move  q/Esc: cancel":`No selectable integrations found for ${n}. q/Esc: close`].join(`
+`)}function R0(n=process.stdin,t=process.stdout){return Boolean(n.isTTY&&t.isTTY&&typeof n.setRawMode==="function")}function Y0(n,t,e={}){let r=e.input??process.stdin,a=e.output??process.stdout,l=Hc(t);v2.emitKeypressEvents(r);let d=r.isRaw===!0;r.setRawMode(!0),r.resume();let s=0,i=()=>{if(s===0)return;v2.moveCursor(a,0,-s),v2.cursorTo(a,0),v2.clearScreenDown(a)},c=()=>{i();let L=Gc(n,t,l);a.write(`${L}
+`),s=L.split(`
+`).length};return new Promise((L)=>{let u=()=>{r.off("keypress",o),r.setRawMode(d),r.pause(),i()},p=(b)=>{if(u(),b!=="update"&&b&&b.length>0)a.write(`${Xc(n)} selected integrations...
+`);L(b)};function o(b,v){let f=Ac(n,b,v);if(!f)return;let w=Cc(l,t,f);if(l=w.state,w.done==="interrupt"){p(null),(e.onInterrupt??(()=>process.kill(process.pid,"SIGINT")))();return}if(w.done==="abort"){p(null);return}if(w.done==="update"){p("update");return}if(w.done==="confirm"){if(l.selected.length===0){a.write("\x07"),c();return}p([...l.selected]);return}c()}r.on("keypress",o),c()})}import{existsSync as A0,mkdirSync as Uc,readFileSync as Oc}from"node:fs";import{dirname as Tc}from"node:path";var Ae="npx -y cc-safety-net hook --agy-cli",b2="cc-safety-net";function rt(){return{PreToolUse:[{hooks:[{type:"command",command:Ae,timeout:30}]}]}}function H0(n){try{let t=JSON.parse(Oc(n,"utf-8"));if(!t||typeof t!=="object"||Array.isArray(t))throw Error("Antigravity hooks config must be a JSON object");return t}catch(t){if(t instanceof SyntaxError)throw Error(`Failed to parse Antigravity hooks config ${n}: ${t.message}`);throw t}}function C0(n){let t=n[b2];if(t===void 0)return n[b2]=rt(),n[b2];if(!t||typeof t!=="object"||Array.isArray(t))throw Error(`Antigravity hooks config entry "${b2}" must be an object`);if(!Array.isArray(t.PreToolUse))t.PreToolUse=[];return t}function M0(n){if(!Array.isArray(n.PreToolUse))return!1;return n.PreToolUse.some((t)=>Array.isArray(t.hooks)&&t.hooks.some((e)=>e.command===Ae))}function _c(n){return Object.values(n).some((t)=>t.enabled!==!1&&M0(t))}function Ec(n){if(n[b2]===void 0)return!1;let t=C0(n);if(t.enabled!==!1||!M0(t))return!1;return t.enabled=!0,!0}function Pc(n){if(n[b2]===void 0){n[b2]=rt();return}let t=C0(n);t.PreToolUse??=[],t.enabled=!0,t.PreToolUse.push(rt().PreToolUse?.[0]??{hooks:[]})}function Ic(n){let t=!1;for(let e of Object.values(n)){if(!Array.isArray(e.PreToolUse))continue;e.PreToolUse=e.PreToolUse.flatMap((r)=>{if(!Array.isArray(r.hooks))return[r];let a=r.hooks.filter((l)=>l.command!==Ae);if(a.length!==r.hooks.length)t=!0;return a.length===0?[]:[{...r,hooks:a}]})}return t}function et(n,t){B(n,`${JSON.stringify(t,null,2)}
+`)}function W0(n){let t=yn(n);if(Uc(Tc(t),{recursive:!0}),!A0(t))return et(t,{[b2]:rt()}),{path:t,alreadyInstalled:!1};let e=H0(t);if(_c(e))return{path:t,alreadyInstalled:!0};if(Ec(e))return et(t,e),{path:t,alreadyInstalled:!1};return Pc(e),et(t,e),{path:t,alreadyInstalled:!1}}function K0(n){let t=yn(n);if(!A0(t))return{path:t,alreadyInstalled:!1};let e=H0(t);if(!Ic(e))return{path:t,alreadyInstalled:!1};return et(t,e),{path:t,alreadyInstalled:!0}}import{spawn as Nc,spawnSync as nL}from"node:child_process";var G=i2.map((n)=>({target:n.id,flag:n.flag,label:n.installLabel,probeCommand:n.probeCommand})),V0=new Map(G.map((n)=>[n.flag,n.target]));function He(n){let t=new Set(n);return G.map((e)=>e.target).filter((e)=>t.has(e))}function Ce(n,t){n.forEach(t)}var G0=5000;function tL(n){let t=nL(n[0],n.slice(1),{env:process.env,stdio:"ignore",timeout:G0});return!t.error&&t.status===0}function We(n){return new Promise((t)=>{let e=Nc(n[0],n.slice(1),{env:process.env,stdio:"ignore"}),r=!1,a=(d)=>{if(r)return;r=!0,clearTimeout(l),t(d)},l=setTimeout(()=>{e.kill(),a(!1)},G0);e.on("error",()=>a(!1)),e.on("close",(d)=>a(d===0))})}function eL(n=tL,t={}){let e=new Set(t.configuredTargets??[]);if(t.async)return Promise.all(G.map(async(a)=>({target:a.target,flag:a.flag,label:a.label,...Me(t.action,await n(a.probeCommand),e.has(a.target))})));let r=n;return G.map((a)=>({target:a.target,flag:a.flag,label:a.label,...Me(t.action,r(a.probeCommand),e.has(a.target))}))}function U0(n=We,t={}){return eL(n,{...t,async:!0})}function O0(n,t){let e=new Set(t.configuredTargets??[]);return n.map((r)=>({...r,...Me(t.action,r.available,e.has(r.target))}))}function Me(n,t,e){if(n==="uninstall")return e?{available:!0}:{available:!1,unavailableReason:"not installed"};if(n==="install"&&e)return{available:!1,unavailableReason:"already installed"};if(!t)return{available:!1,unavailableReason:"CLI not installed"};return{available:!0}}import{existsSync as T0,readdirSync as rL,rmSync as aL}from"node:fs";import{join as I2}from"node:path";function Ke(n,t=process.platform){let e=I2(process.env.npm_config_cache||(t==="win32"?I2(process.env.LOCALAPPDATA||I2(n,"AppData","Local"),"npm-cache"):I2(n,".npm")),"_npx");if(!T0(e))return;rL(e).filter((r)=>T0(I2(e,r,"node_modules","cc-safety-net"))).forEach((r)=>{aL(I2(e,r),{recursive:!0,force:!0})})}import{existsSync as I0,mkdirSync as dL,readFileSync as N0}from"node:fs";import{dirname as sL,join as P0}from"node:path";function _0(n){return n!==void 0&&/\s/.test(n)}function lL(n,t,e){let r=t+1,a=!1;while(r<n.length){let l=n[r];if(a){a=!1,r++;continue}if(l==="\\"){a=!0,r++;continue}if(l==='"')return r+1;r++}throw Error(e)}function at(n,t,e){let r=n[t],a=r==="["?"]":"}",l=0,d=t;while(d<n.length){let s=e.skipComment?.(n,d)??d;if(s!==d){d=s;continue}if(n[d]==='"'){d=lL(n,d,e.stringError);continue}if(n[d]===r)l++;if(n[d]===a){if(l--,l===0)return d}d++}throw Error(e.bracketError)}function E0(n,t){let e=n.lastIndexOf(`
+`,t)+1;return/^[ \t]*/.exec(n.slice(e))?.[0]??""}function lt(n,t){let{start:e,end:r,end:a}=t;while(_0(n[a]))a++;if(n[a]===","){if(r=a+1,n[r]===`
+`)r++;return`${n.slice(0,e)}${n.slice(r)}`}a=t.start-1;while(_0(n[a]))a--;if(n[a]===","){e=a;let l=n.lastIndexOf(`
+`,e-1);if(l!==-1&&/^\s*$/.test(n.slice(l+1,e)))e=l}return`${n.slice(0,e)}${n.slice(r)}`}var kn="npx -y cc-safety-net hook --kimi-code",Ve=`[[hooks]]
+event = "PreToolUse"
+command = "${kn}"`,Ge=`{ event = "PreToolUse", command = "${kn}" }`;function nl(n){return P0(process.env.KIMI_CODE_HOME??P0(n,".kimi-code"),"config.toml")}function iL(n){return n.split(`
+`).reduce((e,r)=>{if(/^\s*\[/.test(r))return e.activeTable=!0,e.lines.push(r),e;if(!e.activeTable&&/^\s*hooks\s*=\s*\[\s*]\s*(?:#.*)?$/.test(r))return e;return e.lines.push(r),e},{activeTable:!1,lines:[]}).lines.join(`
+`)}function cL(n,t){if(n[t]!=="#")return t;let e=n.indexOf(`
+`,t+1);return e===-1?n.length:e+1}function LL(n,t){return at(n,t,{skipComment:cL,stringError:"Unterminated string in Kimi Code config",bracketError:"Unmatched hooks array in Kimi Code config"})}function tl(n){let t=!1,e=0;while(e<n.length){let r=n.indexOf(`
+`,e),a=r===-1?n.length:r,l=n.slice(e,a);if(/^\s*\[/.test(l))t=!0;if(!t){let d=/^(\s*)hooks\s*=\s*\[/.exec(l);if(d){let s=e+d[0].lastIndexOf("[");return{start:s,end:LL(n,s)}}}e=r===-1?n.length:r+1}return}function oL(n,t){let e=n.slice(0,t.end).trimEnd(),r=E0(n,t.end),a=r===""?"     ":`${r}  `,l=!e.endsWith("[")&&!e.endsWith(",");return`${e}${l?",":""}
+${a}${Ge}${n.slice(t.end)}`}function uL(n){let t=tl(n);if(t&&n.slice(t.start+1,t.end).trim())return oL(n,t);let e=iL(n).trimEnd();if(e==="")return`${Ve}
+`;return`${e}
+
+${Ve}
+`}function pL(n){return n.split(/(?=^\s*\[)/m).filter((e)=>!/^\s*\[\[hooks]]\s*$/m.test(e)||!e.includes(kn)).join("").trimEnd()}function vL(n,t){let e=n.indexOf(Ge,t.start);if(e===-1||e>t.end)return n;return lt(n,{start:e,end:e+Ge.length})}function el(n){let t=nl(n);if(dL(sL(t),{recursive:!0}),!I0(t))return B(t,`${Ve}
+`),{path:t,alreadyInstalled:!1};let e=N0(t,"utf-8");if(e.includes(kn))return{path:t,alreadyInstalled:!0};return B(t,uL(e)),{path:t,alreadyInstalled:!1}}function rl(n){let t=nl(n);if(!I0(t))return{path:t,alreadyInstalled:!1};let e=N0(t,"utf-8");if(!e.includes(kn))return{path:t,alreadyInstalled:!1};let r=tl(e),a=r?vL(e,r):`${pL(e)}
+`;return B(t,a),{path:t,alreadyInstalled:!0}}import{existsSync as al,readFileSync as bL,rmSync as fL}from"node:fs";import{join as Ue}from"node:path";var Oe="cc-safety-net",hL=`${Oe}@latest`,dl=["opencode.json","opencode.jsonc"];function yL(n){return Ue(n,".config","opencode",dl[0])}function wL(n){return dl.map((t)=>Ue(n,".config","opencode",t))}function xL(n){return Ue(n,".cache","opencode","packages",hL)}function Te(n){fL(xL(n),{recursive:!0,force:!0})}function dt(n,t){if(n[t]==="/"&&n[t+1]==="/"){let e=n.indexOf(`
+`,t+2);return e===-1?n.length:e+1}if(n[t]==="/"&&n[t+1]==="*"){let e=n.indexOf("*/",t+2);return e===-1?n.length:e+2}return t}function ll(n,t){let e=t;while(e<n.length){if(/\s/.test(n[e]??"")){e++;continue}let r=dt(n,e);if(r===e)return e;e=r}return e}function sl(n,t){let e=t+1,r=!1;while(e<n.length){if(r){r=!1,e++;continue}if(n[e]==="\\"){r=!0,e++;continue}if(n[e]==='"')return e+1;e++}throw Error("Unterminated string in OpenCode config")}function il(n,t,e){return JSON.parse(n.slice(t,e))}function mL(n,t){return at(n,t,{skipComment:dt,stringError:"Unterminated string in OpenCode config",bracketError:"Unmatched plugin array in OpenCode config"})}function gL(n){let t=0,e=0;while(e<n.length){let r=dt(n,e);if(r!==e){e=r;continue}if(n[e]==='"'){let a=sl(n,e);if(t===1&&il(n,e,a)==="plugin"){let l=ll(n,a),d=ll(n,l+1);if(n[l]===":"&&n[d]==="[")return{start:d,end:mL(n,d)}}e=a;continue}if(n[e]==="{"||n[e]==="[")t++;if(n[e]==="}"||n[e]==="]")t--;e++}return}function $L(n,t){let e=[],r=t.start+1;while(r<t.end){let a=dt(n,r);if(a!==r){r=a;continue}if(n[r]==='"'){let l=sl(n,r),d=il(n,r,l);if(typeof d==="string"&&d.includes(Oe))e.push({start:r,end:l});r=l;continue}r++}return e}function cl(n,t){try{return JSON.parse(C(n))}catch(e){if(e instanceof SyntaxError)throw Error(`Failed to parse OpenCode config ${t}: ${e.message}`);throw e}}function DL(n){if(!n||typeof n!=="object"||Array.isArray(n))return!1;let t=n.plugin;if(!Array.isArray(t))return!1;return t.some((e)=>typeof e==="string"&&e.includes(Oe))}function kL(n,t){let e=gL(n);if(!e)throw Error(`Failed to locate OpenCode plugin array in ${t}`);let r=[...$L(n,e)].reverse().reduce(lt,n);return cl(r,t),r}function Ll(n){Te(n);let t=wL(n),e=t.find((a)=>al(a)),r=[];for(let a of t){if(!al(a))continue;try{let l=bL(a,"utf-8");if(!DL(cl(l,a)))continue;return B(a,kL(l,a)),{path:a,alreadyInstalled:!0}}catch(l){r.push(l instanceof Error?l.message:String(l))}}if(r.length>0)throw Error(r.join(`
+`));return{path:e??yL(n),alreadyInstalled:!1}}var Ee="safety-net@cc-marketplace",ol=new Set(["claude-code","codex","copilot-cli","gemini-cli","hermes-agent","openclaw","opencode","pi"]);function Ie(n){return/^\s*safety-net@cc-marketplace[^a-z0-9-][^\n]*installed,/m.test(n??"")}function vl(n){return/^\s*cc-safety-net[^a-z0-9-][^\n]*installed,/m.test(n??"")}var bl={"claude-code":{installCommands:(n)=>{let t=Un(n,"cc-safety-net@cc-marketplace");return{commands:[...t?[["claude","plugin","marketplace","update","cc-marketplace"],["claude","plugin","update","cc-safety-net@cc-marketplace"]]:[["claude","plugin","marketplace","add","kenryu42/cc-marketplace"],["claude","plugin","install","cc-safety-net@cc-marketplace"]],...ce(n).status==="disabled"?[["claude","plugin","enable","cc-safety-net@cc-marketplace"]]:[],...Un(n,Ee)?[["claude","plugin","uninstall",Ee]]:[]],update:t}},uninstallCommands:[["claude","plugin","uninstall","cc-safety-net@cc-marketplace"],["claude","plugin","marketplace","remove","cc-marketplace"]]},codex:{installCommands:()=>{let n=c2(["codex","plugin","list"]),t=vl(n);return{commands:[...t?[["codex","plugin","marketplace","upgrade","cc-marketplace"],["codex","plugin","add","cc-safety-net@cc-marketplace"]]:[["codex","plugin","marketplace","add","kenryu42/cc-marketplace"],["codex","plugin","add","cc-safety-net@cc-marketplace"]],...Ie(n)?[["codex","plugin","remove","safety-net@cc-marketplace"]]:[]],update:t}},uninstallCommands:[["codex","plugin","remove","cc-safety-net@cc-marketplace"],["codex","plugin","marketplace","remove","cc-marketplace"]],postInstallMessage:"Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it."},"copilot-cli":{installCommands:()=>{let n=c2(["copilot","plugin","list"]),t=Q1(n)?[["copilot","plugin","uninstall","copilot-safety-net"]]:[];if(S1(n))return{commands:[["copilot","plugin","marketplace","update","cc-marketplace"],["copilot","plugin","update",t2],...t],update:!0};return{commands:[...Z1(c2(["copilot","plugin","marketplace","list"]))?[]:[["copilot","plugin","marketplace","add","kenryu42/cc-marketplace"]],["copilot","plugin","install",t2],...t]}},uninstallCommands:[["copilot","plugin","uninstall","cc-safety-net@cc-marketplace"],["copilot","plugin","marketplace","remove","cc-marketplace"]]},"gemini-cli":{installCommands:(n)=>{let t=ye(n);if(t.status==="configured")return{commands:[["gemini","extensions","update","gemini-safety-net"]],update:!0};if(t.status==="disabled")return{commands:[["gemini","extensions","update","gemini-safety-net"],["gemini","extensions","enable","gemini-safety-net"]],update:!0};return{commands:[["gemini","extensions","install","https://github.com/kenryu42/gemini-safety-net","--consent"]]}},uninstallCommands:[["gemini","extensions","uninstall","gemini-safety-net"]]},openclaw:{beforeInstall:Fe,installCommands:()=>({commands:v0()}),uninstallCommands:[["openclaw","plugins","uninstall",q,"--force"]],postInstallMessage:["Restart the OpenClaw Gateway to apply the change.","If plugins.allow is set in openclaw.json, it must also list cc-safety-net."].join(`
+`)},opencode:{beforeInstall:Te,installCommands:[["opencode","plugin","-g","-f","cc-safety-net@latest"]]},pi:{installCommands:[["pi","install","npm:cc-safety-net"]],uninstallCommands:[["pi","uninstall","npm:cc-safety-net"]]}};function Ne(){return process.env.HOME??qL()}function fl(n,t=(e)=>e){try{let e=JSON.parse(t(pl(n,"utf-8")));if(!e||typeof e!=="object"||Array.isArray(e))throw Error(`Settings file ${n} must be a JSON object`);return e}catch(e){if(e instanceof SyntaxError)throw Error(`Failed to parse ${n}: ${e.message}`);throw e}}function jL(n){let t=_e(wn(n),"settings.json");if(!Pe(t))return;let e=fl(t,C),r=e.enabledPlugins;if(!r||typeof r!=="object"||Array.isArray(r))return;if(r[t2]!==!1)return;let a=pl(t,"utf-8"),l=a.replace(new RegExp(`("${t2}"\\s*:\\s*)false`),"$1true");r[t2]=!0,B(t,l!==a?l:`${JSON.stringify(e,null,2)}
+`),console.log(`Enabled ${t2} plugin in ${t}`)}function FL(n){let t=Be(n);if(!Pe(t))return;let e=fl(t);if(!Array.isArray(e.packages))return;let r=e.packages.find((a)=>!!a&&typeof a==="object"&&!Array.isArray(a)&&Je(a.source)&&("extensions"in a));if(!r)return;delete r.extensions,B(t,`${JSON.stringify(e,null,2)}
+`),console.log(`Enabled npm:cc-safety-net extensions in ${t}`)}function ul(n,t){let e=j({label:t,booleans:Object.fromEntries(G.map((l)=>[l.target,[l.flag]]))},n),r=e.errors[0];if(r)throw Error(r);let a=G.filter((l)=>e.flags[l.target]).map((l)=>l.target);if(a.length!==1)throw Error(`Choose exactly one ${t} target: ${[...V0.keys()].join(", ")}`);return a[0]}async function hl(n=Ne()){let[t,e]=await Promise.all([Hn(["codex","plugin","list"]),Hn(["copilot","--binary-version"])]);return{codexPluginListOutput:t,hooks:P2(process.cwd(),{homeDir:n,codexPluginListOutput:t,copilotCliVersion:e})}}async function zL(n){let t=await hl();return t.hooks.filter((e)=>n==="install"?e.configured:e.detected||e.inspectionStatus==="not-inspected").filter((e)=>e.platform!=="codex"||!Ie(t.codexPluginListOutput)||vl(t.codexPluginListOutput)).map((e)=>e.platform)}function BL(n,t,e){if(t.length>0)return{finish:async()=>[ul(t,n)]};if(!e.selectTargets&&!R0(e.input,e.output))return{finish:async()=>[ul(t,n)]};let r=e.detectConfiguredTargets??(()=>zL(n)),a=Promise.all([U0(e.probeTargets),r()]);return{ready:a,finish:async()=>{let[l,d]=await a,s=O0(l,{action:n,configuredTargets:d}),i=e.selectTargets?await e.selectTargets(n,s):await Y0(n,s,{input:e.input,output:e.output});if(i==="update")return i;if(!i||i.length===0)return null;return He(i)}}}function j2(n,t,e=!1){let r=bl[n];r.beforeInstall?.(t);let a=typeof r.installCommands==="function"?r.installCommands(t):{commands:r.installCommands};qe(a.commands),console.log([`${a.update||e?"Updated":"Installed"} ${m2(n)} integration`,r.postInstallMessage].filter(Boolean).join(`
+`))}function N2(n){let t=bl[n];if(!t.uninstallCommands)throw Error(`${m2(n)} uninstall is not supported`);qe(t.uninstallCommands),console.log(`Uninstalled ${m2(n)} integration`)}function JL(n){let t=Ll(n);console.log(t.alreadyInstalled?`Uninstalled OpenCode plugin from ${t.path}`:`OpenCode plugin not installed in ${t.path}`)}var SL={"antigravity-cli":{install:W0,uninstall:K0},cursor:{install:V1,uninstall:G1},"kimi-code":{install:el,uninstall:rl}};function nn(n,t,e,r=!1){if(n==="install")Ke(e);let a=SL[t][n](e),l=m2(t),d=n!=="install"?"Uninstalled":r?"Updated":"Installed";console.log(n==="install"&&a.alreadyInstalled?r?`${l} hook up to date in ${a.path}`:`${l} hook already installed in ${a.path}`:n==="uninstall"&&!a.alreadyInstalled?`${l} hook not installed in ${a.path}`:`${d} ${l} hook ${n==="install"?"in":"from"} ${a.path}`)}var ZL={amp:{install:g1,uninstall:$1,restartNote:'Restart Amp or run "plugins: reload" to apply the change.'},"hermes-agent":{install:P1,uninstall:I1,afterInstall:(n)=>{let t=ke(n);return c2(["hermes","plugins","enable",W,"--no-allow-tool-override"]),!t},beforeUninstall:(n)=>{De(n);try{c2(["hermes","plugins","disable",W])}catch(t){console.warn(`${t instanceof Error?t.message:String(t)}
+Removing the plugin files anyway; ${W} may still be listed in the Hermes config.`)}},restartNote:"Restart Hermes to apply the change."}};function st(n,t,e,r=!1){let a=ZL[t];if(n==="uninstall")a.beforeUninstall?.(e);let l=n==="install"?a.install(e):a.uninstall(e),d=n==="install"&&a.afterInstall?.(e),s=m2(t),i=!d&&(n==="install"&&l.alreadyInstalled||n==="uninstall"&&!l.alreadyInstalled),L=i?n==="install"?`${s} plugin ${r?"up to date":"already installed"} at ${l.path}`:`${s} plugin not installed at ${l.path}`:`${n!=="install"?"Uninstalled":r?"Updated":"Installed"} ${s} plugin ${n==="install"?"at":"from"} ${l.path}`;console.log([L,i?void 0:a.restartNote].filter(Boolean).join(`
+`))}var QL={amp:{install:(n,t)=>st("install","amp",n,t),uninstall:(n)=>st("uninstall","amp",n)},"antigravity-cli":{install:(n,t)=>nn("install","antigravity-cli",n,t),uninstall:(n)=>nn("uninstall","antigravity-cli",n)},"claude-code":{install:(n,t)=>j2("claude-code",n,t),uninstall:()=>N2("claude-code")},codex:{install:(n,t)=>j2("codex",n,t),uninstall:()=>N2("codex")},"copilot-cli":{install:(n,t)=>{j2("copilot-cli",n,t),jL(n)},uninstall:()=>N2("copilot-cli")},cursor:{install:(n,t)=>nn("install","cursor",n,t),uninstall:(n)=>nn("uninstall","cursor",n)},"gemini-cli":{install:(n,t)=>j2("gemini-cli",n,t),uninstall:()=>N2("gemini-cli")},"hermes-agent":{install:(n,t)=>{Ke(n),st("install","hermes-agent",n,t)},uninstall:(n)=>st("uninstall","hermes-agent",n)},"kimi-code":{install:(n,t)=>nn("install","kimi-code",n,t),uninstall:(n)=>nn("uninstall","kimi-code",n)},openclaw:{install:(n,t)=>{j2("openclaw",n,t),b0()},uninstall:(n)=>{Fe(n),N2("openclaw")}},opencode:{install:(n,t)=>j2("opencode",n,t),uninstall:(n)=>JL(n)},pi:{install:(n,t)=>{j2("pi",n,t),FL(n)},uninstall:()=>N2("pi")}};function yl(n,t,e,r=!1){QL[t][n](e,r)}function XL(n){let t=j({label:"update"},n).errors[0];if(t)throw Error(t)}async function RL(n){let t=await hl(n),e=_e(wn(n),"installed-plugins");return He([...t.hooks.filter((r)=>r.platform!=="copilot-cli"&&r.detected).map((r)=>r.platform),...[On,J1].flatMap((r)=>Pe(_e(e,...r))?["copilot-cli"]:[]),...Un(n,Ee)?["claude-code"]:[],...Ie(t.codexPluginListOutput)?["codex"]:[]])}async function YL(){let n=Ne(),t=await RL(n);if(t.length===0){console.log("No installed integrations found. Run `cc-safety-net install` to set one up.");return}let e=new Set(t),r=new Map(await Promise.all(G.filter((a)=>e.has(a.target)&&ol.has(a.target)).map(async(a)=>[a.target,await We(a.probeCommand)])));Ce(t,(a)=>{if(ol.has(a)&&!r.get(a)){console.log(`${m2(a)} not found; skipped`);return}yl("install",a,n,!0)})}function nr(n){return Promise.resolve().then(()=>XL(n)).then(YL).then(()=>0).catch((t)=>{return console.error(wl(t)),1})}async function qn(n,t,e={}){try{let r=await Wn(!0,()=>BL(n,t,e),()=>Mn({input:e.input??process.stdin,output:e.output??process.stdout}),{loadingMessage:n==="install"?"Checking available integrations…":"Checking installed integrations…",output:e.output??process.stdout});if(!r)return(e.output??process.stdout).write(`Cancelled: nothing was ${n}ed.
+`),0;if(r==="update")return(e.runUpdate??(()=>nr([])))();let a=Ne();return Ce(r,(l)=>yl(n,l,a)),0}catch(r){return console.error(wl(r)),1}}function wl(n){let t=n instanceof Error?n.message:String(n),e=typeof n==="object"&&n!==null&&"code"in n?n.code:null;if(e==="EACCES"||e==="EPERM")return`${t}
+Check file permissions for the target config file and parent directory.`;if(e==="ENOENT")return`${t}
+Check that the target config path and parent directory exist.`;if(e==="ENOTDIR")return`${t}
+Check that every parent path component is a directory.`;return t}import{join as go}from"node:path";var xl="# Custom Rules Reference\n\nAgent reference for generating CC Safety Net rulebook configuration.\n\n## Config Locations\n\n| Scope | Config path | Rulebook path | Cache path | Priority |\n|-------|-------------|---------------|------------|----------|\n| User | `~/.cc-safety-net/rules/rule.json` | `~/.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `~/.cc-safety-net/cache/rulebooks/` | First |\n| Project | `.cc-safety-net/rules/rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` | `.cc-safety-net/cache/rulebooks/` | Second |\n| GitHub source | Listed in a local `rule.json` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in the source repository | Consumer local cache | Source order |\n\nUser scope is evaluated before project scope; within a scope, sources apply in `rules` array order. A duplicate active rulebook name keeps the first claim and ignores the later rulebook with a warning, so a user-scoped name shadows a project-scoped one.\n\nUse `cc-safety-net rule init` to create an inert local config. Use `--global` for user scope. Use `cc-safety-net rule init --example` to also create an inactive example rulebook. `CC_SAFETY_NET_HOME` overrides the `~/.cc-safety-net` user root.\n\nLegacy inline `.safety-net.json` and `~/.cc-safety-net/config.json` files are not loaded at runtime. Convert them with `cc-safety-net rule migrate`.\n\n## rule.json Schema\n\n```json\n{\n  \"version\": 1,\n  \"rules\": [\"project-rules\", \"owner/repo#main/team-rules\"],\n  \"overrides\": {\n    \"project-rules/block-docker-system-prune\": {\n      \"reason\": \"Use targeted Docker cleanup commands.\"\n    },\n    \"team-rules/block-npm-global\": \"off\"\n  },\n  \"transparent_wrappers\": [\"rtk\"]\n}\n```\n\n- `version`: Required. Must be `1`.\n- `$schema`: Optional. `cc-safety-net rule verify` inserts it into a valid `rule.json` that lacks it.\n- `rules`: Optional array of rulebook source strings. Missing `rules` is treated as `[]`.\n- `overrides`: Optional object keyed by `<rulebook-name>/<rule-name>`.\n- `overrides` values are either `\"off\"` to disable a rule or an object with a required `reason` (replacement block reason) and an optional `intent` (one of `hard_stop`, `use_alternative`, `scope_down`, `manual_only`, `stop_and_explain`).\n- A project override cannot target a user-scoped rule: only that override is ignored, the user rule keeps its configured state, and `rule sync`/`rule verify` report the diagnostic as a failure.\n- `transparent_wrappers`: Optional array of command names that transparently execute a visible child command.\n- Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as `\"rtk\"`.\n- Use `cc-safety-net rule wrapper add rtk` to configure RTK without manually editing `rule.json`.\n\n## Rulebook Sources\n\n- Local sources are bare rulebook names such as `project-rules`; the rulebook file is `.cc-safety-net/rules/project-rules/rulebook.json`.\n- GitHub sources use `owner/repo#ref/<rulebook-name>`.\n- GitHub refs must be one path segment, such as a tag, SHA, or branch name without `/`.\n- The GitHub source name, the repository directory name, and the rulebook `name` must match exactly.\n- Rulebook source strings must be unique in a config.\n\n## rulebook.json Schema\n\n```json\n{\n  \"rulebook_version\": 1,\n  \"name\": \"project-rules\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Project-specific CC Safety Net rules.\",\n  \"author\": \"project\",\n  \"allowed_commands\": [\"docker\"],\n  \"rules\": [\n    {\n      \"name\": \"block-docker-system-prune\",\n      \"command\": \"docker\",\n      \"subcommand\": \"system\",\n      \"block_args\": [\"prune\"],\n      \"reason\": \"Use targeted cleanup instead.\"\n    }\n  ],\n  \"tests\": [\n    {\n      \"command\": \"docker system prune\",\n      \"expect\": \"blocked\",\n      \"rule\": \"block-docker-system-prune\"\n    },\n    {\n      \"command\": \"docker ps\",\n      \"expect\": \"allowed\"\n    }\n  ]\n}\n```\n\n### Rulebook Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `rulebook_version` | Yes | Must be `1` |\n| `name` | Yes | `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$` |\n| `version` | Yes | Non-empty string |\n| `description` | No | Free text; not type-checked at runtime |\n| `author` | No | Free text; not type-checked at runtime |\n| `allowed_commands` | Yes | Unique command names matching `^[a-zA-Z][a-zA-Z0-9_-]*$` |\n| `rules` | Yes | Array of rule objects |\n| `tests` | No | Array of fixtures |\n\n### Rule Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `name` | Yes | Unique within the rulebook (case-insensitive); same pattern as rulebook `name` |\n| `command` | Yes | Must be listed in `allowed_commands`; basename only, not path |\n| `subcommand` | No | Same pattern as `command`; omit to match any subcommand |\n| `intent` | No | One of `hard_stop`, `use_alternative`, `scope_down`, `manual_only`, `stop_and_explain` |\n| `block_args` | Yes | Non-empty array of non-empty strings |\n| `reason` | Yes | Non-empty string, max 256 chars |\n\n### Test Fixture Fields\n\n| Field | Required | Constraints |\n|-------|----------|-------------|\n| `command` | Yes | Non-empty shell command string |\n| `expect` | Yes | `\"blocked\"` or `\"allowed\"` |\n| `rule` | Required for blocked fixtures | Rule name expected to block the command |\n\nFixtures are optional documentation of intended behavior. Fixtures are shape-validated only; CC Safety Net does not execute them.\n\n## Matching Behavior\n\n- **Command**: Normalized to lowercase basename with any trailing `.exe` removed (`/usr/bin/git` → `git`).\n- **Subcommand**: The first command token after recognized Git and Docker global options and their values; `--` ends option parsing. An unrecognized option without `=` may consume the following token as its value.\n- **Arguments**: Each `block_args` value is compared literally against every command token, including expanded short options. The command is blocked if **any** item matches.\n- **Short options**: Expanded (`-Ap` matches `-A`).\n- **Long options**: Exact match (`--all-files` does not match `--all`).\n- **Execution order**: Built-in rules first, then custom rulebooks. Custom rules only add restrictions.\n- **Transparent wrappers**: A configured wrapper such as `rtk` lets `rtk git commit` be analyzed as `git commit` only when `git` is protected by built-in analyzers or active custom rules. `rtk -- git commit` is also supported.\n\n## Workflow\n\n1. Run `cc-safety-net rule init` or create `rule.json` manually.\n2. Optionally run `cc-safety-net rule init --example` to create an inactive example rulebook.\n3. Use `cc-safety-net rule wrapper add rtk` for trusted transparent wrappers.\n4. Run `cc-safety-net rule add <source>` after creating or choosing a rulebook source; it adds the source and syncs it.\n5. Run `cc-safety-net rule sync` after manual `rule.json` changes or local rulebook edits.\n6. Run `cc-safety-net rule verify` to validate config, lock/cache state, local rulebooks, and shareable GitHub-source rulebook directories in the current repository (it does not fetch remote content).\n7. Run `cc-safety-net rule list` to inspect active rulebooks and transparent wrappers.\n\nAn edited or invalid local rulebook keeps its last synced, digest-verified cached version enforced until `cc-safety-net rule sync` validates the edit. A missing lock entry or cache, a cache digest mismatch, or an invalid cached rulebook makes that source inactive; a missing lockfile or an unreadable or invalid `rule.json` makes every source in its scope inactive. Inactive sources stop applying their rules while other custom rules and all built-in protections stay active. Repair the reported condition, then run `cc-safety-net rule sync`. Run `cc-safety-net status` to see degraded sources.\n";function jn(n,t){if(!n.ok){ML(n);return}WL(n),console.log(t),console.log("Rule config synced."),console.log(""),AL(n.entries)}function AL(n){if(n.length===0){console.log("Active rulebooks: (none)");return}console.log(`Active rulebooks (${n.length}):`);for(let t of n)console.log(`  - ${t.name} ${t.version} (${HL(t.ruleCount??0)})`),console.log(`    Source: ${Xt(t)}`)}function HL(n){return`${n} ${n===1?"rule":"rules"}`}function gl(n,t){F2("Active sources",n.rulebooks,(e)=>[`[${e.source}] ${e.name} ${e.version}`,`  Source: ${t[e.source].get(e.spec)??e.spec}`]),F2("Active rules",n.rules,(e)=>[`[${CL(n,e.name)}] ${e.name}`,`  Command: ${e.subcommand?`${e.command} ${e.subcommand}`:e.command}`,`  Block args: ${e.block_args.join(", ")}`,`  Reason: ${e.reason}`]),F2("Disabled rules",ml(n,"off"),(e)=>[e.key]),F2("Reason overrides",ml(n,"reason"),(e)=>[e.key,`  Reason: ${e.value.reason}`]),F2("Transparent wrappers",n.transparent_wrappers,(e)=>[e]),F2("Issues",n.errors,(e)=>[e]),F2("Warnings",n.warnings,(e)=>[e])}function F2(n,t,e){if(t.length===0){console.log(`${n}: (none)`);return}console.log(`${n} (${t.length}):`);for(let r of t){let[a,...l]=e(r);console.log(`  - ${a}`);for(let d of l)console.log(`    ${d}`)}}function CL(n,t){return n.rulebooks.find((e)=>e.rules.includes(t))?.source??"project"}function ml(n,t){return Object.entries({...n.userConfig?.overrides??{},...n.projectConfig?.overrides??{}}).filter((e)=>{if(t==="off")return e[1]==="off";return!!e[1]&&typeof e[1]==="object"}).map(([e,r])=>({key:e,value:r}))}function ML(n){for(let t of n.errors)console.error(t)}function WL(n){if(!n.warnings||n.warnings.length===0)return;for(let t of n.warnings)console.warn(t)}import{dirname as $l,join as it}from"node:path";var KL=".safety-net.json",VL="~/.cc-safety-net/config.json";async function ql(n){return[await Dl({legacyPath:kl({cwd:n.cwd}),configPath:_(n.cwd),defaultRulebookName:"project-rules",migratedFrom:KL,cleanup:n.cleanup,syncOptions:{cwd:n.cwd}}),await Dl({legacyPath:dn(),configPath:E(),defaultRulebookName:"user-rules",migratedFrom:VL,cleanup:n.cleanup,syncOptions:{cwd:n.cwd,global:!0}})].every((e)=>e)?0:1}async function Dl(n){let t=U(n.syncOptions),e=$(t.filesystemScope,n.legacyPath),r=m(e);if(r===null)return console.log(`No legacy config found at ${n.legacyPath}`),!0;let a=UL(r);if(!a.ok){for(let p of a.errors)console.error(p);return!1}let l=O(t.configTarget);if(l.errors.length>0){for(let p of l.errors)console.error(p);return!1}let d=l.config??{version:1,rules:[],overrides:{},transparent_wrappers:[]},s=OL($l(n.configPath),d.rules,n.defaultRulebookName,n.migratedFrom,t.filesystemScope),i=it($l(n.configPath),s,"rulebook.json"),c=$(t.filesystemScope,i),L=[tr(t.configTarget),tr(c),tr(t.lockTarget)],u=await GL(n,t.configTarget,c,s,a.config.rules,d.rules.includes(s)?d.rules:[...d.rules,s],d.overrides??{},d.transparent_wrappers??[]);if(!u.ok){EL(L);for(let p of u.errors)console.error(p);return!1}if(!n.cleanup)return console.log(`Migrated legacy config at ${n.legacyPath}. Legacy file is no longer used.`),!0;if(!_L(t.configTarget,c,s,n.migratedFrom,a.config.rules))return console.error(`Migration cleanup verification failed for ${n.legacyPath}`),!1;return an(e),console.log(`Deleted legacy config at ${n.legacyPath}`),!0}async function GL(n,t,e,r,a,l,d,s){try{return T(t,{version:1,rules:l,overrides:d,transparent_wrappers:s}),T(e,TL(r,n.migratedFrom,a)),await R2(n.syncOptions)}catch(i){return{ok:!1,errors:[i instanceof Error?i.message:String(i)]}}}function UL(n){try{let t=JSON.parse(n),e=gt(t);if(e.errors.length>0)return{ok:!1,errors:e.errors};return{ok:!0,config:{version:1,rules:t.rules??[]}}}catch{return{ok:!1,errors:["Invalid JSON"]}}}function OL(n,t,e,r,a){let l=t.find((d)=>PL($(a,it(n,d,"rulebook.json")))===r);if(l)return l;if(m($(a,it(n,e,"rulebook.json")))===null)return e;for(let d=2;;d++){let s=`${e}-${d}`;if(m($(a,it(n,s,"rulebook.json")))===null)return s}}function TL(n,t,e){return{rulebook_version:1,name:n,version:"1.0.0",description:"Migrated CC Safety Net rules.",author:"project",migrated_from:t,allowed_commands:[...new Set(e.map((r)=>r.command))],rules:e,tests:e.map((r)=>({command:[r.command,r.subcommand,r.block_args[0]].filter(Boolean).join(" "),expect:"blocked",rule:r.name}))}}function _L(n,t,e,r,a){if(!O(n).config?.rules.includes(e))return!1;try{let d=m(t);if(d===null)return!1;let s=JSON.parse(d);return s.migrated_from===r&&JSON.stringify(s.rules)===JSON.stringify(a)}catch{return!1}}function tr(n){return{target:n,content:m(n)}}function EL(n){for(let t of n){if(t.content===null){an(t.target);continue}f2(t.target,t.content)}}function PL(n){let t=m(n);if(t===null)return null;try{let e=JSON.parse(t);return typeof e.migrated_from==="string"?e.migrated_from:null}catch{return null}}import{mkdir as IL,readFile as NL,writeFile as no}from"node:fs/promises";import{dirname as to,join as eo}from"node:path";var ro=86400000,ao=604800000;async function Fl(n=Date.now()){if(process.env.CC_SAFETY_NET_NO_UPDATE_CHECK)return null;let t=At();if(!t)return null;let e=eo(t,".cc-safety-net","update-check.json"),r=await lo(e,n);if(!r.lastCheck||n-r.lastCheck>ro){let d=await U2();if(r.lastCheck=n,d.latestVersion)r.latestVersion=d.latestVersion;if(!await jl(e,r))return null;if(d.error)return null}let a=r.latestVersion,l=z();if(!a||!re(a,l))return null;if(r.notifiedVersion===a&&r.notifiedAt!==void 0&&n-r.notifiedAt<ao)return null;if(r.notifiedVersion=a,r.notifiedAt=n,!await jl(e,r))return null;return`UPDATE_AVAILABLE: cc-safety-net v${a} is available (running v${l}). Ask the user once whether to run \`npx -y cc-safety-net@latest update\`; continue the current task either way and do not raise this again.`}async function lo(n,t){let e=await NL(n,"utf8").then((l)=>JSON.parse(l)).catch(()=>{return});if(!e||typeof e!=="object"||Array.isArray(e))return{};let r=e,a=(l)=>typeof l==="number"&&Number.isFinite(l)&&l<=t?l:void 0;return{lastCheck:a(r.lastCheck),latestVersion:typeof r.latestVersion==="string"?r.latestVersion:void 0,notifiedVersion:typeof r.notifiedVersion==="string"?r.notifiedVersion:void 0,notifiedAt:a(r.notifiedAt)}}async function jl(n,t){return IL(to(n),{recursive:!0,mode:448}).then(()=>no(n,JSON.stringify(t),{mode:384})).then(()=>!0).catch(()=>!1)}import{dirname as so,join as io,resolve as er}from"node:path";var Bl="CC Safety Net Config",co="═".repeat(Bl.length),Lo="https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json",oo=new Set(["rule.json","rule.lock","cache"]);function Jl(n={}){try{return uo(n)}catch(t){if(t instanceof S)return console.error(t.message),1;throw t}}function uo(n){let t=n.cwd??process.cwd(),e=n.userConfigPath??E(),r=n.projectConfigPath??_(t),a=n.legacyUserConfigPath??dn(),l=n.legacyProjectConfigPath??kr(t),d=er(t,Qt),s=so(e),i=P({cwd:t,userConfigPath:e,projectConfigPath:r}),c=P({cwd:t}),L=$(i.userScope,e),u=$(i.projectScope,r),p=n.legacyUserConfigPath?rn(n.legacyUserConfigPath,"user policy"):$(c.userScope,a),o=n.legacyProjectConfigPath?rn(n.legacyProjectConfigPath,"project policy"):$(c.projectScope,l),b=!1,v=!1,f=[],w=[],x=po($(c.projectScope,d));if(bo(),m(L)!==null){let y=r2(L);if(y.errors.push(...a2(e,Y2({userConfigDir:s}),{userConfigDir:s},i.userScope)),f.push({scope:"User",path:e,result:y,schema:"rules",sourceDisplayMap:h2(e,i.userScope),target:L}),y.errors.length>0)b=!0}if(m(p)!==null)if(v=!0,m(L)!==null)w.push(ct("user","cleanup"));else{let y=$t(p);if(f.push({scope:"User",path:a,result:y,schema:"legacy",sourceDisplayMap:new Map,inactive:!0,target:p}),w.push(ct("user",y.errors.length>0?"fix-or-delete":"migrate")),y.errors.length>0)b=!0}if(m(u)!==null){let y=r2(u);if(y.errors.push(...a2(r,A2(r),{userConfigDir:s},i.projectScope)),f.push({scope:"Project",path:er(r),result:y,schema:"rules",sourceDisplayMap:h2(r,i.projectScope),target:u}),y.errors.length>0)b=!0;if(m(o)!==null)v=!0,w.push(ct("project","cleanup"))}else if(m(o)!==null){v=!0,b=!0;let y=$t(o);f.push({scope:"Project",path:er(l),result:y,schema:"legacy",sourceDisplayMap:new Map,inactive:!0,target:o}),w.push(ct("project",y.errors.length>0?"fix-or-delete":"migrate"))}if(x?.result.errors.length)b=!0;if(f.length===0&&!x)return console.log(`
+No config files found. Using built-in rules only.`),0;for(let y of f)if(y.inactive)ho(y.scope,y.path,y.result,y.sourceDisplayMap);else if(y.result.errors.length>0)yo(y.scope,y.path,y.result.errors);else{if(y.schema==="rules"&&mo(y.target))console.log(`
+Added $schema to ${y.scope.toLowerCase()} config.`);fo(y.scope,y.path,y.result,y.schema,y.sourceDisplayMap)}for(let y of w)console.error(`
+${h.red(y)}`);if(x)if(x.result.errors.length>0)xo(x.path,x.result.errors);else wo(x.path,x.result);if(b)return console.error(`
+Config validation failed.`),1;return console.log(v?`
+Configs valid with warnings.`:`
+All configs valid.`),0}function ct(n,t){let e=`legacy ${n} config`;if(t==="cleanup")return`Warning: Legacy ${n} config is no longer needed. Run \`npx -y cc-safety-net rule migrate --cleanup\` to clean it up safely.`;if(t==="migrate")return`Warning: Legacy ${n} config is ignored by CC Safety Net. Run \`npx -y cc-safety-net rule migrate\`.`;return`Warning: Legacy ${n} config is no longer supported. Fix or delete the ${e}, then run \`npx -y cc-safety-net rule migrate\`.`}function po(n){if(X2(n)===null)return null;let t=vo(n);if(t.ruleNames.size===0&&t.errors.length===0)return null;return{path:n.path,result:t}}function vo(n){let t=[],e=new Set,r=(X2(n)??[]).filter((a)=>!oo.has(a.name)).sort((a,l)=>a.name.localeCompare(l.name));if(r.length===0)return{errors:t,ruleNames:e};for(let a of r){if(!ln.test(a.name)){t.push(`rulebook directory names must match ${ln}: ${a.name}`);continue}if(a.kind!=="directory"){t.push(`${a.name} must be a rulebook directory`);continue}let l=$(n.scope,io(n.path,a.name,"rulebook.json")),d=m(l);if(d===null){t.push(`${a.name}/rulebook.json is required`);continue}try{let s;try{s=JSON.parse(d)}catch{t.push(`${a.name}/rulebook.json: invalid JSON`);continue}let i=zl(s);if(i.name!==a.name){t.push(`rulebook name "${i.name}" must match folder "${a.name}"`);continue}e.add(a.name)}catch(s){t.push(s instanceof Error?`${a.name}/rulebook.json: ${s.message}`:`${a.name}/rulebook.json: ${String(s)}`)}}return{errors:t,ruleNames:e}}function bo(){console.log(Bl),console.log(co)}function fo(n,t,e,r,a){if(console.log(`
+✓ ${n} config: ${t}`),console.log(`  Schema: ${r==="rules"?"rulebook sources":"legacy inline rules"}`),e.ruleNames.size>0){console.log(`  ${r==="rules"?"Sources":"Rules"}:`);let l=1;for(let d of e.ruleNames)console.log(`    ${l}. ${a.get(d)??d}`),l++}else console.log(`  ${r==="rules"?"Sources":"Rules"}: (none)`)}function ho(n,t,e,r){if(console.error(`
+✗ Legacy ${n.toLowerCase()} config: ${t}`),console.error("  Schema: legacy inline rules"),console.error("  Status: ignored by CC Safety Net"),e.errors.length>0){console.error("  Errors:");let a=1;for(let l of e.errors)for(let d of l.split("; "))console.error(`    ${a}. ${d}`),a++;return}if(e.ruleNames.size>0){console.error("  Rules:");let a=1;for(let l of e.ruleNames)console.error(`    ${a}. ${r.get(l)??l}`),a++;return}console.error("  Rules: (none)")}function yo(n,t,e){Sl(`${n} config`,t,e)}function wo(n,t){console.log(`
+✓ GitHub source rules: ${n}`),console.log("  Rulebooks:");let e=1;for(let r of t.ruleNames)console.log(`    ${e}. ${r}`),e++}function xo(n,t){Sl("GitHub source rules",n,t)}function Sl(n,t,e){console.error(`
+✗ ${n}: ${t}`),console.error("  Errors:");let r=1;for(let a of e)for(let l of a.split("; "))console.error(`    ${r}. ${l}`),r++}function mo(n){try{let t=m(n);if(t===null)return!1;let e=JSON.parse(t);if(e.$schema)return!1;return f2(n,JSON.stringify({$schema:Lo,...e},null,2)),!0}catch(t){if(t instanceof S)throw t;return!1}}var Zl=new Set(["init","add","remove","update","sync","list","wrapper","migrate","doc","verify"]),$o=new Set(["add","remove","list"]);async function Xl(n){try{return await Do(n)}catch(t){if(t instanceof S)return console.error(t.message),1;throw t}}async function Do(n){let t=qo(n),e=t.help?ko(t.positionals):null;if(e)return tt(e),0;if(t.errors.length>0){for(let d of t.errors)console.error(d);return 1}let r=t.positionals[0];if(!r)return tt(G2,console.error),1;let a=t.positionals[1],l={global:t.global,check:t.check};if(r==="init"){let d=U(l),s=d.configDir;zo(d.configTarget),Ql($(d.filesystemScope,Jn({...l,cacheConfigDir:s})));let i=go(s,"example-rules","rulebook.json"),c=$(d.filesystemScope,i);if(t.example&&m(c)===null)Yt(c,"example-rules");let L=await R2(l);return jn(L,"Rule config initialized."),L.ok?0:1}if(r==="add"){if(!a)return console.error("rule add requires a source"),1;let d=await Jt(a,l);return jn(d,`Added rulebook source: ${a}`),d.ok?0:1}if(r==="remove"){if(!a)return console.error("rule remove requires a source"),1;let d=await Zt(a,{...l,deleteSource:t.deleteSource});return jn(d,`Removed rulebook source: ${a}`),d.ok?0:1}if(r==="update"||r==="sync"){let d=await R2({...l,only:r==="update"?a:void 0});return jn(d,t.check?"Rule config checked.":"Rule config synced."),d.ok?0:1}if(r==="list"){let d=u2(),s=P({});return gl(d,{user:h2(d.userConfigPath,s.userScope),project:h2(d.projectConfigPath,s.projectScope)}),d.errors.length>0?1:0}if(r==="wrapper")return Bo(t);if(r==="migrate")return ql({cleanup:t.cleanup,cwd:process.cwd()});if(r==="doc"){console.log(xl);let d=await Fl();if(d)console.error(d);return 0}if(r==="verify")return Jl();return 1}function ko(n){if(n.length===0)return G2;let t=G2.subcommands.filter((r)=>r.usage.split(" ")[0]===n[0]);if(t.length===0)return null;if(n.length===1&&t.length>1)return{name:`rule ${n[0]}`,description:`Subcommands of rule ${n[0]}`,usage:`rule ${n[0]} <subcommand>`,subcommands:t,options:[]};let e=n.length===1?t[0]:t.find((r)=>r.usage.split(" ")[1]===n[1]);if(!e)return null;return{name:`rule ${n[0]}`,description:e.description,usage:`rule ${e.usage}`,options:[]}}function qo(n){let t=j({label:"rule",booleans:{global:["-g","--global"],check:["--check"],cleanup:["--cleanup"],deleteSource:["--delete-source"],example:["--example"]},positionals:"list"},n),e={...t.flags,help:t.help,positionals:t.positionals,errors:t.errors};return jo(e),e}function jo(n){let[t]=n.positionals;if(t&&!Zl.has(t))n.errors.push(`Unknown rule subcommand: ${t}`);if(n.deleteSource&&t!=="remove")if(t&&Zl.has(t))n.errors.push(`Unknown option for rule ${t}: --delete-source`);else n.errors.push("--delete-source is only valid with 'rule remove'");if(n.cleanup&&t!=="migrate")n.errors.push(Lt(t,"--cleanup"));if(n.example&&t!=="init")n.errors.push(Lt(t,"--example"));if(t==="migrate"){if(n.global)n.errors.push(Lt(t,"--global"));if(n.check)n.errors.push(Lt(t,"--check"));if(n.positionals.length>1)n.errors.push(`Unexpected rule migrate argument: ${n.positionals[1]}`)}else if(t==="wrapper")Fo(n);else if(n.positionals.length>2)n.errors.push(`Unexpected rule argument: ${n.positionals[2]}`);if(t==="list"&&n.global)n.errors.push("Unknown option for rule list: --global")}function Lt(n,t){return n?`Unknown option for rule ${n}: ${t}`:`Unknown option for rule: ${t}`}function Fo(n){let t=n.positionals[1],e=n.positionals[2];if(!t){n.errors.push("rule wrapper requires add, remove, or list");return}if(!$o.has(t)){n.errors.push(`Unknown rule wrapper action: ${t}`);return}if(t==="list"){if(e)n.errors.push(`Unexpected rule wrapper argument: ${e}`);return}if(!e){n.errors.push(`rule wrapper ${t} requires a command`);return}if(n.positionals.length>3)n.errors.push(`Unexpected rule wrapper argument: ${n.positionals[3]}`)}function zo(n){if(m(n)===null){Rt(n);return}let t=O(n);if(!t.config)return;T(n,{version:1,rules:t.config.rules,overrides:t.config.overrides??{},transparent_wrappers:t.config.transparent_wrappers??[]})}async function Bo(n){let t=n.positionals[1],e=n.positionals[2],r=U({global:n.global}).configTarget;if(t==="list"){let s=O(r);if(s.errors.length>0){for(let i of s.errors)console.error(i);return 1}return Jo(s.config?.transparent_wrappers??[]),0}if(!e||!Ht.test(e))return console.error("transparent wrapper must match command pattern"),1;if(Ct(e))return console.error(`reserved command "${e}" cannot be a wrapper`),1;let a=O(r);if(a.errors.length>0){for(let s of a.errors)console.error(s);return 1}let l=a.config??{version:1,rules:[],overrides:{},transparent_wrappers:[]},d=t==="add"?[...new Set([...l.transparent_wrappers??[],e])]:(l.transparent_wrappers??[]).filter((s)=>s!==e);return T(r,{version:1,rules:l.rules,overrides:l.overrides??{},transparent_wrappers:d}),console.log(t==="add"?`Added transparent wrapper: ${e}`:`Removed transparent wrapper: ${e}`),0}function Jo(n){if(n.length===0){console.log("Transparent wrappers: (none)");return}console.log(`Transparent wrappers (${n.length}):`);for(let t of n)console.log(`  - ${t}`)}import{homedir as Rl}from"node:os";import{existsSync as So,readFileSync as Zo}from"node:fs";import{homedir as Qo}from"node:os";import{join as Xo}from"node:path";async function Ro(){if(process.stdin.isTTY)return null;return(await Tt(process.stdin).catch(()=>null))?.trim()||null}function Yo(){if(process.env.CLAUDE_SETTINGS_PATH)return process.env.CLAUDE_SETTINGS_PATH;return Xo(Qo(),".claude","settings.json")}function rr(){let n=Yo();if(!So(n))return!1;try{let t=Zo(n,"utf-8"),e=JSON.parse(t);if(!e.enabledPlugins)return!1;let r="cc-safety-net@cc-marketplace";if(!(r in e.enabledPlugins))return!1;return e.enabledPlugins[r]===!0}catch(t){if(Ln(D.debug))console.error(`CC Safety Net debug: failed to read Claude settings: ${n}: ${t instanceof Error?t.message:String(t)}`);return!1}}async function ar(){let n=rr(),t;if(!n)t="\uD83D\uDEE1️ CC Safety Net ❌";else{let r=H({cwd:process.cwd()}),a=r.policy,l=l2(a),d=Object.values(w2(a,l.capabilities)).some((i)=>i.changesInherited);t=`\uD83D\uDEE1️ CC Safety Net ${{standard:"✅",strict:"\uD83D\uDD12",paranoid:"\uD83D\uDC41️",custom:"\uD83D\uDD27"}[d?"custom":l.effectiveLevel]}${l.worktreeMode?"\uD83C\uDF33":""}${r.state==="degraded"?"⚠️":""}`}let e=await Ro();if(e&&!e.startsWith("{"))console.log(`${e} | ${t}`);else console.log(t)}function Yl(){let n=H({cwd:process.cwd()}),t=n.policy,e=l2(t),r=!!process.env.NO_COLOR||!process.stdout.isTTY,a=Math.min(process.stdout.columns||80,100),l=r?"ok":"✔",d=r?"OFF":"✘",s=(o,b)=>{let v=`  ${o.padEnd(13)}${b}`;return(v.length>a?`${v.slice(0,a-1)}…`:v).replaceAll(d,h.red(d))},i=Object.values(w2(t,e.capabilities)).some((o)=>o.changesInherited),c=Gt(),L={ready:h.green,degraded:h.yellow}[n.state],u=[...rr()?[]:["plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected."],...n.diagnostics],p=r?"-":"·";console.log([`${r?"":"\uD83D\uDEE1️  "}CC Safety Net — ${L(n.state)}`,"",s("Protection",`destructive ${t.destructiveCommandProtectionEnabled?l:d}   secrets ${t.secretProtection.enabled?l:d}`),s("Level",i?`${e.effectiveLevel} (customised)`:e.effectiveLevel),s("Rules",t.rules.length===0?"none active":`${t.rules.length} active`),s("Policy",c.startsWith(Rl())?`~${c.slice(Rl().length)}`:c),...e.worktreeMode?[s("Worktree","relaxations active")]:[],"",...u.length===0?["  Everything configured is active."]:["  Not active",...u.flatMap((o)=>nt(o,"      ",a-6).map((b,v)=>v===0?`    ${p} ${b}`:b)),"","  Full report: cc-safety-net doctor"]].join(`
+`))}import{spawn as rd}from"node:child_process";import{randomBytes as To}from"node:crypto";import{createServer as _o}from"node:http";import{Writable as Eo}from"node:stream";import{homedir as Ao}from"node:os";var ot=500;function Ho(n){let t=n.filter((a)=>a.decision!=="allow"),e=n.filter((a)=>a.decision==="allow"),r=Math.min(t.length,Math.max(ot-e.length,Math.ceil(ot/2)));return[...t.slice(0,r),...e.slice(0,ot-r)]}function Al(n,t=d2()){if(t)y2(t);let e=(v)=>new Date(v.getFullYear(),v.getMonth(),v.getDate()).getTime(),r=e(new Date),a=new Date(r);a.setDate(a.getDate()-(n-1));let l=a.getTime(),d=[],s={count:0};for(let v of t?o2(t,s):[])for(let f of en(v,s)){if(!f||typeof f.ts!=="string"||typeof f.command!=="string")continue;let w=new Date(f.ts).getTime();if(!Number.isFinite(w))continue;if(w>=l)d.push(f)}d.sort((v,f)=>new Date(f.ts).getTime()-new Date(v.ts).getTime());let i=Array.from({length:n},()=>0),c=Array.from({length:n},()=>0),L={},u={},p={},o=0,b=0;for(let v of d){let f=v.agent||"unknown";L[f]=(L[f]??0)+1;let w=Math.round((r-e(new Date(v.ts)))/86400000),x=n-1-w,y=w>=0&&w<n;if(y)c[x]=(c[x]??0)+1;if(v.decision!=="allow"){if(o++,v.ruleId)u[v.ruleId]=(u[v.ruleId]??0)+1;let J=B2(v.segment||v.command);if(J)p[J]=(p[J]??0)+1;if(v.failureStage)b++;if(y)i[x]=(i[x]??0)+1}}return{days:n,logsDir:t,homeDir:Ao(),totalInWindow:d.length,truncated:d.length>ot,unreadable:s.count,counts:{blocked:o,allowed:d.length-o,agents:L,blockedByDay:i,analyzedByDay:c,rules:u,commands:p,errors:b},entries:Ho(d).sort((v,f)=>new Date(f.ts).getTime()-new Date(v.ts).getTime())}}import{spawn as Co}from"node:child_process";import{existsSync as Hl,statSync as Mo}from"node:fs";import{delimiter as Wo,join as Ko}from"node:path";var Vo=120000,ut="Choose the project folder",Go=`try
+  return POSIX path of (choose folder with prompt "${ut}")
+on error number -128
+  return ""
+end try`,Uo=`Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$dialog.Description = '${ut}'
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($dialog.SelectedPath) }`,Cl=[{binary:"zenity",args:["--file-selection","--directory",`--title=${ut}`]},{binary:"kdialog",args:["--getexistingdirectory",".","--title",ut]}],Ml=(n,t)=>(t.PATH??"").split(Wo).some((e)=>e.length>0&&Hl(Ko(e,n)));function Wl(n,t){if(n==="darwin"||n==="win32")return!0;if(n!=="linux")return!1;if(!t.DISPLAY&&!t.WAYLAND_DISPLAY)return!1;return Cl.some((e)=>Ml(e.binary,t))}function Oo(n,t){if(n==="darwin")return{cmd:"osascript",args:["-e",Go]};if(n==="win32")return{cmd:"powershell.exe",args:["-NoProfile","-STA","-Command",Uo]};let e=Cl.find((r)=>Ml(r.binary,t));return e?{cmd:e.binary,args:e.args}:null}function Kl(n=process.platform,t=process.env){let e=Oo(n,t);if(!e)return Promise.resolve({error:"No folder dialog is available on this system"});return new Promise((r)=>{let a=Co(e.cmd,e.args,{env:t,stdio:["ignore","pipe","pipe"]}),l="",d=!1,s=(c)=>{if(d)return;d=!0,clearTimeout(i),r(c)},i=setTimeout(()=>{a.kill(),s({error:"The folder dialog timed out"})},Vo);a.stdout.on("data",(c)=>{l+=c.toString()}),a.on("error",()=>s({error:`Could not open the folder dialog (${e.cmd})`})),a.on("close",()=>{let c=l.trim().replace(/\/+$/,"");if(!c)return s({cancelled:!0});if(!Hl(c)||!Mo(c).isDirectory())return s({error:"That selection is not a folder on disk"});s({path:c})})})}var Vl=`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CC Safety Net</title>
+  <link rel="icon" href="data:image/svg+xml,%3C%3Fxml%20version%3D%221.0%22%20encoding%3D%22UTF-8%22%3F%3E%0A%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221254%22%20height%3D%221254%22%20viewBox%3D%2254%2023%201140%201140%22%20role%3D%22img%22%20aria-label%3D%22Safety%20net%20logo%20mesh%20variant%22%3E%0A%20%20%3Cdefs%3E%0A%20%20%20%20%3CradialGradient%20id%3D%22spot-0%22%20cx%3D%2250%25%22%20cy%3D%2250%25%22%20r%3D%2250%25%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%23f8fafc%22%20stop-opacity%3D%220.68%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%2256%25%22%20stop-color%3D%22%23f8fafc%22%20stop-opacity%3D%220.29%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23f8fafc%22%20stop-opacity%3D%220%22%2F%3E%0A%20%20%20%20%3C%2FradialGradient%3E%0A%20%20%20%20%3CradialGradient%20id%3D%22spot-1%22%20cx%3D%2250%25%22%20cy%3D%2250%25%22%20r%3D%2250%25%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%237dd3fc%22%20stop-opacity%3D%220.58%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%2256%25%22%20stop-color%3D%22%237dd3fc%22%20stop-opacity%3D%220.24%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%237dd3fc%22%20stop-opacity%3D%220%22%2F%3E%0A%20%20%20%20%3C%2FradialGradient%3E%0A%20%20%20%20%3CradialGradient%20id%3D%22spot-2%22%20cx%3D%2250%25%22%20cy%3D%2250%25%22%20r%3D%2250%25%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%2364748b%22%20stop-opacity%3D%220.7%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%2256%25%22%20stop-color%3D%22%2364748b%22%20stop-opacity%3D%220.29%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%2364748b%22%20stop-opacity%3D%220%22%2F%3E%0A%20%20%20%20%3C%2FradialGradient%3E%0A%20%20%20%20%3CradialGradient%20id%3D%22spot-3%22%20cx%3D%2250%25%22%20cy%3D%2250%25%22%20r%3D%2250%25%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%230f172a%22%20stop-opacity%3D%220.9%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%2256%25%22%20stop-color%3D%22%230f172a%22%20stop-opacity%3D%220.38%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%230f172a%22%20stop-opacity%3D%220%22%2F%3E%0A%20%20%20%20%3C%2FradialGradient%3E%0A%20%20%20%20%3ClinearGradient%20id%3D%22edge%22%20x1%3D%2214%25%22%20y1%3D%228%25%22%20x2%3D%2288%25%22%20y2%3D%2294%25%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%23ffffff%22%20stop-opacity%3D%220.7%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%2250%25%22%20stop-color%3D%22%23bae6fd%22%20stop-opacity%3D%220.24%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%231e293b%22%20stop-opacity%3D%220.86%22%2F%3E%0A%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3Cmask%20id%3D%22net-mask%22%20maskUnits%3D%22userSpaceOnUse%22%3E%0A%20%20%20%20%20%20%3Crect%20width%3D%221254%22%20height%3D%221254%22%20fill%3D%22black%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-46.32%22%20y%3D%22-47.38%22%20width%3D%2292.63%22%20height%3D%2294.75%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(628.75%20127.25)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-66.82%22%20y%3D%22-41.01%22%20width%3D%22133.64%22%20height%3D%2282.02%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(713.75%20230.25)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.95%22%20y%3D%22-134.00%22%20width%3D%2279.90%22%20height%3D%22267.99%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(588.00%20275.50)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.60%22%20y%3D%22-65.05%22%20width%3D%2279.20%22%20height%3D%22130.11%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(444.50%20320.50)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-133.29%22%20y%3D%22-40.31%22%20width%3D%22266.58%22%20height%3D%2280.61%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(759.75%20369.25)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-77.07%22%20y%3D%22-39.24%22%20width%3D%22154.15%22%20height%3D%2278.49%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(533.25%20407.25)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-67.10%22%20y%3D%22-39.74%22%20width%3D%22134.21%22%20height%3D%2279.48%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(895.22%20413.86)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.84%22%20y%3D%22-134.04%22%20width%3D%2279.68%22%20height%3D%22268.08%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(401.36%20461.24)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.60%22%20y%3D%22-74.60%22%20width%3D%2279.20%22%20height%3D%22149.20%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(812.25%20500.25)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.60%22%20y%3D%22-77.43%22%20width%3D%2279.20%22%20height%3D%22154.86%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(625.75%20500.75)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.24%22%20y%3D%22-67.18%22%20width%3D%2278.49%22%20height%3D%22134.35%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(263.25%20505.75)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-133.28%22%20y%3D%22-40.02%22%20width%3D%22266.56%22%20height%3D%2280.04%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(941.36%20551.76)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-54.80%22%20y%3D%22-53.74%22%20width%3D%22109.60%22%20height%3D%22107.48%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(1096.75%20593.25)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-77.43%22%20y%3D%22-40.31%22%20width%3D%22154.86%22%20height%3D%2280.61%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(719.75%20594.25)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-51.97%22%20y%3D%22-54.45%22%20width%3D%22103.94%22%20height%3D%22108.89%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(155.25%20594.75)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-76.37%22%20y%3D%22-40.31%22%20width%3D%22152.74%22%20height%3D%2280.61%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(534.50%20595.50)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-135.12%22%20y%3D%22-40.16%22%20width%3D%22270.23%22%20height%3D%2280.32%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(307.96%20634.94)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-40.02%22%20y%3D%22-70.64%22%20width%3D%2280.05%22%20height%3D%22141.27%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(989.66%20680.72)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-38.90%22%20y%3D%22-77.27%22%20width%3D%2277.80%22%20height%3D%22154.54%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(442.49%20687.00)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.95%22%20y%3D%22-77.43%22%20width%3D%2279.90%22%20height%3D%22154.86%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(628.50%20689.00)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.40%22%20y%3D%22-134.46%22%20width%3D%2278.80%22%20height%3D%22268.92%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(853.69%20727.31)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-69.65%22%20y%3D%22-38.18%22%20width%3D%22139.30%22%20height%3D%2276.37%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(353.25%20771.75)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-78.44%22%20y%3D%22-39.44%22%20width%3D%22156.88%22%20height%3D%2278.88%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(720.61%20782.02)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-133.77%22%20y%3D%22-39.86%22%20width%3D%22267.53%22%20height%3D%2279.71%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(493.85%20820.81)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.24%22%20y%3D%22-66.82%22%20width%3D%2278.49%22%20height%3D%22133.64%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(806.50%20868.00)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-40.02%22%20y%3D%22-133.39%22%20width%3D%2280.05%22%20height%3D%22266.79%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(666.35%20914.10)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-67.18%22%20y%3D%22-39.60%22%20width%3D%22134.35%22%20height%3D%2279.20%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(540.00%20960.00)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-49.85%22%20y%3D%22-49.50%22%20width%3D%2299.70%22%20height%3D%2298.99%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(627.25%201064.75)%20rotate(-45.00)%22%20fill%3D%22white%22%2F%3E%0A%20%20%20%20%3C%2Fmask%3E%0A%20%20%3C%2Fdefs%3E%0A%20%20%3Cg%3E%0A%20%20%20%20%3Cg%20mask%3D%22url(%23net-mask)%22%3E%0A%20%20%20%20%20%20%3Crect%20width%3D%221254%22%20height%3D%221254%22%20fill%3D%22%2307090d%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%22360%22%20cy%3D%22240%22%20r%3D%22430%22%20fill%3D%22url(%23spot-0)%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%22820%22%20cy%3D%22300%22%20r%3D%22430%22%20fill%3D%22url(%23spot-1)%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%22760%22%20cy%3D%22830%22%20r%3D%22500%22%20fill%3D%22url(%23spot-2)%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%22300%22%20cy%3D%22780%22%20r%3D%22390%22%20fill%3D%22url(%23spot-3)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20width%3D%221254%22%20height%3D%221254%22%20fill%3D%22url(%23edge)%22%20opacity%3D%220.18%22%2F%3E%0A%20%20%20%20%3C%2Fg%3E%0A%20%20%20%20%3Cg%20fill%3D%22none%22%20stroke%3D%22url(%23edge)%22%20stroke-width%3D%2214%22%20stroke-linejoin%3D%22round%22%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-46.32%22%20y%3D%22-47.38%22%20width%3D%2292.63%22%20height%3D%2294.75%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(628.75%20127.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-66.82%22%20y%3D%22-41.01%22%20width%3D%22133.64%22%20height%3D%2282.02%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(713.75%20230.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.95%22%20y%3D%22-134.00%22%20width%3D%2279.90%22%20height%3D%22267.99%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(588.00%20275.50)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.60%22%20y%3D%22-65.05%22%20width%3D%2279.20%22%20height%3D%22130.11%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(444.50%20320.50)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-133.29%22%20y%3D%22-40.31%22%20width%3D%22266.58%22%20height%3D%2280.61%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(759.75%20369.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-77.07%22%20y%3D%22-39.24%22%20width%3D%22154.15%22%20height%3D%2278.49%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(533.25%20407.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-67.10%22%20y%3D%22-39.74%22%20width%3D%22134.21%22%20height%3D%2279.48%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(895.22%20413.86)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.84%22%20y%3D%22-134.04%22%20width%3D%2279.68%22%20height%3D%22268.08%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(401.36%20461.24)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.60%22%20y%3D%22-74.60%22%20width%3D%2279.20%22%20height%3D%22149.20%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(812.25%20500.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.60%22%20y%3D%22-77.43%22%20width%3D%2279.20%22%20height%3D%22154.86%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(625.75%20500.75)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.24%22%20y%3D%22-67.18%22%20width%3D%2278.49%22%20height%3D%22134.35%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(263.25%20505.75)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-133.28%22%20y%3D%22-40.02%22%20width%3D%22266.56%22%20height%3D%2280.04%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(941.36%20551.76)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-54.80%22%20y%3D%22-53.74%22%20width%3D%22109.60%22%20height%3D%22107.48%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(1096.75%20593.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-77.43%22%20y%3D%22-40.31%22%20width%3D%22154.86%22%20height%3D%2280.61%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(719.75%20594.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-51.97%22%20y%3D%22-54.45%22%20width%3D%22103.94%22%20height%3D%22108.89%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(155.25%20594.75)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-76.37%22%20y%3D%22-40.31%22%20width%3D%22152.74%22%20height%3D%2280.61%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(534.50%20595.50)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-135.12%22%20y%3D%22-40.16%22%20width%3D%22270.23%22%20height%3D%2280.32%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(307.96%20634.94)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-40.02%22%20y%3D%22-70.64%22%20width%3D%2280.05%22%20height%3D%22141.27%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(989.66%20680.72)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-38.90%22%20y%3D%22-77.27%22%20width%3D%2277.80%22%20height%3D%22154.54%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(442.49%20687.00)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.95%22%20y%3D%22-77.43%22%20width%3D%2279.90%22%20height%3D%22154.86%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(628.50%20689.00)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.40%22%20y%3D%22-134.46%22%20width%3D%2278.80%22%20height%3D%22268.92%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(853.69%20727.31)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-69.65%22%20y%3D%22-38.18%22%20width%3D%22139.30%22%20height%3D%2276.37%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(353.25%20771.75)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-78.44%22%20y%3D%22-39.44%22%20width%3D%22156.88%22%20height%3D%2278.88%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(720.61%20782.02)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-133.77%22%20y%3D%22-39.86%22%20width%3D%22267.53%22%20height%3D%2279.71%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(493.85%20820.81)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.24%22%20y%3D%22-66.82%22%20width%3D%2278.49%22%20height%3D%22133.64%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(806.50%20868.00)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-40.02%22%20y%3D%22-133.39%22%20width%3D%2280.05%22%20height%3D%22266.79%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(666.35%20914.10)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-67.18%22%20y%3D%22-39.60%22%20width%3D%22134.35%22%20height%3D%2279.20%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(540.00%20960.00)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-49.85%22%20y%3D%22-49.50%22%20width%3D%2299.70%22%20height%3D%2298.99%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(627.25%201064.75)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%3C%2Fg%3E%0A%20%20%20%20%3Cg%20fill%3D%22none%22%20stroke%3D%22%23ffffff%22%20stroke-opacity%3D%220.2%22%20stroke-width%3D%225%22%20stroke-linejoin%3D%22round%22%20transform%3D%22translate(-10%20-14)%22%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-46.32%22%20y%3D%22-47.38%22%20width%3D%2292.63%22%20height%3D%2294.75%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(628.75%20127.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-66.82%22%20y%3D%22-41.01%22%20width%3D%22133.64%22%20height%3D%2282.02%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(713.75%20230.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.95%22%20y%3D%22-134.00%22%20width%3D%2279.90%22%20height%3D%22267.99%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(588.00%20275.50)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.60%22%20y%3D%22-65.05%22%20width%3D%2279.20%22%20height%3D%22130.11%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(444.50%20320.50)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-133.29%22%20y%3D%22-40.31%22%20width%3D%22266.58%22%20height%3D%2280.61%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(759.75%20369.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-77.07%22%20y%3D%22-39.24%22%20width%3D%22154.15%22%20height%3D%2278.49%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(533.25%20407.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-67.10%22%20y%3D%22-39.74%22%20width%3D%22134.21%22%20height%3D%2279.48%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(895.22%20413.86)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.84%22%20y%3D%22-134.04%22%20width%3D%2279.68%22%20height%3D%22268.08%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(401.36%20461.24)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.60%22%20y%3D%22-74.60%22%20width%3D%2279.20%22%20height%3D%22149.20%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(812.25%20500.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.60%22%20y%3D%22-77.43%22%20width%3D%2279.20%22%20height%3D%22154.86%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(625.75%20500.75)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.24%22%20y%3D%22-67.18%22%20width%3D%2278.49%22%20height%3D%22134.35%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(263.25%20505.75)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-133.28%22%20y%3D%22-40.02%22%20width%3D%22266.56%22%20height%3D%2280.04%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(941.36%20551.76)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-54.80%22%20y%3D%22-53.74%22%20width%3D%22109.60%22%20height%3D%22107.48%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(1096.75%20593.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-77.43%22%20y%3D%22-40.31%22%20width%3D%22154.86%22%20height%3D%2280.61%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(719.75%20594.25)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-51.97%22%20y%3D%22-54.45%22%20width%3D%22103.94%22%20height%3D%22108.89%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(155.25%20594.75)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-76.37%22%20y%3D%22-40.31%22%20width%3D%22152.74%22%20height%3D%2280.61%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(534.50%20595.50)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-135.12%22%20y%3D%22-40.16%22%20width%3D%22270.23%22%20height%3D%2280.32%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(307.96%20634.94)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-40.02%22%20y%3D%22-70.64%22%20width%3D%2280.05%22%20height%3D%22141.27%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(989.66%20680.72)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-38.90%22%20y%3D%22-77.27%22%20width%3D%2277.80%22%20height%3D%22154.54%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(442.49%20687.00)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.95%22%20y%3D%22-77.43%22%20width%3D%2279.90%22%20height%3D%22154.86%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(628.50%20689.00)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.40%22%20y%3D%22-134.46%22%20width%3D%2278.80%22%20height%3D%22268.92%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(853.69%20727.31)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-69.65%22%20y%3D%22-38.18%22%20width%3D%22139.30%22%20height%3D%2276.37%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(353.25%20771.75)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-78.44%22%20y%3D%22-39.44%22%20width%3D%22156.88%22%20height%3D%2278.88%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(720.61%20782.02)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-133.77%22%20y%3D%22-39.86%22%20width%3D%22267.53%22%20height%3D%2279.71%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(493.85%20820.81)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-39.24%22%20y%3D%22-66.82%22%20width%3D%2278.49%22%20height%3D%22133.64%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(806.50%20868.00)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-40.02%22%20y%3D%22-133.39%22%20width%3D%2280.05%22%20height%3D%22266.79%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(666.35%20914.10)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-67.18%22%20y%3D%22-39.60%22%20width%3D%22134.35%22%20height%3D%2279.20%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(540.00%20960.00)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%22-49.85%22%20y%3D%22-49.50%22%20width%3D%2299.70%22%20height%3D%2298.99%22%20rx%3D%2212.00%22%20ry%3D%2212.00%22%20transform%3D%22translate(627.25%201064.75)%20rotate(-45.00)%22%2F%3E%0A%20%20%20%20%3C%2Fg%3E%0A%20%20%3C%2Fg%3E%0A%3C%2Fsvg%3E%0A">
+  <script>
+    (() => {
+      const stored = localStorage.getItem('cc-safety-net-theme');
+      if (stored === 'light' || stored === 'dark') document.documentElement.style.colorScheme = stored;
+    })();
+  </script>
+  <style>
+/* cc-safety-net-gui-custom-css */
+:root {
+  color-scheme: light dark;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --bg: light-dark(#f3f4f6, #0c0e11);
+  --surface: light-dark(#ffffff, #16191d);
+  --surface-2: light-dark(#f6f7f9, #1c2025);
+  --btn-hover-fill: light-dark(#e9ebef, #282c33);
+  --field-bg: light-dark(#ffffff, #101317);
+
+  --ink: light-dark(#171a1f, #e7eaed);
+  --muted: light-dark(#5b626c, #99a1ac);
+  --meta: light-dark(#6b7280, #838b95);
+
+  --border: light-dark(#e3e6ea, #292d33);
+  --border-strong: light-dark(#cfd4da, #363b42);
+
+  /* Both track tones clear 3:1 against --surface so an off switch, and the knob
+     inside it, stay visible without relying on the accent. */
+  --switch-track: light-dark(#8b929c, #626973);
+  --switch-track-hover: #767d87;
+  --switch-knob: #ffffff;
+
+  /* Neutral, not accent-tinted: the ring is a position indicator, not a state.
+     Solid rather than a translucent mix so its contrast does not depend on
+     whichever surface the focused control happens to sit on. */
+  --focus-ring: var(--ink);
+
+  --accent: light-dark(#166534, #3fb950);
+  --safe: #14532d;
+  --safe-hover: #0f3d20;
+  --danger: #7f1d1d;
+  --danger-hover: #641414;
+
+  --star: light-dark(#b7791f, #f2c94c);
+
+  --ok-fg: light-dark(#15803d, #4ade80);
+  --ok-bg: light-dark(#edfaf1, #10251a);
+  --ok-border: light-dark(#b7e4c7, #1f5133);
+
+  --err-fg: light-dark(#b42318, #ff8078);
+  --err-bg: light-dark(#fef2f1, #2b1512);
+  --err-border: light-dark(#f2c9c4, #5c2620);
+
+  --warn-fg: light-dark(#b45309, #fbbf24);
+  --warn-bg: light-dark(#fefaf0, #2a2008);
+  --warn-border: light-dark(#f2ddb0, #5c4a1d);
+
+  --master: light-dark(#1d4ed8, #4c8dff);
+  --master-fg: light-dark(#1e40af, #9ec3ff);
+  --master-bg: light-dark(#eef4fe, #101a2b);
+  --master-border: light-dark(#c5d6f6, #23446e);
+
+  --strict-fg: light-dark(#1e40af, #9ec3ff);
+  --strict-bg: light-dark(#eef4fe, #101a2b);
+  --strict-border: light-dark(#c5d6f6, #23446e);
+  --paranoid-fg: light-dark(#6b21a8, #d8b4fe);
+  --paranoid-bg: light-dark(#faf5ff, #21152c);
+  --paranoid-border: light-dark(#e4ccf4, #513064);
+
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+
+  --topbar-h: 58px;
+
+  font-family: var(--font-sans);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px 14px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.brand {
+  padding: 0 10px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.brand-logo {
+  display: flex;
+  color: var(--ink);
+}
+
+.brand-home {
+  display: flex;
+  color: inherit;
+}
+
+.brand-logo svg {
+  width: auto;
+  height: 30px;
+}
+
+.sidenav {
+  display: grid;
+  gap: 2px;
+}
+
+.sidenav a {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.sidenav a:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+/* One step above the hover fill, so the selected item stays readable while a
+   sibling is hovered. */
+.sidenav a[aria-current="page"] {
+  background: var(--btn-hover-fill);
+  color: var(--ink);
+}
+
+.sidenav svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.sidebar-foot {
+  margin-top: auto;
+  display: grid;
+  gap: 10px;
+  padding: 0 10px;
+}
+
+.sidebar-links {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.sidebar-links a {
+  color: var(--meta);
+  text-decoration: none;
+}
+
+.sidebar-links a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.sidebar-links a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-foot {
+  display: none;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  min-height: var(--topbar-h);
+  padding: 12px 28px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 1;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.topbar-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.app-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.app-status:empty {
+  display: none;
+}
+
+.app-status.ok {
+  color: var(--ok-fg);
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+}
+
+.app-status.error {
+  color: var(--err-fg);
+  border-color: var(--err-border);
+  background: var(--err-bg);
+}
+
+.dirty-chip {
+  padding: 6px 12px;
+  border: 1px solid var(--warn-border);
+  border-radius: 999px;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.view-search {
+  display: flex;
+  align-items: center;
+  flex: 1 1 240px;
+  min-width: 180px;
+  max-width: 380px;
+}
+
+.topbar-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 440px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Everything clickable gets the pointer cursor. Links already get it from the
+   user agent; buttons, selects, and the label rows that wrap a control do not. */
+button:not(:disabled),
+select,
+label.row:not(.row-disabled),
+label.rule-control,
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled) {
+  cursor: pointer;
+}
+
+button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 8px 14px;
+  background: var(--surface);
+  color: var(--ink);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--muted);
+}
+
+/* Borderless ghost buttons with a soft filled-square hover. */
+#theme-toggle,
+#raw-copy,
+#activity-refresh,
+#integrations-refresh,
+#rules-refresh,
+#tester-run,
+#reset-rule-customizations,
+#reset-secret-customizations,
+.rule-example-button {
+  border-color: transparent;
+}
+
+#theme-toggle:hover:not(:disabled),
+#raw-copy:hover:not(:disabled),
+#activity-refresh:hover:not(:disabled),
+#integrations-refresh:hover:not(:disabled),
+#rules-refresh:hover:not(:disabled),
+#tester-run:hover:not(:disabled),
+#reset-rule-customizations:hover:not(:disabled),
+#reset-secret-customizations:hover:not(:disabled),
+.rule-example-button:hover:not(:disabled) {
+  background: var(--btn-hover-fill);
+  border-color: transparent;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+button.primary {
+  background: var(--safe);
+  border-color: var(--safe);
+  color: #fff;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--safe-hover);
+  border-color: var(--safe-hover);
+}
+
+button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+button.danger:hover:not(:disabled) {
+  background: var(--danger-hover);
+  border-color: var(--danger-hover);
+}
+
+#theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-end;
+  gap: 7px;
+  color: var(--muted);
+}
+
+#theme-toggle:hover {
+  color: var(--ink);
+}
+
+#theme-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+button.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--muted);
+}
+
+button.icon-button:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+button.icon-button.copied {
+  color: var(--ok-fg);
+}
+
+button.icon-button.copied:hover:not(:disabled) {
+  color: var(--ok-fg);
+}
+
+button.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+:where(button, input, textarea):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+main {
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 24px 28px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.view {
+  display: grid;
+  gap: 18px;
+}
+
+.view[hidden] {
+  display: none;
+}
+
+.view-head .panel-sub {
+  margin-top: 0;
+}
+
+.policy-savebar {
+  position: sticky;
+  top: var(--topbar-h);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.savebar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.retention-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.retention-row input {
+  width: 84px;
+  text-align: right;
+}
+
+.retention-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+/* States the window once for the row, so each tile label stays a single word. */
+.tiles-window {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.tiles-window:empty {
+  display: none;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.tiles:empty {
+  display: none;
+}
+
+/* Count and label stack on the left, series on the right: seven bars stretched
+   across a half-width tile read as blocks rather than a trend. */
+.tile {
+  display: grid;
+  grid-template-columns: 1fr minmax(0, 168px);
+  grid-template-areas:
+    "value spark"
+    "label spark";
+  align-items: center;
+  gap: 3px 16px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.tile strong {
+  grid-area: value;
+  align-self: end;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile span {
+  grid-area: label;
+  align-self: start;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.view-all-link {
+  align-self: center;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.view-all-link:hover {
+  background: var(--btn-hover-fill);
+  color: var(--ink);
+}
+
+.protection-warning {
+  border-color: var(--err-border);
+  background: color-mix(in srgb, var(--err-bg) 60%, var(--surface));
+}
+
+.dual-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 720px) {
+  .dual-panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* minmax(0, 1fr), not the implicit auto track: rule IDs are nowrap, and their
+   min-content would otherwise widen the whole Overview grid past the viewport. */
+#top-rules,
+#top-commands {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+
+.top-rule,
+.top-command {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 10px;
+  border-color: transparent;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.top-rule:hover:not(:disabled),
+.top-command:hover:not(:disabled) {
+  background: var(--btn-hover-fill);
+  border-color: transparent;
+}
+
+.top-rule .rule-id,
+.top-command .rule-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guard-errors {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.activity-controls {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.activity-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.activity-days {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.activity-refresh {
+  margin-left: auto;
+}
+
+@keyframes activity-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.activity-refresh.spinning svg {
+  animation: activity-refresh-spin 0.6s linear infinite;
+}
+
+.integrations-refresh,
+.rules-refresh {
+  margin-left: auto;
+}
+
+.integrations-refresh.spinning svg,
+.rules-refresh.spinning svg {
+  animation: activity-refresh-spin 0.6s linear infinite;
+}
+
+#integrations-list {
+  display: grid;
+  gap: 8px;
+}
+
+.integration-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.integration-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.integration-row .status {
+  grid-column: 1 / -1;
+}
+
+.integration-row button.primary,
+.integration-row button.danger {
+  min-width: 88px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink);
+}
+
+.integration-row button.primary:hover:not(:disabled),
+.integration-row button.danger:hover:not(:disabled) {
+  color: #fff;
+}
+
+/* The panel stacks bare .field blocks rather than wrapping them in a gapped
+   grid, so each label would otherwise sit flush against the control above it. */
+#rules-composer-panel .field + .field,
+.rules-composer-actions {
+  margin-top: 14px;
+}
+
+.rules-path-row {
+  display: flex;
+  gap: 8px;
+}
+
+.rules-path-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.rules-path-row button {
+  flex: none;
+}
+
+/* Picked, not typed: the value is a dialog result, so it reads as a fact rather
+   than an editable field until the picker turns out to be unusable. */
+#rules-project-path[readonly] {
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.rules-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+#rules-list,
+#rules-diagnostics {
+  display: grid;
+  gap: 8px;
+}
+
+.rulebook-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.rulebook-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* minmax(0, 1fr), not the implicit auto track: nowrap custom.<name> ids would
+   otherwise widen the card past the viewport. */
+.rulebook-rule {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.rulebook-head code,
+.rulebook-rule code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.rulebook-rule .rule-id {
+  color: var(--muted);
+}
+
+.rulebook-rule p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* The jumped-to rule is scrolled to the middle of a list of near-identical
+   rows, so the marker needs an edge, not just a surface shade. */
+.rulebook-rule.rules-focus {
+  margin: 0 -8px;
+  padding: 10px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+select {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  background: var(--field-bg);
+  color: var(--ink);
+  font: inherit;
+}
+
+.chip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip-row:empty {
+  display: none;
+}
+
+button.chip {
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+button.chip[aria-pressed="true"] {
+  background: var(--master-bg);
+  border-color: var(--master-border);
+  color: var(--master-fg);
+}
+
+.chip-count {
+  font-variant-numeric: tabular-nums;
+}
+
+button.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--master-bg);
+  border-color: var(--master-border);
+  color: var(--master-fg);
+}
+
+button.filter-pill code {
+  font-family: var(--font-mono);
+}
+
+.filter-pill-x {
+  opacity: 0.7;
+}
+
+.feed-list {
+  display: grid;
+  gap: 8px;
+}
+
+.feed-item {
+  display: grid;
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.feed-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--meta);
+}
+
+.feed-meta time {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.feed-copy,
+.feed-report {
+  width: 26px;
+  height: 26px;
+  margin: -4px 0;
+  border: 0;
+  background: transparent;
+}
+
+.feed-copy:hover:not(:disabled),
+.feed-report:hover:not(:disabled) {
+  background: transparent;
+}
+
+.feed-copy svg,
+.feed-report svg {
+  width: 14px;
+  height: 14px;
+}
+
+.feed-copy.copied svg {
+  width: 12px;
+  height: 12px;
+}
+
+.feed-meta .rule-id {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* button.rule-id drops to font: inherit, and the tester renders a custom rule
+   id as a button next to a <code> built-in id, so the face has to be restored
+   or the same slot changes typeface with the rule that fired. */
+#tester-result .rule-id {
+  font-family: var(--font-mono);
+}
+
+button.rule-id {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+}
+
+button.rule-id:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.decision-badge {
+  padding: 1px 8px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.decision-badge.deny {
+  color: var(--err-fg);
+  background: var(--err-bg);
+  border-color: var(--err-border);
+}
+
+.decision-badge.allow {
+  color: var(--ok-fg);
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+}
+
+.decision-badge.error {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+
+.agent-badge {
+  padding: 1px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.feed-command,
+.rule-example-popover code {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.feed-command {
+  padding: 8px 10px;
+  max-width: 85ch;
+  max-height: 7.2em;
+  overflow: hidden;
+}
+
+.feed-command.clamped {
+  mask-image: linear-gradient(180deg, #000 calc(100% - 1.6em), transparent);
+}
+
+.feed-command.expanded {
+  max-height: none;
+  mask-image: none;
+}
+
+.feed-toggle {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* .feed-toggle is sized for its usual slot below the command. In .feed-meta it
+   has to drop to the row's 11px and stop overriding the row's centre alignment. */
+.feed-block {
+  align-self: center;
+  font-size: 11px;
+}
+
+.feed-day-sep {
+  padding-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.tile-spark {
+  grid-area: spark;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  width: 100%;
+  height: 40px;
+}
+
+/* Full-height hover column so short bars are easy to target; the visible bar
+   sits at the bottom and the tooltip anchors at a consistent height. */
+.spark-col {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  flex: 1 1 0;
+  min-width: 1px;
+}
+
+.spark-bar {
+  width: 100%;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+.spark-bar.spark-zero {
+  background: var(--border-strong);
+}
+
+.spark-col::after {
+  content: attr(data-count);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.spark-col:hover::after,
+.spark-col:focus-visible::after {
+  opacity: 1;
+}
+
+.spark-col:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.feed-reason {
+  margin: 0;
+  max-width: 85ch;
+  font-size: 12px;
+}
+
+.activity-count {
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+
+.activity-count:empty {
+  display: none;
+}
+
+.info-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.info-row {
+  display: grid;
+  gap: 3px;
+}
+
+.info-row > span {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.info-row code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.danger-row strong {
+  font-size: 13px;
+}
+
+.danger-row p {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.status {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.status:empty {
+  display: none;
+}
+
+.protection-banner {
+  padding: 10px 14px;
+  border: 1px solid var(--err-fg);
+  border-radius: var(--radius);
+  background: var(--err-bg);
+  color: var(--err-fg);
+  font-weight: 600;
+}
+
+.status.ok {
+  color: var(--ok-fg);
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+}
+
+.status.error {
+  color: var(--err-fg);
+  background: var(--err-bg);
+  border-color: var(--err-border);
+}
+
+.health-strip strong {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--err-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.recovery[hidden] {
+  display: none;
+}
+
+.recovery strong {
+  display: block;
+  font-size: 13px;
+}
+
+.recovery p {
+  margin: 4px 0 0;
+}
+
+.muted {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.confirm-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.rule-example-popover {
+  position: fixed;
+  inset: auto;
+  width: min(360px, calc(100vw - 24px));
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 4px 8px rgb(0 0 0 / 18%);
+}
+
+.rule-example-popover::backdrop {
+  background: transparent;
+}
+
+.rule-example-popover > * {
+  display: block;
+}
+
+.rule-example-label {
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rule-example-popover strong {
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.rule-example-popover code {
+  padding: 9px 10px;
+}
+
+.confirm-dialog::backdrop {
+  background: rgb(0 0 0 / 48%);
+}
+
+.confirm-dialog form {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.confirm-dialog h2 {
+  margin: 0;
+}
+
+.confirm-dialog p {
+  margin: 0;
+}
+
+.dialog-detail {
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+
+.dialog-detail code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.report-dialog {
+  width: min(680px, calc(100vw - 32px));
+}
+
+.report-field {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.panel-title {
+  min-width: 0;
+}
+
+.raw-json-head {
+  flex-wrap: nowrap;
+}
+
+.raw-json-head .panel-title {
+  flex: 1 1 auto;
+}
+
+.raw-json-head #raw-copy {
+  flex: none;
+}
+
+.panel-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: -4px 0;
+  padding: 4px 6px 4px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.panel-toggle:hover {
+  background: transparent;
+  color: var(--ink);
+}
+
+.panel-chevron {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-1px);
+  transition: transform 0.15s ease;
+}
+
+.panel-toggle[aria-expanded="false"] .panel-chevron,
+:is(.rule-tier-head, .tier-collapse)[aria-expanded="false"] .panel-chevron {
+  transform: rotate(-45deg);
+}
+
+h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.panel-sub {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 8px;
+}
+
+label.row {
+  display: flex;
+  gap: 12px;
+}
+
+label.row,
+.rule-row {
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+label.row:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+label.row.row-disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+label.row.row-disabled:hover {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+:is(label.row, .rule-control) input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  margin: 1px 0 0;
+  width: 34px;
+  height: 20px;
+  flex: none;
+  border: 1px solid var(--switch-track);
+  border-radius: 999px;
+  background: var(--switch-track);
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease;
+}
+
+:is(label.row, .rule-control) input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--switch-knob);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  transition: transform 0.18s ease;
+}
+
+:is(label.row, .rule-control) input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+:is(label.row, .rule-control) input[type="checkbox"]:checked::before {
+  transform: translateX(14px);
+}
+
+:is(label.row, .rule-control):hover input[type="checkbox"]:not(:checked) {
+  border-color: var(--switch-track-hover);
+  background: var(--switch-track-hover);
+}
+
+label.row.safety-override-row {
+  display: grid;
+  gap: 8px;
+}
+
+label.row.safety-override-row select {
+  width: 100%;
+}
+
+:is(label.row, .rule-control) span {
+  display: block;
+  min-width: 0;
+}
+
+:is(label.row, .rule-control) strong {
+  font-weight: 650;
+  font-size: 13px;
+}
+
+:is(label.row, .rule-control) .rule-id {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+  word-break: break-all;
+}
+
+:is(label.row, .rule-control) small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+#destructive-command > label.row {
+  margin-bottom: 16px;
+}
+
+.preset-status {
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+
+#safety-preset-status:empty {
+  display: none;
+}
+
+.preset-status.customized {
+  color: var(--master-fg);
+}
+
+/* The picker is the most consequential control in the console, and it named
+   the same three tiers the rule sections below already color. The selected
+   card now speaks that vocabulary; unselected cards stay neutral. */
+.preset-standard {
+  --preset-fg: var(--ok-fg);
+  --preset-bg: var(--ok-bg);
+  --preset-border: var(--ok-border);
+}
+
+.preset-strict {
+  --preset-fg: var(--strict-fg);
+  --preset-bg: var(--strict-bg);
+  --preset-border: var(--strict-border);
+}
+
+.preset-paranoid {
+  --preset-fg: var(--paranoid-fg);
+  --preset-bg: var(--paranoid-bg);
+  --preset-border: var(--paranoid-border);
+}
+
+#safety-level label.row:has(input:checked),
+#safety-level label.row:has(input:checked):hover {
+  border-color: var(--preset-border);
+  background: var(--preset-bg);
+  accent-color: var(--preset-fg);
+}
+
+#safety-level label.row:has(input:checked) strong {
+  color: var(--preset-fg);
+}
+
+.panel-head-action {
+  flex: none;
+}
+
+.rule-tier {
+  overflow: clip;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.rule-tier + .rule-tier,
+#destructive-command-rules + .rule-tier {
+  margin-top: 10px;
+}
+
+.rule-tier-enforced {
+  border-color: var(--ok-border);
+}
+
+.rule-tier-strict {
+  border-color: var(--strict-border);
+}
+
+.rule-tier-paranoid {
+  border-color: var(--paranoid-border);
+}
+
+.rule-tier-head {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-2);
+  color: var(--ink);
+  text-align: left;
+}
+
+.rule-tier-head:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+/* The secret group head carries a bulk action, so the collapse control is a
+   button inside the head rather than the head itself. The negative margin
+   cancels the head's padding and the stretch spans the taller switch beside it,
+   so the button covers the whole head band and the layout stays where it was;
+   without them the head's padding is a dead zone. */
+.tier-collapse {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  align-self: stretch;
+  gap: 12px;
+  margin: -9px -10px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+/* A thin track with a knob that overhangs it. The rule switches are a filled
+   pill, so the group control does not read as one more rule. */
+.tier-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 30px;
+  height: 16px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.tier-switch::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 6px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--switch-track);
+  transition: background-color 0.18s ease;
+}
+
+/* Above the track, which paints later in the pseudo-element order. */
+.tier-switch::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--switch-knob);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  transition: transform 0.18s ease;
+}
+
+.tier-switch:checked::after {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.tier-switch:checked::before {
+  transform: translateX(14px);
+  background: var(--accent);
+}
+
+/* The tiers that can be switched off carried the only hues, leaving the tier
+   that can never be switched off as the quietest thing on the panel. */
+.rule-tier-enforced .rule-tier-head,
+.rule-tier-enforced .rule-tier-head:hover:not(:disabled) {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.rule-tier-strict .rule-tier-head,
+.rule-tier-strict .rule-tier-head:hover:not(:disabled) {
+  background: var(--strict-bg);
+  color: var(--strict-fg);
+}
+
+.rule-tier-paranoid .rule-tier-head,
+.rule-tier-paranoid .rule-tier-head:hover:not(:disabled) {
+  background: var(--paranoid-bg);
+  color: var(--paranoid-fg);
+}
+
+.tier-label {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+}
+
+.tier-label small,
+.tier-counts {
+  color: inherit;
+  font-size: 11px;
+}
+
+.tier-counts {
+  flex: none;
+  font-weight: 500;
+  text-align: right;
+}
+
+.tier-counts .count-off {
+  color: var(--warn-fg);
+}
+
+.tier-content {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.rule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.rule-row:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+.rule-row.row-disabled {
+  background: var(--surface);
+}
+
+.rule-control {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.rule-row.row-disabled .rule-control {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.rule-example-button {
+  position: relative;
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.rule-example-button::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+}
+
+.rule-example-button:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.inherit-button {
+  grid-column: 1 / -1;
+  justify-self: end;
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+label.row.master {
+  align-items: center;
+  padding: 12px 14px;
+  border-color: var(--err-border);
+  background: color-mix(in srgb, var(--err-bg) 60%, var(--surface));
+}
+
+label.row.master:hover {
+  border-color: color-mix(in srgb, var(--err-fg) 34%, var(--err-border));
+  background: var(--err-bg);
+}
+
+label.row.master:not(:has(input:checked)) {
+  border-left: 3px solid var(--err-fg);
+}
+
+label.row.master:has(input:checked) {
+  border-color: var(--master-border);
+  background: color-mix(in srgb, var(--master-bg) 72%, var(--surface));
+}
+
+label.row.master:has(input:checked):hover {
+  border-color: color-mix(in srgb, var(--master) 42%, var(--master-border));
+  background: var(--master-bg);
+}
+
+label.row.master strong {
+  font-size: 15px;
+}
+
+label.row.master input[type="checkbox"] {
+  margin: 0;
+  width: 44px;
+  height: 24px;
+}
+
+label.row.master input[type="checkbox"]:checked {
+  background: var(--master);
+  border-color: var(--master);
+}
+
+label.row.master input[type="checkbox"]::before {
+  width: 18px;
+  height: 18px;
+}
+
+label.row.master input[type="checkbox"]:checked::before {
+  transform: translateX(20px);
+}
+
+.master-badge {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 9px;
+  border: 1px solid var(--err-border);
+  border-radius: 999px;
+  background: var(--err-bg);
+  color: var(--err-fg);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+label.row.master:has(input:checked) .master-badge {
+  border-color: var(--master-border);
+  background: var(--master-bg);
+  color: var(--master-fg);
+}
+
+.state-active {
+  color: var(--ok-fg);
+  font-weight: 700;
+}
+
+.state-disabled {
+  color: var(--err-fg);
+  font-weight: 700;
+}
+
+.destructive-command-group + .destructive-command-group {
+  margin-top: 24px;
+}
+
+.destructive-command-group h3 {
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.empty {
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--muted);
+  text-align: center;
+}
+
+#secret {
+  display: grid;
+  gap: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+}
+
+.field-toggle .panel-toggle {
+  justify-self: start;
+  margin: -2px 0;
+  padding: 2px 6px 2px 0;
+  font-weight: 650;
+}
+
+#safety-level + .field,
+.foldable-field-content + .field {
+  margin-top: 14px;
+}
+
+#safety-overrides,
+#workflow {
+  margin-top: 4px;
+}
+
+.foldable-field-content {
+  display: grid;
+  gap: 4px;
+}
+
+.foldable-field-content > p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.paths-content:not([hidden]) {
+  display: grid;
+  gap: 10px;
+}
+
+.paths-content > p.muted {
+  margin: 0;
+  font-size: 12px;
+}
+
+.field > span {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.field small {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+input[type="search"],
+input[type="text"],
+textarea {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 9px 11px;
+  background: var(--field-bg);
+  color: var(--ink);
+  font: inherit;
+  transition: border-color 0.15s ease;
+}
+
+input[type="search"]:hover,
+input[type="text"]:hover,
+textarea:hover {
+  border-color: var(--muted);
+}
+
+/* Text fields carry no focus ring. \`outline: none\` is load-bearing rather than
+   redundant: without it these fall back to the browser's default focus-visible
+   outline. Buttons, links, and the sparkline columns keep theirs. */
+input[type="search"]:focus,
+input[type="text"]:focus,
+textarea:focus {
+  border-color: var(--muted);
+  outline: none;
+}
+
+input[type="text"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.tester-row {
+  display: flex;
+  gap: 8px;
+}
+
+.tester-row input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.tester-row button {
+  flex: none;
+  align-self: center;
+}
+
+#tester-result {
+  margin-top: 12px;
+}
+
+.tester-segment {
+  margin-top: 6px;
+}
+
+.paths-add {
+  display: flex;
+  gap: 8px;
+}
+
+.paths-add input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.paths-add button {
+  flex: none;
+  align-self: center;
+}
+
+.paths-hint {
+  margin: -6px 0 0;
+  color: var(--err-fg);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.paths-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.path-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.path-item code {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.path-item button:hover:not(:disabled) {
+  color: var(--err-fg);
+  border-color: var(--err-border);
+  background: var(--err-bg);
+}
+
+.path-item.row-disabled {
+  opacity: 0.62;
+}
+
+.path-item.row-disabled button {
+  cursor: not-allowed;
+}
+
+.path-item button {
+  flex: none;
+}
+
+textarea {
+  min-height: 96px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+#raw {
+  min-height: 280px;
+}
+
+.star-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 0 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.star-pitch {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.star-pitch strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.star-mechanism {
+  display: block;
+  margin-top: 2px;
+  color: var(--meta);
+  font-size: 11.5px;
+}
+
+#star-slot {
+  display: inline-flex;
+  flex: none;
+}
+
+.star-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: none;
+  white-space: nowrap;
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.star-cta:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--star) 45%, var(--border-strong));
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.star-cta:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.star-icon {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  color: var(--star);
+}
+
+.star-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.star-count {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  border-left: 1px solid var(--border-strong);
+  padding-left: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.star-cta.starred:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+/* !important and the pseudo-element selectors are load-bearing: the universal
+   selector loses to every class-level transition in this file, and does not
+   match the switch knob's ::before at all. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion must win over every class-level transition */
+    transition: none !important;
+  }
+
+  .activity-refresh.spinning svg,
+  .integrations-refresh.spinning svg,
+  .rules-refresh.spinning svg {
+    animation: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
+
+  .sidebar {
+    z-index: 100;
+    height: var(--topbar-h);
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    padding: 0 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* The bar's six nav items sit at their minimum width, so the wordmark is
+     what has to give for the row to fit a 320px viewport. */
+  .brand-logo svg {
+    height: 20px;
+  }
+
+  .topbar {
+    position: static;
+    z-index: auto;
+  }
+
+  /* On views with a search, the top bar becomes a slim sticky search row
+     pinned directly below the nav bar. */
+  .topbar.has-search {
+    position: sticky;
+    top: var(--topbar-h);
+    z-index: 95;
+  }
+
+  .policy-savebar {
+    top: calc(var(--topbar-h) * 2);
+  }
+
+  .brand {
+    flex: none;
+    padding: 0;
+  }
+
+  main {
+    flex: 1;
+  }
+
+  .app-foot {
+    display: flex;
+    justify-content: center;
+    gap: 28px;
+    padding: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+  }
+
+  .app-foot a {
+    color: var(--meta);
+    text-decoration: none;
+  }
+
+  .app-foot a:hover {
+    color: var(--ink);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .sidenav {
+    display: flex;
+    flex: 1;
+    justify-content: flex-end;
+    gap: 2px;
+  }
+
+  /* Vertical padding fills the bar for a taller touch target; the horizontal
+     side stays tight because the row already has no width to spare at 320px. */
+  .sidenav a {
+    padding: 15px 7px;
+  }
+
+  .sr-only-collapse {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .sidebar-foot {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    padding: 10px 16px;
+  }
+
+  .topbar-row {
+    flex-wrap: wrap;
+  }
+
+  .topbar.has-search .topbar-row {
+    flex-wrap: nowrap;
+  }
+
+  main {
+    padding: 18px 16px 40px;
+  }
+
+  .topbar-search {
+    max-width: none;
+  }
+
+  .panel {
+    padding: 16px;
+  }
+
+  .star-row {
+    flex-wrap: wrap;
+  }
+
+  .star-row .star-cta,
+  .star-row #star-slot {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+
+  .panel-head {
+    flex-direction: column;
+  }
+
+  .raw-json-head,
+  .panel-head:has(.view-all-link) {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The counts wrap to their own line below the label. The destructive tiers
+     and secret groups nest the label and counts inside .tier-collapse, so the
+     wrap must be enabled there as well, not only on the head. */
+  .rule-tier-head,
+  .tier-collapse {
+    flex-wrap: wrap;
+  }
+
+  .rule-row {
+    align-items: start;
+  }
+
+  .tier-counts {
+    flex: 1 1 100%;
+    padding-left: 20px;
+    text-align: left;
+  }
+
+  .inherit-button {
+    align-self: flex-start;
+  }
+}
+
+@media (min-width: 1440px) {
+  body[data-view="overview"] main,
+  body[data-view="overview"] .topbar-row {
+    max-width: 1200px;
+  }
+}
+
+[hidden] {
+  display: none;
+}
+
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1 class="brand-logo"><a class="brand-home" href="#overview" title="Overview"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 512" role="img" aria-label="CC Safety Net">
+  <path d="M 1439 165 L 1411 165 L 1409 166 L 1408 168 L 1403 173 L 1403 174 L 1398 179 L 1398 180 L 1395 183 L 1394 183 L 1394 184 L 1385 194 L 1385 195 L 1381 199 L 1381 200 L 1378 202 L 1378 203 L 1374 207 L 1374 208 L 1367 215 L 1367 216 L 1358 226 L 1358 227 L 1352 233 L 1352 234 L 1347 239 L 1347 240 L 1341 246 L 1341 247 L 1336 252 L 1336 253 L 1332 257 L 1332 258 L 1325 265 L 1325 266 L 1319 272 L 1319 273 L 1314 278 L 1314 279 L 1309 284 L 1309 285 L 1303 291 L 1303 292 L 1299 296 L 1299 297 L 1294 302 L 1291 299 L 1290 300 L 1290 301 L 1293 301 L 1294 302 L 1288 309 L 1287 308 L 1288 309 L 1286 312 L 1285 311 L 1285 306 L 1286 305 L 1286 303 L 1288 299 L 1288 296 L 1289 295 L 1289 292 L 1290 291 L 1290 287 L 1291 286 L 1291 284 L 1293 280 L 1293 277 L 1294 276 L 1294 272 L 1295 271 L 1295 269 L 1297 265 L 1297 262 L 1298 261 L 1298 258 L 1299 257 L 1299 253 L 1300 252 L 1300 250 L 1301 249 L 1301 247 L 1303 243 L 1303 238 L 1304 237 L 1304 235 L 1305 234 L 1305 232 L 1307 228 L 1307 224 L 1308 223 L 1308 221 L 1309 220 L 1309 217 L 1310 216 L 1310 214 L 1312 210 L 1312 205 L 1314 202 L 1314 199 L 1316 195 L 1317 188 L 1318 187 L 1318 185 L 1319 184 L 1319 182 L 1321 178 L 1321 173 L 1323 169 L 1323 166 L 1296 166 L 1296 168 L 1294 171 L 1294 174 L 1293 175 L 1293 178 L 1292 179 L 1291 186 L 1290 187 L 1290 189 L 1289 190 L 1289 192 L 1287 196 L 1287 200 L 1285 204 L 1285 207 L 1283 211 L 1283 215 L 1282 216 L 1282 218 L 1281 219 L 1281 222 L 1279 226 L 1279 229 L 1278 230 L 1278 234 L 1277 235 L 1277 237 L 1276 238 L 1276 240 L 1274 244 L 1274 249 L 1273 250 L 1273 252 L 1271 256 L 1271 259 L 1270 260 L 1270 263 L 1269 264 L 1269 268 L 1268 269 L 1268 271 L 1266 275 L 1266 278 L 1265 279 L 1265 284 L 1264 285 L 1264 287 L 1262 291 L 1262 294 L 1261 295 L 1261 298 L 1260 299 L 1259 306 L 1258 307 L 1258 309 L 1257 310 L 1257 313 L 1256 314 L 1256 318 L 1254 322 L 1254 325 L 1273 325 L 1274 327 L 1273 328 L 1272 327 L 1273 328 L 1269 332 L 1269 333 L 1265 337 L 1265 338 L 1261 341 L 1261 342 L 1252 352 L 1252 353 L 1247 358 L 1247 359 L 1242 364 L 1242 365 L 1239 367 L 1239 368 L 1224 385 L 1224 386 L 1220 390 L 1220 391 L 1216 395 L 1216 396 L 1214 397 L 1214 399 L 1247 399 L 1249 397 L 1249 396 L 1259 385 L 1259 384 L 1263 380 L 1263 379 L 1265 377 L 1266 377 L 1266 376 L 1271 371 L 1271 370 L 1278 363 L 1278 362 L 1283 357 L 1283 356 L 1294 344 L 1294 343 L 1298 339 L 1298 338 L 1305 331 L 1305 330 L 1309 326 L 1309 325 L 1312 323 L 1313 320 L 1315 319 L 1316 317 L 1321 312 L 1322 312 L 1321 311 L 1330 301 L 1330 300 L 1335 295 L 1335 294 L 1337 292 L 1338 292 L 1339 289 L 1342 287 L 1342 286 L 1346 282 L 1346 281 L 1352 275 L 1352 274 L 1361 264 L 1361 263 L 1370 253 L 1370 252 L 1375 247 L 1375 246 L 1380 241 L 1380 240 L 1387 233 L 1387 232 L 1402 215 L 1402 214 L 1406 210 L 1406 209 L 1408 207 L 1409 207 L 1409 206 L 1413 202 L 1413 201 L 1418 196 L 1418 195 L 1422 191 L 1422 190 L 1427 185 L 1427 184 L 1431 180 L 1431 179 L 1440 169 L 1441 167 Z
+M 1129 179 L 1126 178 L 1125 176 L 1124 176 L 1116 170 L 1114 170 L 1107 166 L 1105 166 L 1104 165 L 1101 165 L 1100 164 L 1096 164 L 1095 163 L 1091 163 L 1090 162 L 1081 162 L 1080 161 L 1076 161 L 1075 162 L 1066 162 L 1065 163 L 1061 163 L 1060 164 L 1057 164 L 1056 165 L 1051 165 L 1050 166 L 1045 167 L 1040 170 L 1038 170 L 1028 175 L 1023 179 L 1021 179 L 1017 183 L 1016 183 L 1012 187 L 1011 187 L 999 199 L 999 200 L 996 203 L 996 204 L 994 205 L 993 208 L 990 211 L 981 229 L 981 231 L 980 232 L 980 234 L 979 235 L 979 237 L 977 241 L 977 244 L 976 245 L 976 254 L 975 255 L 975 265 L 976 266 L 976 273 L 977 274 L 977 277 L 980 283 L 981 288 L 984 292 L 985 295 L 988 298 L 989 301 L 998 310 L 1001 311 L 1004 314 L 1007 315 L 1009 317 L 1013 319 L 1015 319 L 1018 321 L 1020 321 L 1024 323 L 1027 323 L 1028 324 L 1035 324 L 1036 325 L 1054 325 L 1055 324 L 1062 324 L 1063 323 L 1067 323 L 1068 322 L 1071 322 L 1077 319 L 1080 319 L 1087 315 L 1089 315 L 1093 313 L 1095 311 L 1098 310 L 1103 306 L 1106 305 L 1116 296 L 1117 296 L 1115 292 L 1113 290 L 1112 290 L 1111 288 L 1109 286 L 1108 286 L 1107 284 L 1100 278 L 1098 279 L 1090 286 L 1089 286 L 1086 289 L 1074 295 L 1072 295 L 1068 297 L 1065 297 L 1064 298 L 1061 298 L 1060 299 L 1041 299 L 1040 298 L 1037 298 L 1036 297 L 1031 296 L 1028 294 L 1026 294 L 1024 292 L 1020 290 L 1010 280 L 1008 275 L 1006 273 L 1005 271 L 1005 268 L 1004 267 L 1004 264 L 1003 263 L 1003 248 L 1004 247 L 1005 238 L 1008 233 L 1008 231 L 1010 227 L 1012 225 L 1013 222 L 1018 216 L 1018 215 L 1030 203 L 1031 203 L 1044 194 L 1046 194 L 1053 190 L 1056 190 L 1057 189 L 1060 189 L 1061 188 L 1064 188 L 1065 187 L 1071 187 L 1072 186 L 1076 186 L 1077 187 L 1083 187 L 1084 188 L 1087 188 L 1088 189 L 1090 189 L 1091 190 L 1096 191 L 1100 194 L 1103 195 L 1106 198 L 1107 198 L 1109 200 L 1109 201 L 1114 206 L 1114 207 L 1116 209 L 1118 213 L 1118 216 L 1120 220 L 1120 225 L 1116 227 L 1111 227 L 1110 228 L 1103 228 L 1102 229 L 1097 229 L 1096 230 L 1091 230 L 1090 231 L 1086 231 L 1085 232 L 1077 232 L 1076 233 L 1072 233 L 1071 234 L 1066 234 L 1065 235 L 1061 235 L 1060 236 L 1053 236 L 1052 237 L 1047 237 L 1047 240 L 1046 241 L 1046 243 L 1045 244 L 1045 247 L 1044 248 L 1044 250 L 1043 251 L 1043 254 L 1042 255 L 1042 260 L 1041 261 L 1041 263 L 1044 263 L 1045 262 L 1050 262 L 1051 261 L 1058 261 L 1059 260 L 1063 260 L 1064 259 L 1068 259 L 1069 258 L 1073 258 L 1074 257 L 1080 257 L 1081 256 L 1086 256 L 1087 255 L 1092 255 L 1093 254 L 1097 254 L 1098 253 L 1103 253 L 1104 252 L 1111 252 L 1112 251 L 1116 251 L 1117 250 L 1121 250 L 1122 249 L 1126 249 L 1127 248 L 1133 248 L 1134 247 L 1139 247 L 1140 246 L 1144 246 L 1146 243 L 1146 240 L 1147 239 L 1147 231 L 1148 230 L 1148 220 L 1147 219 L 1147 211 L 1146 210 L 1146 207 L 1144 204 L 1144 202 L 1143 201 L 1143 199 L 1141 195 L 1139 193 L 1138 190 L 1134 186 L 1133 183 L 1132 183 L 1129 180 Z
+M 1779 171 L 1767 165 L 1765 165 L 1764 164 L 1762 164 L 1758 162 L 1755 162 L 1754 161 L 1747 161 L 1746 160 L 1729 160 L 1728 161 L 1722 161 L 1721 162 L 1718 162 L 1717 163 L 1715 163 L 1711 165 L 1707 165 L 1687 175 L 1685 177 L 1681 179 L 1672 187 L 1671 187 L 1661 197 L 1661 198 L 1657 202 L 1657 203 L 1652 209 L 1651 212 L 1649 214 L 1644 224 L 1643 229 L 1640 235 L 1640 238 L 1639 239 L 1639 244 L 1638 245 L 1638 250 L 1637 251 L 1637 267 L 1638 268 L 1638 273 L 1639 274 L 1639 278 L 1640 279 L 1640 282 L 1648 298 L 1652 302 L 1652 303 L 1655 306 L 1657 307 L 1657 308 L 1659 310 L 1660 310 L 1663 313 L 1669 316 L 1671 318 L 1673 319 L 1675 319 L 1676 320 L 1678 320 L 1684 323 L 1688 323 L 1689 324 L 1696 324 L 1697 325 L 1715 325 L 1716 324 L 1723 324 L 1724 323 L 1728 323 L 1729 322 L 1732 322 L 1738 319 L 1741 319 L 1748 315 L 1750 315 L 1754 313 L 1758 310 L 1759 311 L 1760 309 L 1761 309 L 1764 306 L 1765 306 L 1771 301 L 1772 301 L 1778 295 L 1761 278 L 1760 278 L 1756 282 L 1755 282 L 1751 286 L 1750 286 L 1745 290 L 1737 294 L 1732 295 L 1729 297 L 1726 297 L 1725 298 L 1721 298 L 1720 299 L 1703 299 L 1702 298 L 1698 298 L 1697 297 L 1692 296 L 1684 292 L 1682 290 L 1681 290 L 1673 282 L 1671 278 L 1668 275 L 1668 273 L 1667 272 L 1667 270 L 1666 269 L 1666 267 L 1664 263 L 1664 246 L 1665 245 L 1665 242 L 1666 241 L 1666 239 L 1668 235 L 1668 232 L 1670 228 L 1672 226 L 1673 224 L 1673 222 L 1680 214 L 1680 213 L 1690 203 L 1691 203 L 1694 200 L 1695 200 L 1700 196 L 1712 190 L 1715 190 L 1716 189 L 1718 189 L 1722 187 L 1725 187 L 1726 186 L 1744 186 L 1745 187 L 1747 187 L 1748 188 L 1750 188 L 1751 189 L 1756 190 L 1758 191 L 1761 194 L 1764 195 L 1773 204 L 1773 205 L 1777 210 L 1777 212 L 1778 213 L 1778 215 L 1780 219 L 1780 223 L 1781 225 L 1780 226 L 1775 226 L 1774 227 L 1768 227 L 1767 228 L 1759 228 L 1758 229 L 1753 229 L 1752 230 L 1747 230 L 1746 231 L 1742 231 L 1741 232 L 1733 232 L 1732 233 L 1727 233 L 1726 234 L 1722 234 L 1721 235 L 1717 235 L 1716 236 L 1709 236 L 1707 238 L 1707 241 L 1706 242 L 1706 246 L 1705 247 L 1705 250 L 1703 254 L 1703 258 L 1702 259 L 1702 262 L 1706 262 L 1707 261 L 1714 261 L 1715 260 L 1724 259 L 1725 258 L 1728 258 L 1729 257 L 1735 257 L 1736 256 L 1742 256 L 1743 255 L 1747 255 L 1748 254 L 1752 254 L 1753 253 L 1757 253 L 1758 252 L 1765 252 L 1766 251 L 1771 251 L 1772 250 L 1776 250 L 1777 249 L 1781 249 L 1782 248 L 1789 248 L 1790 247 L 1794 247 L 1795 246 L 1804 245 L 1805 243 L 1805 240 L 1806 239 L 1807 240 L 1807 243 L 1809 244 L 1809 241 L 1808 241 L 1806 238 L 1806 232 L 1807 231 L 1807 217 L 1806 216 L 1806 210 L 1805 209 L 1805 206 L 1802 200 L 1802 198 L 1800 194 L 1798 192 L 1797 189 L 1790 181 L 1790 180 L 1788 179 Z
+M 714 187 L 712 189 L 712 190 L 708 193 L 708 194 L 704 198 L 704 199 L 700 203 L 700 204 L 695 210 L 695 212 L 693 214 L 690 220 L 690 222 L 686 229 L 686 233 L 684 237 L 684 240 L 683 241 L 683 245 L 682 246 L 682 268 L 683 269 L 683 273 L 684 274 L 684 276 L 686 280 L 686 283 L 692 295 L 699 303 L 699 304 L 701 306 L 702 306 L 704 308 L 704 309 L 707 310 L 711 314 L 716 316 L 718 318 L 720 319 L 722 319 L 725 321 L 730 322 L 731 323 L 734 323 L 735 324 L 740 324 L 741 325 L 749 325 L 750 326 L 759 326 L 760 325 L 767 325 L 768 324 L 775 324 L 776 323 L 780 323 L 788 319 L 791 319 L 792 318 L 794 318 L 798 315 L 800 315 L 810 309 L 812 310 L 812 313 L 811 314 L 811 319 L 810 320 L 809 325 L 836 325 L 839 319 L 839 316 L 840 315 L 840 310 L 841 309 L 841 307 L 842 306 L 842 303 L 844 299 L 844 295 L 845 294 L 846 287 L 847 286 L 847 284 L 849 280 L 849 275 L 850 274 L 850 271 L 851 270 L 851 268 L 853 264 L 854 255 L 855 254 L 855 252 L 856 251 L 856 248 L 857 247 L 857 244 L 858 243 L 858 217 L 857 216 L 857 212 L 854 206 L 853 201 L 851 197 L 849 195 L 849 193 L 846 190 L 844 186 L 835 177 L 834 177 L 831 174 L 830 174 L 825 170 L 823 170 L 814 165 L 811 165 L 808 163 L 805 163 L 804 162 L 800 162 L 799 161 L 793 161 L 792 160 L 773 160 L 772 161 L 765 161 L 764 162 L 757 163 L 753 165 L 750 165 L 743 169 L 741 169 L 735 172 L 733 174 L 730 175 L 728 177 L 724 179 L 715 187 Z
+M 806 192 L 808 194 L 811 195 L 815 199 L 816 199 L 822 206 L 822 207 L 824 209 L 827 215 L 827 217 L 829 221 L 829 226 L 830 227 L 830 240 L 829 241 L 829 246 L 828 247 L 828 250 L 827 251 L 827 253 L 825 256 L 825 258 L 823 262 L 821 264 L 820 267 L 817 270 L 817 271 L 808 281 L 807 281 L 803 285 L 799 287 L 796 290 L 794 290 L 788 294 L 786 294 L 785 295 L 783 295 L 782 296 L 780 296 L 776 298 L 773 298 L 772 299 L 748 299 L 747 298 L 744 298 L 743 297 L 738 296 L 735 294 L 733 294 L 731 292 L 727 290 L 717 280 L 717 279 L 715 277 L 712 271 L 712 269 L 710 265 L 710 262 L 709 261 L 709 245 L 710 244 L 710 240 L 711 239 L 711 237 L 712 236 L 713 231 L 717 223 L 719 221 L 720 218 L 724 214 L 724 213 L 734 203 L 735 203 L 739 199 L 742 198 L 744 196 L 756 190 L 758 190 L 762 188 L 765 188 L 766 187 L 769 187 L 770 186 L 788 186 L 789 187 L 792 187 L 796 189 L 799 189 L 800 190 L 802 190 Z
+M 1192 121 L 1190 122 L 1190 124 L 1189 125 L 1189 129 L 1188 130 L 1188 132 L 1186 136 L 1186 139 L 1185 140 L 1184 147 L 1183 148 L 1183 150 L 1181 154 L 1181 157 L 1180 158 L 1180 162 L 1179 163 L 1179 165 L 1178 166 L 1178 168 L 1176 172 L 1176 176 L 1175 177 L 1175 179 L 1173 183 L 1173 186 L 1172 187 L 1171 194 L 1170 195 L 1170 197 L 1168 201 L 1168 204 L 1167 205 L 1167 209 L 1166 210 L 1166 212 L 1164 216 L 1164 219 L 1163 220 L 1162 227 L 1160 231 L 1160 234 L 1159 235 L 1158 242 L 1157 243 L 1157 245 L 1155 249 L 1155 252 L 1154 253 L 1154 259 L 1153 260 L 1153 276 L 1154 277 L 1154 282 L 1155 283 L 1155 286 L 1158 292 L 1158 294 L 1161 298 L 1162 301 L 1173 313 L 1174 313 L 1182 319 L 1184 319 L 1189 322 L 1191 322 L 1195 324 L 1199 324 L 1200 325 L 1236 325 L 1236 323 L 1237 322 L 1237 319 L 1238 318 L 1238 315 L 1239 314 L 1239 311 L 1240 310 L 1240 307 L 1241 306 L 1241 303 L 1242 302 L 1242 300 L 1241 299 L 1209 299 L 1208 298 L 1205 298 L 1195 293 L 1187 285 L 1186 282 L 1183 278 L 1183 275 L 1182 274 L 1182 271 L 1181 270 L 1181 257 L 1182 256 L 1182 253 L 1183 252 L 1183 248 L 1184 247 L 1184 245 L 1186 241 L 1186 238 L 1187 237 L 1187 233 L 1188 232 L 1188 230 L 1189 229 L 1189 227 L 1191 223 L 1191 220 L 1192 219 L 1192 215 L 1193 214 L 1193 211 L 1195 207 L 1195 204 L 1196 203 L 1196 199 L 1197 198 L 1197 195 L 1198 194 L 1198 192 L 1200 190 L 1278 190 L 1279 189 L 1279 187 L 1281 183 L 1281 180 L 1282 179 L 1282 177 L 1283 176 L 1283 174 L 1285 170 L 1285 166 L 1286 165 L 1285 164 L 1269 164 L 1268 165 L 1239 165 L 1238 164 L 1221 164 L 1220 165 L 1210 165 L 1209 164 L 1207 164 L 1206 163 L 1207 162 L 1207 159 L 1209 155 L 1209 152 L 1210 151 L 1210 147 L 1211 146 L 1211 144 L 1213 140 L 1214 133 L 1216 129 L 1217 122 L 1216 121 Z
+M 997 121 L 978 121 L 977 122 L 960 122 L 959 123 L 952 124 L 948 126 L 945 126 L 938 130 L 936 130 L 931 134 L 928 135 L 925 138 L 922 139 L 917 144 L 916 144 L 907 153 L 907 154 L 903 158 L 903 159 L 897 166 L 888 184 L 888 186 L 886 190 L 886 193 L 884 197 L 884 200 L 882 204 L 882 209 L 881 210 L 881 213 L 880 214 L 880 216 L 878 220 L 878 224 L 877 225 L 876 232 L 875 233 L 875 235 L 873 239 L 873 244 L 871 248 L 871 251 L 869 255 L 869 259 L 868 260 L 868 263 L 867 264 L 867 266 L 866 267 L 866 270 L 864 274 L 864 279 L 863 280 L 863 282 L 862 283 L 862 285 L 860 289 L 860 294 L 859 295 L 859 298 L 857 301 L 857 304 L 856 305 L 856 308 L 855 309 L 855 313 L 854 314 L 854 316 L 853 317 L 853 320 L 851 324 L 852 325 L 878 325 L 879 324 L 879 322 L 880 321 L 880 317 L 881 316 L 881 314 L 883 310 L 883 307 L 884 306 L 885 299 L 887 295 L 887 292 L 888 291 L 889 284 L 891 280 L 891 277 L 892 276 L 892 273 L 893 272 L 894 265 L 896 261 L 896 258 L 897 257 L 897 254 L 898 253 L 898 249 L 899 248 L 899 246 L 901 242 L 901 239 L 902 238 L 903 231 L 905 227 L 905 224 L 906 223 L 906 219 L 907 218 L 908 211 L 910 207 L 910 204 L 911 203 L 911 199 L 912 198 L 912 196 L 914 194 L 980 194 L 982 192 L 982 188 L 983 187 L 984 180 L 986 176 L 986 173 L 988 172 L 987 170 L 987 168 L 930 168 L 929 167 L 937 159 L 938 159 L 941 156 L 942 156 L 944 154 L 946 154 L 948 152 L 952 150 L 955 150 L 956 149 L 959 149 L 960 148 L 964 148 L 965 147 L 992 147 L 993 146 L 993 144 L 995 140 L 995 136 L 996 135 L 996 130 L 998 126 L 998 122 Z
+M 1844 120 L 1842 124 L 1842 127 L 1841 128 L 1841 131 L 1840 132 L 1840 136 L 1839 137 L 1839 140 L 1838 141 L 1838 144 L 1837 145 L 1837 149 L 1835 153 L 1835 157 L 1834 158 L 1834 161 L 1832 165 L 1832 168 L 1831 169 L 1831 173 L 1830 174 L 1830 177 L 1828 181 L 1828 184 L 1827 185 L 1827 188 L 1826 189 L 1826 193 L 1824 197 L 1824 200 L 1823 201 L 1823 204 L 1822 205 L 1822 209 L 1821 210 L 1821 213 L 1820 214 L 1820 216 L 1819 217 L 1819 220 L 1818 221 L 1818 224 L 1817 225 L 1817 230 L 1815 234 L 1815 237 L 1813 241 L 1813 245 L 1812 246 L 1812 249 L 1811 250 L 1811 253 L 1810 254 L 1810 259 L 1809 260 L 1809 275 L 1810 276 L 1810 280 L 1811 281 L 1811 284 L 1812 285 L 1812 287 L 1813 288 L 1814 293 L 1817 297 L 1818 300 L 1821 303 L 1821 304 L 1831 314 L 1834 315 L 1839 319 L 1841 319 L 1849 323 L 1852 323 L 1853 324 L 1858 324 L 1859 325 L 1890 325 L 1891 324 L 1891 321 L 1892 320 L 1892 317 L 1893 316 L 1893 313 L 1894 312 L 1894 309 L 1895 308 L 1896 299 L 1865 299 L 1864 298 L 1861 298 L 1854 294 L 1852 294 L 1848 290 L 1847 290 L 1846 288 L 1842 284 L 1841 281 L 1839 279 L 1837 275 L 1837 270 L 1836 269 L 1836 258 L 1837 257 L 1837 250 L 1838 249 L 1838 246 L 1840 242 L 1840 239 L 1841 238 L 1841 235 L 1842 234 L 1842 230 L 1844 226 L 1844 223 L 1845 222 L 1845 219 L 1846 218 L 1846 214 L 1847 213 L 1847 210 L 1848 209 L 1848 207 L 1849 206 L 1849 203 L 1850 202 L 1850 199 L 1851 198 L 1851 193 L 1853 189 L 1924 189 L 1925 188 L 1925 185 L 1926 184 L 1926 180 L 1927 179 L 1927 176 L 1928 175 L 1928 172 L 1929 171 L 1930 164 L 1929 163 L 1860 163 L 1859 162 L 1860 161 L 1861 154 L 1862 153 L 1862 151 L 1863 150 L 1863 147 L 1864 146 L 1864 141 L 1865 140 L 1865 138 L 1866 137 L 1866 134 L 1868 130 L 1868 126 L 1869 125 L 1869 120 Z
+M 675 120 L 575 120 L 574 121 L 567 121 L 566 122 L 563 122 L 562 123 L 559 123 L 558 124 L 556 124 L 555 125 L 550 126 L 538 132 L 536 134 L 532 136 L 528 140 L 527 140 L 526 142 L 522 145 L 522 146 L 518 150 L 516 154 L 513 157 L 513 159 L 508 168 L 508 173 L 507 174 L 507 177 L 506 178 L 506 194 L 507 195 L 508 202 L 510 205 L 510 207 L 512 209 L 514 214 L 517 217 L 517 218 L 520 221 L 521 221 L 522 223 L 523 223 L 529 228 L 533 230 L 535 230 L 538 232 L 543 233 L 544 234 L 551 234 L 552 235 L 615 235 L 616 234 L 618 234 L 619 235 L 624 235 L 625 236 L 627 236 L 635 240 L 641 247 L 643 251 L 643 253 L 644 254 L 644 267 L 643 268 L 643 271 L 642 272 L 642 274 L 641 276 L 639 278 L 637 282 L 630 289 L 629 289 L 627 291 L 626 291 L 622 294 L 620 294 L 616 296 L 613 296 L 612 297 L 487 297 L 485 299 L 485 302 L 483 306 L 483 310 L 482 311 L 482 314 L 481 315 L 481 319 L 480 320 L 480 325 L 607 325 L 608 324 L 614 324 L 615 323 L 619 323 L 627 319 L 630 319 L 634 317 L 636 315 L 638 315 L 640 313 L 641 313 L 649 306 L 650 306 L 653 303 L 654 301 L 655 301 L 655 300 L 662 292 L 662 290 L 664 288 L 667 282 L 667 280 L 668 279 L 668 277 L 670 273 L 670 270 L 671 269 L 671 248 L 670 247 L 670 244 L 669 243 L 668 238 L 665 232 L 662 229 L 661 226 L 655 220 L 654 220 L 648 215 L 640 211 L 638 211 L 637 210 L 633 210 L 632 209 L 627 209 L 626 208 L 553 208 L 552 207 L 550 207 L 544 204 L 537 197 L 535 193 L 534 188 L 533 187 L 533 180 L 534 179 L 534 176 L 537 170 L 537 168 L 539 166 L 539 165 L 549 155 L 554 153 L 558 150 L 561 150 L 562 149 L 565 149 L 566 148 L 570 148 L 571 147 L 670 147 L 671 146 L 671 141 L 672 140 L 672 137 L 674 133 L 674 129 L 675 128 L 675 124 L 676 123 L 676 121 Z
+M 333 132 L 331 134 L 328 135 L 326 137 L 321 139 L 311 148 L 310 148 L 296 163 L 296 164 L 290 172 L 288 177 L 286 179 L 286 181 L 282 188 L 281 193 L 279 196 L 279 198 L 277 202 L 277 206 L 276 207 L 276 212 L 275 213 L 275 220 L 274 221 L 274 237 L 275 238 L 275 244 L 276 245 L 277 254 L 278 255 L 279 260 L 281 263 L 282 268 L 286 276 L 288 278 L 289 281 L 294 287 L 294 288 L 305 300 L 306 300 L 311 305 L 315 307 L 318 310 L 320 310 L 323 313 L 327 315 L 329 315 L 336 319 L 339 319 L 340 320 L 342 320 L 343 321 L 345 321 L 349 323 L 353 323 L 354 324 L 363 324 L 364 325 L 434 325 L 435 324 L 435 319 L 436 318 L 436 309 L 437 308 L 437 301 L 438 300 L 438 298 L 437 297 L 364 297 L 363 296 L 354 295 L 348 292 L 346 292 L 340 289 L 338 287 L 335 286 L 332 283 L 331 283 L 322 275 L 322 274 L 315 266 L 312 260 L 310 258 L 310 256 L 306 249 L 306 245 L 305 244 L 305 241 L 304 240 L 304 237 L 303 236 L 303 216 L 304 215 L 304 211 L 305 210 L 306 203 L 315 185 L 317 183 L 319 179 L 324 174 L 324 173 L 326 172 L 329 168 L 330 168 L 334 164 L 337 163 L 340 160 L 345 158 L 347 156 L 351 154 L 356 153 L 359 151 L 361 151 L 362 150 L 367 150 L 368 149 L 373 149 L 374 148 L 445 148 L 447 144 L 447 136 L 448 135 L 448 124 L 449 122 L 447 120 L 378 120 L 377 121 L 367 121 L 366 122 L 362 122 L 361 123 L 358 123 L 357 124 L 350 125 L 342 129 L 340 129 L 337 131 L 335 131 Z
+M 181 132 L 179 134 L 174 136 L 172 138 L 168 140 L 165 143 L 164 143 L 159 148 L 158 148 L 156 150 L 156 151 L 154 152 L 152 154 L 152 155 L 147 160 L 147 161 L 143 165 L 143 166 L 139 171 L 138 174 L 136 176 L 130 188 L 130 190 L 129 191 L 129 193 L 128 194 L 128 196 L 126 200 L 126 203 L 125 204 L 125 208 L 124 209 L 124 213 L 123 214 L 123 222 L 122 223 L 122 232 L 123 233 L 123 241 L 124 242 L 124 246 L 125 247 L 125 252 L 126 253 L 126 256 L 129 262 L 130 267 L 135 277 L 137 279 L 138 282 L 144 289 L 144 290 L 156 302 L 157 302 L 160 305 L 164 307 L 167 310 L 167 311 L 169 310 L 174 314 L 176 315 L 178 315 L 185 319 L 188 319 L 189 320 L 191 320 L 195 322 L 198 322 L 199 323 L 204 323 L 205 324 L 214 324 L 215 325 L 286 325 L 287 324 L 287 319 L 288 318 L 288 302 L 289 301 L 289 298 L 288 297 L 214 297 L 213 296 L 208 296 L 207 295 L 200 294 L 195 291 L 193 291 L 189 289 L 187 287 L 184 286 L 178 281 L 177 281 L 168 272 L 168 271 L 164 267 L 163 264 L 159 259 L 159 257 L 155 250 L 155 248 L 154 247 L 154 243 L 152 239 L 152 233 L 151 232 L 151 221 L 152 220 L 152 214 L 153 213 L 153 210 L 154 209 L 154 205 L 157 199 L 157 197 L 159 194 L 159 192 L 163 187 L 163 185 L 167 181 L 168 178 L 170 177 L 171 175 L 184 163 L 185 163 L 190 159 L 200 154 L 202 154 L 205 152 L 207 152 L 210 150 L 215 150 L 216 149 L 222 149 L 223 148 L 295 148 L 296 147 L 296 140 L 297 139 L 297 128 L 298 127 L 298 121 L 297 120 L 227 120 L 226 121 L 215 121 L 214 122 L 209 122 L 208 123 L 205 123 L 201 125 L 198 125 L 197 126 L 192 127 L 185 131 L 183 131 Z
+M 1506 121 L 1499 127 L 1497 131 L 1497 138 L 1496 139 L 1496 143 L 1495 144 L 1495 147 L 1494 148 L 1494 151 L 1493 152 L 1493 155 L 1492 156 L 1491 163 L 1489 167 L 1489 170 L 1488 171 L 1488 175 L 1487 176 L 1487 179 L 1485 183 L 1485 186 L 1484 187 L 1484 190 L 1483 191 L 1483 195 L 1482 196 L 1482 199 L 1481 200 L 1481 202 L 1480 203 L 1480 206 L 1479 207 L 1479 212 L 1478 213 L 1478 216 L 1476 220 L 1476 223 L 1475 224 L 1475 227 L 1474 228 L 1474 232 L 1473 233 L 1472 240 L 1470 244 L 1470 249 L 1469 250 L 1468 257 L 1466 261 L 1466 265 L 1465 266 L 1465 270 L 1464 271 L 1464 274 L 1463 275 L 1463 277 L 1462 278 L 1462 281 L 1461 282 L 1461 287 L 1460 288 L 1460 290 L 1459 291 L 1459 294 L 1457 298 L 1456 307 L 1455 308 L 1455 311 L 1454 312 L 1454 314 L 1453 315 L 1453 318 L 1452 319 L 1452 325 L 1478 325 L 1479 324 L 1479 321 L 1481 317 L 1481 312 L 1482 311 L 1482 308 L 1483 307 L 1483 304 L 1484 303 L 1484 300 L 1485 299 L 1485 296 L 1486 295 L 1486 290 L 1488 286 L 1488 283 L 1489 282 L 1489 279 L 1490 278 L 1490 274 L 1491 273 L 1491 270 L 1492 269 L 1492 267 L 1493 266 L 1493 263 L 1494 262 L 1495 253 L 1496 252 L 1496 249 L 1497 248 L 1497 245 L 1498 244 L 1498 241 L 1499 240 L 1499 235 L 1500 234 L 1500 232 L 1502 228 L 1502 225 L 1503 224 L 1503 220 L 1504 219 L 1504 216 L 1506 212 L 1506 209 L 1507 208 L 1507 205 L 1508 204 L 1508 199 L 1509 198 L 1509 195 L 1511 191 L 1511 188 L 1512 187 L 1512 183 L 1513 182 L 1513 179 L 1515 175 L 1516 168 L 1517 167 L 1519 169 L 1519 171 L 1520 172 L 1521 170 L 1521 167 L 1519 165 L 1518 167 L 1517 166 L 1518 159 L 1520 156 L 1522 159 L 1522 162 L 1523 163 L 1524 170 L 1525 171 L 1525 173 L 1527 177 L 1527 180 L 1528 181 L 1528 183 L 1530 187 L 1530 190 L 1532 194 L 1532 197 L 1533 198 L 1533 200 L 1534 201 L 1534 203 L 1536 207 L 1536 211 L 1537 212 L 1537 215 L 1538 216 L 1538 218 L 1539 219 L 1539 221 L 1541 225 L 1541 229 L 1542 230 L 1542 232 L 1543 233 L 1543 235 L 1545 239 L 1546 246 L 1547 247 L 1547 249 L 1548 250 L 1548 252 L 1550 256 L 1550 261 L 1551 262 L 1551 264 L 1552 265 L 1552 267 L 1554 271 L 1555 278 L 1556 279 L 1556 281 L 1558 285 L 1558 288 L 1559 289 L 1560 296 L 1561 297 L 1561 299 L 1563 303 L 1563 307 L 1564 308 L 1564 310 L 1566 314 L 1568 316 L 1568 317 L 1570 319 L 1571 319 L 1573 321 L 1577 323 L 1579 323 L 1580 324 L 1595 324 L 1596 323 L 1598 323 L 1606 318 L 1610 310 L 1610 306 L 1612 302 L 1612 299 L 1613 298 L 1613 296 L 1614 295 L 1614 292 L 1615 291 L 1615 287 L 1616 286 L 1616 284 L 1617 283 L 1617 280 L 1619 276 L 1619 272 L 1620 271 L 1620 269 L 1621 268 L 1621 265 L 1623 261 L 1623 258 L 1624 257 L 1624 253 L 1625 252 L 1625 250 L 1627 246 L 1627 243 L 1628 242 L 1628 238 L 1629 237 L 1629 235 L 1631 231 L 1631 228 L 1632 227 L 1632 223 L 1633 222 L 1633 220 L 1634 219 L 1634 216 L 1635 215 L 1635 213 L 1637 209 L 1637 205 L 1638 204 L 1638 202 L 1639 201 L 1639 198 L 1641 194 L 1641 190 L 1642 189 L 1642 186 L 1643 185 L 1643 183 L 1645 179 L 1646 172 L 1647 171 L 1647 169 L 1648 168 L 1648 165 L 1650 161 L 1650 157 L 1651 156 L 1651 154 L 1652 153 L 1652 151 L 1654 147 L 1654 144 L 1655 143 L 1655 139 L 1656 138 L 1656 136 L 1657 135 L 1657 133 L 1659 129 L 1659 125 L 1661 122 L 1661 120 L 1660 119 L 1635 119 L 1632 123 L 1632 125 L 1631 126 L 1631 129 L 1630 130 L 1630 134 L 1629 135 L 1629 137 L 1627 141 L 1627 144 L 1626 145 L 1626 149 L 1625 150 L 1625 152 L 1624 153 L 1624 155 L 1622 159 L 1622 162 L 1621 163 L 1621 167 L 1620 168 L 1620 170 L 1618 174 L 1618 177 L 1617 178 L 1617 182 L 1616 183 L 1616 185 L 1614 189 L 1614 192 L 1612 196 L 1612 200 L 1611 201 L 1611 203 L 1610 204 L 1610 207 L 1608 211 L 1608 215 L 1606 219 L 1606 222 L 1604 226 L 1604 229 L 1603 230 L 1602 237 L 1600 241 L 1600 244 L 1599 245 L 1599 249 L 1598 250 L 1598 253 L 1597 254 L 1597 256 L 1595 260 L 1595 264 L 1594 265 L 1594 268 L 1592 272 L 1592 275 L 1590 278 L 1588 274 L 1587 274 L 1587 277 L 1590 281 L 1590 284 L 1588 288 L 1586 287 L 1586 285 L 1585 284 L 1585 281 L 1583 277 L 1583 273 L 1582 272 L 1582 270 L 1581 269 L 1581 267 L 1579 263 L 1579 260 L 1578 259 L 1578 256 L 1577 255 L 1577 253 L 1575 249 L 1575 246 L 1574 245 L 1573 238 L 1572 237 L 1572 235 L 1570 231 L 1569 224 L 1568 223 L 1568 221 L 1566 217 L 1565 210 L 1564 209 L 1564 207 L 1562 203 L 1562 200 L 1561 199 L 1560 192 L 1559 191 L 1559 189 L 1557 185 L 1557 182 L 1556 181 L 1556 179 L 1555 178 L 1555 176 L 1553 172 L 1552 165 L 1550 161 L 1550 158 L 1548 154 L 1548 151 L 1547 150 L 1547 147 L 1545 143 L 1545 140 L 1544 139 L 1543 134 L 1541 130 L 1534 123 L 1530 121 L 1528 121 L 1524 119 L 1513 119 L 1512 120 L 1509 120 L 1508 121 Z" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"/>
+</svg>
+</a></h1>
+      </div>
+      <nav class="sidenav" aria-label="Sections">
+        <a href="#overview" data-nav="overview" title="Overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg><span class="sr-only-collapse">Overview</span></a>
+        <a href="#activity" data-nav="activity" title="Activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg><span class="sr-only-collapse">Activity</span></a>
+        <a href="#policy" data-nav="policy" title="Policy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 4.4 3 8.4 7 10 4-1.6 7-5.6 7-10V6l-7-3Z"></path></svg><span class="sr-only-collapse">Policy</span></a>
+        <a href="#rules" data-nav="rules" title="Rules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"></path><path d="M15 3v4h4"></path><path d="M9 12h6M9 16h4"></path></svg><span class="sr-only-collapse">Rules</span></a>
+        <a href="#integrations" data-nav="integrations" title="Integrations"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0V8ZM12 17v5"></path></svg><span class="sr-only-collapse">Integrations</span></a>
+        <a href="#settings" data-nav="settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"></path><circle cx="16" cy="8" r="2.2"></circle><circle cx="8" cy="16" r="2.2"></circle></svg><span class="sr-only-collapse">Settings</span></a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="sidebar-links">
+          <a href="https://github.com/kenryu42/cc-safety-net" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">Documentation</a>
+        </div>
+      </div>
+    </aside>
+    <div class="content">
+      <header class="topbar" id="topbar">
+        <div class="topbar-row">
+          <h2 class="topbar-title" id="topbar-title">Overview</h2>
+          <label class="view-search topbar-search" data-search-view="activity" hidden>
+            <span class="sr-only">Filter activity</span>
+            <input type="search" id="activity-search" autocomplete="off" placeholder="Filter by rule or command">
+          </label>
+          <label class="view-search topbar-search" data-search-view="policy" hidden>
+            <span class="sr-only">Search all protections</span>
+            <input type="search" id="policy-search" autocomplete="off" placeholder="Filter by name, category, or rule ID">
+          </label>
+          <div class="topbar-actions">
+            <div class="app-status" id="app-status" role="status" aria-live="polite">Loading...</div>
+            <button type="button" class="dirty-chip" id="dirty-chip" hidden>Unsaved policy changes · Review</button>
+          </div>
+        </div>
+      </header>
+      <main>
+        <div class="protection-banner" id="protection-banner" role="alert" hidden></div>
+        <div class="status" id="status" role="status" aria-live="polite"></div>
+
+        <section class="view" data-view="overview">
+          <div class="view-head">
+            <p class="panel-sub muted">What CC Safety Net has been doing on this machine.</p>
+          </div>
+          <div class="status health-strip" id="health-strip" hidden></div>
+          <p class="tiles-window" id="overview-window"></p>
+          <div class="tiles" id="overview-tiles"></div>
+          <div class="star-row" id="star-row" hidden>
+            <p class="star-pitch"><span id="star-pitch-text"></span> <span class="star-mechanism" id="star-mechanism" hidden>One click via your GitHub CLI. No redirect.</span></p>
+            <span id="star-slot"></span>
+          </div>
+          <section class="panel" id="protection-card" hidden></section>
+          <div class="dual-panels">
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title">
+                  <h2>Top blocked commands</h2>
+                </div>
+              </div>
+              <div id="top-commands"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title">
+                  <h2>Top blocked rules</h2>
+                </div>
+              </div>
+              <div id="top-rules"></div>
+            </section>
+          </div>
+          <button type="button" class="guard-errors" id="guard-errors" hidden></button>
+        </section>
+
+        <section class="view" data-view="activity" hidden>
+          <div class="view-head">
+            <p class="panel-sub muted">Audited commands from the local log, newest first. Commands are secret-redacted at write time.</p>
+          </div>
+          <section class="panel">
+            <div class="activity-controls">
+              <div class="activity-controls-row">
+                <label class="activity-days"><span>Window</span>
+                  <select id="activity-days"></select>
+                </label>
+                <button type="button" class="icon-button activity-refresh" id="activity-refresh" aria-label="Refresh activity" title="Refresh activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg></button>
+              </div>
+              <div class="chip-row" id="activity-decision" role="group" aria-label="Filter by decision"></div>
+              <div class="chip-row" id="activity-agents" role="group" aria-label="Filter by agent"></div>
+              <div class="chip-row" id="activity-command-filter"></div>
+            </div>
+            <div id="activity-feed"></div>
+            <p class="muted activity-count" id="activity-count"></p>
+          </section>
+        </section>
+
+        <section class="view" data-view="policy" hidden>
+          <div class="view-head">
+            <p class="panel-sub muted">Choose what CC Safety Net blocks. Changes apply after you save.</p>
+          </div>
+          <div class="policy-savebar" id="policy-savebar" hidden><span>Unsaved changes</span><div class="savebar-actions"><button type="button" id="discard-changes">Discard</button><button class="primary" id="save">Save</button></div></div>
+          <div class="recovery" id="recovery" hidden>
+            <div>
+              <strong>Policy repair available</strong>
+              <p class="muted">Repair writes canonical JSON by preserving valid settings. If the JSON cannot be parsed, defaults are restored.</p>
+            </div>
+            <button class="primary" id="repair" type="button">Repair</button>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2 id="tester-label">Test a command</h2>
+                <p class="panel-sub muted">Paste a shell command to see whether it is blocked under your current unsaved edits. Custom rulebook rules are enforced here too.</p>
+              </div>
+            </div>
+            <div class="tester-row">
+              <input type="text" id="tester-input" autocomplete="off" spellcheck="false" placeholder="Paste a shell command and press Enter" aria-labelledby="tester-label">
+              <button type="button" id="tester-run">Test</button>
+            </div>
+            <div id="tester-result" class="status" hidden></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Safety preset</h2>
+                <p class="panel-sub muted">Choose inherited protection defaults, then customize only what this workspace needs.</p>
+              </div>
+            </div>
+            <div id="safety-preset-status" class="preset-status"></div>
+            <div id="environment-overrides" class="status" hidden></div>
+            <div class="grid" id="safety-level"></div>
+            <div class="field field-toggle">
+              <button class="panel-toggle" type="button" aria-expanded="false" aria-controls="safety-overrides-content"><span class="panel-chevron" aria-hidden="true"></span><span>Advanced overrides</span></button>
+            </div>
+            <div class="foldable-field-content" id="safety-overrides-content" hidden>
+              <p class="muted">Inherit from the selected level unless a capability needs an explicit exception.</p>
+              <div class="grid" id="safety-overrides"></div>
+            </div>
+            <div class="field">
+              <span>Workflow</span>
+              <small>Workflow exceptions are separate from safety level.</small>
+            </div>
+            <div class="grid" id="workflow"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Destructive Command Protection</h2>
+                <p class="panel-sub muted" id="destructive-command-summary"></p>
+              </div>
+              <button type="button" id="reset-rule-customizations" class="panel-head-action">Restore defaults</button>
+            </div>
+            <div id="destructive-command"></div>
+          </section>
+          <section class="panel">
+            <header class="panel-head">
+              <div class="panel-title">
+                <h2>Secret Protection</h2>
+                <p class="panel-sub muted" id="secret-summary">Default sensitive paths and coding CLI credential locations can be disabled individually. Deny paths are blocked while Secret protection is on.</p>
+              </div>
+              <button type="button" id="reset-secret-customizations" class="panel-head-action">Restore defaults</button>
+            </header>
+            <div id="secret"></div>
+          </section>
+        </section>
+
+        <section class="view" data-view="rules" hidden>
+          <div class="view-head">
+            <p class="panel-sub muted">Custom rulebook rules enforced on this machine, and a prompt to hand rule authoring to your coding agent.</p>
+          </div>
+          <section class="panel" id="rules-composer-panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Create a rule</h2>
+                <p class="panel-sub muted">CC Safety Net never writes rulebooks from here. Copy the prompt and paste it into your coding agent.</p>
+              </div>
+            </div>
+            <div class="field">
+              <span>Scope</span>
+              <div class="chip-row" role="group" aria-label="Rule scope">
+                <button type="button" class="chip" data-rules-scope="project" aria-pressed="true">Project</button>
+                <button type="button" class="chip" data-rules-scope="user" aria-pressed="false">All projects</button>
+              </div>
+            </div>
+            <div class="field" id="rules-project-path-field">
+              <span id="rules-project-path-label">Project path</span>
+              <div class="rules-path-row">
+                <input type="text" id="rules-project-path" spellcheck="false" autocomplete="off" aria-labelledby="rules-project-path-label" aria-describedby="rules-project-path-hint">
+                <button type="button" id="rules-choose-directory" hidden>Choose…</button>
+              </div>
+              <small id="rules-project-path-hint">Where the rulebook is written. Defaults to the directory this GUI was launched from.</small>
+            </div>
+            <div class="field">
+              <span id="rules-composer-label">Request</span>
+              <textarea id="rules-composer-input" spellcheck="false" placeholder="Describe the custom rules you want..." aria-labelledby="rules-composer-label" aria-describedby="rules-composer-hint"></textarea>
+              <small id="rules-composer-hint">Rules match a command, an optional subcommand, and exact arguments - not file paths or patterns.</small>
+            </div>
+            <div class="field">
+              <span>Examples</span>
+              <div class="chip-row">
+                <button type="button" class="chip" data-rules-example="read my package.json and suggest blocking rules">Suggest rules</button>
+                <button type="button" class="chip" data-rules-example="set up rules to block all terraform destroy commands">Block a command</button>
+                <button type="button" class="chip" data-rules-example="verify my rules and fix any errors">Verify rules</button>
+              </div>
+            </div>
+            <div class="rules-composer-actions">
+              <button type="button" class="primary" id="rules-copy-prompt">Copy prompt</button>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Rulebooks</h2>
+                <p class="panel-sub muted">Read-only. Rules are shown as enforced, after overrides.</p>
+              </div>
+              <button type="button" class="icon-button rules-refresh" id="rules-refresh" aria-label="Refresh rules" title="Refresh rules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg></button>
+            </div>
+            <div id="rules-list"><p class="empty">Loading rules…</p></div>
+          </section>
+          <section class="panel" id="rules-diagnostics-panel" hidden>
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Diagnostics</h2>
+                <p class="panel-sub muted">Errors mean a rulebook was dropped and its rules are not enforced.</p>
+              </div>
+            </div>
+            <div id="rules-diagnostics"></div>
+          </section>
+        </section>
+
+        <section class="view" data-view="settings" hidden>
+          <div class="view-head">
+            <p class="panel-sub muted">Appearance, file locations, and maintenance.</p>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Appearance</h2>
+                <p class="panel-sub muted">Theme preference is stored in this browser.</p>
+              </div>
+              <button type="button" id="theme-toggle"></button>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Files</h2>
+                <p class="panel-sub muted">Where CC Safety Net reads and writes on this machine.</p>
+              </div>
+            </div>
+            <div class="info-rows">
+              <div class="info-row"><span>Policy file</span><code id="policy-path"></code></div>
+              <div class="info-row"><span>Audit logs</span><code id="logs-path"></code></div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Audit log retention</h2>
+                <p class="panel-sub muted">How long decisions are kept before the sweep deletes them. Every analyzed command is recorded, so a long window grows the log.</p>
+              </div>
+            </div>
+            <label class="retention-row">
+              <span>Keep for</span>
+              <input type="number" id="retention-days" min="1" max="365" step="1" inputmode="numeric" aria-describedby="retention-note">
+              <span id="retention-unit">days</span>
+            </label>
+            <p class="muted retention-note" id="retention-note"></p>
+          </section>
+          <section class="panel">
+            <div class="panel-head raw-json-head">
+              <div class="panel-title">
+                <h2>Policy JSON</h2>
+                <p class="panel-sub muted" id="raw-source">Read-only mirror of the policy controls.</p>
+              </div>
+              <button class="icon-button" id="raw-copy" type="button" aria-label="Copy raw JSON to clipboard"></button>
+            </div>
+            <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source" readonly></textarea>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Version</h2>
+              </div>
+            </div>
+            <div class="info-rows">
+              <div class="info-row"><code id="app-version"></code></div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Danger zone</h2>
+                <p class="panel-sub muted">Actions that discard saved configuration.</p>
+              </div>
+            </div>
+            <div class="danger-row">
+              <div>
+                <strong>Reset policy</strong>
+                <p class="muted">Restore the default policy JSON at the configured path.</p>
+              </div>
+              <button class="danger" id="reset">Reset</button>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" data-view="integrations" hidden>
+          <div class="view-head">
+            <p class="panel-sub muted">Install or remove the cc-safety-net hook for each coding agent on this machine.</p>
+          </div>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>Agents</h2>
+                <p class="panel-sub muted">Detected CLIs and hook status.</p>
+              </div>
+              <button type="button" class="icon-button integrations-refresh" id="integrations-refresh" aria-label="Refresh integrations" title="Refresh integrations"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg></button>
+            </div>
+            <div id="integrations-list"><p class="empty">Checking integrations…</p></div>
+          </section>
+          <section class="panel" id="integrations-system" hidden>
+            <div class="panel-head">
+              <div class="panel-title">
+                <h2>System</h2>
+                <p class="panel-sub muted">Runtime detected on this machine.</p>
+              </div>
+            </div>
+            <div class="info-rows">
+              <div class="info-row"><span>cc-safety-net</span><code id="integrations-pkg-version"></code></div>
+              <div class="info-row"><span>Node.js</span><code id="integrations-node-version"></code></div>
+              <div class="info-row"><span>Platform</span><code id="integrations-platform"></code></div>
+            </div>
+          </section>
+        </section>
+      </main>
+      <footer class="app-foot">
+        <a href="https://github.com/kenryu42/cc-safety-net" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">Documentation</a>
+      </footer>
+    </div>
+  </div>
+  <div class="rule-example-popover" id="rule-example-popover" popover="auto" role="dialog" aria-labelledby="rule-example-title" aria-describedby="rule-example-command">
+    <span class="rule-example-label" id="rule-example-label">Blocked command example</span>
+    <strong id="rule-example-title"></strong>
+    <code id="rule-example-command"></code>
+  </div>
+  <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-body confirm-dialog-detail">
+    <form method="dialog">
+      <h2 id="confirm-dialog-title"></h2>
+      <p class="muted" id="confirm-dialog-body"></p>
+      <p class="dialog-detail"><code id="confirm-dialog-detail"></code></p>
+      <div class="dialog-actions">
+        <button type="submit" id="confirm-dialog-cancel" value="cancel">Cancel</button>
+        <button type="submit" class="danger" id="confirm-dialog-confirm" value="confirm"></button>
+      </div>
+    </form>
+  </dialog>
+  <dialog class="confirm-dialog report-dialog" id="report-dialog" aria-labelledby="report-dialog-title" aria-describedby="report-dialog-body">
+    <form method="dialog">
+      <h2 id="report-dialog-title">Report false positive</h2>
+      <p class="muted" id="report-dialog-body">This opens a prefilled GitHub issue form — it is public, and nothing is submitted until you submit it there. Paths were replaced with <code>&lt;project&gt;</code> and <code>~</code>; edit anything else you would rather not publish.</p>
+      <label class="report-field"><span>Blocked command</span><textarea id="report-command" spellcheck="false"></textarea></label>
+      <label class="report-field"><span>Audit log entry</span><textarea id="report-entry" spellcheck="false"></textarea></label>
+      <div class="dialog-actions">
+        <button type="submit" id="report-dialog-cancel" value="cancel">Cancel</button>
+        <button type="submit" class="primary" id="report-dialog-open" value="report">Open GitHub form</button>
+      </div>
+    </form>
+  </dialog>
+  <script id="ccsn-data" type="application/json"></script>
+  <script>
+// src/engine/audit-display.ts
+var formatRelativeTime = (value) => {
+  const diff = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(diff))
+    return "";
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0)
+    return \`\${days}d ago\`;
+  if (hours > 0)
+    return \`\${hours}h ago\`;
+  if (minutes > 0)
+    return \`\${minutes}m ago\`;
+  return "just now";
 };
-
-// src/bin/commands/explain.ts
-var explainCommand = {
-  name: "explain",
-  description: "Show step-by-step analysis trace of how a command would be analyzed",
-  usage: "explain [options] <command>",
-  argument: "<command>",
-  options: [
-    {
-      flags: "--json",
-      description: "Output analysis as JSON"
-    },
-    {
-      flags: "--cwd",
-      argument: "<path>",
-      description: "Use custom working directory"
-    },
-    {
-      flags: "-h, --help",
-      description: "Show this help"
-    }
-  ],
-  examples: [
-    'cc-safety-net explain "git reset --hard"',
-    'cc-safety-net explain --json "rm -rf /"',
-    'cc-safety-net explain --cwd /tmp "git status"'
-  ]
+var commandSignature = (source) => {
+  const tokens = (source ?? "").trim().split(/\\s+/).filter((token) => token && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token));
+  const binary = tokens[0]?.split("/").pop();
+  if (!binary)
+    return null;
+  const next = tokens[1];
+  return next && /^[a-z][a-z0-9-]*$/.test(next) ? \`\${binary} \${next}\` : binary;
 };
-
-// src/core/analyze/dangerous-text.ts
-function dangerousInText(text) {
-  const t = text.toLowerCase();
-  const stripped = t.trimStart();
-  const isEchoOrRg = stripped.startsWith("echo ") || stripped.startsWith("rg ");
-  const patterns = [
-    {
-      regex: /(^|[^\w])\\?r\\?m\s+(-[^\s]*r[^\s]*\s+-[^\s]*f|-[^\s]*f[^\s]*\s+-[^\s]*r|-[^\s]*rf|-[^\s]*fr|(?=[^\n;&|]*--recursive\b)(?=[^\n;&|]*--force\b)[^\n;&|]*)\b/,
-      reason: "rm -rf"
+// src/integrations/catalog.ts
+var catalog = [
+  {
+    id: "antigravity-cli",
+    displayName: "Antigravity CLI",
+    doctorOrder: 3,
+    runtime: {
+      order: 1,
+      flags: ["-ac", "--agy-cli"],
+      description: "Run as Antigravity CLI PreToolUse hook",
+      legacyTopLevelFlags: []
     },
-    {
-      regex: /\bgit\s+reset\s+--ha(?:r(?:d)?)?\b/,
-      reason: "git reset --hard"
-    },
-    {
-      regex: /\bgit\s+reset\s+--me(?:r(?:g(?:e)?)?)?\b/,
-      reason: "git reset --merge"
-    },
-    {
-      regex: /\bgit\s+clean\s+(-[^\s]*f[^\s]*|--fo(?:r(?:c(?:e)?)?)?)\b/,
-      reason: "git clean -f"
-    },
-    {
-      regex: /\bgit\s+checkout\s+[^|;]*(--fo(?:r(?:c(?:e)?)?)?\b|-(?![bBU])[^\s]*f[^\s]*\b)/,
-      reason: "git checkout --force"
-    },
-    {
-      regex: /\bgit\s+push\s+[^|;]*(-f\b|--fo(?:r(?:c(?:e)?)?)?\b)(?!-with-lease)/,
-      reason: "git push --force (use --force-with-lease instead)"
-    },
-    {
-      regex: /\bgit\s+branch\b(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--de(?:l(?:e(?:t(?:e)?)?)?)?\b|-[A-Za-z]*d[A-Za-z]*\b))(?=[^\n;|&]*(?:-D\b|-[A-Za-z]*D[A-Za-z]*\b|--fo(?:r(?:c(?:e)?)?)?\b|-[A-Za-z]*f[A-Za-z]*\b))/,
-      reason: "git branch -D",
-      caseSensitive: true
-    },
-    {
-      regex: /\bgit\s+tag\s+[^|;]*(-[^\s]*d[^\s]*|--de(?:l(?:e(?:t(?:e)?)?)?)?)\b/,
-      reason: "git tag -d"
-    },
-    {
-      regex: /\bgit\s+stash\s+(drop|clear)\b/,
-      reason: "git stash drop/clear"
-    },
-    {
-      regex: /\bgit\s+checkout\s+--\s/,
-      reason: "git checkout --"
-    },
-    {
-      regex: /\bgit\s+restore\b(?!.*--(staged|help))/,
-      reason: "git restore (without --staged)"
-    },
-    {
-      regex: /\bfind\b[^\n;|&]*\s-delete\b/,
-      reason: "find -delete",
-      skipForEchoRg: true
+    install: {
+      order: 2,
+      flag: "--agy-cli",
+      installLabel: "Antigravity CLI",
+      helpTarget: "Antigravity CLI hook config",
+      probeCommand: ["agy", "--version"]
     }
-  ];
-  for (const { regex, reason, skipForEchoRg, caseSensitive } of patterns) {
-    if (skipForEchoRg && isEchoOrRg)
-      continue;
-    const target = caseSensitive ? text : t;
-    if (regex.test(target)) {
-      return reason;
-    }
-  }
-  return null;
-}
-
-// src/core/analyze/segment.ts
-import { realpathSync as realpathSync6 } from "node:fs";
-import { normalize as normalize3 } from "node:path";
-
-// src/core/analyze/awk.ts
-var AWK_INTERPRETERS = new Set(["awk", "gawk", "nawk", "mawk"]);
-var REASON_AWK_SYSTEM_DYNAMIC = "Detected awk system() call with dynamic command that cannot be safely analyzed.";
-function analyzeAwkSystemCalls(tokens, analyzeNested) {
-  for (const token of tokens.slice(1)) {
-    if (!token.includes("system"))
-      continue;
-    const commands = extractAwkSystemCommands(token);
-    if (!commands)
-      continue;
-    if (commands.dynamic)
-      return REASON_AWK_SYSTEM_DYNAMIC;
-    for (const command of commands.commands) {
-      const reason = analyzeNested(command);
-      if (reason)
-        return reason;
-    }
-  }
-  return null;
-}
-function extractAwkSystemCommands(code) {
-  const commands = [];
-  let sawSystem = false;
-  let searchIndex = 0;
-  while (searchIndex < code.length) {
-    const systemIndex = code.indexOf("system", searchIndex);
-    if (systemIndex === -1)
-      break;
-    searchIndex = systemIndex + "system".length;
-    if (isAwkIdentifierChar(code[systemIndex - 1]) || isAwkIdentifierChar(code[searchIndex])) {
-      continue;
-    }
-    let i = skipAwkWhitespace(code, searchIndex);
-    if (code[i] !== "(")
-      continue;
-    i = skipAwkWhitespace(code, i + 1);
-    const quote = code[i];
-    if (quote !== '"' && quote !== "'") {
-      sawSystem = true;
-      continue;
-    }
-    const parsed = readAwkStringLiteral(code, i, quote);
-    if (!parsed) {
-      sawSystem = true;
-      continue;
-    }
-    i = skipAwkWhitespace(code, parsed.endIndex);
-    sawSystem = true;
-    if (code[i] !== ")") {
-      return { dynamic: true, commands };
-    }
-    commands.push(parsed.value);
-    searchIndex = i + 1;
-  }
-  if (!sawSystem)
-    return null;
-  return commands.length > 0 ? { dynamic: false, commands } : { dynamic: true, commands };
-}
-function isAwkIdentifierChar(char) {
-  return !!char && /[A-Za-z0-9_]/.test(char);
-}
-function skipAwkWhitespace(code, index) {
-  let i = index;
-  while (/\s/.test(code[i] ?? "")) {
-    i++;
-  }
-  return i;
-}
-function readAwkStringLiteral(code, startIndex, quote) {
-  let value = "";
-  let escaped = false;
-  for (let i = startIndex + 1;i < code.length; i++) {
-    const char = code[i];
-    if (!char)
-      break;
-    if (escaped) {
-      const decoded = decodeAwkEscape(code, i);
-      if (!decoded)
-        return null;
-      value += decoded.value;
-      i = decoded.endIndex;
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (char === quote) {
-      return { value, endIndex: i + 1 };
-    }
-    value += char;
-  }
-  return null;
-}
-function decodeAwkEscape(code, index) {
-  const char = code[index];
-  if (!char)
-    return null;
-  if (char === "x") {
-    const hex = code.slice(index + 1, index + 3);
-    if (!/^[0-9A-Fa-f]{2}$/.test(hex))
-      return null;
-    return { value: String.fromCharCode(Number.parseInt(hex, 16)), endIndex: index + 2 };
-  }
-  if (/[0-7]/.test(char)) {
-    const match = /^[0-7]{1,3}/.exec(code.slice(index));
-    if (!match)
-      return null;
-    return {
-      value: String.fromCharCode(Number.parseInt(match[0], 8)),
-      endIndex: index + match[0].length - 1
-    };
-  }
-  const simpleEscapes = {
-    a: "\x07",
-    b: "\b",
-    f: "\f",
-    n: `
-`,
-    r: "\r",
-    t: "\t",
-    v: "\v"
-  };
-  return { value: simpleEscapes[char] ?? char, endIndex: index };
-}
-
-// src/core/analyze/constants.ts
-var DISPLAY_COMMANDS = new Set([
-  "echo",
-  "printf",
-  "cat",
-  "head",
-  "tail",
-  "less",
-  "more",
-  "grep",
-  "rg",
-  "ag",
-  "ack",
-  "sed",
-  "awk",
-  "cut",
-  "tr",
-  "sort",
-  "uniq",
-  "wc",
-  "tee",
-  "man",
-  "help",
-  "info",
-  "type",
-  "which",
-  "whereis",
-  "whatis",
-  "apropos",
-  "file",
-  "stat",
-  "ls",
-  "ll",
-  "dir",
-  "tree",
-  "pwd",
-  "date",
-  "cal",
-  "uptime",
-  "whoami",
-  "id",
-  "groups",
-  "hostname",
-  "uname",
-  "env",
-  "printenv",
-  "set",
-  "export",
-  "alias",
-  "history",
-  "jobs",
-  "fg",
-  "bg",
-  "test",
-  "true",
-  "false",
-  "read",
-  "return",
-  "exit",
-  "break",
-  "continue",
-  "shift",
-  "wait",
-  "trap",
-  "basename",
-  "dirname",
-  "realpath",
-  "readlink",
-  "md5sum",
-  "sha256sum",
-  "base64",
-  "xxd",
-  "od",
-  "hexdump",
-  "strings",
-  "diff",
-  "cmp",
-  "comm",
-  "join",
-  "paste",
-  "column",
-  "fmt",
-  "fold",
-  "nl",
-  "pr",
-  "expand",
-  "unexpand",
-  "rev",
-  "tac",
-  "shuf",
-  "seq",
-  "yes",
-  "sleep",
-  "logger",
-  "write",
-  "wall",
-  "mesg",
-  "notify-send"
-]);
-
-// src/core/analyze/rm-flags.ts
-function hasRecursiveForceFlags(tokens) {
-  let hasRecursive = false;
-  let hasForce = false;
-  for (const token of tokens) {
-    if (token === "--")
-      break;
-    if (token === "-r" || token === "-R" || token === "--recursive") {
-      hasRecursive = true;
-    } else if (token === "-f" || token === "--force") {
-      hasForce = true;
-    } else if (token.startsWith("-") && !token.startsWith("--")) {
-      if (token.includes("r") || token.includes("R"))
-        hasRecursive = true;
-      if (token.includes("f"))
-        hasForce = true;
-    }
-  }
-  return hasRecursive && hasForce;
-}
-
-// src/core/shell/command.ts
-function normalizeCommandToken(token) {
-  return getBasename(token).toLowerCase();
-}
-function getBasename(token) {
-  return token.split(/[\\/]/).pop()?.replace(/\.exe$/i, "") ?? token;
-}
-// src/core/shell/options.ts
-function extractShortOpts(tokens, options) {
-  const opts = new Set;
-  let pastDoubleDash = false;
-  for (const token of tokens) {
-    if (token === "--") {
-      pastDoubleDash = true;
-      continue;
-    }
-    if (pastDoubleDash)
-      continue;
-    if (token.startsWith("-") && !token.startsWith("--") && token.length > 1) {
-      for (let i = 1;i < token.length; i++) {
-        const char = token[i];
-        if (!char || !/[a-zA-Z]/.test(char)) {
-          break;
-        }
-        const shortOpt = `-${char}`;
-        opts.add(shortOpt);
-        if (options?.shortOptsWithValue?.has(shortOpt)) {
-          break;
-        }
-      }
-    }
-  }
-  return opts;
-}
-// node_modules/shell-quote/index.js
-var $quote = require_quote();
-var $parse = require_parse();
-
-// src/types.ts
-var MAX_RECURSION_DEPTH = 10;
-var MAX_STRIP_ITERATIONS = 20;
-var NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
-var COMMAND_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
-var MAX_REASON_LENGTH = 256;
-var SHELL_OPERATORS = new Set(["&&", "||", "|&", "|", "&", ";", `
-`]);
-var SHELL_WRAPPERS = new Set(["bash", "sh", "zsh", "ksh", "dash", "fish", "csh", "tcsh"]);
-var INTERPRETERS = new Set(["python", "python3", "python2", "node", "ruby", "perl"]);
-var RM_RECURSIVE_FORCE_PATTERN = /\brm[^\S\n]+(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[rR][^\s;&|]*|--recursive)(?=[^\S\n]|[;&|]|$))(?=(?:(?!--(?=[^\S\n]|[;&|]|$))[^\s;&|]+[^\S\n]+)*(?:-(?!-)[^\s;&|]*[fF][^\s;&|]*|--force)(?=[^\S\n]|[;&|]|$))[^\n;&|]*/;
-var DANGEROUS_PATTERNS = [
-  RM_RECURSIVE_FORCE_PATTERN,
-  /\bgit\s+reset\s+--hard\b/,
-  /\bgit\s+checkout\s+--\b/,
-  /\bgit\s+clean\s+-f\b/,
-  /\bgit\s+stash\s+(drop|clear)\b/,
-  /\bdd\b[^\n;&|]*\bof=\/dev\/[^\s'"]+/,
-  /\bmkfs(?:\.[A-Za-z0-9_-]+)?\s+\/dev\/[^\s'"]+/,
-  /\bshred\b\s+/,
-  /\bfind\b.*\s-delete\b/
-];
-var PARANOID_INTERPRETERS_SUFFIX = `
-
-(Paranoid mode: interpreter one-liners are blocked.)`;
-
-// src/core/shell/shared.ts
-var ENV_PROXY = new Proxy({}, {
-  get: (_, name) => `$${String(name)}`
-});
-function hasUnclosedQuotes(command) {
-  let inSingle = false;
-  let inDouble = false;
-  let escaped = false;
-  for (let i = 0;i < command.length; i++) {
-    const char = command[i];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === "#" && !inSingle && !inDouble && startsShellComment(command, i)) {
-      break;
-    }
-    if (char === "\\" && !inSingle) {
-      escaped = true;
-      continue;
-    }
-    if (char === "'" && !inDouble) {
-      inSingle = !inSingle;
-    } else if (char === '"' && !inSingle) {
-      inDouble = !inDouble;
-    }
-  }
-  return inSingle || inDouble;
-}
-function startsShellComment(command, index) {
-  return index === 0 || /\s/.test(command[index - 1] ?? "");
-}
-function getCommandTokenText(token) {
-  if (typeof token === "string") {
-    return token;
-  }
-  if (token && typeof token === "object" && "pattern" in token && typeof token.pattern === "string") {
-    return token.pattern;
-  }
-  return null;
-}
-
-// src/core/shell/segments.ts
-var ARITHMETIC_SENTINEL = "__CC_SAFETY_NET_ARITH_SENTINEL__";
-var BACKTICK_ATTACHED_SUFFIX_SENTINEL = "__CC_SAFETY_NET_BACKTICK_SUFFIX__";
-function splitShellCommands(command) {
-  return splitShellCommandsWithInfo(command).map((segment) => segment.tokens);
-}
-function splitShellCommandsWithInfo(command) {
-  if (hasUnclosedQuotes(command)) {
-    return [{ tokens: [command], hasDynamicSubstitution: false }];
-  }
-  const normalizedCommand = _stripAttachedIoNumbers(_normalizeAnsiCQuotes(command).replace(/\n/g, " ; "));
-  const tokens = $parse(normalizedCommand, ENV_PROXY);
-  const segments = [];
-  let current = [];
-  let currentHasDynamicSubstitution = false;
-  let i = 0;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (isOperator(token)) {
-      if (current.length > 0) {
-        segments.push({
-          tokens: current,
-          hasDynamicSubstitution: currentHasDynamicSubstitution
-        });
-        current = [];
-        currentHasDynamicSubstitution = false;
-      }
-      i++;
-      continue;
-    }
-    if (_isProcessSubstitutionStart(tokens, i)) {
-      if (current.length > 0) {
-        segments.push({
-          tokens: current,
-          hasDynamicSubstitution: currentHasDynamicSubstitution
-        });
-        current = [];
-        currentHasDynamicSubstitution = false;
-      }
-      const { innerSegments, endIndex } = extractProcessSubstitution(tokens, i);
-      for (const seg of innerSegments) {
-        segments.push({ tokens: seg, hasDynamicSubstitution: false });
-      }
-      i = endIndex + 1;
-      continue;
-    }
-    if (_isRedirectOp(token)) {
-      const { redirectTarget, advance } = _getRedirectTargetInfo(tokens, i);
-      if (redirectTarget !== null) {
-        _pushInlineSubstitutionSegmentInfos(segments, redirectTarget);
-      }
-      i += advance;
-      continue;
-    }
-    if (_isCommandSubstitutionStart(tokens, i)) {
-      const substitution = getCommandSubstitution(tokens, i);
-      if (current.length > 0) {
-        currentHasDynamicSubstitution = true;
-        if (!substitution.shouldKeepCurrent) {
-          segments.push({
-            tokens: current,
-            hasDynamicSubstitution: currentHasDynamicSubstitution
-          });
-          current = [];
-          currentHasDynamicSubstitution = false;
-        }
-      }
-      for (const seg of substitution.innerSegments) {
-        segments.push({ tokens: seg, hasDynamicSubstitution: false });
-      }
-      if (substitution.shouldKeepCurrent && substitution.attachedSuffix) {
-        current.push(substitution.attachedSuffix);
-      }
-      i = substitution.endIndex + (substitution.attachedSuffix !== null ? 2 : 1);
-      continue;
-    }
-    if (_isAttachedCommandSubstitutionStart(tokens, i)) {
-      const tokenText2 = tokens[i];
-      if (typeof tokenText2 === "string") {
-        const prefix = tokenText2.slice(0, -1);
-        if (prefix) {
-          current.push(prefix);
-        }
-      }
-      currentHasDynamicSubstitution = current.length > 0;
-      const { innerSegments, endIndex } = extractCommandSubstitution(tokens, i + 2);
-      for (const seg of innerSegments) {
-        segments.push({ tokens: seg, hasDynamicSubstitution: false });
-      }
-      i = endIndex + 1;
-      continue;
-    }
-    const tokenText = getCommandTokenText(token);
-    if (tokenText === null) {
-      if (token && typeof token === "object" && "op" in token && typeof token.op === "string") {
-        _pushInlineSubstitutionSegmentInfos(segments, token.op);
-      }
-      i++;
-      continue;
-    }
-    _pushInlineSubstitutionSegmentInfos(segments, tokenText);
-    current.push(tokenText);
-    i++;
-  }
-  if (current.length > 0) {
-    segments.push({
-      tokens: current,
-      hasDynamicSubstitution: currentHasDynamicSubstitution
-    });
-  }
-  return segments;
-}
-function extractInlineCommandSubstitutions(token) {
-  const segments = [];
-  let i = 0;
-  const quoteState = { inSingle: false, inDouble: false, escaped: false };
-  while (i < token.length) {
-    const char = token[i];
-    if (!char) {
-      break;
-    }
-    if (advanceQuotedScanState(char, quoteState)) {
-      i++;
-      continue;
-    }
-    if (!quoteState.inSingle && char === "$" && token[i + 1] === "(" && token[i + 2] !== "(") {
-      const end = _findInlineCommandSubstitutionEnd(token, i + 2);
-      if (end === -1) {
-        break;
-      }
-      const innerCommand = token.slice(i + 2, end);
-      if (innerCommand.trim()) {
-        const innerSegments = splitShellCommands(innerCommand);
-        for (const seg of innerSegments) {
-          segments.push(seg);
-        }
-      }
-      i = end + 1;
-      continue;
-    }
-    i++;
-  }
-  return segments;
-}
-function isParenOpen(token) {
-  return typeof token === "object" && token !== null && "op" in token && token.op === "(";
-}
-function isParenClose(token) {
-  return typeof token === "object" && token !== null && "op" in token && token.op === ")";
-}
-function getCommandSubstitution(tokens, index) {
-  const { innerSegments, endIndex } = extractCommandSubstitution(tokens, index + 2);
-  const attachedSuffix = _getBacktickAttachedSuffix(tokens[endIndex + 1]);
-  return {
-    innerSegments,
-    endIndex,
-    attachedSuffix,
-    shouldKeepCurrent: attachedSuffix !== null && !_isRedirectOp(tokens[index - 1]) && !isOperatorToken(tokens[index - 1])
-  };
-}
-function extractCommandSubstitution(tokens, startIndex) {
-  if (tokens[startIndex] === ARITHMETIC_SENTINEL) {
-    return _extractArithmeticSubstitution(tokens, startIndex);
-  }
-  const innerSegments = [];
-  let currentSegment = [];
-  let depth = 1;
-  let i = startIndex;
-  while (i < tokens.length && depth > 0) {
-    const token = tokens[i];
-    if (isParenOpen(token)) {
-      depth++;
-      i++;
-      continue;
-    }
-    if (isParenClose(token)) {
-      depth--;
-      if (depth === 0)
-        break;
-      i++;
-      continue;
-    }
-    if (depth === 1 && token && isOperator(token)) {
-      if (currentSegment.length > 0) {
-        innerSegments.push(currentSegment);
-        currentSegment = [];
-      }
-      i++;
-      continue;
-    }
-    if (depth === 1 && _isProcessSubstitutionStart(tokens, i)) {
-      if (currentSegment.length > 0) {
-        innerSegments.push(currentSegment);
-        currentSegment = [];
-      }
-      const { innerSegments: nestedSegments, endIndex } = extractProcessSubstitution(tokens, i);
-      for (const seg of nestedSegments) {
-        innerSegments.push(seg);
-      }
-      i = endIndex + 1;
-      continue;
-    }
-    if (depth === 1 && _isRedirectOp(token)) {
-      const { redirectTarget, advance } = _getRedirectTargetInfo(tokens, i);
-      if (redirectTarget !== null) {
-        _pushInlineSubstitutionSegments(innerSegments, redirectTarget);
-      }
-      i += advance;
-      continue;
-    }
-    if (depth === 1 && _isCommandSubstitutionStart(tokens, i)) {
-      const substitution = getCommandSubstitution(tokens, i);
-      if (!substitution.shouldKeepCurrent && currentSegment.length > 0) {
-        innerSegments.push(currentSegment);
-        currentSegment = [];
-      }
-      for (const seg of substitution.innerSegments) {
-        innerSegments.push(seg);
-      }
-      if (substitution.shouldKeepCurrent && substitution.attachedSuffix) {
-        currentSegment.push(substitution.attachedSuffix);
-      }
-      i = substitution.endIndex + (substitution.attachedSuffix !== null ? 2 : 1);
-      continue;
-    }
-    if (depth === 1 && _isAttachedCommandSubstitutionStart(tokens, i)) {
-      if (typeof token === "string") {
-        const prefix = token.slice(0, -1);
-        if (prefix) {
-          currentSegment.push(prefix);
-        }
-      }
-      const { innerSegments: nestedSegments, endIndex } = extractCommandSubstitution(tokens, i + 2);
-      for (const seg of nestedSegments) {
-        innerSegments.push(seg);
-      }
-      i = endIndex + 1;
-      continue;
-    }
-    const tokenText = getCommandTokenText(token);
-    if (tokenText !== null) {
-      currentSegment.push(tokenText);
-    }
-    i++;
-  }
-  if (currentSegment.length > 0) {
-    innerSegments.push(currentSegment);
-  }
-  return { innerSegments, endIndex: i };
-}
-function _extractArithmeticSubstitution(tokens, startIndex) {
-  const innerSegments = [];
-  let expression = "";
-  let depth = 1;
-  let i = startIndex + 1;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (_isCommandSubstitutionStart(tokens, i)) {
-      const nested = extractArithmeticNestedCommand(innerSegments, expression, tokens, i + 2);
-      expression = nested.expression;
-      i = nested.endIndex + 1;
-      continue;
-    }
-    if (_isAttachedCommandSubstitutionStart(tokens, i)) {
-      const tokenText = tokens[i];
-      if (typeof tokenText === "string") {
-        expression += tokenText.slice(0, -1);
-      }
-      const nested = extractArithmeticNestedCommand(innerSegments, expression, tokens, i + 2);
-      expression = nested.expression;
-      i = nested.endIndex + 1;
-      continue;
-    }
-    if (isParenOpen(token)) {
-      depth++;
-      expression += "(";
-      i++;
-      continue;
-    }
-    if (isParenClose(token)) {
-      depth--;
-      if (depth === 0) {
-        return {
-          innerSegments: expression ? [...innerSegments, [expression]] : innerSegments,
-          endIndex: i
-        };
-      }
-      expression += ")";
-      i++;
-      continue;
-    }
-    if (typeof token === "string") {
-      _pushInlineSubstitutionSegments(innerSegments, token);
-      expression += token;
-      i++;
-      continue;
-    }
-    if (token && typeof token === "object") {
-      if ("pattern" in token && typeof token.pattern === "string") {
-        expression += token.pattern;
-        i++;
-        continue;
-      }
-      if ("op" in token) {
-        expression += String(token.op);
-      }
-    }
-    i++;
-  }
-  return {
-    innerSegments: expression ? [...innerSegments, [expression]] : innerSegments,
-    endIndex: i
-  };
-}
-function extractArithmeticNestedCommand(innerSegments, expression, tokens, startIndex) {
-  if (expression) {
-    innerSegments.push([expression]);
-  }
-  const { innerSegments: nestedSegments, endIndex } = extractCommandSubstitution(tokens, startIndex);
-  for (const seg of nestedSegments) {
-    innerSegments.push(seg);
-  }
-  return { expression: "", endIndex };
-}
-function _pushInlineSubstitutionSegments(segments, token) {
-  const inlineSegments = extractInlineCommandSubstitutions(token);
-  for (const seg of inlineSegments) {
-    segments.push(seg);
-  }
-}
-function _pushInlineSubstitutionSegmentInfos(segments, token) {
-  const inlineSegments = extractInlineCommandSubstitutions(token);
-  for (const seg of inlineSegments) {
-    segments.push({ tokens: seg, hasDynamicSubstitution: false });
-  }
-}
-function _normalizeAnsiCQuotes(command) {
-  let result = "";
-  let inSingle = false;
-  let inDouble = false;
-  let escaped = false;
-  for (let i = 0;i < command.length; ) {
-    const char = command[i];
-    if (!char)
-      break;
-    if (escaped) {
-      result += char;
-      escaped = false;
-      i++;
-      continue;
-    }
-    if (!inSingle && char === "\\") {
-      result += char;
-      escaped = true;
-      i++;
-      continue;
-    }
-    if (!inSingle && !inDouble && command.startsWith("$'", i)) {
-      const parsed = _readAnsiCString(command, i + 2);
-      if (!parsed) {
-        result += char;
-        i++;
-        continue;
-      }
-      result += _singleQuoteShellToken(parsed.value);
-      i = parsed.endIndex + 1;
-      continue;
-    }
-    if (!inDouble && char === "'") {
-      inSingle = !inSingle;
-    } else if (!inSingle && char === '"') {
-      inDouble = !inDouble;
-    }
-    result += char;
-    i++;
-  }
-  return result;
-}
-function _readAnsiCString(command, startIndex) {
-  let value = "";
-  for (let i = startIndex;i < command.length; i++) {
-    const char = command[i];
-    if (!char)
-      break;
-    if (char === "'") {
-      return { value, endIndex: i };
-    }
-    if (char !== "\\") {
-      value += char;
-      continue;
-    }
-    const decoded = _readAnsiEscape(command, i + 1);
-    value += decoded.value;
-    i = decoded.endIndex;
-  }
-  return null;
-}
-function _readAnsiEscape(command, index) {
-  const char = command[index];
-  if (!char)
-    return { value: "\\", endIndex: index };
-  const simpleEscapes = {
-    a: "\x07",
-    b: "\b",
-    e: "\x1B",
-    E: "\x1B",
-    f: "\f",
-    n: `
-`,
-    r: "\r",
-    t: "\t",
-    v: "\v",
-    "\\": "\\",
-    "'": "'",
-    '"': '"'
-  };
-  if (Object.hasOwn(simpleEscapes, char)) {
-    return { value: simpleEscapes[char] ?? char, endIndex: index };
-  }
-  if (char === "x") {
-    return _readFixedBaseEscape(command, index + 1, 16, 2, index);
-  }
-  if (char === "u") {
-    return _readFixedBaseEscape(command, index + 1, 16, 4, index);
-  }
-  if (char === "U") {
-    return _readFixedBaseEscape(command, index + 1, 16, 8, index);
-  }
-  if (/[0-7]/.test(char)) {
-    return _readFixedBaseEscape(command, index, 8, 3, index - 1);
-  }
-  return { value: char, endIndex: index };
-}
-function _readFixedBaseEscape(command, startIndex, base, maxLength, fallbackEndIndex) {
-  let digits = "";
-  let endIndex = startIndex - 1;
-  const digitRegex = base === 16 ? /[0-9a-fA-F]/ : /[0-7]/;
-  for (let i = startIndex;i < command.length && digits.length < maxLength; i++) {
-    const char = command[i];
-    if (!char || !digitRegex.test(char))
-      break;
-    digits += char;
-    endIndex = i;
-  }
-  if (!digits) {
-    return { value: command[fallbackEndIndex] ?? "", endIndex: fallbackEndIndex };
-  }
-  return { value: String.fromCodePoint(Number.parseInt(digits, base)), endIndex };
-}
-function _singleQuoteShellToken(value) {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-function _stripAttachedIoNumbers(command) {
-  let result = "";
-  let inSingle = false;
-  let inDouble = false;
-  let escaped = false;
-  let atTokenBoundary = true;
-  let arithmeticParenDepth = 0;
-  for (let i = 0;i < command.length; ) {
-    const char = command[i];
-    if (!char) {
-      break;
-    }
-    if (escaped) {
-      result += char;
-      escaped = false;
-      atTokenBoundary = false;
-      i++;
-      continue;
-    }
-    if (!inSingle && char === "\\") {
-      result += char;
-      escaped = true;
-      i++;
-      continue;
-    }
-    if (!inDouble && char === "'") {
-      result += char;
-      inSingle = !inSingle;
-      atTokenBoundary = false;
-      i++;
-      continue;
-    }
-    if (!inSingle && char === '"') {
-      result += char;
-      inDouble = !inDouble;
-      atTokenBoundary = false;
-      i++;
-      continue;
-    }
-    if (!inSingle && char === "`") {
-      const endIndex = _findBacktickEnd(command, i + 1);
-      if (endIndex === -1) {
-        result += char;
-        atTokenBoundary = false;
-        i++;
-        continue;
-      }
-      result += `$(${command.slice(i + 1, endIndex)})`;
-      if (atTokenBoundary && command[endIndex + 1] && _isPathLikeBacktickSuffix(command[endIndex + 1])) {
-        result += BACKTICK_ATTACHED_SUFFIX_SENTINEL;
-      }
-      atTokenBoundary = false;
-      i = endIndex + 1;
-      continue;
-    }
-    if (!inSingle && !inDouble) {
-      if (arithmeticParenDepth === 0 && command.startsWith("$((", i)) {
-        result += `$( ${ARITHMETIC_SENTINEL} `;
-        arithmeticParenDepth = 1;
-        atTokenBoundary = false;
-        i += 3;
-        continue;
-      }
-      if (arithmeticParenDepth > 0) {
-        if (char === "(") {
-          arithmeticParenDepth++;
-          result += char;
-        } else if (char === ")") {
-          arithmeticParenDepth--;
-          if (arithmeticParenDepth === 0) {
-            result += ")";
-            if (command[i + 1] === ")") {
-              i += 2;
-            } else {
-              i++;
-            }
-            atTokenBoundary = false;
-            continue;
-          }
-          result += char;
-        } else {
-          result += char;
-        }
-        atTokenBoundary = false;
-        i++;
-        continue;
-      }
-      if (_isWhitespaceChar(char)) {
-        result += char;
-        atTokenBoundary = true;
-        i++;
-        continue;
-      }
-      if (atTokenBoundary && _isAsciiDigit(char)) {
-        let end = i + 1;
-        while (end < command.length) {
-          const nextChar = command[end];
-          if (!nextChar || !_isAsciiDigit(nextChar)) {
-            break;
-          }
-          end++;
-        }
-        const redirectOpLength = _getRawRedirectOpLength(command, end);
-        if (redirectOpLength > 0) {
-          i = end;
-          atTokenBoundary = true;
-          continue;
-        }
-      }
-    }
-    result += char;
-    atTokenBoundary = _isShellTokenBoundaryChar(char);
-    i++;
-  }
-  return result;
-}
-function isOperator(token) {
-  return typeof token === "object" && token !== null && "op" in token && SHELL_OPERATORS.has(token.op);
-}
-function isOperatorToken(token) {
-  return token !== undefined && isOperator(token);
-}
-var REDIRECT_OPS = new Set([">", ">>", "<", ">&", "<&", ">|"]);
-var RAW_REDIRECT_OPS = [">>", ">&", "<&", ">|", ">", "<"];
-function _isRedirectOp(token) {
-  return typeof token === "object" && token !== null && "op" in token && REDIRECT_OPS.has(token.op);
-}
-function _isCommandSubstitutionStart(tokens, index) {
-  return tokens[index] === "$" && isParenOpen(tokens[index + 1]);
-}
-function _isAttachedCommandSubstitutionStart(tokens, index) {
-  const token = tokens[index];
-  return typeof token === "string" && token !== "$" && token.endsWith("$") && isParenOpen(tokens[index + 1]);
-}
-function _getBacktickAttachedSuffix(token) {
-  return typeof token === "string" && token.startsWith(BACKTICK_ATTACHED_SUFFIX_SENTINEL) ? token.slice(BACKTICK_ATTACHED_SUFFIX_SENTINEL.length) : null;
-}
-function _isProcessSubstitutionStart(tokens, index) {
-  const token = tokens[index];
-  return typeof token === "object" && token !== null && "op" in token && (token.op === "<(" || token.op === ">" && isParenOpen(tokens[index + 1]));
-}
-function extractProcessSubstitution(tokens, startIndex) {
-  const token = tokens[startIndex];
-  if (typeof token === "object" && token !== null && "op" in token && token.op === "<(") {
-    return extractCommandSubstitution(tokens, startIndex + 1);
-  }
-  if (_isProcessSubstitutionStart(tokens, startIndex)) {
-    return extractCommandSubstitution(tokens, startIndex + 2);
-  }
-  return { innerSegments: [], endIndex: startIndex };
-}
-function _getRedirectTargetInfo(tokens, index) {
-  if (_isCommandSubstitutionStart(tokens, index + 1) || _isProcessSubstitutionStart(tokens, index + 1)) {
-    return { redirectTarget: null, advance: 1 };
-  }
-  const firstTarget = tokens[index + 1];
-  if (typeof firstTarget !== "string") {
-    const isGlobTarget = firstTarget && typeof firstTarget === "object" && "pattern" in firstTarget && typeof firstTarget.pattern === "string";
-    return { redirectTarget: null, advance: isGlobTarget ? 2 : 1 };
-  }
-  let redirectTarget = firstTarget;
-  let nextIndex = index + 2;
-  if (firstTarget.endsWith("$") && isParenOpen(tokens[nextIndex])) {
-    const { text, consumed } = _collectParenthesizedTokens(tokens, nextIndex);
-    if (consumed > 0) {
-      redirectTarget += text;
-      nextIndex += consumed;
-    }
-  }
-  return {
-    redirectTarget,
-    advance: nextIndex - index
-  };
-}
-function _findInlineCommandSubstitutionEnd(token, startIndex) {
-  let depth = 1;
-  const quoteState = { inSingle: false, inDouble: false, escaped: false };
-  for (let i = startIndex;i < token.length; i++) {
-    const char = token[i];
-    if (!char) {
-      break;
-    }
-    if (advanceQuotedScanState(char, quoteState)) {
-      continue;
-    }
-    if (!quoteState.inSingle && !quoteState.inDouble) {
-      if (char === "(") {
-        depth++;
-      } else if (char === ")") {
-        depth--;
-        if (depth === 0) {
-          return i;
-        }
-      }
-    }
-  }
-  return -1;
-}
-function advanceQuotedScanState(char, state) {
-  if (state.escaped) {
-    state.escaped = false;
-    return true;
-  }
-  if (char === "\\" && !state.inSingle) {
-    state.escaped = true;
-    return true;
-  }
-  if (!state.inDouble && char === "'") {
-    state.inSingle = !state.inSingle;
-    return true;
-  }
-  if (!state.inSingle && char === '"') {
-    state.inDouble = !state.inDouble;
-    return true;
-  }
-  return false;
-}
-function _findBacktickEnd(command, startIndex) {
-  let escaped = false;
-  for (let i = startIndex;i < command.length; i++) {
-    const char = command[i];
-    if (!char) {
-      break;
-    }
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (char === "`") {
-      return i;
-    }
-  }
-  return -1;
-}
-function _collectParenthesizedTokens(tokens, startIndex) {
-  if (!isParenOpen(tokens[startIndex])) {
-    return { text: "", consumed: 0 };
-  }
-  const parts = [];
-  let depth = 0;
-  let i = startIndex;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (isParenOpen(token)) {
-      depth++;
-    } else if (isParenClose(token)) {
-      depth--;
-    }
-    const piece = _stringifyParseEntry(token);
-    if (piece) {
-      parts.push(piece);
-    }
-    i++;
-    if (depth === 0) {
-      break;
-    }
-  }
-  return { text: parts.join(" "), consumed: i - startIndex };
-}
-function _stringifyParseEntry(token) {
-  if (typeof token === "string") {
-    return token;
-  }
-  if (token && typeof token === "object") {
-    if ("pattern" in token && typeof token.pattern === "string") {
-      return token.pattern;
-    }
-    if ("op" in token) {
-      return String(token.op);
-    }
-  }
-  return "";
-}
-function _getRawRedirectOpLength(command, index) {
-  for (const op of RAW_REDIRECT_OPS) {
-    if (command.startsWith(op, index)) {
-      return op.length;
-    }
-  }
-  return 0;
-}
-function _isWhitespaceChar(char) {
-  return /\s/.test(char);
-}
-function _isAsciiDigit(char) {
-  return char >= "0" && char <= "9";
-}
-function _isPathLikeBacktickSuffix(char) {
-  return char === "/" || char === ".";
-}
-function _isShellTokenBoundaryChar(char) {
-  return _isWhitespaceChar(char) || ";|&()<>".includes(char);
-}
-// src/core/shell/wrappers.ts
-import { realpathSync as realpathSync2 } from "node:fs";
-import { isAbsolute as isAbsolute2, parse as parsePath2 } from "node:path";
-
-// src/core/git/env.ts
-var GIT_CONTEXT_ENV_OVERRIDES = [
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_COMMON_DIR",
-  "GIT_INDEX_FILE"
-];
-var GIT_CONTEXT_ENV_OVERRIDE_NAMES = new Set(GIT_CONTEXT_ENV_OVERRIDES);
-var GIT_CONFIG_AFFECTING_ENV_NAMES = new Set([
-  "GIT_CONFIG_GLOBAL",
-  "GIT_CONFIG_NOSYSTEM",
-  "GIT_CONFIG_SYSTEM",
-  "HOME",
-  "XDG_CONFIG_HOME"
-]);
-var GIT_SSH_ENV_NAMES = new Set([
-  "GIT_SSH_COMMAND",
-  "GIT_SSH",
-  "GIT_SSH_VARIANT"
-]);
-var GIT_CONTEXT_APPEND_ASSIGNMENT_RE = /^([A-Za-z_][A-Za-z0-9_]*)\+=/;
-function isGitContextEnvOverrideName(name) {
-  return GIT_CONTEXT_ENV_OVERRIDE_NAMES.has(name);
-}
-function isGitConfigEnvName(name) {
-  return name === "GIT_CONFIG_COUNT" || name === "GIT_CONFIG_PARAMETERS" || /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(name);
-}
-function isTrackedGitEnvName(name) {
-  return isGitContextEnvOverrideName(name) || GIT_CONFIG_AFFECTING_ENV_NAMES.has(name) || GIT_SSH_ENV_NAMES.has(name) || isGitConfigEnvName(name);
-}
-function parseGitContextAppendEnvAssignment(token) {
-  const match = token.match(GIT_CONTEXT_APPEND_ASSIGNMENT_RE);
-  const name = match?.[1];
-  if (!name || !isTrackedGitEnvName(name)) {
-    return null;
-  }
-  const eqIdx = token.indexOf("=");
-  return { name, value: token.slice(eqIdx + 1) };
-}
-function hasGitSshEnvAssignment(envAssignments) {
-  if (!envAssignments) {
-    return false;
-  }
-  for (const key of envAssignments.keys()) {
-    if (GIT_SSH_ENV_NAMES.has(key)) {
-      return true;
-    }
-  }
-  return false;
-}
-function hasConfigAffectingEnvAssignment(envAssignments) {
-  if (!envAssignments) {
-    return false;
-  }
-  for (const key of envAssignments.keys()) {
-    if (GIT_CONFIG_AFFECTING_ENV_NAMES.has(key)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// src/core/path.ts
-import { lstatSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, parse as parsePath, sep } from "node:path";
-function resolveChdirTarget(baseCwd, target) {
-  const root = isAbsolute(target) ? getPathRoot(target) : "";
-  let current = root || baseCwd;
-  for (const component of getPathComponents(root ? target.slice(root.length) : target)) {
-    if (component === "" || component === ".") {
-      continue;
-    }
-    if (component === "..") {
-      current = dirname(current);
-      continue;
-    }
-    const candidate = appendPathWithoutNormalizing(current, component);
-    current = lstatSync(candidate).isSymbolicLink() ? realpathSync(candidate) : candidate;
-  }
-  return current;
-}
-function appendPathWithoutNormalizing(base, target) {
-  return base.endsWith("/") || base.endsWith("\\") ? `${base}${target}` : `${base}${sep}${target}`;
-}
-function getPathRoot(target) {
-  return parsePath(target).root;
-}
-function getPathComponents(target) {
-  const separator = process.platform === "win32" ? /[\\/]+/ : /\/+/;
-  return target.split(separator);
-}
-
-// src/core/shell/wrappers.ts
-var ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
-function parseEnvAssignment(token) {
-  if (!ENV_ASSIGNMENT_RE.test(token)) {
-    return null;
-  }
-  const eqIdx = token.indexOf("=");
-  return { name: token.slice(0, eqIdx), value: token.slice(eqIdx + 1) };
-}
-function stripEnvAssignmentsWithInfo(tokens) {
-  const envAssignments = new Map;
-  let i = 0;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token) {
-      break;
-    }
-    const assignment = parseEnvAssignment(token);
-    if (!assignment) {
-      break;
-    }
-    envAssignments.set(assignment.name, assignment.value);
-    i++;
-  }
-  return { tokens: tokens.slice(i), envAssignments };
-}
-function stripWrappers(tokens, cwd) {
-  return stripWrappersWithInfo(tokens, cwd).tokens;
-}
-function stripWrappersWithInfo(tokens, cwd) {
-  let result = [...tokens];
-  const allEnvAssignments = new Map;
-  let currentCwd = cwd;
-  for (let iteration = 0;iteration < MAX_STRIP_ITERATIONS; iteration++) {
-    const before = result.join(" ");
-    const { tokens: strippedTokens, envAssignments } = stripEnvAssignmentsWithInfo(result);
-    for (const [k, v] of envAssignments) {
-      allEnvAssignments.set(k, v);
-    }
-    result = strippedTokens;
-    if (result.length === 0)
-      break;
-    while (result.length > 0 && result[0]?.includes("=") && !ENV_ASSIGNMENT_RE.test(result[0] ?? "")) {
-      const appendAssignment = parseGitContextAppendEnvAssignment(result[0] ?? "");
-      if (appendAssignment) {
-        allEnvAssignments.set(appendAssignment.name, appendAssignment.value);
-      }
-      result = result.slice(1);
-    }
-    if (result.length === 0)
-      break;
-    const head = result[0]?.toLowerCase();
-    if (head !== "sudo" && head !== "env" && head !== "command") {
-      break;
-    }
-    if (head === "sudo") {
-      const sudoResult = stripSudoWithInfo(result, currentCwd);
-      result = sudoResult.tokens;
-      if (sudoResult.cwd !== undefined) {
-        currentCwd = sudoResult.cwd;
-      }
-    }
-    if (head === "env") {
-      const envResult = stripEnvWithInfo(result, currentCwd);
-      result = envResult.tokens;
-      if (envResult.cwd !== undefined) {
-        currentCwd = envResult.cwd;
-      }
-      for (const [k, v] of envResult.envAssignments) {
-        allEnvAssignments.set(k, v);
-      }
-    }
-    if (head === "command") {
-      result = stripCommand(result);
-    }
-    if (result.join(" ") === before)
-      break;
-  }
-  const { tokens: finalTokens, envAssignments: finalAssignments } = stripEnvAssignmentsWithInfo(result);
-  for (const [k, v] of finalAssignments) {
-    allEnvAssignments.set(k, v);
-  }
-  return { tokens: finalTokens, envAssignments: allEnvAssignments, cwd: currentCwd };
-}
-var SUDO_OPTS_WITH_VALUE = new Set(["-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-T", "-U"]);
-function stripSudoWithInfo(tokens, cwd) {
-  let i = 1;
-  let currentCwd = cwd;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token)
-      break;
-    if (token === "--") {
-      return { tokens: tokens.slice(i + 1), cwd: currentCwd };
-    }
-    if (!token.startsWith("-")) {
-      break;
-    }
-    if (token === "-D" || token === "--chdir") {
-      const target = tokens[i + 1];
-      currentCwd = target ? resolveWrapperCwd(currentCwd, target) : null;
-      i += 2;
-      continue;
-    }
-    if (token.startsWith("--chdir=")) {
-      currentCwd = resolveWrapperCwd(currentCwd, token.slice("--chdir=".length));
-      i++;
-      continue;
-    }
-    if (token.startsWith("-D") && token.length > 2) {
-      currentCwd = resolveWrapperCwd(currentCwd, token.slice(2));
-      i++;
-      continue;
-    }
-    if (token === "-i" || token === "--login") {
-      currentCwd = null;
-      i++;
-      continue;
-    }
-    if (SUDO_OPTS_WITH_VALUE.has(token)) {
-      i += 2;
-      continue;
-    }
-    i++;
-  }
-  return { tokens: tokens.slice(i), cwd: currentCwd };
-}
-var ENV_OPTS_NO_VALUE = new Set(["-i", "-0", "--null"]);
-var ENV_OPTS_WITH_VALUE = new Set([
-  "-u",
-  "--unset",
-  "-C",
-  "--chdir",
-  "-S",
-  "--split-string",
-  "-P"
-]);
-function stripEnvWithInfo(tokens, cwd) {
-  const envAssignments = new Map;
-  let currentCwd = cwd;
-  let expandedTokens = tokens;
-  let i = 1;
-  while (i < expandedTokens.length) {
-    const token = expandedTokens[i];
-    if (!token)
-      break;
-    if (token === "--") {
-      return { tokens: expandedTokens.slice(i + 1), envAssignments, cwd: currentCwd };
-    }
-    if (ENV_OPTS_NO_VALUE.has(token)) {
-      i++;
-      continue;
-    }
-    if (token === "-S" || token === "--split-string") {
-      const splitValue = expandedTokens[i + 1];
-      const splitTokens = splitValue !== undefined ? parseEnvSplitString(splitValue) : null;
-      if (!splitTokens) {
-        currentCwd = null;
-        i += 2;
-        continue;
-      }
-      expandedTokens = replaceEnvSplitTokens(expandedTokens, i, 2, splitTokens);
-      continue;
-    }
-    if (token.startsWith("-S") && token.length > 2) {
-      const splitTokens = parseEnvSplitString(token.slice("-S".length));
-      if (!splitTokens) {
-        currentCwd = null;
-        i++;
-        continue;
-      }
-      expandedTokens = replaceEnvSplitTokens(expandedTokens, i, 1, splitTokens);
-      continue;
-    }
-    if (token.startsWith("--split-string=")) {
-      const splitTokens = parseEnvSplitString(token.slice("--split-string=".length));
-      if (!splitTokens) {
-        currentCwd = null;
-        i++;
-        continue;
-      }
-      expandedTokens = replaceEnvSplitTokens(expandedTokens, i, 1, splitTokens);
-      continue;
-    }
-    if (ENV_OPTS_WITH_VALUE.has(token)) {
-      if (token === "-C" || token === "--chdir") {
-        const target = expandedTokens[i + 1];
-        currentCwd = target ? resolveWrapperCwd(currentCwd, target) : null;
-      }
-      i += 2;
-      continue;
-    }
-    if (token.startsWith("-u=") || token.startsWith("--unset=")) {
-      i++;
-      continue;
-    }
-    if (token.startsWith("-C") && token.length > 2 || token.startsWith("--chdir=")) {
-      const target = token.startsWith("--chdir=") ? token.slice("--chdir=".length) : token.startsWith("-C=") ? token.slice("-C=".length) : token.slice("-C".length);
-      currentCwd = resolveWrapperCwd(currentCwd, target);
-      i++;
-      continue;
-    }
-    if (token.startsWith("-P")) {
-      i++;
-      continue;
-    }
-    if (token.startsWith("-")) {
-      i++;
-      continue;
-    }
-    const assignment = parseEnvAssignment(token);
-    if (!assignment) {
-      break;
-    }
-    envAssignments.set(assignment.name, assignment.value);
-    i++;
-  }
-  return { tokens: expandedTokens.slice(i), envAssignments, cwd: currentCwd };
-}
-function parseEnvSplitString(value) {
-  if (hasUnclosedQuotes(value)) {
-    return null;
-  }
-  const parsed = $parse(value, ENV_PROXY);
-  const result = [];
-  for (const entry of parsed) {
-    const token = getCommandTokenText(entry);
-    if (token === null) {
-      return null;
-    }
-    result.push(token);
-  }
-  return result;
-}
-function replaceEnvSplitTokens(tokens, index, consumed, splitTokens) {
-  return [...tokens.slice(0, index), ...splitTokens, ...tokens.slice(index + consumed)];
-}
-function resolveWrapperCwd(cwd, target) {
-  if (target === "") {
-    return null;
-  }
-  try {
-    if (!cwd && !isAbsolute2(target)) {
-      return null;
-    }
-    const baseCwd = isAbsolute2(target) ? getPathRoot2(target) : realpathSync2(cwd ?? "/");
-    return resolveChdirTarget(baseCwd, target);
-  } catch {
-    return null;
-  }
-}
-function getPathRoot2(target) {
-  return parsePath2(target).root;
-}
-function stripCommand(tokens) {
-  let i = 1;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token)
-      break;
-    if (token === "-p" || token === "-v" || token === "-V") {
-      i++;
-      continue;
-    }
-    if (token === "--") {
-      return tokens.slice(i + 1);
-    }
-    if (token.startsWith("-") && !token.startsWith("--") && token.length > 1) {
-      const chars = token.slice(1);
-      if (!/^[pvV]+$/.test(chars)) {
-        break;
-      }
-      i++;
-      continue;
-    }
-    break;
-  }
-  return tokens.slice(i);
-}
-// src/core/analyze/find.ts
-var REASON_FIND_DELETE = "find -delete permanently removes files. Use -print first to preview.";
-var FIND_PRIMARIES_WITH_VALUE = new Set([
-  "-amin",
-  "-anewer",
-  "-atime",
-  "-cmin",
-  "-cnewer",
-  "-context",
-  "-ctime",
-  "-exec",
-  "-execdir",
-  "-fprint",
-  "-fprintf",
-  "-fstype",
-  "-gid",
-  "-group",
-  "-ilname",
-  "-iname",
-  "-inum",
-  "-ipath",
-  "-iwholename",
-  "-iregex",
-  "-links",
-  "-lname",
-  "-mmin",
-  "-mtime",
-  "-name",
-  "-newer",
-  "-newerXY",
-  "-path",
-  "-perm",
-  "-printf",
-  "-regex",
-  "-samefile",
-  "-size",
-  "-type",
-  "-uid",
-  "-used",
-  "-user",
-  "-wholename",
-  "-xtype"
-]);
-function analyzeFind(tokens, context = {}) {
-  if (findHasDelete(tokens.slice(1))) {
-    return REASON_FIND_DELETE;
-  }
-  for (let i = 0;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (token === "-exec" || token === "-execdir") {
-      const execCommand = getFindExecCommand(tokens, i);
-      const directReason = analyzeFindExecCommand(execCommand);
-      if (directReason) {
-        return directReason;
-      }
-      if (context.analyzeTokens) {
-        const reason = context.analyzeTokens(execCommand, token === "-execdir" ? null : context.cwd);
-        if (reason) {
-          return reason;
-        }
-        continue;
-      }
-      if (context.analyzeNested) {
-        const reason = context.analyzeNested(execCommand.join(" "), {
-          effectiveCwd: token === "-execdir" ? undefined : context.cwd,
-          envAssignments: context.envAssignments
-        });
-        if (reason) {
-          return reason;
-        }
-        continue;
-      }
-      const fallbackReason = analyzeFindExecCommand(execCommand);
-      if (fallbackReason)
-        return fallbackReason;
-    }
-  }
-  return null;
-}
-function analyzeFindExecCommand(tokens) {
-  let execCommand = stripWrappers([...tokens]);
-  if (execCommand.length === 0) {
-    return null;
-  }
-  let head = getBasename(execCommand[0] ?? "");
-  if (head === "busybox" && execCommand.length > 1) {
-    execCommand = execCommand.slice(1);
-    head = getBasename(execCommand[0] ?? "");
-  }
-  if (head === "rm" && hasRecursiveForceFlags(execCommand)) {
-    return "find -exec rm -rf is dangerous. Use explicit file list instead.";
-  }
-  return null;
-}
-function getFindExecCommand(tokens, execIndex) {
-  const execTokens = tokens.slice(execIndex + 1);
-  const semicolonIdx = execTokens.indexOf(";");
-  const plusIdx = execTokens.indexOf("+");
-  const endIdx = semicolonIdx !== -1 && plusIdx !== -1 ? Math.min(semicolonIdx, plusIdx) : semicolonIdx !== -1 ? semicolonIdx : plusIdx !== -1 ? plusIdx : execTokens.length;
-  return execTokens.slice(0, endIdx);
-}
-function findHasDelete(tokens) {
-  let i = 0;
-  let insideExec = false;
-  let execDepth = 0;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token) {
-      i++;
-      continue;
-    }
-    if (token === "-exec" || token === "-execdir") {
-      insideExec = true;
-      execDepth++;
-      i++;
-      continue;
-    }
-    if (insideExec && (token === ";" || token === "+")) {
-      execDepth--;
-      if (execDepth === 0) {
-        insideExec = false;
-      }
-      i++;
-      continue;
-    }
-    if (insideExec) {
-      i++;
-      continue;
-    }
-    if (findPrimaryTakesValue(token)) {
-      i += 2;
-      continue;
-    }
-    if (token === "-delete") {
-      return true;
-    }
-    i++;
-  }
-  return false;
-}
-function findPrimaryTakesValue(token) {
-  return FIND_PRIMARIES_WITH_VALUE.has(token) || /^-newer[A-Za-z]{2}$/.test(token);
-}
-
-// src/core/analyze/interpreters.ts
-function extractInterpreterCodeArg(tokens) {
-  for (let i = 1;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (!token)
-      continue;
-    if ((token === "-c" || token === "-e") && tokens[i + 1]) {
-      return tokens[i + 1] ?? null;
-    }
-    if (token.startsWith("-") && !token.startsWith("--") && (token.includes("c") || token.includes("e")) && tokens[i + 1]) {
-      return tokens[i + 1] ?? null;
-    }
-  }
-  return null;
-}
-function containsDangerousCode(code) {
-  for (const pattern of DANGEROUS_PATTERNS) {
-    if (pattern.test(code)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// src/core/analyze/rm.ts
-import { realpathSync as realpathSync3 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { normalize, resolve, sep as sep2 } from "node:path";
-
-// src/core/env.ts
-var ENV_FLAGS = {
-  strict: { name: "CC_SAFETY_NET_STRICT", legacyName: "SAFETY_NET_STRICT" },
-  paranoid: { name: "CC_SAFETY_NET_PARANOID", legacyName: "SAFETY_NET_PARANOID" },
-  paranoidRm: { name: "CC_SAFETY_NET_PARANOID_RM", legacyName: "SAFETY_NET_PARANOID_RM" },
-  paranoidInterpreters: {
-    name: "CC_SAFETY_NET_PARANOID_INTERPRETERS",
-    legacyName: "SAFETY_NET_PARANOID_INTERPRETERS"
   },
-  worktree: { name: "CC_SAFETY_NET_WORKTREE", legacyName: "SAFETY_NET_WORKTREE" },
-  debug: { name: "CC_SAFETY_NET_DEBUG" }
-};
-function getCCSafetyNetEnvModes() {
-  const paranoidAll = envTruthy(ENV_FLAGS.paranoid);
-  return {
-    strict: envTruthy(ENV_FLAGS.strict),
-    paranoidAll,
-    paranoidRm: paranoidAll || envTruthy(ENV_FLAGS.paranoidRm),
-    paranoidInterpreters: paranoidAll || envTruthy(ENV_FLAGS.paranoidInterpreters),
-    worktreeMode: envTruthy(ENV_FLAGS.worktree)
-  };
-}
-function envTruthy(flag) {
-  const value = typeof flag === "string" ? process.env[flag] : getEnvFlagValue(flag);
-  return value === "1" || value?.toLowerCase() === "true";
-}
-function getEnvFlagValue(flag) {
-  if (process.env[flag.name] !== undefined) {
-    return process.env[flag.name];
-  }
-  if (flag.legacyName) {
-    return process.env[flag.legacyName];
-  }
-  return;
-}
-function envFlagIsSet(flag) {
-  return process.env[flag.name] !== undefined || !!flag.legacyName && process.env[flag.legacyName] !== undefined;
-}
-
-// src/core/analyze/rm.ts
-var IS_WINDOWS = process.platform === "win32";
-function normalizePathForComparison(p) {
-  let normalized = normalize(p);
-  if (IS_WINDOWS) {
-    normalized = normalized.replace(/\//g, "\\");
-    normalized = normalized.toLowerCase();
-    if (normalized.length > 3 && normalized.endsWith("\\")) {
-      normalized = normalized.slice(0, -1);
-    }
-  } else {
-    if (normalized.length > 1 && normalized.endsWith("/")) {
-      normalized = normalized.slice(0, -1);
-    }
-  }
-  return normalized;
-}
-var REASON_RM_RF = "rm -rf outside cwd is blocked. Use explicit paths within the current directory, or delete manually.";
-var REASON_RM_RF_DYNAMIC_TARGET = "rm -rf target contains shell variables that cannot be verified safely. Use literal paths within cwd, /tmp, /var/tmp, or $TMPDIR.";
-var REASON_RM_RF_ROOT_HOME = "rm -rf targeting root or home directory is extremely dangerous and always blocked.";
-var REASON_RM_HOME_CWD = "rm -rf in home directory is dangerous. Change to a project directory first.";
-function analyzeRm(tokens, options2 = {}) {
-  const { cwd, originalCwd, paranoid = false, allowTmpdirVar = true } = options2;
-  const anchoredCwd = originalCwd ?? cwd ?? null;
-  const resolvedCwd = cwd ?? null;
-  const ctx = {
-    anchoredCwd,
-    resolvedCwd,
-    paranoid,
-    trustTmpdirVar: allowTmpdirVar,
-    homeDir: getHomeDirForRmPolicy()
-  };
-  if (!hasRecursiveForceFlags(tokens)) {
-    return null;
-  }
-  const targets = extractTargets(tokens);
-  for (const target of targets) {
-    const classification = classifyTarget(target, ctx);
-    const reason = reasonForClassification(classification, ctx);
-    if (reason) {
-      return reason;
-    }
-  }
-  return null;
-}
-function extractTargets(tokens) {
-  const targets = [];
-  let pastDoubleDash = false;
-  for (let i = 1;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (!token)
-      continue;
-    if (token === "--") {
-      pastDoubleDash = true;
-      continue;
-    }
-    if (pastDoubleDash) {
-      targets.push(token);
-      continue;
-    }
-    if (!token.startsWith("-")) {
-      targets.push(token);
-    }
-  }
-  return targets;
-}
-function classifyTarget(target, ctx) {
-  if (isDangerousRootOrHomeTarget(target)) {
-    return { kind: "root_or_home_target" };
-  }
-  if (isTempTarget(target, ctx.trustTmpdirVar)) {
-    return { kind: "temp_target" };
-  }
-  if (isDynamicTarget(target)) {
-    return { kind: "dynamic_target" };
-  }
-  const anchoredCwd = ctx.anchoredCwd;
-  if (anchoredCwd) {
-    if (isCwdHomeForRmPolicy(anchoredCwd, ctx.homeDir)) {
-      return { kind: "home_cwd_target" };
-    }
-    if (isCwdSelfTarget(target, anchoredCwd)) {
-      return { kind: "cwd_self_target" };
-    }
-    if (isTargetWithinCwd(target, anchoredCwd, ctx.resolvedCwd ?? anchoredCwd)) {
-      return { kind: "within_anchored_cwd" };
-    }
-  }
-  return { kind: "outside_anchored_cwd" };
-}
-function reasonForClassification(classification, ctx) {
-  switch (classification.kind) {
-    case "root_or_home_target":
-      return REASON_RM_RF_ROOT_HOME;
-    case "temp_target":
-      return null;
-    case "dynamic_target":
-      return REASON_RM_RF_DYNAMIC_TARGET;
-    case "home_cwd_target":
-      return REASON_RM_HOME_CWD;
-    case "cwd_self_target":
-      return REASON_RM_RF;
-    case "within_anchored_cwd":
-      if (ctx.paranoid) {
-        return `${REASON_RM_RF} (${ENV_FLAGS.paranoidRm.name} enabled)`;
-      }
-      return null;
-    case "outside_anchored_cwd":
-      return REASON_RM_RF;
-  }
-}
-function isDangerousRootOrHomeTarget(path) {
-  const normalized = path.trim();
-  if (normalized === "/" || normalized === "/*") {
-    return true;
-  }
-  if (normalized === "~" || normalized === "~/" || normalized.startsWith("~/")) {
-    if (normalized === "~" || normalized === "~/" || normalized === "~/*") {
-      return true;
-    }
-  }
-  if (normalized === "$HOME" || normalized === "$HOME/" || normalized === "$HOME/*") {
-    return true;
-  }
-  if (normalized === "${HOME}" || normalized === "${HOME}/" || normalized === "${HOME}/*") {
-    return true;
-  }
-  return false;
-}
-function isTempTarget(path, allowTmpdirVar) {
-  const normalized = path.trim();
-  if (hasParentDirectoryComponent(normalized)) {
-    return false;
-  }
-  if (normalized === "/tmp" || normalized.startsWith("/tmp/")) {
-    return true;
-  }
-  if (normalized === "/var/tmp" || normalized.startsWith("/var/tmp/")) {
-    return true;
-  }
-  const systemTmpdir = tmpdir();
-  const normalizedTmpdir = normalizePathForComparison(systemTmpdir);
-  const pathToCompare = normalizePathForComparison(normalized);
-  if (pathToCompare.startsWith(`${normalizedTmpdir}${sep2}`) || pathToCompare === normalizedTmpdir) {
-    return true;
-  }
-  if (allowTmpdirVar) {
-    if (normalized === "$TMPDIR" || normalized.startsWith("$TMPDIR/")) {
-      return true;
-    }
-    if (normalized === "${TMPDIR}" || normalized.startsWith("${TMPDIR}/")) {
-      return true;
-    }
-  }
-  return false;
-}
-function hasParentDirectoryComponent(path) {
-  return path.split(/[\\/]+/).includes("..");
-}
-function getHomeDirForRmPolicy() {
-  return process.env.HOME ?? homedir();
-}
-function isDynamicTarget(target) {
-  return target.includes("$") || target.includes("`");
-}
-function isCwdHomeForRmPolicy(cwd, homeDir) {
-  try {
-    return normalizePathForComparison(cwd) === normalizePathForComparison(homeDir);
-  } catch {
-    return false;
-  }
-}
-function isCwdSelfTarget(target, cwd) {
-  if (target === "." || target === "./" || target === ".\\") {
-    return true;
-  }
-  try {
-    const resolved = resolve(cwd, target);
-    const realCwd = realpathSync3(cwd);
-    const realResolved = realpathSync3(resolved);
-    return normalizePathForComparison(realResolved) === normalizePathForComparison(realCwd);
-  } catch {
-    try {
-      const resolved = resolve(cwd, target);
-      return normalizePathForComparison(resolved) === normalizePathForComparison(cwd);
-    } catch {
-      return false;
-    }
-  }
-}
-function isTargetWithinCwd(target, originalCwd, effectiveCwd) {
-  const resolveCwd = effectiveCwd ?? originalCwd;
-  if (target.startsWith("~") || target.startsWith("$HOME") || target.startsWith("${HOME}")) {
-    return false;
-  }
-  if (isDynamicTarget(target)) {
-    return false;
-  }
-  if (target.startsWith("/") || /^[A-Za-z]:[\\/]/.test(target)) {
-    try {
-      return isResolvedPathWithinCwd(target, originalCwd);
-    } catch {
-      return false;
-    }
-  }
-  if (target.startsWith("./") || target.startsWith(".\\") || !target.includes("/") && !target.includes("\\")) {
-    try {
-      const resolved = resolve(resolveCwd, target);
-      return isResolvedPathWithinCwd(resolved, originalCwd);
-    } catch {
-      return false;
-    }
-  }
-  if (target.startsWith("../")) {
-    return false;
-  }
-  try {
-    const resolved = resolve(resolveCwd, target);
-    return isResolvedPathWithinCwd(resolved, originalCwd);
-  } catch {
-    return false;
-  }
-}
-function isResolvedPathWithinCwd(resolvedTarget, cwd) {
-  try {
-    return isNormalizedPathWithin(realpathSync3(resolvedTarget), realpathSync3(cwd));
-  } catch {
-    return isNormalizedPathWithin(resolvedTarget, cwd);
-  }
-}
-function isNormalizedPathWithin(target, cwd) {
-  const normalizedTarget = normalizePathForComparison(target);
-  const normalizedCwd = normalizePathForComparison(cwd);
-  return normalizedTarget.startsWith(`${normalizedCwd}${sep2}`) || normalizedTarget === normalizedCwd;
-}
-
-// src/core/analyze/shell-wrappers.ts
-function extractDashCArg(tokens) {
-  for (let i = 1;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (!token)
-      continue;
-    if (token === "-c" && tokens[i + 1]) {
-      return tokens[i + 1] ?? null;
-    }
-    if (token.startsWith("-") && token.includes("c") && !token.startsWith("--")) {
-      const nextToken = tokens[i + 1];
-      if (nextToken && !nextToken.startsWith("-")) {
-        return nextToken;
-      }
-    }
-  }
-  return null;
-}
-
-// src/core/git/worktree.ts
-import { existsSync, lstatSync as lstatSync2, readFileSync, realpathSync as realpathSync4, statSync } from "node:fs";
-import { dirname as dirname2, isAbsolute as isAbsolute3, join, resolve as resolve2 } from "node:path";
-var GIT_GLOBAL_OPTS_WITH_VALUE = new Set([
-  "-c",
-  "-C",
-  "--git-dir",
-  "--work-tree",
-  "--namespace",
-  "--super-prefix",
-  "--config-env"
-]);
-function hasGitContextEnvOverride(envAssignments) {
-  for (const name of GIT_CONTEXT_ENV_OVERRIDES) {
-    if (envAssignments?.has(name) || Object.hasOwn(process.env, name)) {
-      return true;
-    }
-  }
-  return false;
-}
-function getGitExecutionContext(tokens, cwd) {
-  if (!cwd) {
-    return { gitCwd: null, hasExplicitGitContext: false };
-  }
-  let gitCwd;
-  try {
-    gitCwd = realpathSync4(resolve2(cwd));
-  } catch {
-    return { gitCwd: null, hasExplicitGitContext: false };
-  }
-  if (!isDirectory(gitCwd)) {
-    return { gitCwd: null, hasExplicitGitContext: false };
-  }
-  let hasExplicitGitContext = false;
-  let i = 1;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token)
-      break;
-    if (token === "--") {
-      break;
-    }
-    if (!token.startsWith("-")) {
-      break;
-    }
-    if (token === "-C") {
-      const target = tokens[i + 1];
-      if (!target) {
-        return { gitCwd: null, hasExplicitGitContext };
-      }
-      const resolvedCwd = resolveGitCwd(gitCwd, target);
-      if (!resolvedCwd) {
-        return { gitCwd: null, hasExplicitGitContext };
-      }
-      gitCwd = resolvedCwd;
-      i += 2;
-      continue;
-    }
-    if (token.startsWith("-C") && token.length > 2) {
-      const resolvedCwd = resolveGitCwd(gitCwd, token.slice(2));
-      if (!resolvedCwd) {
-        return { gitCwd: null, hasExplicitGitContext };
-      }
-      gitCwd = resolvedCwd;
-      i++;
-      continue;
-    }
-    if (token === "--git-dir" || token === "--work-tree") {
-      hasExplicitGitContext = true;
-      i += 2;
-      continue;
-    }
-    if (token.startsWith("--git-dir=") || token.startsWith("--work-tree=")) {
-      hasExplicitGitContext = true;
-      i++;
-      continue;
-    }
-    if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token)) {
-      i += 2;
-    } else if (token.startsWith("-c") && token.length > 2) {
-      i++;
-    } else {
-      i++;
-    }
-  }
-  return { gitCwd, hasExplicitGitContext };
-}
-function isLinkedWorktree(cwd) {
-  const dotGitPath = findDotGit(cwd);
-  if (!dotGitPath) {
-    return false;
-  }
-  try {
-    const stat = lstatSync2(dotGitPath);
-    if (stat.isSymbolicLink() || !stat.isFile()) {
-      return false;
-    }
-    const content = readFileSync(dotGitPath, "utf-8");
-    const firstLine = content.split(/\r?\n/, 1)[0]?.trim() ?? "";
-    if (!firstLine.startsWith("gitdir:")) {
-      return false;
-    }
-    const rawGitDir = firstLine.slice("gitdir:".length).trim();
-    if (rawGitDir === "") {
-      return false;
-    }
-    const gitDir = isAbsolute3(rawGitDir) ? rawGitDir : resolve2(dirname2(dotGitPath), rawGitDir);
-    if (!existsSync(join(gitDir, "commondir"))) {
-      return false;
-    }
-    if (!worktreeGitdirBacklinkMatches(gitDir, dotGitPath)) {
-      return false;
-    }
-    return worktreeConfigMatchesRoot(gitDir, dirname2(dotGitPath));
-  } catch {
-    return false;
-  }
-}
-function worktreeGitdirBacklinkMatches(gitDir, dotGitPath) {
-  const backlinkPath = join(gitDir, "gitdir");
-  if (!existsSync(backlinkPath)) {
-    return false;
-  }
-  const rawBacklink = readFileSync(backlinkPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
-  if (rawBacklink === "") {
-    return false;
-  }
-  const linkedDotGitPath = isAbsolute3(rawBacklink) ? rawBacklink : resolve2(gitDir, rawBacklink);
-  try {
-    return sameFilesystemPath(linkedDotGitPath, dotGitPath);
-  } catch {
-    return false;
-  }
-}
-function worktreeConfigMatchesRoot(gitDir, worktreeRoot) {
-  const configWorktreePath = join(gitDir, "config.worktree");
-  if (!existsSync(configWorktreePath)) {
-    return true;
-  }
-  const configuredWorktree = readCoreWorktree(configWorktreePath);
-  if (configuredWorktree === null) {
-    return true;
-  }
-  const resolvedConfiguredWorktree = isAbsolute3(configuredWorktree) ? configuredWorktree : resolve2(gitDir, configuredWorktree);
-  try {
-    return sameFilesystemPath(resolvedConfiguredWorktree, worktreeRoot);
-  } catch {
-    return false;
-  }
-}
-function sameFilesystemPath(left, right) {
-  try {
-    const leftStat = statSync(left);
-    const rightStat = statSync(right);
-    if (leftStat.ino !== 0 && rightStat.ino !== 0 && leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino) {
-      return true;
-    }
-  } catch {}
-  return getCanonicalPathForComparison(left) === getCanonicalPathForComparison(right);
-}
-function getCanonicalPathForComparison(path) {
-  return normalizePathForComparison2(realpathSync4.native(path));
-}
-function normalizePathForComparison2(path) {
-  let normalized = path.replace(/^\\\\\?\\UNC\\/i, "//").replace(/^\\\\\?\\/i, "");
-  normalized = normalized.replace(/\\/g, "/");
-  if (normalized.length > 1 && normalized.endsWith("/")) {
-    normalized = normalized.slice(0, -1);
-  }
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-function readCoreWorktree(configPath) {
-  const content = readFileSync(configPath, "utf-8");
-  let inCore = false;
-  let configuredWorktree = null;
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("#") || trimmed.startsWith(";")) {
-      continue;
-    }
-    if (trimmed.startsWith("[")) {
-      inCore = /^\[core\]$/i.test(trimmed);
-      continue;
-    }
-    if (!inCore) {
-      continue;
-    }
-    const match = trimmed.match(/^worktree\s*=\s*(.*)$/i);
-    if (match) {
-      configuredWorktree = parseGitConfigValue(match[1] ?? "");
-    }
-  }
-  return configuredWorktree;
-}
-function parseGitConfigValue(value) {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith('"') || !trimmed.endsWith('"')) {
-    return trimmed;
-  }
-  return unescapeDoubleQuotedGitConfigValue(trimmed.slice(1, -1));
-}
-function unescapeDoubleQuotedGitConfigValue(value) {
-  let result = "";
-  for (let i = 0;i < value.length; i++) {
-    const char = value[i];
-    if (char !== "\\") {
-      result += char;
-      continue;
-    }
-    const next = value[i + 1];
-    if (next === undefined) {
-      result += char;
-      continue;
-    }
-    switch (next) {
-      case "\\":
-      case '"':
-        result += next;
-        break;
-      case "n":
-        result += `
-`;
-        break;
-      case "t":
-        result += "\t";
-        break;
-      case "b":
-        result += "\b";
-        break;
-      default:
-        result += `\\${next}`;
-        break;
-    }
-    i++;
-  }
-  return result;
-}
-function resolveGitCwd(baseCwd, target) {
-  try {
-    const resolved = resolveChdirTarget(baseCwd, target);
-    return isDirectory(resolved) ? resolved : null;
-  } catch {
-    return null;
-  }
-}
-function isDirectory(path) {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-function findDotGit(cwd) {
-  try {
-    return findDotGitInAncestors(realpathSync4(cwd));
-  } catch {
-    return null;
-  }
-}
-function findDotGitInAncestors(cwd) {
-  let current = cwd;
-  while (true) {
-    const dotGitPath = join(current, ".git");
-    if (existsSync(dotGitPath)) {
-      return dotGitPath;
-    }
-    const parent = dirname2(current);
-    if (parent === current) {
-      return null;
-    }
-    current = parent;
-  }
-}
-
-// src/core/git/parse.ts
-function splitAtDoubleDash(tokens) {
-  const index = tokens.indexOf("--");
-  if (index === -1) {
-    return { index: -1, before: tokens, after: [] };
-  }
-  return {
-    index,
-    before: tokens.slice(0, index),
-    after: tokens.slice(index + 1)
-  };
-}
-function extractGitSubcommandAndRest(tokens) {
-  if (tokens.length === 0) {
-    return { subcommand: null, rest: [] };
-  }
-  const firstToken = tokens[0];
-  const command2 = firstToken ? getBasename(firstToken).toLowerCase() : null;
-  if (command2 !== "git") {
-    return { subcommand: null, rest: [] };
-  }
-  let i = 1;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token)
-      break;
-    if (token === "--") {
-      const nextToken = tokens[i + 1];
-      if (nextToken && !nextToken.startsWith("-")) {
-        return { subcommand: nextToken, rest: tokens.slice(i + 2) };
-      }
-      return { subcommand: null, rest: tokens.slice(i + 1) };
-    }
-    if (token.startsWith("-")) {
-      if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token)) {
-        i += 2;
-      } else if (token.startsWith("-c") && token.length > 2) {
-        i++;
-      } else if (token.startsWith("-C") && token.length > 2) {
-        i++;
-      } else {
-        i++;
-      }
-    } else {
-      return { subcommand: token, rest: tokens.slice(i + 1) };
-    }
-  }
-  return { subcommand: null, rest: [] };
-}
-
-// src/core/git/rules.ts
-var REASON_CHECKOUT_DOUBLE_DASH = "git checkout -- discards uncommitted changes permanently. Use 'git stash' first.";
-var REASON_CHECKOUT_FORCE = "git checkout --force discards uncommitted changes. Use 'git stash' first.";
-var REASON_CHECKOUT_REF_PATH = "git checkout <ref> -- <path> overwrites working tree with ref version. Use 'git stash' first.";
-var REASON_CHECKOUT_PATHSPEC_FROM_FILE = "git checkout --pathspec-from-file can overwrite multiple files. Use 'git stash' first.";
-var REASON_CHECKOUT_AMBIGUOUS = "git checkout with multiple positional args may overwrite files. Use 'git switch' for branches or 'git restore' for files.";
-var REASON_SWITCH_DISCARD_CHANGES = "git switch --discard-changes discards uncommitted changes. Use 'git stash' first.";
-var REASON_SWITCH_FORCE = "git switch --force discards uncommitted changes. Use 'git stash' first.";
-var REASON_RESTORE = "git restore discards uncommitted changes. Use 'git stash' first, or use --staged to only unstage.";
-var REASON_RESTORE_WORKTREE = "git restore --worktree explicitly discards working tree changes. Use 'git stash' first.";
-var REASON_RESET_HARD = "git reset --hard destroys all uncommitted changes permanently. Use 'git stash' first.";
-var REASON_RESET_MERGE = "git reset --merge can lose uncommitted changes. Use 'git stash' first.";
-var REASON_CLEAN = "git clean -f removes untracked files permanently. Use 'git clean -n' to preview first.";
-var REASON_PUSH_FORCE = "git push --force destroys remote history. Use --force-with-lease for safer force push.";
-var REASON_BRANCH_DELETE = "git branch -D force-deletes without merge check. Use -d for safe delete.";
-var REASON_REBASE_ABORT = "git rebase --abort discards rebase conflict resolutions. Use 'git status' first.";
-var REASON_MERGE_ABORT = "git merge --abort discards merge conflict resolutions. Use 'git status' first.";
-var REASON_TAG_DELETE = "git tag -d permanently deletes tags.";
-var REASON_REFLOG_DELETE = "git reflog delete removes recovery history.";
-var REASON_STASH_DROP = "git stash drop permanently deletes stashed changes. Consider 'git stash list' first.";
-var REASON_STASH_CLEAR = "git stash clear deletes ALL stashed changes permanently.";
-var REASON_WORKTREE_REMOVE_FORCE = "git worktree remove --force can delete uncommitted changes. Remove --force flag.";
-var CHECKOUT_OPTS_WITH_VALUE = new Set([
-  "-b",
-  "-B",
-  "--orphan",
-  "--conflict",
-  "--inter-hunk-context",
-  "--pathspec-from-file",
-  "--unified"
-]);
-var CHECKOUT_OPTS_WITH_OPTIONAL_VALUE = new Set(["--recurse-submodules", "--track", "-t"]);
-var CHECKOUT_SHORT_OPTS_WITH_VALUE = new Set(["-b", "-B", "-U"]);
-var SWITCH_SHORT_OPTS_WITH_VALUE = new Set(["-c", "-C"]);
-var CHECKOUT_KNOWN_OPTS_NO_VALUE = new Set([
-  "-q",
-  "--quiet",
-  "--no-quiet",
-  "-f",
-  "--force",
-  "--no-force",
-  "-d",
-  "--detach",
-  "--no-detach",
-  "-m",
-  "--merge",
-  "--no-merge",
-  "-p",
-  "--patch",
-  "--no-patch",
-  "--guess",
-  "--no-guess",
-  "--overlay",
-  "--no-overlay",
-  "--ours",
-  "--theirs",
-  "--ignore-skip-worktree-bits",
-  "--no-ignore-skip-worktree-bits",
-  "--no-track",
-  "--overwrite-ignore",
-  "--no-overwrite-ignore",
-  "--ignore-other-worktrees",
-  "--no-ignore-other-worktrees",
-  "--progress",
-  "--no-progress",
-  "--pathspec-file-nul",
-  "--no-pathspec-file-nul",
-  "--no-recurse-submodules"
-]);
-function matchesGitLongOption(token, option) {
-  const optionName = token.split("=", 1)[0] ?? token;
-  return optionName.length >= 4 && option.startsWith(optionName) && optionName.startsWith("--") && optionName.slice(2).length >= 2;
-}
-function analyzeGitRule(tokens) {
-  const { subcommand, rest } = extractGitSubcommandAndRest(tokens);
-  if (!subcommand) {
-    return null;
-  }
-  switch (subcommand.toLowerCase()) {
-    case "checkout":
-      return localDiscard(analyzeGitCheckout(rest));
-    case "switch":
-      return localDiscard(analyzeGitSwitch(rest));
-    case "restore":
-      return localDiscard(analyzeGitRestore(rest));
-    case "reset":
-      return analyzeGitReset(rest);
-    case "clean":
-      return localDiscard(analyzeGitClean(rest));
-    case "push":
-      return sharedState(analyzeGitPush(rest));
-    case "branch":
-      return sharedState(analyzeGitBranch(rest));
-    case "stash":
-      return sharedState(analyzeGitStash(rest));
-    case "worktree":
-      return sharedState(analyzeGitWorktree(rest));
-    case "rebase":
-      return localDiscard(analyzeGitRebase(rest));
-    case "merge":
-      return localDiscard(analyzeGitMerge(rest));
-    case "tag":
-      return sharedState(analyzeGitTag(rest));
-    case "reflog":
-      return sharedState(analyzeGitReflog(rest));
-    default:
-      return null;
-  }
-}
-function localDiscard(reason) {
-  return reason ? { reason, localDiscard: true } : null;
-}
-function sharedState(reason) {
-  return reason ? { reason, localDiscard: false } : null;
-}
-function analyzeGitCheckout(tokens) {
-  const { index: doubleDashIdx, before: beforeDash } = splitAtDoubleDash(tokens);
-  const shortOpts = extractShortOpts(beforeDash, {
-    shortOptsWithValue: CHECKOUT_SHORT_OPTS_WITH_VALUE
-  });
-  if (beforeDash.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
-    return REASON_CHECKOUT_FORCE;
-  }
-  for (const token of tokens) {
-    if (token === "-b" || token === "-B" || token === "--orphan") {
-      return null;
-    }
-    if (matchesGitLongOption(token, "--pathspec-from-file")) {
-      return REASON_CHECKOUT_PATHSPEC_FROM_FILE;
-    }
-  }
-  if (doubleDashIdx !== -1) {
-    const hasRefBeforeDash = beforeDash.some((t) => !t.startsWith("-"));
-    if (hasRefBeforeDash) {
-      return REASON_CHECKOUT_REF_PATH;
-    }
-    return REASON_CHECKOUT_DOUBLE_DASH;
-  }
-  const positionalArgs = getCheckoutPositionalArgs(tokens);
-  if (positionalArgs.length >= 2) {
-    return REASON_CHECKOUT_AMBIGUOUS;
-  }
-  return null;
-}
-function analyzeGitSwitch(tokens) {
-  const { before } = splitAtDoubleDash(tokens);
-  if (before.some((token) => matchesGitLongOption(token, "--discard-changes"))) {
-    return REASON_SWITCH_DISCARD_CHANGES;
-  }
-  const shortOpts = extractShortOpts(before, {
-    shortOptsWithValue: SWITCH_SHORT_OPTS_WITH_VALUE
-  });
-  if (before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
-    return REASON_SWITCH_FORCE;
-  }
-  return null;
-}
-function getCheckoutPositionalArgs(tokens) {
-  const positional = [];
-  let i = 0;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token)
-      break;
-    if (token === "--") {
-      break;
-    }
-    if (token.startsWith("-")) {
-      if (CHECKOUT_OPTS_WITH_VALUE.has(token)) {
-        i += 2;
-      } else if (token.startsWith("--") && token.includes("=")) {
-        i++;
-      } else if (CHECKOUT_OPTS_WITH_OPTIONAL_VALUE.has(token)) {
-        const nextToken = tokens[i + 1];
-        if (nextToken && !nextToken.startsWith("-") && (token === "--recurse-submodules" || token === "--track" || token === "-t")) {
-          const validModes = token === "--recurse-submodules" ? ["checkout", "on-demand"] : ["direct", "inherit"];
-          if (validModes.includes(nextToken)) {
-            i += 2;
-          } else {
-            i++;
-          }
-        } else {
-          i++;
-        }
-      } else if (token.startsWith("--") && !CHECKOUT_KNOWN_OPTS_NO_VALUE.has(token) && !CHECKOUT_OPTS_WITH_VALUE.has(token) && !CHECKOUT_OPTS_WITH_OPTIONAL_VALUE.has(token)) {
-        i++;
-      } else {
-        i++;
-      }
-    } else {
-      positional.push(token);
-      i++;
-    }
-  }
-  return positional;
-}
-function analyzeGitRestore(tokens) {
-  let hasStaged = false;
-  for (const token of tokens) {
-    if (token === "--help" || token === "--version") {
-      return null;
-    }
-    if (token === "--worktree" || token === "-W") {
-      return REASON_RESTORE_WORKTREE;
-    }
-    if (token === "--staged" || token === "-S") {
-      hasStaged = true;
-    }
-  }
-  return hasStaged ? null : REASON_RESTORE;
-}
-function analyzeGitReset(tokens) {
-  let reason = null;
-  for (const token of tokens) {
-    if (matchesGitLongOption(token, "--hard")) {
-      reason = REASON_RESET_HARD;
-      break;
-    }
-    if (matchesGitLongOption(token, "--merge")) {
-      reason = REASON_RESET_MERGE;
-      break;
-    }
-  }
-  if (!reason) {
-    return null;
-  }
-  return resetHasRef(tokens) ? sharedState(reason) : localDiscard(reason);
-}
-function resetHasRef(tokens) {
-  for (const token of tokens) {
-    if (token === "--") {
-      return false;
-    }
-    if (!token.startsWith("-")) {
-      return true;
-    }
-  }
-  return false;
-}
-function analyzeGitClean(tokens) {
-  for (const token of tokens) {
-    if (token === "-n" || matchesGitLongOption(token, "--dry-run")) {
-      return null;
-    }
-  }
-  const shortOpts = extractShortOpts(tokens.filter((t) => t !== "--"));
-  if (tokens.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
-    return REASON_CLEAN;
-  }
-  return null;
-}
-function analyzeGitPush(tokens) {
-  const shortOpts = extractShortOpts(tokens.filter((t) => t !== "--"));
-  const hasForce = tokens.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f");
-  if (hasForce) {
-    return REASON_PUSH_FORCE;
-  }
-  return null;
-}
-function analyzeGitBranch(tokens) {
-  const { before } = splitAtDoubleDash(tokens);
-  const shortOpts = extractShortOpts(before);
-  const hasDelete = shortOpts.has("-D") || shortOpts.has("-d") || before.some((token) => matchesGitLongOption(token, "--delete"));
-  const hasForce = shortOpts.has("-D") || shortOpts.has("-f") || before.some((token) => matchesGitLongOption(token, "--force"));
-  if (hasDelete && hasForce) {
-    return REASON_BRANCH_DELETE;
-  }
-  return null;
-}
-function analyzeGitRebase(tokens) {
-  const { before } = splitAtDoubleDash(tokens);
-  return before.some((token) => matchesGitLongOption(token, "--abort")) ? REASON_REBASE_ABORT : null;
-}
-function analyzeGitMerge(tokens) {
-  const { before } = splitAtDoubleDash(tokens);
-  return before.some((token) => matchesGitLongOption(token, "--abort")) ? REASON_MERGE_ABORT : null;
-}
-function analyzeGitTag(tokens) {
-  const { before } = splitAtDoubleDash(tokens);
-  const shortOpts = extractShortOpts(before);
-  return shortOpts.has("-d") || before.some((token) => matchesGitLongOption(token, "--delete")) ? REASON_TAG_DELETE : null;
-}
-function analyzeGitReflog(tokens) {
-  return tokens[0] === "delete" ? REASON_REFLOG_DELETE : null;
-}
-function analyzeGitStash(tokens) {
-  for (const token of tokens) {
-    if (token === "drop") {
-      return REASON_STASH_DROP;
-    }
-    if (token === "clear") {
-      return REASON_STASH_CLEAR;
-    }
-  }
-  return null;
-}
-function analyzeGitWorktree(tokens) {
-  const { before } = splitAtDoubleDash(tokens);
-  const hasRemove = before.includes("remove");
-  if (!hasRemove)
-    return null;
-  const shortOpts = extractShortOpts(before);
-  if (before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f")) {
-    return REASON_WORKTREE_REMOVE_FORCE;
-  }
-  return null;
-}
-
-// src/core/git/config.ts
-import { execFileSync } from "node:child_process";
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { dirname as dirname3, isAbsolute as isAbsolute4, join as join2, resolve as resolve3 } from "node:path";
-var TRUSTED_GIT_BINARIES = [
-  "/usr/bin/git",
-  "/usr/local/bin/git",
-  "/opt/homebrew/bin/git",
-  "C:\\Program Files\\Git\\cmd\\git.exe",
-  "C:\\Program Files\\Git\\bin\\git.exe"
-];
-function hasRecursiveSubmoduleConfig(tokens, envAssignments, gitCwd) {
-  const commandLineConfig = commandLineRecursiveSubmoduleConfig(tokens, envAssignments);
-  if (commandLineConfig !== null) {
-    return commandLineConfig;
-  }
-  const envConfig = envRecursiveSubmoduleConfig(envAssignments);
-  if (envConfig !== null) {
-    return envConfig;
-  }
-  if (hasConfigAffectingEnvAssignment(envAssignments)) {
-    return true;
-  }
-  return effectiveGitConfigEnablesRecursiveSubmodules(gitCwd);
-}
-function commandLineRecursiveSubmoduleConfig(tokens, envAssignments) {
-  let recursiveSubmoduleConfig = null;
-  let i = 1;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token || token === "--") {
-      return recursiveSubmoduleConfig;
-    }
-    if (!token.startsWith("-")) {
-      return recursiveSubmoduleConfig;
-    }
-    if (token === "-c") {
-      const configValue = recursiveSubmoduleConfigValue(tokens[i + 1]);
-      if (configValue !== null) {
-        recursiveSubmoduleConfig = configValue;
-      }
-      i += 2;
-      continue;
-    }
-    if (token.startsWith("-c") && token.length > 2) {
-      const configValue = recursiveSubmoduleConfigValue(token.slice(2));
-      if (configValue !== null) {
-        recursiveSubmoduleConfig = configValue;
-      }
-      i++;
-      continue;
-    }
-    if (token === "--config-env") {
-      const configValue = recursiveSubmoduleConfigEnvValue(tokens[i + 1], envAssignments);
-      if (configValue !== null) {
-        recursiveSubmoduleConfig = configValue;
-      }
-      i += 2;
-      continue;
-    }
-    if (token.startsWith("--config-env=")) {
-      const configValue = recursiveSubmoduleConfigEnvValue(token.slice("--config-env=".length), envAssignments);
-      if (configValue !== null) {
-        recursiveSubmoduleConfig = configValue;
-      }
-      i++;
-      continue;
-    }
-    if (GIT_GLOBAL_OPTS_WITH_VALUE.has(token)) {
-      i += 2;
-    } else {
-      i++;
-    }
-  }
-  return recursiveSubmoduleConfig;
-}
-function envRecursiveSubmoduleConfig(envAssignments) {
-  if (getEnvConfigValue("GIT_CONFIG_PARAMETERS", envAssignments) !== undefined) {
-    return true;
-  }
-  const countValue = getEnvConfigValue("GIT_CONFIG_COUNT", envAssignments);
-  if (countValue === undefined) {
-    return null;
-  }
-  const count = Number.parseInt(countValue, 10);
-  if (!Number.isInteger(count) || count < 0) {
-    return true;
-  }
-  let recursiveSubmoduleConfig = null;
-  for (let i = 0;i < count; i++) {
-    const key = getEnvConfigValue(`GIT_CONFIG_KEY_${i}`, envAssignments);
-    if (key?.toLowerCase() !== "submodule.recurse") {
-      continue;
-    }
-    const value = getEnvConfigValue(`GIT_CONFIG_VALUE_${i}`, envAssignments);
-    recursiveSubmoduleConfig = value === undefined || gitConfigValueEnablesRecursiveSubmodules(value);
-  }
-  return recursiveSubmoduleConfig;
-}
-function getEnvConfigValue(name, envAssignments) {
-  return envAssignments?.get(name) ?? process.env[name];
-}
-function effectiveGitConfigEnablesRecursiveSubmodules(cwd, gitBinary = getTrustedGitBinary()) {
-  const localConfigResult = localGitConfigEnablesRecursiveSubmodules(cwd);
-  if (localConfigResult === null || localConfigResult) {
-    return true;
-  }
-  if (gitBinary === null) {
-    return true;
-  }
-  try {
-    const value = execFileSync(gitBinary, ["config", "--get", "submodule.recurse"], {
-      cwd,
-      encoding: "utf8",
-      env: withoutGitConfigEnv(process.env),
-      stdio: ["ignore", "pipe", "ignore"]
-    }).trim();
-    return gitConfigValueEnablesRecursiveSubmodules(value);
-  } catch (error) {
-    return !isGitConfigUnsetError(error);
-  }
-}
-function localGitConfigEnablesRecursiveSubmodules(cwd) {
-  const configPaths = getLocalGitConfigPaths(cwd);
-  if (configPaths === null) {
-    return null;
-  }
-  for (const configPath of configPaths) {
-    if (!existsSync2(configPath)) {
-      continue;
-    }
-    const result = gitConfigFileEnablesRecursiveSubmodules(configPath);
-    if (result) {
-      return true;
-    }
-  }
-  return false;
-}
-function getTrustedGitBinary() {
-  for (const gitBinary of TRUSTED_GIT_BINARIES) {
-    if (existsSync2(gitBinary)) {
-      return gitBinary;
-    }
-  }
-  return null;
-}
-function withoutGitConfigEnv(env) {
-  const nextEnv = { ...env };
-  for (const key of Object.keys(nextEnv)) {
-    if (isGitConfigEnvName(key)) {
-      delete nextEnv[key];
-    }
-  }
-  return nextEnv;
-}
-function isGitConfigUnsetError(error) {
-  return typeof error === "object" && error !== null && "status" in error && error.status === 1;
-}
-function getLocalGitConfigPaths(cwd) {
-  const dotGitPath = findDotGitInAncestors(cwd);
-  if (dotGitPath === null) {
-    return null;
-  }
-  const gitDir = resolveGitDirFromDotGit(dotGitPath);
-  if (gitDir === null) {
-    return null;
-  }
-  const commonDir = resolveCommonGitDir(gitDir);
-  if (commonDir === null) {
-    return null;
-  }
-  return [join2(commonDir, "config"), join2(gitDir, "config.worktree")];
-}
-function resolveGitDirFromDotGit(dotGitPath) {
-  try {
-    const content = readFileSync2(dotGitPath, "utf-8");
-    const firstLine = content.split(/\r?\n/, 1)[0]?.trim() ?? "";
-    if (!firstLine.startsWith("gitdir:")) {
-      return dotGitPath;
-    }
-    const rawGitDir = firstLine.slice("gitdir:".length).trim();
-    if (rawGitDir === "") {
-      return null;
-    }
-    return isAbsolute4(rawGitDir) ? rawGitDir : resolve3(dirname3(dotGitPath), rawGitDir);
-  } catch {
-    return null;
-  }
-}
-function resolveCommonGitDir(gitDir) {
-  const commonDirPath = join2(gitDir, "commondir");
-  if (!existsSync2(commonDirPath)) {
-    return gitDir;
-  }
-  try {
-    const rawCommonDir = readFileSync2(commonDirPath, "utf-8").split(/\r?\n/, 1)[0]?.trim() ?? "";
-    if (rawCommonDir === "") {
-      return null;
-    }
-    return isAbsolute4(rawCommonDir) ? rawCommonDir : resolve3(gitDir, rawCommonDir);
-  } catch {
-    return null;
-  }
-}
-function gitConfigFileEnablesRecursiveSubmodules(configPath) {
-  let content;
-  try {
-    content = readFileSync2(configPath, "utf-8");
-  } catch {
-    return true;
-  }
-  let section = "";
-  let recursiveSubmoduleConfig = false;
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("#") || trimmed.startsWith(";")) {
-      continue;
-    }
-    const sectionMatch = trimmed.match(/^\[([^\]]+)\]$/);
-    if (sectionMatch) {
-      section = sectionMatch[1]?.trim().toLowerCase() ?? "";
-      continue;
-    }
-    const eqIdx = trimmed.indexOf("=");
-    const key = (eqIdx === -1 ? trimmed : trimmed.slice(0, eqIdx)).trim().toLowerCase();
-    const value = eqIdx === -1 ? "true" : trimmed.slice(eqIdx + 1).trim();
-    if (isIncludeConfigSection(section) && key === "path") {
-      return true;
-    }
-    if (section === "submodule" && key === "recurse") {
-      recursiveSubmoduleConfig = gitConfigValueEnablesRecursiveSubmodules(value);
-    }
-  }
-  return recursiveSubmoduleConfig;
-}
-function isIncludeConfigSection(section) {
-  return section === "include" || section.startsWith("includeif ");
-}
-function recursiveSubmoduleConfigValue(config) {
-  if (!config) {
-    return null;
-  }
-  const eqIdx = config.indexOf("=");
-  const key = (eqIdx === -1 ? config : config.slice(0, eqIdx)).toLowerCase();
-  if (isIncludeConfigKey(key)) {
-    return true;
-  }
-  if (key !== "submodule.recurse") {
-    return null;
-  }
-  const value = eqIdx === -1 ? "true" : config.slice(eqIdx + 1).toLowerCase();
-  return gitConfigValueEnablesRecursiveSubmodules(value);
-}
-function gitConfigValueEnablesRecursiveSubmodules(value) {
-  const normalizedValue = value.toLowerCase();
-  return normalizedValue !== "false" && normalizedValue !== "no" && normalizedValue !== "off" && normalizedValue !== "0";
-}
-function recursiveSubmoduleConfigEnvValue(configEnv, envAssignments) {
-  const eqIdx = configEnv?.indexOf("=") ?? -1;
-  if (!configEnv || eqIdx === -1) {
-    return null;
-  }
-  const key = configEnv.slice(0, eqIdx).toLowerCase();
-  if (isIncludeConfigKey(key)) {
-    return true;
-  }
-  if (key !== "submodule.recurse") {
-    return null;
-  }
-  const value = getEnvConfigValue(configEnv.slice(eqIdx + 1), envAssignments);
-  return value === undefined || gitConfigValueEnablesRecursiveSubmodules(value);
-}
-function isIncludeConfigKey(key) {
-  return key === "include.path" || key.startsWith("includeif.") && key.endsWith(".path");
-}
-
-// src/core/git/worktree-relaxation.ts
-function getGitWorktreeRelaxationForMatch(tokens, match, options2) {
-  if (!match.localDiscard || !options2.worktreeMode || hasGitContextEnvOverride(options2.envAssignments)) {
-    return null;
-  }
-  const context = getGitExecutionContext(tokens, options2.cwd);
-  if (!context.gitCwd || context.hasExplicitGitContext) {
-    return null;
-  }
-  if (!isLinkedWorktree(context.gitCwd)) {
-    return null;
-  }
-  if (isNonRelaxableLocalDiscard(tokens, options2, context.gitCwd)) {
-    return null;
-  }
-  return {
-    originalReason: match.reason,
-    gitCwd: context.gitCwd
-  };
-}
-function isNonRelaxableLocalDiscard(tokens, options2, gitCwd) {
-  const { subcommand, rest } = extractGitSubcommandAndRest(tokens);
-  const normalizedSubcommand = subcommand?.toLowerCase();
-  if (hasDynamicGitArgument(rest) || hasRecursiveSubmoduleConfig(tokens, options2.envAssignments, gitCwd) || hasRecurseSubmodulesOption(rest) || isForcedBranchReset(normalizedSubcommand, rest)) {
-    return true;
-  }
-  return normalizedSubcommand === "clean" && countCleanForceFlags(rest) > 1;
-}
-function hasDynamicGitArgument(tokens) {
-  return tokens.some((token) => /[$*?[]/.test(token));
-}
-function isForcedBranchReset(subcommand, rest) {
-  if (subcommand === "checkout") {
-    const { before } = splitAtDoubleDash(rest);
-    const shortOpts = extractShortOpts(before, {
-      shortOptsWithValue: CHECKOUT_SHORT_OPTS_WITH_VALUE
-    });
-    const hasForce = before.some((token) => matchesGitLongOption(token, "--force")) || shortOpts.has("-f");
-    const hasBranchReset = shortOpts.has("-B") || before.some((token) => token === "-B" || token.startsWith("-B"));
-    return hasForce && hasBranchReset;
-  }
-  if (subcommand === "switch") {
-    const { before } = splitAtDoubleDash(rest);
-    const shortOpts = extractShortOpts(before, {
-      shortOptsWithValue: SWITCH_SHORT_OPTS_WITH_VALUE
-    });
-    const hasForce = before.some((token) => matchesGitLongOption(token, "--force")) || before.some((token) => matchesGitLongOption(token, "--discard-changes")) || shortOpts.has("-f");
-    const hasForceCreate = before.some((token) => token === "-C" || token.startsWith("-C") || isForceCreateOption(token)) || shortOpts.has("-C");
-    return hasForce && hasForceCreate;
-  }
-  return false;
-}
-function isForceCreateOption(token) {
-  const optionName = token.split("=", 1)[0] ?? token;
-  return optionName === "--force-create" || optionName.length >= "--force-c".length && "--force-create".startsWith(optionName);
-}
-function hasRecurseSubmodulesOption(tokens) {
-  return tokens.some((token) => token.startsWith("--recurse-sub"));
-}
-function countCleanForceFlags(tokens) {
-  let count = 0;
-  for (const token of tokens) {
-    if (token === "--force") {
-      count++;
-      continue;
-    }
-    if (token.startsWith("-") && !token.startsWith("--")) {
-      for (const opt of token.slice(1)) {
-        if (opt === "f") {
-          count++;
-        }
-      }
-    }
-  }
-  return count;
-}
-
-// src/core/git/index.ts
-var REASON_GIT_SSH_ENV = "Git SSH environment overrides can execute arbitrary commands during network operations.";
-var GIT_NETWORK_SUBCOMMANDS = new Set([
-  "clone",
-  "fetch",
-  "pull",
-  "push",
-  "ls-remote",
-  "submodule"
-]);
-function analyzeGit(tokens, options2 = {}) {
-  if (hasGitSshEnvAssignment(options2.envAssignments) && isGitNetworkOperation(tokens)) {
-    return REASON_GIT_SSH_ENV;
-  }
-  const match = analyzeGitRule(tokens);
-  if (!match) {
-    return null;
-  }
-  if (getGitWorktreeRelaxationForMatch(tokens, match, options2)) {
-    return null;
-  }
-  return match.reason;
-}
-function isGitNetworkOperation(tokens) {
-  const { subcommand } = extractGitSubcommandAndRest(tokens);
-  return GIT_NETWORK_SUBCOMMANDS.has(subcommand?.toLowerCase() ?? "");
-}
-function getGitWorktreeRelaxation(tokens, options2 = {}) {
-  const match = analyzeGitRule(tokens);
-  if (!match) {
-    return null;
-  }
-  return getGitWorktreeRelaxationForMatch(tokens, match, options2);
-}
-
-// src/core/analyze/child-analyzer.ts
-function analyzeChildCommand(tokens, context, options2 = {}) {
-  if (tokens.length === 0) {
-    return null;
-  }
-  const head = tokens[0];
-  if (!head) {
-    return null;
-  }
-  if (SHELL_WRAPPERS.has(head)) {
-    if (options2.dynamicInput && options2.shellDynamicReason) {
-      return options2.shellDynamicReason;
-    }
-    const dashCArg = extractDashCArg(tokens);
-    if (dashCArg && context.analyzeNested) {
-      return context.analyzeNested(dashCArg, {
-        effectiveCwd: context.cwd,
-        envAssignments: context.envAssignments
-      });
-    }
-    return null;
-  }
-  if (head === "rm" && hasRecursiveForceFlags(tokens)) {
-    const rmResult = analyzeRm([...tokens], {
-      cwd: context.cwd,
-      originalCwd: context.originalCwd,
-      paranoid: context.paranoidRm,
-      allowTmpdirVar: context.allowTmpdirVar
-    });
-    return rmResult ?? (options2.dynamicInput ? options2.rmDynamicReason ?? null : null);
-  }
-  if (head === "find") {
-    return analyzeFind(tokens, {
-      ...context,
-      analyzeTokens: (nestedTokens, cwd) => analyzeChildCommand(nestedTokens, { ...context, cwd: cwd ?? undefined }, options2)
-    });
-  }
-  if (head === "git") {
-    return analyzeGit(tokens, {
-      cwd: context.cwd,
-      envAssignments: context.envAssignments,
-      worktreeMode: options2.dynamicInput ? false : context.worktreeMode
-    });
-  }
-  return null;
-}
-
-// src/core/analyze/child-command.ts
-function normalizeChildCommand(tokens, context) {
-  const wrapperInfo = stripWrappersWithInfo([...tokens], context.cwd);
-  const envAssignments = new Map(context.envAssignments ?? []);
-  for (const [k, v] of wrapperInfo.envAssignments) {
-    envAssignments.set(k, v);
-  }
-  const childTokens = getBasename(wrapperInfo.tokens[0] ?? "").toLowerCase() === "busybox" && wrapperInfo.tokens.length > 1 ? wrapperInfo.tokens.slice(1) : wrapperInfo.tokens;
-  return {
-    tokens: childTokens,
-    cwd: wrapperInfo.cwd === null ? undefined : wrapperInfo.cwd ?? context.cwd,
-    wrapperCwd: wrapperInfo.cwd,
-    envAssignments,
-    head: getBasename(childTokens[0] ?? "").toLowerCase()
-  };
-}
-function collectCommandTemplate(tokens, start) {
-  const templateTokens = [];
-  let i = start;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (token === undefined || token === ":::")
-      break;
-    templateTokens.push(token);
-    i++;
-  }
-  return {
-    markerIndex: i < tokens.length && tokens[i] === ":::" ? i : -1,
-    templateTokens
-  };
-}
-
-// src/core/analyze/parallel.ts
-var REASON_PARALLEL_RM = "parallel rm -rf with dynamic input is dangerous. Use explicit file list instead.";
-var REASON_PARALLEL_SHELL = "parallel with shell -c can execute arbitrary commands from dynamic input.";
-var PARALLEL_PLACEHOLDER_RE = /\{[^{}\s]*\}/;
-function analyzeParallel(tokens, context) {
-  const parseResult = parseParallelCommand(tokens);
-  if (!parseResult) {
-    return null;
-  }
-  const { template, args, templateHasPlaceholder, runsRemotely, usesStdin, envNames } = parseResult;
-  if (template.length === 0) {
-    const nestedOverrides2 = buildCommandsModeOverrides(context, runsRemotely);
-    for (const arg of args) {
-      const reason = context.analyzeNested(arg, nestedOverrides2);
-      if (reason) {
-        return reason;
-      }
-    }
-    return null;
-  }
-  const childCommand = normalizeChildCommand(template, context);
-  const childTokens = childCommand.tokens;
-  const dynamicEnvValues = getParallelDynamicEnvValues(envNames, context.envAssignments, childCommand.envAssignments);
-  const envHasPlaceholder = dynamicEnvValues.some(hasParallelPlaceholder);
-  const hasPlaceholder = templateHasPlaceholder || envHasPlaceholder;
-  const hasDynamicStdinPlaceholder = usesStdin && hasPlaceholder;
-  const nestedOverrides = buildNestedOverrides(childCommand.envAssignments, childCommand.wrapperCwd, runsRemotely || hasDynamicStdinPlaceholder);
-  if (SHELL_WRAPPERS.has(childCommand.head)) {
-    const dashCArg = extractDashCArg(childTokens);
-    if (dashCArg) {
-      if (isOnlyParallelPlaceholder(dashCArg)) {
-        return REASON_PARALLEL_SHELL;
-      }
-      if (hasParallelPlaceholder(dashCArg)) {
-        if (args.length > 0) {
-          for (const arg of args) {
-            const expandedScript = replaceParallelPlaceholder(dashCArg, arg);
-            const reason3 = context.analyzeNested(expandedScript, nestedOverrides);
-            if (reason3) {
-              return reason3;
-            }
-          }
-          return null;
-        }
-        const reason2 = context.analyzeNested(dashCArg, nestedOverrides);
-        if (reason2) {
-          return reason2;
-        }
-        return null;
-      }
-      const reason = context.analyzeNested(dashCArg, nestedOverrides);
-      if (reason) {
-        return reason;
-      }
-      const envReason = analyzeParallelDynamicEnvValues(dynamicEnvValues, args, context);
-      if (envReason) {
-        return envReason;
-      }
-      if (hasPlaceholder) {
-        return REASON_PARALLEL_SHELL;
-      }
-      return null;
-    }
-    if (args.length > 0) {
-      return REASON_PARALLEL_SHELL;
-    }
-    if (hasPlaceholder) {
-      return REASON_PARALLEL_SHELL;
-    }
-    return null;
-  }
-  if (childCommand.head === "rm" && hasRecursiveForceFlags(childTokens)) {
-    if (templateHasPlaceholder && args.length > 0) {
-      return analyzeParallelRmExpansions(args.map((arg) => childTokens.map((t) => t.replace(/{}/g, arg))), childCommand.cwd, context);
-    }
-    if (args.length > 0) {
-      return analyzeParallelRmExpansions(args.map((arg) => [...childTokens, arg]), childCommand.cwd, context);
-    }
-    return REASON_PARALLEL_RM;
-  }
-  const tokenSets = getParallelChildTokenSets(childTokens, templateHasPlaceholder, args);
-  for (const tokens2 of tokenSets) {
-    const result = analyzeChildCommand(tokens2, {
-      cwd: childCommand.cwd,
-      originalCwd: context.originalCwd,
-      paranoidRm: context.paranoidRm,
-      allowTmpdirVar: context.allowTmpdirVar,
-      envAssignments: childCommand.envAssignments,
-      worktreeMode: runsRemotely || usesStdin || hasPlaceholder ? false : context.worktreeMode,
-      analyzeNested: context.analyzeNested
-    }, {
-      dynamicInput: usesStdin || hasPlaceholder,
-      shellDynamicReason: REASON_PARALLEL_SHELL,
-      rmDynamicReason: REASON_PARALLEL_RM
-    });
-    if (result) {
-      return result;
-    }
-  }
-  return null;
-}
-function analyzeParallelRmExpansions(tokenSets, cwd, context) {
-  for (const tokens of tokenSets) {
-    const rmResult = analyzeRm(tokens, {
-      cwd,
-      originalCwd: context.originalCwd,
-      paranoid: context.paranoidRm,
-      allowTmpdirVar: context.allowTmpdirVar
-    });
-    if (rmResult) {
-      return rmResult;
-    }
-  }
-  return null;
-}
-function getParallelChildTokenSets(childTokens, hasPlaceholder, args) {
-  if (hasPlaceholder && args.length > 0) {
-    return args.map((arg) => childTokens.map((token) => replaceParallelPlaceholder(token, arg)));
-  }
-  if (!hasPlaceholder && args.length > 0) {
-    return args.map((arg) => [...childTokens, arg]);
-  }
-  return [[...childTokens]];
-}
-function getParallelDynamicEnvValues(envNames, contextEnvAssignments, childEnvAssignments) {
-  return [
-    ...envNames.flatMap((name) => {
-      const value = childEnvAssignments.get(name) ?? contextEnvAssignments?.get(name);
-      return value === undefined ? [] : [value];
-    }),
-    ...childEnvAssignments.values()
-  ];
-}
-function analyzeParallelDynamicEnvValues(values, args, context) {
-  for (const value of values) {
-    if (!hasParallelPlaceholder(value)) {
-      continue;
-    }
-    const commands = args.length > 0 ? args.map((arg) => replaceParallelPlaceholder(value, arg)) : [value];
-    for (const command2 of commands) {
-      const reason = context.analyzeNested(command2, {
-        envAssignments: context.envAssignments,
-        effectiveCwd: context.cwd
-      });
-      if (reason) {
-        return reason;
-      }
-    }
-  }
-  return null;
-}
-function buildNestedOverrides(envAssignments, cwd, runsRemotely) {
-  const overrides = { envAssignments };
-  if (cwd !== undefined) {
-    overrides.effectiveCwd = cwd;
-  }
-  if (runsRemotely) {
-    overrides.worktreeMode = false;
-  }
-  return overrides;
-}
-function buildCommandsModeOverrides(context, runsRemotely) {
-  const overrides = {};
-  if (context.envAssignments) {
-    overrides.envAssignments = context.envAssignments;
-  }
-  if (context.cwd !== undefined) {
-    overrides.effectiveCwd = context.cwd;
-  }
-  if (runsRemotely) {
-    overrides.worktreeMode = false;
-  }
-  return Object.keys(overrides).length > 0 ? overrides : undefined;
-}
-function replaceParallelPlaceholder(token, arg) {
-  return token.replace(/\{[^{}\s]*\}/g, arg);
-}
-function hasParallelPlaceholder(token) {
-  return PARALLEL_PLACEHOLDER_RE.test(token);
-}
-function isOnlyParallelPlaceholder(token) {
-  return /^\{[^{}\s]*\}$/.test(token);
-}
-function parseParallelCommand(tokens) {
-  const parallelOptsWithValue = new Set([
-    "-a",
-    "--arg-file",
-    "--colsep",
-    "-I",
-    "--replace",
-    "--results",
-    "--result",
-    "--res"
-  ]);
-  let i = 1;
-  const templateTokens = [];
-  let childCommandTokens = [];
-  let markerIndex = -1;
-  let runsRemotely = false;
-  let usesPipe = false;
-  const envNames = [];
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token)
-      break;
-    if (token === ":::") {
-      markerIndex = i;
-      break;
-    }
-    if (token === "--") {
-      const template = collectCommandTemplate(tokens, i + 1);
-      templateTokens.push(...template.templateTokens);
-      childCommandTokens = [...tokens.slice(i + 1)];
-      markerIndex = template.markerIndex;
-      break;
-    }
-    if (token.startsWith("-")) {
-      if (token === "--pipe" || token === "--pipepart") {
-        usesPipe = true;
-        i++;
-        continue;
-      }
-      if (token === "--env") {
-        envNames.push(...splitParallelEnvNames(tokens[i + 1]));
-        i += 2;
-        continue;
-      }
-      if (token.startsWith("--env=")) {
-        envNames.push(...splitParallelEnvNames(token.slice("--env=".length)));
-        i++;
-        continue;
-      }
-      if (token === "-S" || token === "--sshlogin" || token === "--slf" || token === "--sshloginfile") {
-        runsRemotely = true;
-        i += 2;
-        continue;
-      }
-      if (token.startsWith("-S") && token.length > 2) {
-        runsRemotely = true;
-        i++;
-        continue;
-      }
-      if (token.startsWith("--sshlogin=") || token.startsWith("--slf=") || token.startsWith("--sshloginfile=")) {
-        runsRemotely = true;
-        i++;
-        continue;
-      }
-      if (token.startsWith("-j") && token.length > 2 && /^\d+$/.test(token.slice(2))) {
-        i++;
-        continue;
-      }
-      if (token.startsWith("--") && token.includes("=")) {
-        i++;
-        continue;
-      }
-      if (parallelOptsWithValue.has(token)) {
-        i += 2;
-        continue;
-      }
-      if (token === "-j" || token === "--jobs") {
-        i += 2;
-        continue;
-      }
-      i++;
-    } else {
-      const template = collectCommandTemplate(tokens, i);
-      templateTokens.push(...template.templateTokens);
-      childCommandTokens = [...tokens.slice(i)];
-      markerIndex = template.markerIndex;
-      break;
-    }
-  }
-  const args = [];
-  if (markerIndex !== -1) {
-    for (let j = markerIndex + 1;j < tokens.length; j++) {
-      const token = tokens[j];
-      if (token && token !== ":::") {
-        args.push(token);
-      }
-    }
-  }
-  const templateHasPlaceholder = templateTokens.some(hasParallelPlaceholder);
-  if (templateTokens.length === 0 && markerIndex === -1) {
-    return null;
-  }
-  return {
-    template: templateTokens,
-    args,
-    childCommandTokens,
-    templateHasPlaceholder,
-    runsRemotely,
-    usesStdin: usesPipe || markerIndex === -1,
-    envNames
-  };
-}
-function splitParallelEnvNames(value) {
-  return (value ?? "").split(",").map((name) => name.trim()).filter(Boolean);
-}
-
-// src/core/analyze/tmpdir.ts
-import { existsSync as existsSync3, lstatSync as lstatSync3, realpathSync as realpathSync5 } from "node:fs";
-import { tmpdir as tmpdir2 } from "node:os";
-import { isAbsolute as isAbsolute5, join as join3, normalize as normalize2, parse as parsePath3, sep as sep3 } from "node:path";
-function isTmpdirOverriddenToNonTemp(envAssignments) {
-  if (!envAssignments.has("TMPDIR")) {
-    return false;
-  }
-  const tmpdirValue = envAssignments.get("TMPDIR") ?? "";
-  if (tmpdirValue === "") {
-    return true;
-  }
-  const normalizedTmpdirValue = tryResolveExistingPathComponents(tmpdirValue);
-  if (normalizedTmpdirValue === null) {
-    return true;
-  }
-  const sysTmpdir = tryResolveExistingPathComponents(tmpdir2()) ?? normalize2(tmpdir2());
-  if (isPathOrSubpath(normalizedTmpdirValue, resolveExistingPathComponents("/tmp")) || isPathOrSubpath(normalizedTmpdirValue, resolveExistingPathComponents("/var/tmp")) || isPathOrSubpath(normalizedTmpdirValue, sysTmpdir)) {
-    return false;
-  }
-  return true;
-}
-function tryResolveExistingPathComponents(path) {
-  try {
-    return resolveExistingPathComponents(path);
-  } catch {
-    return null;
-  }
-}
-function resolveExistingPathComponents(path) {
-  const normalized = normalize2(path);
-  if (!isAbsolute5(normalized)) {
-    return normalized;
-  }
-  const root = parsePath3(normalized).root;
-  const components = normalized.slice(root.length).split(/[\\/]+/).filter(Boolean);
-  let current = root;
-  for (let i = 0;i < components.length; i++) {
-    const candidate = join3(current, components[i] ?? "");
-    if (!existsSync3(candidate)) {
-      return join3(candidate, ...components.slice(i + 1));
-    }
-    current = lstatSync3(candidate).isSymbolicLink() ? realpathSync5(candidate) : candidate;
-  }
-  return current;
-}
-function isPathOrSubpath(path, basePath) {
-  if (path === basePath) {
-    return true;
-  }
-  const baseWithSlash = basePath.endsWith(sep3) ? basePath : `${basePath}${sep3}`;
-  return path.startsWith(baseWithSlash);
-}
-
-// src/core/analyze/xargs.ts
-var REASON_XARGS_RM = "xargs rm -rf with dynamic input is dangerous. Use explicit file list instead.";
-var REASON_XARGS_SHELL = "xargs with shell -c can execute arbitrary commands from dynamic input.";
-var XARGS_APPENDED_INPUT = "__CC_SAFETY_NET_XARGS_INPUT__";
-function analyzeXargs(tokens, context) {
-  const { childTokens: rawChildTokens, replacementToken } = extractXargsChildCommandWithInfo(tokens);
-  const childCommand = normalizeChildCommand(rawChildTokens, context);
-  const childTokens = childCommand.tokens;
-  const childResult = analyzeChildCommand(childTokens, {
-    cwd: childCommand.cwd,
-    originalCwd: context.originalCwd,
-    paranoidRm: context.paranoidRm,
-    allowTmpdirVar: context.allowTmpdirVar,
-    envAssignments: childCommand.envAssignments,
-    worktreeMode: context.worktreeMode
-  }, {
-    dynamicInput: childCommand.head !== "git",
-    shellDynamicReason: REASON_XARGS_SHELL,
-    rmDynamicReason: REASON_XARGS_RM
-  });
-  if (childResult) {
-    return childResult;
-  }
-  if (childCommand.head !== "git") {
-    return null;
-  }
-  const gitTokens = replacementToken === null ? [...childTokens, XARGS_APPENDED_INPUT] : childTokens;
-  const hasDynamicReplacement = replacementToken !== null && (childTokens.some((token) => token.includes(replacementToken)) || Array.from(childCommand.envAssignments.values()).some((value) => value.includes(replacementToken)));
-  return analyzeChildCommand(gitTokens, {
-    cwd: childCommand.cwd,
-    originalCwd: context.originalCwd,
-    paranoidRm: context.paranoidRm,
-    allowTmpdirVar: context.allowTmpdirVar,
-    envAssignments: childCommand.envAssignments,
-    worktreeMode: replacementToken === null || hasDynamicReplacement ? false : context.worktreeMode
-  });
-}
-function extractXargsChildCommandWithInfo(tokens) {
-  const xargsOptsWithValue = new Set([
-    "-L",
-    "-n",
-    "-P",
-    "-s",
-    "-a",
-    "-E",
-    "-e",
-    "-d",
-    "-J",
-    "--max-args",
-    "--max-procs",
-    "--max-chars",
-    "--arg-file",
-    "--eof",
-    "--delimiter",
-    "--max-lines"
-  ]);
-  let replacementToken = null;
-  let i = 1;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token)
-      break;
-    if (token === "--") {
-      return { childTokens: [...tokens.slice(i + 1)], replacementToken };
-    }
-    if (token.startsWith("-")) {
-      if (token === "-I") {
-        replacementToken = tokens[i + 1] ?? "{}";
-        i += 2;
-        continue;
-      }
-      if (token.startsWith("-I") && token.length > 2) {
-        replacementToken = token.slice(2);
-        i++;
-        continue;
-      }
-      if (token === "--replace") {
-        replacementToken = "{}";
-        i++;
-        continue;
-      }
-      if (token.startsWith("--replace=")) {
-        const value = token.slice("--replace=".length);
-        replacementToken = value === "" ? "{}" : value;
-        i++;
-        continue;
-      }
-      if (token === "-J") {
-        i += 2;
-        continue;
-      }
-      if (xargsOptsWithValue.has(token)) {
-        i += 2;
-      } else if (token.startsWith("--") && token.includes("=")) {
-        i++;
-      } else if (token.startsWith("-L") || token.startsWith("-n") || token.startsWith("-P") || token.startsWith("-s")) {
-        i++;
-      } else {
-        i++;
-      }
-    } else {
-      return { childTokens: [...tokens.slice(i)], replacementToken };
-    }
-  }
-  return { childTokens: [], replacementToken };
-}
-
-// src/core/rules/custom.ts
-function checkCustomRules(tokens, rules) {
-  if (tokens.length === 0 || rules.length === 0) {
-    return null;
-  }
-  const command2 = getBasename(tokens[0] ?? "");
-  const subcommand = extractSubcommand(tokens);
-  const shortOpts = extractShortOpts(tokens);
-  for (const rule of rules) {
-    if (!matchesCommand(command2, rule.command)) {
-      continue;
-    }
-    if (rule.subcommand && subcommand !== rule.subcommand) {
-      continue;
-    }
-    if (matchesBlockArgs(tokens, rule.block_args, shortOpts)) {
-      return `[${rule.name}] ${rule.reason}`;
-    }
-  }
-  return null;
-}
-function matchesCommand(command2, ruleCommand) {
-  return command2 === ruleCommand;
-}
-var OPTIONS_WITH_VALUES = new Set([
-  "-c",
-  "-C",
-  "--git-dir",
-  "--work-tree",
-  "--namespace",
-  "--config-env"
-]);
-function extractSubcommand(tokens) {
-  let skipNext = false;
-  for (let i = 1;i < tokens.length; i++) {
-    const token = tokens[i];
-    if (!token)
-      continue;
-    if (skipNext) {
-      skipNext = false;
-      continue;
-    }
-    if (token === "--") {
-      const nextToken = tokens[i + 1];
-      if (nextToken && !nextToken.startsWith("-")) {
-        return nextToken;
-      }
-      return null;
-    }
-    if (OPTIONS_WITH_VALUES.has(token)) {
-      skipNext = true;
-      continue;
-    }
-    if (token.startsWith("-")) {
-      for (const opt of OPTIONS_WITH_VALUES) {
-        if (token.startsWith(`${opt}=`)) {
-          break;
-        }
-      }
-      continue;
-    }
-    return token;
-  }
-  return null;
-}
-function matchesBlockArgs(tokens, blockArgs, shortOpts) {
-  const blockArgsSet = new Set(blockArgs);
-  for (const token of tokens) {
-    if (blockArgsSet.has(token)) {
-      return true;
-    }
-  }
-  for (const opt of shortOpts) {
-    if (blockArgsSet.has(opt)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// src/core/analyze/segment.ts
-var REASON_INTERPRETER_DANGEROUS = "Detected potentially dangerous command in interpreter code.";
-var REASON_INTERPRETER_BLOCKED = "Interpreter one-liners are blocked in paranoid mode.";
-var COMMAND_ANALYZERS = new Map([
-  ["git", analyzeGitCommand],
-  ["rm", analyzeRmCommand],
-  ["find", analyzeFindCommand],
-  ["xargs", analyzeXargsCommand],
-  ["parallel", analyzeParallelCommand]
-]);
-function deriveCwdContext(options2) {
-  const cwdUnknown = options2.effectiveCwd === null;
-  const cwdForRm = cwdUnknown ? undefined : options2.effectiveCwd ?? options2.cwd;
-  const originalCwd = cwdUnknown ? undefined : options2.cwd;
-  return { cwdUnknown, cwdForRm, originalCwd };
-}
-function analyzeSegment(tokens, depth, options2) {
-  if (tokens.length === 0) {
-    return null;
-  }
-  const { cwdForRm: baseCwdForRm, originalCwd } = deriveCwdContext(options2);
-  const { tokens: strippedEnv, envAssignments: leadingEnvAssignments } = stripEnvAssignmentsWithInfo(tokens);
-  const {
-    tokens: stripped,
-    envAssignments: wrapperEnvAssignments,
-    cwd: wrapperCwd
-  } = stripWrappersWithInfo(strippedEnv, baseCwdForRm);
-  const envAssignments = new Map(options2.envAssignments ?? []);
-  for (const [k, v] of leadingEnvAssignments) {
-    envAssignments.set(k, v);
-  }
-  for (const [k, v] of wrapperEnvAssignments) {
-    envAssignments.set(k, v);
-  }
-  if (stripped.length === 0) {
-    return null;
-  }
-  const head = stripped[0];
-  if (!head) {
-    return null;
-  }
-  if (options2.config.failClosedReason) {
-    return options2.config.failClosedReason;
-  }
-  const normalizedHead = normalizeCommandToken(head);
-  const basename = getBasename(head);
-  const cwdForRm = wrapperCwd === null ? undefined : wrapperCwd ?? baseCwdForRm;
-  const nestedEffectiveCwd = wrapperCwd === undefined ? options2.effectiveCwd : wrapperCwd;
-  const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
-  if (isShellWrapperCommand(head, normalizedHead)) {
-    const dashCArg = extractDashCArg(stripped);
-    if (dashCArg) {
-      return options2.analyzeNested(dashCArg, {
-        effectiveCwd: nestedEffectiveCwd,
-        envAssignments
-      });
-    }
-  }
-  if (AWK_INTERPRETERS.has(normalizedHead)) {
-    const awkReason = analyzeAwkSystemCalls(stripped, (command2) => options2.analyzeNested(command2, {
-      effectiveCwd: nestedEffectiveCwd,
-      envAssignments
-    }));
-    if (awkReason) {
-      return awkReason;
-    }
-  }
-  if (INTERPRETERS.has(normalizedHead)) {
-    const codeArg = extractInterpreterCodeArg(stripped);
-    if (codeArg) {
-      if (options2.paranoidInterpreters) {
-        return REASON_INTERPRETER_BLOCKED + PARANOID_INTERPRETERS_SUFFIX;
-      }
-      const innerReason = options2.analyzeNested(codeArg, {
-        effectiveCwd: nestedEffectiveCwd,
-        envAssignments
-      });
-      if (innerReason) {
-        return innerReason;
-      }
-      if (containsDangerousCode(codeArg)) {
-        return REASON_INTERPRETER_DANGEROUS;
-      }
-    }
-  }
-  if (normalizedHead === "busybox" && stripped.length > 1) {
-    return analyzeSegment(stripped.slice(1), depth, {
-      ...options2,
-      effectiveCwd: nestedEffectiveCwd,
-      envAssignments
-    });
-  }
-  const commandContext = {
-    tokens: stripped,
-    head,
-    normalizedHead,
-    basename,
-    cwdForRm,
-    originalCwd,
-    envAssignments,
-    allowTmpdirVar,
-    depth,
-    effectiveCwd: nestedEffectiveCwd,
-    options: options2
-  };
-  const commandAnalyzer = getCommandAnalyzer(commandContext);
-  const commandResult = commandAnalyzer?.(commandContext);
-  if (commandResult) {
-    return commandResult;
-  }
-  const matchedKnown = commandAnalyzer !== undefined;
-  if (!matchedKnown) {
-    if (!DISPLAY_COMMANDS.has(normalizedHead)) {
-      for (let i = 1;i < stripped.length; i++) {
-        const token = stripped[i];
-        if (!token)
-          continue;
-        const reason = analyzeEmbeddedCommand(commandContext, i);
-        if (reason)
-          return reason;
-      }
-    }
-  }
-  const customRulesTopLevelOnly = matchedKnown;
-  if (depth === 0 || !customRulesTopLevelOnly) {
-    const customResult = checkCustomRules(stripped, options2.config.rules);
-    if (customResult) {
-      return customResult;
-    }
-  }
-  return null;
-}
-function isShellWrapperCommand(head, normalizedHead) {
-  return SHELL_WRAPPERS.has(normalizedHead) || head === "$SHELL" || SHELL_WRAPPERS.has(getBasename(normalizedHead));
-}
-function getCommandAnalyzer(context) {
-  if (context.basename.toLowerCase() === "git") {
-    return COMMAND_ANALYZERS.get("git");
-  }
-  return COMMAND_ANALYZERS.get(context.basename);
-}
-function analyzeEmbeddedCommand(context, index) {
-  const token = context.tokens[index];
-  if (!token) {
-    return null;
-  }
-  const cmd = normalizeCommandToken(token);
-  if (isShellWrapperCommand(token, cmd)) {
-    const dashCArg = extractDashCArg([token, ...context.tokens.slice(index + 1)]);
-    if (!dashCArg) {
-      return null;
-    }
-    return context.options.analyzeNested(dashCArg, {
-      effectiveCwd: context.effectiveCwd,
-      envAssignments: context.envAssignments
-    });
-  }
-  const analyzer = COMMAND_ANALYZERS.get(cmd);
-  if (!analyzer || cmd === "xargs" || cmd === "parallel") {
-    return null;
-  }
-  const embeddedContext = {
-    ...context,
-    tokens: [cmd, ...context.tokens.slice(index + 1)],
-    head: cmd,
-    normalizedHead: cmd,
-    basename: cmd,
-    options: cmd === "git" ? { ...context.options, worktreeMode: false } : context.options
-  };
-  return analyzer(embeddedContext);
-}
-function analyzeGitCommand(context) {
-  return analyzeGit(context.tokens, {
-    cwd: context.cwdForRm,
-    envAssignments: context.envAssignments,
-    worktreeMode: context.options.worktreeMode
-  });
-}
-function analyzeRmCommand(context) {
-  return analyzeRm(context.tokens, {
-    cwd: context.cwdForRm,
-    originalCwd: context.originalCwd,
-    paranoid: context.options.paranoidRm,
-    allowTmpdirVar: context.allowTmpdirVar
-  });
-}
-function analyzeFindCommand(context) {
-  return analyzeFind(context.tokens, {
-    cwd: context.cwdForRm,
-    envAssignments: context.envAssignments,
-    analyzeTokens: (tokens, cwd) => analyzeSegment([...tokens], context.depth + 1, {
-      ...context.options,
-      effectiveCwd: cwd,
-      envAssignments: context.envAssignments
-    }),
-    analyzeNested: context.options.analyzeNested
-  });
-}
-function analyzeXargsCommand(context) {
-  return analyzeXargs(context.tokens, {
-    cwd: context.cwdForRm,
-    originalCwd: context.originalCwd,
-    paranoidRm: context.options.paranoidRm,
-    allowTmpdirVar: context.allowTmpdirVar,
-    envAssignments: context.envAssignments,
-    worktreeMode: context.options.worktreeMode
-  });
-}
-function analyzeParallelCommand(context) {
-  return analyzeParallel(context.tokens, {
-    cwd: context.cwdForRm,
-    originalCwd: context.originalCwd,
-    paranoidRm: context.options.paranoidRm,
-    allowTmpdirVar: context.allowTmpdirVar,
-    envAssignments: context.envAssignments,
-    worktreeMode: context.options.worktreeMode,
-    analyzeNested: context.options.analyzeNested
-  });
-}
-var CWD_CHANGE_REGEX = /^\s*(?:\$\(\s*)?[({]*\s*(?:command\s+|builtin\s+)?(?:cd|pushd|popd)(?:\s|$)/;
-function segmentChangesCwd(segment) {
-  const unwrapped = getCwdChangeTokens(segment);
-  if (unwrapped.length === 0) {
-    return false;
-  }
-  let head = unwrapped[0] ?? "";
-  let headIndex = 0;
-  if (head === "builtin" && unwrapped.length > 1) {
-    head = unwrapped[1] ?? "";
-    headIndex = 1;
-  }
-  if (head === "time") {
-    head = getHeadAfterTimePrefix(unwrapped, headIndex + 1);
-  }
-  if (head === "cd" || head === "pushd" || head === "popd") {
-    return true;
-  }
-  const joined = segment.join(" ");
-  return CWD_CHANGE_REGEX.test(joined);
-}
-function resolveCwdAfterSegment(segment, cwd) {
-  if (!segmentChangesCwd(segment)) {
-    return;
-  }
-  if (!cwd) {
-    return null;
-  }
-  const unwrapped = getCwdChangeTokens(segment, cwd);
-  const cdIndex = getCdCommandIndex(unwrapped);
-  if (cdIndex === -1 || unwrapped[cdIndex] !== "cd") {
-    return null;
-  }
-  const target = unwrapped[cdIndex + 1];
-  if (!target || target === "-" || target.includes("$") || target.includes("`")) {
-    return null;
-  }
-  try {
-    const resolved = resolveChdirTarget(cwd, target);
-    if (samePath(resolved, cwd)) {
-      return cwd;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-function getHeadAfterTimePrefix(tokens, startIndex) {
-  let i = startIndex;
-  while (tokens[i]?.startsWith("-")) {
-    i++;
-  }
-  return tokens[i] ?? "";
-}
-function getCdCommandIndex(tokens) {
-  let headIndex = 0;
-  if (tokens[0] === "builtin" && tokens.length > 1) {
-    headIndex = 1;
-  }
-  if (tokens[headIndex] !== "time") {
-    return headIndex;
-  }
-  let i = headIndex + 1;
-  while (tokens[i]?.startsWith("-")) {
-    i++;
-  }
-  return i;
-}
-function getCwdChangeTokens(segment, cwd) {
-  const stripped = stripLeadingGrouping(segment);
-  return stripWrappers([...stripped], cwd);
-}
-function samePath(a, b) {
-  try {
-    return normalize3(realpathSync6(a)) === normalize3(realpathSync6(b));
-  } catch {
-    return normalize3(a) === normalize3(b);
-  }
-}
-function stripLeadingGrouping(tokens) {
-  let i = 0;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (token === "{" || token === "(" || token === "$(") {
-      i++;
-    } else {
-      break;
-    }
-  }
-  return tokens.slice(i);
-}
-
-// src/core/analyze/shell-git-env.ts
-function createShellGitContextEnvState(effectiveEnvAssignments) {
-  return {
-    effectiveEnvAssignments,
-    shellAssignments: new Map,
-    exportedNames: getInitiallyExportedGitContextNames(effectiveEnvAssignments),
-    allexport: false,
-    keywordExport: false
-  };
-}
-function applyShellGitContextEnvSegment(tokens, state) {
-  const commandInfo = getShellCommandInfo(tokens);
-  if (!commandInfo) {
-    return;
-  }
-  const { command: command2, commandIndex, leadingAssignments } = commandInfo;
-  if (command2 === null) {
-    for (const assignment of leadingAssignments.values()) {
-      setShellGitContextAssignment(state, assignment);
-    }
-    return;
-  }
-  if (command2 === "set") {
-    const changes = getSetOptionChanges(tokens, commandIndex);
-    if (changes.allexport !== null) {
-      state.allexport = changes.allexport;
-    }
-    if (changes.keywordExport !== null) {
-      state.keywordExport = changes.keywordExport;
-    }
-    return;
-  }
-  if (command2 !== "export" && command2 !== "typeset" && command2 !== "declare" && command2 !== "readonly") {
-    return;
-  }
-  for (const assignment of leadingAssignments.values()) {
-    setShellGitContextAssignment(state, assignment);
-  }
-  if (command2 === "export") {
-    const operandsStart = getExportOperandsStart(tokens, commandIndex);
-    if (operandsStart === null) {
-      return;
-    }
-    for (const token of tokens.slice(operandsStart)) {
-      addExportedGitContextEnvAssignment(state, token);
-    }
-    return;
-  }
-  const operandsInfo = getTypesetOperandsInfo(tokens, commandIndex);
-  if (operandsInfo === null) {
-    return;
-  }
-  for (const token of tokens.slice(operandsInfo.operandsStart)) {
-    addTypesetGitContextEnvAssignment(state, token, operandsInfo.exports, command2 === "readonly" ? leadingAssignments : undefined);
-  }
-}
-function getSegmentGitContextEnvAssignments(tokens, state) {
-  if (!state.keywordExport) {
-    return state.effectiveEnvAssignments;
-  }
-  let nextEnvAssignments = null;
-  for (const token of tokens) {
-    const assignment = parseGitContextEnvAssignment(token);
-    if (!assignment) {
-      continue;
-    }
-    nextEnvAssignments ??= new Map(state.effectiveEnvAssignments ?? []);
-    nextEnvAssignments.set(assignment.name, assignment.value);
-  }
-  return nextEnvAssignments ?? state.effectiveEnvAssignments;
-}
-function getShellCommandInfo(tokens) {
-  const leadingAssignments = new Map;
-  let i = 0;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token) {
-      return null;
-    }
-    const assignment = parseShellAssignment(token);
-    if (!assignment) {
-      break;
-    }
-    if (isTrackedGitEnvName(assignment.name)) {
-      leadingAssignments.set(assignment.name, assignment);
-    }
-    i++;
-  }
-  if (i >= tokens.length) {
-    return { command: null, commandIndex: i, leadingAssignments };
-  }
-  let commandIndex = i;
-  let command2 = tokens[commandIndex] ?? null;
-  if (command2 === "builtin") {
-    commandIndex++;
-    if (tokens[commandIndex] === "--") {
-      commandIndex++;
-    }
-    command2 = tokens[commandIndex] ?? null;
-  }
-  if (command2 === "command") {
-    const commandBuiltinInfo = getCommandBuiltinTarget(tokens, commandIndex);
-    if (!commandBuiltinInfo) {
-      return null;
-    }
-    commandIndex = commandBuiltinInfo.commandIndex;
-    command2 = commandBuiltinInfo.command;
-  }
-  if (command2 === null) {
-    return null;
-  }
-  return { command: command2, commandIndex, leadingAssignments };
-}
-function getCommandBuiltinTarget(tokens, commandIndex) {
-  let i = commandIndex + 1;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token) {
-      return null;
-    }
-    if (token === "--") {
-      i++;
-      break;
-    }
-    if (token === "-p") {
-      i++;
-      continue;
-    }
-    if (token === "-v" || token === "-V") {
-      return null;
-    }
-    break;
-  }
-  const command2 = tokens[i];
-  return command2 ? { command: command2, commandIndex: i } : null;
-}
-function parseShellAssignment(token) {
-  return parseEnvAssignment(token) ?? parseGitContextAppendEnvAssignment(token);
-}
-function parseGitContextEnvAssignment(token) {
-  const assignment = parseEnvAssignment(token) ?? parseGitContextAppendEnvAssignment(token);
-  if (!assignment || !isTrackedGitEnvName(assignment.name)) {
-    return null;
-  }
-  return assignment;
-}
-function getInitiallyExportedGitContextNames(effectiveEnvAssignments) {
-  const exportedNames = new Set;
-  for (const name of Object.keys(process.env)) {
-    if (isTrackedGitEnvName(name)) {
-      exportedNames.add(name);
-    }
-  }
-  for (const name of effectiveEnvAssignments?.keys() ?? []) {
-    if (isTrackedGitEnvName(name)) {
-      exportedNames.add(name);
-    }
-  }
-  return exportedNames;
-}
-function setShellGitContextAssignment(state, assignment) {
-  state.shellAssignments.set(assignment.name, assignment.value);
-  if (state.allexport || state.exportedNames.has(assignment.name)) {
-    setEffectiveGitContextAssignment(state, assignment);
-  }
-}
-function setEffectiveGitContextAssignment(state, assignment) {
-  const nextEnvAssignments = new Map(state.effectiveEnvAssignments ?? []);
-  nextEnvAssignments.set(assignment.name, assignment.value);
-  state.effectiveEnvAssignments = nextEnvAssignments;
-}
-function addExportedGitContextEnvAssignment(state, token) {
-  const assignment = parseGitContextEnvAssignment(token);
-  if (assignment) {
-    state.shellAssignments.set(assignment.name, assignment.value);
-    state.exportedNames.add(assignment.name);
-    setEffectiveGitContextAssignment(state, assignment);
-    return;
-  }
-  if (isTrackedGitEnvName(token)) {
-    exportTrackedGitContextEnvName(state, token);
-  }
-}
-function addTypesetGitContextEnvAssignment(state, token, exports, readonlyLeadingAssignments) {
-  const assignment = parseGitContextEnvAssignment(token);
-  if (assignment) {
-    state.shellAssignments.set(assignment.name, assignment.value);
-    if (exports) {
-      state.exportedNames.add(assignment.name);
-      setEffectiveGitContextAssignment(state, assignment);
-    } else if (state.allexport || state.exportedNames.has(assignment.name)) {
-      setEffectiveGitContextAssignment(state, assignment);
-    }
-    return;
-  }
-  const readonlyAssignment = readonlyLeadingAssignments?.get(token);
-  if (readonlyAssignment) {
-    state.exportedNames.add(token);
-    setEffectiveGitContextAssignment(state, readonlyAssignment);
-    return;
-  }
-  if (exports && isTrackedGitEnvName(token)) {
-    exportTrackedGitContextEnvName(state, token);
-  }
-}
-function exportTrackedGitContextEnvName(state, name) {
-  state.exportedNames.add(name);
-  setEffectiveGitContextAssignment(state, {
-    name,
-    value: state.shellAssignments.get(name) ?? ""
-  });
-}
-function getExportOperandsStart(tokens, commandIndex) {
-  let i = commandIndex + 1;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token) {
-      return null;
-    }
-    if (token === "--") {
-      return i + 1;
-    }
-    if (token === "-p") {
-      i++;
-      continue;
-    }
-    if (token.startsWith("-")) {
-      return null;
-    }
-    return i;
-  }
-  return i;
-}
-function getTypesetOperandsInfo(tokens, commandIndex) {
-  let i = commandIndex + 1;
-  let hasExportFlag = false;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token) {
-      return null;
-    }
-    if (token === "--") {
-      return { operandsStart: i + 1, exports: hasExportFlag };
-    }
-    if (token.startsWith("-")) {
-      if (token.slice(1).includes("x")) {
-        hasExportFlag = true;
-      }
-      i++;
-      continue;
-    }
-    if (token.startsWith("+")) {
-      if (token.slice(1).includes("x")) {
-        hasExportFlag = false;
-      }
-      i++;
-      continue;
-    }
-    return { operandsStart: i, exports: hasExportFlag };
-  }
-  return { operandsStart: i, exports: hasExportFlag };
-}
-function getSetOptionChanges(tokens, commandIndex) {
-  const changes = { allexport: null, keywordExport: null };
-  let i = commandIndex + 1;
-  while (i < tokens.length) {
-    const token = tokens[i];
-    if (!token) {
-      return changes;
-    }
-    if (token === "--") {
-      return changes;
-    }
-    if (token === "-o" || token === "+o") {
-      if (tokens[i + 1] === "allexport") {
-        changes.allexport = token === "-o";
-      }
-      if (tokens[i + 1] === "keyword") {
-        changes.keywordExport = token === "-o";
-      }
-      i += 2;
-      continue;
-    }
-    if (token.startsWith("-") && token.length > 1) {
-      const flags = token.slice(1);
-      if (flags.includes("a")) {
-        changes.allexport = true;
-      }
-      if (flags.includes("k")) {
-        changes.keywordExport = true;
-      }
-      i++;
-      continue;
-    }
-    if (token.startsWith("+") && token.length > 1) {
-      const flags = token.slice(1);
-      if (flags.includes("a")) {
-        changes.allexport = false;
-      }
-      if (flags.includes("k")) {
-        changes.keywordExport = false;
-      }
-      i++;
-      continue;
-    }
-    return changes;
-  }
-  return changes;
-}
-
-// src/core/analyze/analyze-command.ts
-var REASON_STRICT_UNPARSEABLE = "Command could not be safely analyzed (strict mode). Verify manually.";
-var DYNAMIC_SUBSTITUTION_TOKEN = "$__CC_SAFETY_NET_DYNAMIC_SUBSTITUTION__";
-var REASON_RECURSION_LIMIT = "Command exceeds maximum recursion depth and cannot be safely analyzed.";
-function analyzeCommandInternal(command2, depth, options2) {
-  if (depth >= MAX_RECURSION_DEPTH) {
-    return { reason: REASON_RECURSION_LIMIT, segment: command2 };
-  }
-  const segments2 = splitShellCommandsWithInfo(command2);
-  if (depth === 0 && options2.config.failClosedReason && isFailClosedRepairCommand(segments2)) {
-    return null;
-  }
-  if (options2.strict && segments2.length === 1 && segments2[0]?.tokens.length === 1 && segments2[0].tokens[0] === command2 && command2.includes(" ")) {
-    return { reason: REASON_STRICT_UNPARSEABLE, segment: command2 };
-  }
-  const originalCwd = options2.cwd;
-  let effectiveCwd = options2.effectiveCwd !== undefined ? options2.effectiveCwd : options2.cwd;
-  const shellGitContextState = createShellGitContextEnvState(options2.envAssignments);
-  for (const segmentInfo of segments2) {
-    const segment = segmentInfo.hasDynamicSubstitution ? appendDynamicSubstitutionSentinelForGit(segmentInfo.tokens) : segmentInfo.tokens;
-    const segmentStr = segment.join(" ");
-    const segmentEnvAssignments = getSegmentGitContextEnvAssignments(segment, shellGitContextState);
-    if (segment.length === 1 && segment[0]?.includes(" ")) {
-      const textReason = dangerousInText(segment[0]);
-      if (textReason) {
-        return { reason: textReason, segment: segmentStr };
-      }
-      const nextCwd2 = resolveCwdAfterSegment(segment, effectiveCwd);
-      if (nextCwd2 !== undefined) {
-        effectiveCwd = nextCwd2;
-      }
-      continue;
-    }
-    const reason = analyzeSegment(segment, depth, {
-      ...options2,
-      cwd: originalCwd,
-      effectiveCwd,
-      envAssignments: segmentEnvAssignments,
-      analyzeNested: (nestedCommand, overrides) => {
-        const nestedEffectiveCwd = overrides && Object.hasOwn(overrides, "effectiveCwd") ? overrides.effectiveCwd : effectiveCwd;
-        return analyzeCommandInternal(nestedCommand, depth + 1, {
-          ...options2,
-          effectiveCwd: nestedEffectiveCwd,
-          envAssignments: overrides?.envAssignments ?? segmentEnvAssignments,
-          worktreeMode: overrides?.worktreeMode ?? options2.worktreeMode
-        })?.reason ?? null;
-      }
-    });
-    if (reason) {
-      return { reason, segment: segmentStr };
-    }
-    const nextCwd = resolveCwdAfterSegment(segment, effectiveCwd);
-    if (nextCwd !== undefined) {
-      effectiveCwd = nextCwd;
-    }
-    applyShellGitContextEnvSegment(segment, shellGitContextState);
-  }
-  return null;
-}
-function appendDynamicSubstitutionSentinelForGit(tokens) {
-  if (!tokens.some((token) => getBasename(token).toLowerCase() === "git")) {
-    return tokens;
-  }
-  return [...tokens, DYNAMIC_SUBSTITUTION_TOKEN];
-}
-function isFailClosedRepairCommand(segments2) {
-  if (segments2.length !== 1 || segments2[0]?.hasDynamicSubstitution) {
-    return false;
-  }
-  const segment = segments2[0];
-  if (!segment) {
-    return false;
-  }
-  const tokens = segment.tokens;
-  if (tokens[0] === "cc-safety-net") {
-    return tokens[1] === "rule" && isRuleSyncArgs(tokens.slice(2));
-  }
-  if (tokens[0] === "npx") {
-    return (tokens[1] === "-y" || tokens[1] === "--yes") && isPackageRuleSyncRepair(tokens, 2);
-  }
-  if (tokens[0] === "bunx" || tokens[0] === "pnpx") {
-    return isPackageRuleSyncRepair(tokens, 1);
-  }
-  if ((tokens[0] === "pnpm" || tokens[0] === "yarn") && tokens[1] === "dlx") {
-    return isPackageRuleSyncRepair(tokens, 2);
-  }
-  return false;
-}
-function isPackageRuleSyncRepair(tokens, packageIndex) {
-  return isCCSafetyNetPackage(tokens[packageIndex]) && tokens[packageIndex + 1] === "rule" && isRuleSyncArgs(tokens.slice(packageIndex + 2));
-}
-function isRuleSyncArgs(args) {
-  return args.length >= 1 && args.length <= 2 && args.filter((arg) => arg === "sync").length === 1 && args.every((arg) => arg === "sync" || arg === "--global" || arg === "-g");
-}
-function isCCSafetyNetPackage(value) {
-  return /^cc-safety-net(?:@[a-zA-Z0-9._-]+)?$/.test(value ?? "");
-}
-
-// src/core/config.ts
-import { existsSync as existsSync9, readFileSync as readFileSync8 } from "node:fs";
-import { resolve as resolve7 } from "node:path";
-
-// src/core/rules/custom-rule-validation.ts
-function validateCustomRule(rule, index, ruleNames, options2 = {}) {
-  const errors = [];
-  const prefix = `rules[${index}]`;
-  if (!rule || typeof rule !== "object") {
-    errors.push(`${prefix}: must be an object`);
-    return errors;
-  }
-  const r = rule;
-  const messageStyle = options2.messageStyle ?? "legacy";
-  if (typeof r.name !== "string") {
-    errors.push(`${prefix}.name: required string`);
-  } else {
-    if (!NAME_PATTERN.test(r.name)) {
-      errors.push(messageStyle === "rulebook" ? `${prefix}.name: must match rule name pattern` : `${prefix}.name: must match pattern (letters, numbers, hyphens, underscores; max 64 chars)`);
-    }
-    const lowerName = r.name.toLowerCase();
-    if (ruleNames.has(lowerName)) {
-      errors.push(`${prefix}.name: duplicate rule name "${r.name}"`);
-    } else {
-      ruleNames.add(lowerName);
-    }
-  }
-  if (typeof r.command !== "string") {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: required string`);
-  } else if (!COMMAND_PATTERN.test(r.command)) {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.command: required string matching command pattern` : `${prefix}.command: must match pattern (letters, numbers, hyphens, underscores)`);
-  }
-  if (r.subcommand !== undefined) {
-    if (typeof r.subcommand !== "string") {
-      errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must be a string if provided`);
-    } else if (!COMMAND_PATTERN.test(r.subcommand)) {
-      errors.push(messageStyle === "rulebook" ? `${prefix}.subcommand: must match command pattern` : `${prefix}.subcommand: must match pattern (letters, numbers, hyphens, underscores)`);
-    }
-  }
-  if (!Array.isArray(r.block_args)) {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: required array`);
-  } else {
-    if (r.block_args.length === 0) {
-      errors.push(messageStyle === "rulebook" ? `${prefix}.block_args: required non-empty array` : `${prefix}.block_args: must have at least one element`);
-    }
-    for (let i = 0;i < r.block_args.length; i++) {
-      const arg = r.block_args[i];
-      if (typeof arg !== "string") {
-        errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must be a string`);
-      } else if (arg === "") {
-        errors.push(messageStyle === "rulebook" ? `${prefix}.block_args[${i}]: must be a non-empty string` : `${prefix}.block_args[${i}]: must not be empty`);
-      }
-    }
-  }
-  if (typeof r.reason !== "string") {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: required string`);
-  } else if (r.reason === "") {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must not be empty`);
-  } else if (r.reason.length > MAX_REASON_LENGTH) {
-    errors.push(messageStyle === "rulebook" ? `${prefix}.reason: required non-empty string up to ${MAX_REASON_LENGTH} characters` : `${prefix}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
-  }
-  return errors;
-}
-
-// src/core/rules/policy/config-file.ts
-import { existsSync as existsSync4, mkdirSync, readFileSync as readFileSync3, renameSync, writeFileSync } from "node:fs";
-import { dirname as dirname5 } from "node:path";
-
-// src/core/rules/policy/paths.ts
-import { homedir as homedir2 } from "node:os";
-import { dirname as dirname4, join as join4, resolve as resolve4 } from "node:path";
-var RULES_CONFIG_FILE = "rule.json";
-var RULES_LOCK_FILE = "rule.lock";
-var RULEBOOK_FILE = "rulebook.json";
-var LEGACY_RULES_CONFIG_FILE = "config.json";
-var SAFETY_NET_DIR = ".cc-safety-net";
-var RULES_SUBDIR = "rules";
-var CACHE_SUBDIR = "cache";
-var RULES_DIR = `${SAFETY_NET_DIR}/${RULES_SUBDIR}`;
-var CC_SAFETY_NET_HOME = "CC_SAFETY_NET_HOME";
-var GITHUB_RULEBOOK_SOURCE_FORMAT = "owner/repo#ref/<rulebook-name>";
-var RULE_SYNC_COMMAND = "`cc-safety-net rule sync`";
-var RULE_MIGRATE_COMMAND = "`npx -y cc-safety-net rule migrate`";
-function getProjectRulesDir(cwd) {
-  return resolve4(cwd ?? process.cwd(), RULES_DIR);
-}
-function getProjectRulesConfigPath(cwd) {
-  return join4(getProjectRulesDir(cwd), RULES_CONFIG_FILE);
-}
-function getUserRulesDir(options2) {
-  return options2?.userConfigDir ?? (options2?.userConfigPath ? dirname4(options2.userConfigPath) : join4(getUserSafetyNetHome(), RULES_SUBDIR));
-}
-function getUserSafetyNetHome() {
-  const home = process.env[CC_SAFETY_NET_HOME];
-  return home ? resolve4(home) : join4(homedir2(), SAFETY_NET_DIR);
-}
-function getUserRulesConfigPath(options2) {
-  return join4(getUserRulesDir(options2), RULES_CONFIG_FILE);
-}
-function getUserRulesLockPath(options2) {
-  return join4(getUserRulesDir(options2), RULES_LOCK_FILE);
-}
-function getRulesLockPathForConfigPath(configPath) {
-  return join4(dirname4(configPath), RULES_LOCK_FILE);
-}
-function getLegacyUserRulesConfigPath(options2 = {}) {
-  return join4(dirname4(getUserRulesDir(options2)), LEGACY_RULES_CONFIG_FILE);
-}
-function getLegacyProjectRulesConfigPath(options2 = {}) {
-  return resolve4(options2.cwd ?? process.cwd(), ".safety-net.json");
-}
-function getPolicyPaths(options2) {
-  const userConfigPath = options2.userConfigPath ?? getUserRulesConfigPath(options2);
-  const projectConfigPath = options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
-  return {
-    userConfigPath,
-    projectConfigPath,
-    userLockPath: getRulesLockPathForConfigPath(userConfigPath),
-    projectLockPath: getRulesLockPathForConfigPath(projectConfigPath)
-  };
-}
-function getScopePaths(options2) {
-  const configPath = options2.global ? options2.userConfigPath ?? getUserRulesConfigPath(options2) : options2.projectConfigPath ?? getProjectRulesConfigPath(options2.cwd);
-  return {
-    configDir: dirname4(configPath),
-    configPath,
-    lockPath: getRulesLockPathForConfigPath(configPath)
-  };
-}
-function getRulebookDisplaySource(entry) {
-  if (entry.kind === "github" && entry.display_ref) {
-    return `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}`;
-  }
-  return entry.spec;
-}
-function getRulebookCachePath(entry, options2) {
-  const digestHex = entry.digest.startsWith("sha256:") ? entry.digest.slice(7) : entry.digest;
-  return join4(getRulesCacheDir(options2), "rulebooks", `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`, RULEBOOK_FILE);
-}
-function getRulebookCacheSlug(entry) {
-  const source = entry.kind === "github" && entry.display_ref ? `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}` : entry.spec;
-  return source.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "rulebook";
-}
-function getRepositoryRulebookPath(name) {
-  return `${RULES_DIR}/${name}/${RULEBOOK_FILE}`;
-}
-function getRulesCacheDir(options2) {
-  return join4(dirname4(options2?.cacheConfigDir ?? getUserRulesDir(options2)), CACHE_SUBDIR);
-}
-
-// src/core/rules/policy/sources.ts
-var GITHUB_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/;
-var GITHUB_REPOSITORY_SOURCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/;
-var GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#([A-Za-z0-9._-]+)$/;
-var GITHUB_REF_PATTERN = /^[A-Za-z0-9._-]+$/;
-var RULES_DIR_RE = RULES_DIR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-var RULEBOOK_FILE_RE = RULEBOOK_FILE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-var GITHUB_RULEBOOK_PATH_RE = new RegExp(`^${RULES_DIR_RE}/(${NAME_PATTERN.source.slice(1, -1)})/${RULEBOOK_FILE_RE}$`);
-function getRulebookSourceSyntaxError(source) {
-  if (isGitHubRulebookSource(source)) {
-    try {
-      parseGitHubSource(source);
-      return null;
-    } catch (error) {
-      return error instanceof Error ? error.message : String(error);
-    }
-  }
-  return NAME_PATTERN.test(source) ? null : `Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`;
-}
-function parseGitHubSource(spec) {
-  if (spec.startsWith("github:")) {
-    throw new Error(`Invalid rulebook source: ${spec}`);
-  }
-  const match = spec.match(GITHUB_SOURCE_RE);
-  if (!match?.[1] || !match[2] || !match[3]) {
-    throw new Error(`Invalid GitHub rulebook source: ${spec}`);
-  }
-  const [ref, name, ...extraParts] = match[3].split("/");
-  if (!ref || !GITHUB_REF_PATTERN.test(ref)) {
-    throw new Error(`GitHub rulebook refs must be a single path segment: ${spec}`);
-  }
-  if (!name || extraParts.length > 0 || !NAME_PATTERN.test(name)) {
-    throw new Error(`GitHub rulebook sources must be ${GITHUB_RULEBOOK_SOURCE_FORMAT}: ${spec}`);
-  }
-  return {
-    owner: match[1],
-    repo: match[2],
-    ref,
-    path: getRepositoryRulebookPath(name),
-    name
-  };
-}
-function isGitHubRepositorySource(source) {
-  return GITHUB_REPOSITORY_SOURCE_RE.test(source);
-}
-function isGitHubRulebookSource(source) {
-  return GITHUB_SOURCE_RE.test(source);
-}
-function assertBareRulebookName(source) {
-  if (!NAME_PATTERN.test(source)) {
-    throw new Error(`Local rulebook sources must be bare names matching ${NAME_PATTERN}: ${source}`);
-  }
-}
-function getSelectedUpdateSpecs(config, lock, match) {
-  const exactMatches = config.rules.filter((spec) => spec === match);
-  if (exactMatches.length > 0) {
-    return { ok: true, specs: exactMatches };
-  }
-  if (!lock) {
-    return {
-      ok: false,
-      result: {
-        ok: false,
-        errors: [
-          `No lockfile available to match rulebook name ${match}; use the exact source or run ${RULE_SYNC_COMMAND}`
-        ],
-        warnings: [],
-        entries: []
-      }
-    };
-  }
-  const configuredSpecs = new Set(config.rules);
-  const nameMatches = lock.rulebooks.filter((entry) => entry.name === match && configuredSpecs.has(entry.spec)).map((entry) => entry.spec);
-  if (nameMatches.length === 1) {
-    return { ok: true, specs: nameMatches };
-  }
-  return noRulebookMatch(match, nameMatches);
-}
-function getRemoveMatches(rules, lock, match) {
-  const exactMatches = rules.filter((spec) => spec === match);
-  if (exactMatches.length > 0)
-    return { ok: true, specs: exactMatches };
-  const githubRefMatches = getGitHubRepositoryRefMatches(rules, match);
-  if (githubRefMatches.length > 0)
-    return { ok: true, specs: githubRefMatches };
-  const githubRepositoryMatches = getGitHubRepositoryMatches(rules, match);
-  if (!githubRepositoryMatches.ok)
-    return githubRepositoryMatches;
-  if (githubRepositoryMatches.specs.length > 0) {
-    return { ok: true, specs: githubRepositoryMatches.specs };
-  }
-  const nameMatches = lock ? rules.filter((spec) => lock.rulebooks.find((entry) => entry.spec === spec)?.name === match) : [];
-  if (nameMatches.length === 1)
-    return { ok: true, specs: nameMatches };
-  return noRulebookMatch(match, nameMatches);
-}
-function noRulebookMatch(match, nameMatches) {
-  return {
-    ok: false,
-    result: {
-      ok: false,
-      errors: nameMatches.length === 0 ? [`No configured rulebook matches ${match}`] : [`Ambiguous rulebook match ${match}: ${nameMatches.join(", ")}`],
-      warnings: [],
-      entries: []
-    }
-  };
-}
-function getGitHubRepositoryRefMatches(rules, match) {
-  const parsed = match.match(GITHUB_REPOSITORY_REF_SOURCE_RE);
-  if (!parsed?.[1] || !parsed[2] || !parsed[3])
-    return [];
-  return rules.filter((spec) => {
-    const source = getConfiguredGitHubSource(spec);
-    if (!source)
-      return false;
-    return source.owner === parsed[1] && source.repo === parsed[2] && source.ref === parsed[3];
-  });
-}
-function getGitHubRepositoryMatches(rules, match) {
-  if (!isGitHubRepositorySource(match))
-    return { ok: true, specs: [] };
-  const specs = rules.filter((spec) => {
-    const source = getConfiguredGitHubSource(spec);
-    if (!source)
-      return false;
-    return source.owner === match.split("/")[0] && source.repo === match.split("/")[1];
-  });
-  const refs = new Set(specs.map((spec) => getConfiguredGitHubSource(spec)?.ref).filter((ref) => !!ref));
-  if (refs.size < 2)
-    return { ok: true, specs };
-  return {
-    ok: false,
-    result: {
-      ok: false,
-      errors: [
-        `Multiple refs are configured for ${match}. Use an explicit ref:`,
-        `  cc-safety-net rule remove ${match}#<ref>`
-      ],
-      warnings: [],
-      entries: []
-    }
-  };
-}
-function getConfiguredGitHubSource(spec) {
-  try {
-    return parseGitHubSource(spec);
-  } catch {
-    return null;
-  }
-}
-
-// src/core/rules/policy/types.ts
-var DEFAULT_CONFIG = { version: 1, rules: [], overrides: {} };
-
-// src/core/rules/policy/config-file.ts
-function validateRulesConfig(config) {
-  const errors = [];
-  const sources = new Set;
-  if (!config || typeof config !== "object") {
-    return { errors: ["Config must be an object"], sources };
-  }
-  const cfg = config;
-  if (cfg.version !== 1) {
-    errors.push("version must be 1");
-  }
-  if (cfg.rules === undefined) {} else if (!Array.isArray(cfg.rules)) {
-    errors.push("rules must be an array of rulebook source strings");
-  } else {
-    for (let i = 0;i < cfg.rules.length; i++) {
-      if (typeof cfg.rules[i] !== "string") {
-        errors.push(`rules[${i}]: must be a rulebook source string`);
-        continue;
-      }
-      if (cfg.rules[i].trim() === "") {
-        errors.push(`rules[${i}]: must be a non-empty rulebook source string`);
-        continue;
-      }
-      if (sources.has(cfg.rules[i])) {
-        errors.push(`rules[${i}]: duplicate rulebook source "${cfg.rules[i]}"`);
-        continue;
-      }
-      const sourceError = getRulebookSourceSyntaxError(cfg.rules[i]);
-      if (sourceError) {
-        errors.push(`rules[${i}]: ${sourceError}`);
-        continue;
-      }
-      sources.add(cfg.rules[i]);
-    }
-  }
-  if (cfg.overrides !== undefined) {
-    if (!cfg.overrides || typeof cfg.overrides !== "object" || Array.isArray(cfg.overrides)) {
-      errors.push("overrides must be an object if provided");
-    } else {
-      for (const [key, value] of Object.entries(cfg.overrides)) {
-        if (!/^[^/]+\/[^/]+$/.test(key)) {
-          errors.push(`overrides.${key}: must use <rulebook-name>/<rule-name>`);
-        }
-        if (value === "off") {
-          continue;
-        }
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          errors.push(`overrides.${key}: must be "off" or an object`);
-          continue;
-        }
-        const reason = value.reason;
-        if (typeof reason !== "string" || reason === "") {
-          errors.push(`overrides.${key}.reason: required non-empty string`);
-        } else if (reason.length > MAX_REASON_LENGTH) {
-          errors.push(`overrides.${key}.reason: must be at most ${MAX_REASON_LENGTH} characters`);
-        }
-      }
-    }
-  }
-  return { errors, sources };
-}
-function readRulesConfig(path) {
-  if (!existsSync4(path)) {
-    return { config: null, errors: [] };
-  }
-  try {
-    const content = readFileSync3(path, "utf-8");
-    if (!content.trim()) {
-      return { config: null, errors: ["Config file is empty"] };
-    }
-    const parsed = JSON.parse(content);
-    const validation = validateRulesConfig(parsed);
-    if (validation.errors.length > 0) {
-      return { config: null, errors: validation.errors };
-    }
-    const cfg = parsed;
-    return {
-      config: {
-        version: 1,
-        rules: cfg.rules ?? [],
-        overrides: cfg.overrides ?? {}
-      },
-      errors: []
-    };
-  } catch (error) {
-    return {
-      config: null,
-      errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
-    };
-  }
-}
-function readScopeRulesConfig(path) {
-  const loaded = readRulesConfig(path);
-  if (loaded.errors.length > 0) {
-    return { ok: false, result: { ok: false, errors: loaded.errors, warnings: [], entries: [] } };
-  }
-  return { ok: true, config: loaded.config ?? DEFAULT_CONFIG };
-}
-function writeDefaultRulesConfig(path, rules = []) {
-  writeJsonAtomic(path, { version: 1, rules, overrides: {} });
-}
-function writeStarterRulebook(path, name = "project-rules") {
-  writeJsonAtomic(path, {
-    rulebook_version: 1,
-    name,
-    version: "1.0.0",
-    description: name === "project-rules" ? "Project-specific CC Safety Net rules." : "User-specific CC Safety Net rules.",
-    author: name === "project-rules" ? "project" : "user",
-    allowed_commands: ["docker"],
-    rules: [
-      {
-        name: "block-docker-system-prune",
-        command: "docker",
-        subcommand: "system",
-        block_args: ["prune"],
-        reason: "Use targeted cleanup instead."
-      }
-    ],
-    tests: [
-      {
-        command: "docker system prune",
-        expect: "blocked",
-        rule: "block-docker-system-prune"
-      }
-    ]
-  });
-}
-function writeJsonAtomic(path, value) {
-  mkdirSync(dirname5(path), { recursive: true });
-  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}
-`, "utf-8");
-  renameSync(tempPath, path);
-}
-
-// src/core/rules/policy/scope-policy.ts
-import { existsSync as existsSync7, readFileSync as readFileSync6, realpathSync as realpathSync7 } from "node:fs";
-import { dirname as dirname6, isAbsolute as isAbsolute6, join as join6, relative, resolve as resolve5, sep as sep4 } from "node:path";
-
-// src/core/rules/rulebook.ts
-function validateRulebook(rulebook) {
-  const errors = [];
-  const ruleNames = new Set;
-  if (!rulebook || typeof rulebook !== "object") {
-    return { errors: ["Rulebook must be an object"], ruleNames };
-  }
-  const rb = rulebook;
-  if (rb.rulebook_version !== 1) {
-    errors.push("rulebook_version must be 1");
-  }
-  if (typeof rb.name !== "string" || !NAME_PATTERN.test(rb.name)) {
-    errors.push("name: required string matching rule name pattern");
-  }
-  if (typeof rb.version !== "string" || rb.version === "") {
-    errors.push("version: required non-empty string");
-  }
-  if (!Array.isArray(rb.allowed_commands)) {
-    errors.push("allowed_commands: required array");
-  } else {
-    validateAllowedCommands(rb.allowed_commands, errors);
-  }
-  if (!Array.isArray(rb.rules)) {
-    errors.push("rules: required array");
-  } else {
-    for (let i = 0;i < rb.rules.length; i++) {
-      errors.push(...validateCustomRule(rb.rules[i], i, ruleNames, { messageStyle: "rulebook" }));
-    }
-  }
-  if (!Array.isArray(rb.tests)) {
-    errors.push("tests: required array");
-  } else {
-    validateFixtures(rb.tests, rb.rules, errors);
-  }
-  if (Array.isArray(rb.allowed_commands) && Array.isArray(rb.rules)) {
-    const allowed = new Set(rb.allowed_commands.filter((cmd) => typeof cmd === "string"));
-    for (let i = 0;i < rb.rules.length; i++) {
-      const rule = rb.rules[i];
-      if (typeof rule.command === "string" && !allowed.has(rule.command)) {
-        errors.push(`rules[${i}].command: "${rule.command}" must be listed in allowed_commands`);
-      }
-    }
-  }
-  return { errors, ruleNames };
-}
-function validateAllowedCommands(commands, errors) {
-  const seen = new Set;
-  for (let i = 0;i < commands.length; i++) {
-    const command2 = commands[i];
-    if (typeof command2 !== "string" || !COMMAND_PATTERN.test(command2)) {
-      errors.push(`allowed_commands[${i}]: must match command pattern`);
-      continue;
-    }
-    if (seen.has(command2)) {
-      errors.push(`allowed_commands[${i}]: duplicate command "${command2}"`);
-      continue;
-    }
-    seen.add(command2);
-  }
-}
-function validateFixtures(tests, rules, errors) {
-  const blockedFixtures = new Set;
-  const ruleNames = new Set(Array.isArray(rules) ? rules.map((rule) => rule && typeof rule === "object" ? rule.name : null).filter((name) => typeof name === "string") : []);
-  for (let i = 0;i < tests.length; i++) {
-    const fixture = tests[i];
-    if (!fixture || typeof fixture !== "object") {
-      errors.push(`tests[${i}]: must be an object`);
-      continue;
-    }
-    const f = fixture;
-    if (typeof f.command !== "string" || f.command.trim() === "") {
-      errors.push(`tests[${i}].command: required non-empty string`);
-    }
-    if (f.expect !== "blocked" && f.expect !== "allowed") {
-      errors.push(`tests[${i}].expect: must be "blocked" or "allowed"`);
-    }
-    if (f.rule !== undefined && typeof f.rule !== "string") {
-      errors.push(`tests[${i}].rule: must be a string if provided`);
-    }
-    if (f.expect === "blocked" && typeof f.rule !== "string") {
-      errors.push(`tests[${i}].rule: required string for blocked fixtures`);
-    }
-    if (f.expect === "blocked" && typeof f.rule === "string") {
-      blockedFixtures.add(f.rule);
-    }
-  }
-  for (let i = 0;i < (Array.isArray(rules) ? rules.length : 0); i++) {
-    const rule = rules[i];
-    if (typeof rule.name === "string" && !blockedFixtures.has(rule.name)) {
-      errors.push(`rules[${i}]: missing blocked fixture for rule "${rule.name}"`);
-    }
-  }
-  for (const rule of blockedFixtures) {
-    if (!ruleNames.has(rule)) {
-      errors.push(`tests: blocked fixture references unknown rule "${rule}"`);
-    }
-  }
-}
-function runRulebookFixtures(rulebook) {
-  const failures = rulebook.tests.flatMap((fixture) => {
-    const segments2 = splitShellCommands(fixture.command).map((tokens) => {
-      const result = checkCustomRules(tokens, rulebook.rules);
-      return { tokens, result, matchedRule: result?.match(/^\[([^\]]+)]/)?.[1] ?? null };
-    });
-    const firstSegment = segments2[0] ?? { tokens: [], result: null, matchedRule: null };
-    if (fixture.expect === "allowed") {
-      const blockedSegment = segments2.find((segment) => segment.result);
-      return blockedSegment ? [
-        {
-          command: fixture.command,
-          message: `expected allowed but matched ${blockedSegment.matchedRule ?? "a rule"}`,
-          trace: traceRulebookFixture(blockedSegment.tokens, rulebook.rules)
-        }
-      ] : [];
-    }
-    const firstBlockedSegment = segments2.find((segment) => segment.result);
-    if (!firstBlockedSegment) {
-      return [
-        {
-          command: fixture.command,
-          message: `expected blocked by ${fixture.rule ?? "a rule"} but command was allowed`,
-          trace: traceRulebookFixture(firstSegment.tokens, rulebook.rules)
-        }
-      ];
-    }
-    if (!fixture.rule || firstBlockedSegment.matchedRule === fixture.rule)
-      return [];
-    return [
-      {
-        command: fixture.command,
-        message: `expected blocked by ${fixture.rule} but matched ${firstBlockedSegment.matchedRule}`,
-        trace: traceRulebookFixture(firstBlockedSegment.tokens, rulebook.rules)
-      }
-    ];
-  });
-  return { ok: failures.length === 0, failures };
-}
-function traceRulebookFixture(tokens, rules) {
-  return rules.map((rule) => {
-    const result = checkCustomRules([...tokens], [rule]);
-    return `${result ? "matched" : "skipped"} ${rule.name}`;
-  });
-}
-function assertValidRulebook(rulebook) {
-  const result = validateRulebook(rulebook);
-  if (result.errors.length > 0) {
-    throw new Error(result.errors.join("; "));
-  }
-  const parsed = rulebook;
-  const fixtures = runRulebookFixtures(parsed);
-  if (!fixtures.ok) {
-    throw new Error(fixtures.failures.map((failure) => `${failure.command}: ${failure.message}`).join("; "));
-  }
-  return parsed;
-}
-
-// src/core/rules/policy/lockfile.ts
-import { existsSync as existsSync5, readFileSync as readFileSync4 } from "node:fs";
-var SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
-var RULEBOOK_SOURCE_KINDS = new Set(["local-directory", "github"]);
-function readLockfile(path) {
-  if (!existsSync5(path)) {
-    return { lock: null, errors: [] };
-  }
-  try {
-    const parsed = JSON.parse(readFileSync4(path, "utf-8"));
-    if (!parsed || typeof parsed !== "object") {
-      return { lock: null, errors: [`malformed lockfile ${path}: must be an object`] };
-    }
-    const lock = parsed;
-    if (lock.version !== 1 || !Array.isArray(lock.rulebooks)) {
-      return { lock: null, errors: [`malformed lockfile ${path}`] };
-    }
-    const parsedEntries = lock.rulebooks.map((entry, index) => parseLockEntry(entry, `${path}: rulebooks[${index}]`));
-    const entryErrors = parsedEntries.flatMap((entry) => entry.errors);
-    if (entryErrors.length > 0) {
-      return { lock: null, errors: [`malformed lockfile ${path}`, ...entryErrors] };
-    }
-    return {
-      lock: {
-        version: 1,
-        rulebooks: parsedEntries.flatMap((entry) => entry.entry ? [entry.entry] : [])
-      },
-      errors: []
-    };
-  } catch (error) {
-    return {
-      lock: null,
-      errors: [
-        `malformed lockfile ${path}: ${error instanceof Error ? error.message : String(error)}`
-      ]
-    };
-  }
-}
-function parseLockEntry(entry, prefix) {
-  if (!entry || typeof entry !== "object") {
-    return { entry: null, errors: [`${prefix}: must be an object`] };
-  }
-  const candidate = entry;
-  const errors = [
-    ...validateRequiredString(candidate, prefix, "spec"),
-    ...validateRequiredString(candidate, prefix, "name"),
-    ...validateRequiredString(candidate, prefix, "version"),
-    ...validateDigest(candidate, prefix),
-    ...validateKind(candidate, prefix),
-    ...validateKindFields(candidate, prefix)
-  ];
-  if (errors.length > 0)
-    return { entry: null, errors };
-  if (candidate.kind === "local-directory") {
-    return {
-      entry: {
-        spec: requiredString(candidate, "spec"),
-        kind: "local-directory",
-        path: requiredString(candidate, "path"),
-        name: requiredString(candidate, "name"),
-        version: requiredString(candidate, "version"),
-        digest: requiredString(candidate, "digest")
-      },
-      errors: []
-    };
-  }
-  const githubEntry = {
-    spec: requiredString(candidate, "spec"),
-    kind: "github",
-    owner: requiredString(candidate, "owner"),
-    repo: requiredString(candidate, "repo"),
-    ref: requiredString(candidate, "ref"),
-    commit: requiredString(candidate, "commit"),
-    path: requiredString(candidate, "path"),
-    name: requiredString(candidate, "name"),
-    version: requiredString(candidate, "version"),
-    digest: requiredString(candidate, "digest")
-  };
-  return {
-    entry: typeof candidate.display_ref === "string" && candidate.display_ref !== "" ? { ...githubEntry, display_ref: candidate.display_ref } : githubEntry,
-    errors: []
-  };
-}
-function validateRequiredString(candidate, prefix, field) {
-  return typeof candidate[field] === "string" && candidate[field].trim() !== "" ? [] : [`${prefix}.${field}: required string`];
-}
-function validateDigest(candidate, prefix) {
-  return typeof candidate.digest === "string" && SHA256_DIGEST_PATTERN.test(candidate.digest) ? [] : [`${prefix}.digest: required sha256 digest`];
-}
-function validateKind(candidate, prefix) {
-  if (typeof candidate.kind !== "string") {
-    return [`${prefix}.kind: required string`];
-  }
-  return RULEBOOK_SOURCE_KINDS.has(candidate.kind) ? [] : [`${prefix}.kind: unknown kind "${candidate.kind}"`];
-}
-function validateKindFields(candidate, prefix) {
-  if (candidate.kind === "local-directory") {
-    return validateRequiredString(candidate, prefix, "path");
-  }
-  if (candidate.kind === "github") {
-    return ["owner", "repo", "ref", "commit", "path"].flatMap((field) => validateRequiredString(candidate, prefix, field));
-  }
-  return [];
-}
-function requiredString(candidate, field) {
-  const value = candidate[field];
-  if (typeof value !== "string") {
-    throw new Error(`Expected ${field} to be validated before reading`);
-  }
-  return value;
-}
-
-// src/core/rules/policy/resolver.ts
-import { createHash } from "node:crypto";
-import { existsSync as existsSync6, readFileSync as readFileSync5 } from "node:fs";
-import { join as join5 } from "node:path";
-async function resolveRulebookSource(spec, configDir, options2) {
-  if (isGitHubRulebookSource(spec)) {
-    return resolveGitHubRulebook(spec);
-  }
-  return resolveLocalRulebook(spec, configDir, options2);
-}
-async function resolveRulebookSourceForSync(spec, configDir, options2, previousLock) {
-  if (!isGitHubRulebookSource(spec) || options2.refresh) {
-    return resolveRulebookSource(spec, configDir, options2);
-  }
-  const locked = previousLock?.rulebooks.find((entry) => entry.spec === spec);
-  if (!locked || locked.kind !== "github") {
-    return resolveRulebookSource(spec, configDir, options2);
-  }
-  return readLockedGitHubRulebook(locked, configDir, options2);
-}
-async function discoverGitHubRepositoryRulebooks(source) {
-  const [owner, repo] = source.split("/");
-  if (!owner || !repo) {
-    throw new Error(`Invalid GitHub repository source: ${source}`);
-  }
-  const metadataResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
-  if (!metadataResponse.ok) {
-    throw new Error(`Failed to inspect ${source}: GitHub returned ${metadataResponse.status}`);
-  }
-  const metadata = await metadataResponse.json();
-  if (!metadata.default_branch) {
-    throw new Error(`Failed to inspect ${source}: missing default branch`);
-  }
-  const commit = await resolveGitHubCommit(owner, repo, metadata.default_branch, source);
-  const treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`);
-  if (!treeResponse.ok) {
-    throw new Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
-  }
-  const treeJson = await treeResponse.json();
-  const names = (treeJson.tree ?? []).flatMap((entry) => {
-    if (entry.type !== "blob" || typeof entry.path !== "string")
-      return [];
-    const match = entry.path.match(GITHUB_RULEBOOK_PATH_RE);
-    return match?.[1] ? [match[1]] : [];
-  }).sort();
-  if (names.length === 0) {
-    throw new Error(`No rulebooks found in ${source} under ${RULES_DIR}/`);
-  }
-  return names.map((name) => ({
-    spec: `${owner}/${repo}#${commit}/${name}`,
-    display_ref: metadata.default_branch
-  }));
-}
-function resolveLocalRulebook(spec, configDir, _options) {
-  assertBareRulebookName(spec);
-  const path = getLocalRulebookPath(configDir, spec);
-  if (!existsSync6(path)) {
-    throw new Error(`Rulebook source not found: ${spec}`);
-  }
-  const content = readFileSync5(path, "utf-8");
-  const rulebook = assertValidRulebook(JSON.parse(content));
-  if (rulebook.name !== spec) {
-    throw new Error(`rulebook name "${rulebook.name}" must match local source "${spec}"`);
-  }
-  return {
-    rulebook,
-    content,
-    entry: {
-      spec,
-      kind: "local-directory",
-      path: spec,
-      name: rulebook.name,
-      version: rulebook.version,
-      digest: sha256Digest(content)
-    }
-  };
-}
-async function resolveGitHubRulebook(spec) {
-  const parsed = parseGitHubSource(spec);
-  const commit = await resolveGitHubCommit(parsed.owner, parsed.repo, parsed.ref, spec);
-  const rawResponse = await fetch(`https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${commit}/${parsed.path}`);
-  if (!rawResponse.ok) {
-    throw new Error(`Failed to fetch ${spec}: GitHub raw returned ${rawResponse.status}`);
-  }
-  const content = await rawResponse.text();
-  const rulebook = assertValidRulebook(JSON.parse(content));
-  if (rulebook.name !== parsed.name) {
-    throw new Error(`rulebook name "${rulebook.name}" must match GitHub source "${parsed.name}"`);
-  }
-  return {
-    rulebook,
-    content,
-    entry: {
-      spec,
-      kind: "github",
-      owner: parsed.owner,
-      repo: parsed.repo,
-      ref: parsed.ref,
-      commit,
-      path: parsed.path,
-      name: rulebook.name,
-      version: rulebook.version,
-      digest: sha256Digest(content)
-    }
-  };
-}
-async function readLockedGitHubRulebook(entry, configDir, options2) {
-  const cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  if (existsSync6(cachePath)) {
-    const content = readFileSync5(cachePath, "utf-8");
-    if (sha256Digest(content) === entry.digest) {
-      return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
-    }
-  }
-  return fetchLockedGitHubRulebook(entry);
-}
-async function fetchLockedGitHubRulebook(entry) {
-  const rawResponse = await fetch(`https://raw.githubusercontent.com/${entry.owner}/${entry.repo}/${entry.commit}/${entry.path}`);
-  if (!rawResponse.ok) {
-    throw new Error(`Failed to restore ${entry.spec}: GitHub raw returned ${rawResponse.status}`);
-  }
-  const content = await rawResponse.text();
-  if (sha256Digest(content) !== entry.digest) {
-    throw new Error(`locked GitHub digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-  }
-  return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
-}
-function assertRulebookMatchesLockEntry(content, entry) {
-  const rulebook = assertValidRulebook(JSON.parse(content));
-  if (rulebook.name !== entry.name) {
-    throw new Error(`rulebook name "${rulebook.name}" must match lock entry "${entry.name}"`);
-  }
-  return rulebook;
-}
-async function resolveGitHubCommit(owner, repo, ref, source) {
-  const commitResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`);
-  if (!commitResponse.ok) {
-    throw new Error(`Failed to resolve ${source}: GitHub returned ${commitResponse.status}`);
-  }
-  const commitJson = await commitResponse.json();
-  if (!commitJson.sha) {
-    throw new Error(`Failed to resolve commit for ${source}`);
-  }
-  return commitJson.sha;
-}
-function getLocalRulebookPath(configDir, name) {
-  return join5(configDir, name, RULEBOOK_FILE);
-}
-function sha256Digest(content) {
-  return `sha256:${createHash("sha256").update(content).digest("hex")}`;
-}
-
-// src/core/rules/policy/scope-policy.ts
-function loadRulesPolicy(options2 = {}) {
-  const paths = getPolicyPaths(options2);
-  const sameConfigPath = isSameConfigPath(paths.userConfigPath, paths.projectConfigPath);
-  const user = readRulesConfig(paths.userConfigPath);
-  const project = sameConfigPath ? { config: null, errors: [] } : readRulesConfig(paths.projectConfigPath);
-  const errors = [
-    ...getLegacyRulesConfigErrors(paths, options2),
-    ...user.errors.map((error) => `${paths.userConfigPath}: ${error}`),
-    ...project.errors.map((error) => `${paths.projectConfigPath}: ${error}`)
-  ];
-  const userPolicy = user.config ? loadScopePolicy(user.config, paths.userLockPath, dirname6(paths.userConfigPath), options2, "user") : emptyScopePolicy();
-  const projectPolicy = project.config ? loadScopePolicy(project.config, paths.projectLockPath, dirname6(paths.projectConfigPath), options2, "project") : emptyScopePolicy();
-  const duplicateNames = getDuplicateRulebookNames([
-    ...user.config ? getConfiguredLockEntries(user.config, paths.userLockPath) : [],
-    ...project.config ? getConfiguredLockEntries(project.config, paths.projectLockPath) : []
-  ]);
-  const overrides = { ...user.config?.overrides ?? {}, ...project.config?.overrides ?? {} };
-  const knownRuleIds = new Set([...userPolicy.knownRuleIds, ...projectPolicy.knownRuleIds]);
-  return {
-    rules: applyOverrides([...userPolicy.rules, ...projectPolicy.rules], overrides),
-    rulebooks: [...userPolicy.rulebooks, ...projectPolicy.rulebooks],
-    errors: [
-      ...errors,
-      ...userPolicy.errors,
-      ...projectPolicy.errors,
-      ...duplicateNames.map((name) => `duplicate active rulebook name "${name}"`),
-      ...userPolicy.canValidateOverrides && projectPolicy.canValidateOverrides ? getUnknownOverrideErrors(overrides, knownRuleIds) : []
-    ],
-    userConfig: user.config ?? undefined,
-    projectConfig: project.config ?? undefined,
-    ...paths
-  };
-}
-function getRulesConfigSourceDisplayMap(configPath) {
-  const config = readRulesConfig(configPath).config;
-  const lock = readLockfile(getRulesLockPathForConfigPath(configPath)).lock;
-  if (!config || !lock)
-    return new Map;
-  const configuredSources = new Set(config.rules);
-  return new Map(lock.rulebooks.filter((entry) => configuredSources.has(entry.spec)).map((entry) => [entry.spec, getRulebookDisplaySource(entry)]));
-}
-function getRulesConfigRuntimeErrorsForConfig(configPath, lockPath, options2) {
-  const loaded = loadScopePolicyForConfig(configPath, lockPath, options2);
-  if (!loaded)
-    return [];
-  return [...loaded.scope.errors, ...getUnknownOverrideErrorsForScope(loaded.config, loaded.scope)];
-}
-function loadScopePolicyForConfig(configPath, lockPath, options2) {
-  const config = readRulesConfig(configPath).config;
-  if (!config) {
-    return null;
-  }
-  return {
-    config,
-    scope: loadScopePolicy(config, lockPath, dirname6(configPath), options2, "project")
-  };
-}
-function getUnknownOverrideErrorsForScope(config, scope) {
-  return scope.canValidateOverrides ? getUnknownOverrideErrors(config.overrides ?? {}, scope.knownRuleIds) : [];
-}
-function loadScopePolicy(config, lockPath, configDir, options2, source) {
-  const lockResult = readLockfile(lockPath);
-  if (lockResult.errors.length > 0) {
-    return { ...emptyScopePolicy(), errors: lockResult.errors, canValidateOverrides: false };
-  }
-  const lock = lockResult.lock;
-  if (!lock && config.rules.length > 0) {
-    return {
-      ...emptyScopePolicy(),
-      errors: [`missing lockfile ${lockPath}; run ${RULE_SYNC_COMMAND}`],
-      canValidateOverrides: false
-    };
-  }
-  const entries = lock?.rulebooks ?? [];
-  const entriesBySpec = new Map(entries.map((entry) => [entry.spec, entry]));
-  const errors = [];
-  const loaded = config.rules.flatMap((spec) => {
-    const entry = entriesBySpec.get(spec);
-    if (!entry) {
-      errors.push(`missing lock entry for ${spec}; run ${RULE_SYNC_COMMAND}`);
-      return [];
-    }
-    const loadedRulebook = loadLockedRulebook(entry, configDir, options2);
-    if (loadedRulebook.errors.length > 0 || !loadedRulebook.rulebook) {
-      errors.push(...loadedRulebook.errors);
-      return [];
-    }
-    const rulebook = loadedRulebook.rulebook;
-    return [
-      {
-        rules: rulebook.rules.map((rule) => ({ ...rule, name: `${rulebook.name}/${rule.name}` })),
-        rulebook: {
-          source,
-          spec: entry.spec,
-          name: rulebook.name,
-          version: rulebook.version,
-          rules: rulebook.rules.map((rule) => `${rulebook.name}/${rule.name}`)
-        }
-      }
-    ];
-  });
-  const rules = loaded.flatMap((item) => item.rules);
-  return {
-    rules,
-    rulebooks: loaded.map((item) => item.rulebook),
-    entries,
-    knownRuleIds: new Set(rules.map((rule) => rule.name)),
-    errors,
-    canValidateOverrides: errors.length === 0
-  };
-}
-function loadLockedRulebook(entry, configDir, options2) {
-  const errors = [];
-  const cachePath = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  if (!existsSync7(cachePath)) {
-    return {
-      rulebook: null,
-      errors: [`missing cache entry for ${entry.spec}; run ${RULE_SYNC_COMMAND}`]
-    };
-  }
-  let cacheContent;
-  try {
-    cacheContent = readFileSync6(cachePath, "utf-8");
-  } catch (error) {
-    return {
-      rulebook: null,
-      errors: [
-        `failed to read cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`
-      ]
-    };
-  }
-  if (sha256Digest(cacheContent) !== entry.digest) {
-    errors.push(`cache digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-  }
-  let rulebook = null;
-  try {
-    const parsed = JSON.parse(cacheContent);
-    assertValidRulebook(parsed);
-    rulebook = parsed;
-  } catch (error) {
-    errors.push(`invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  if (entry.kind === "local-directory") {
-    const sourcePath = resolve5(configDir, entry.path);
-    const sourceRelative = relative(resolve5(configDir), sourcePath);
-    if (sourceRelative === ".." || sourceRelative.startsWith(`..${sep4}`) || isAbsolute6(sourceRelative)) {
-      errors.push(`lockfile local source path for ${entry.spec} must stay within ${configDir}; run ${RULE_SYNC_COMMAND}`);
-      return { rulebook: null, errors };
-    }
-    const localPath = join6(sourcePath, RULEBOOK_FILE);
-    if (!existsSync7(localPath)) {
-      errors.push(`missing local source for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-    } else {
-      try {
-        const localContent = readFileSync6(localPath, "utf-8");
-        if (sha256Digest(localContent) !== entry.digest) {
-          errors.push(getLocalSourceDriftError(entry.spec, localContent));
-        }
-      } catch (error) {
-        errors.push(`failed to read local source for ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-  }
-  return { rulebook: errors.length === 0 ? rulebook : null, errors };
-}
-function rulesPolicyToConfig(policy) {
-  if (policy.errors.length > 0) {
-    return {
-      version: 1,
-      rules: [],
-      failClosedReason: withTerminalPeriod(policy.errors.join("; "))
-    };
-  }
-  return { version: 1, rules: policy.rules };
-}
-function isSameConfigPath(userConfigPath, projectConfigPath) {
-  if (resolve5(userConfigPath) === resolve5(projectConfigPath)) {
-    return true;
-  }
-  if (!existsSync7(userConfigPath) || !existsSync7(projectConfigPath)) {
-    return false;
-  }
-  try {
-    return realpathSync7(userConfigPath) === realpathSync7(projectConfigPath);
-  } catch {
-    return false;
-  }
-}
-function getLegacyRulesConfigErrors(paths, options2) {
-  return Array.from(new Set([
-    ...getLegacyRulesConfigError(getLegacyUserRulesConfigPath(options2), paths.userConfigPath, "~/.cc-safety-net/config.json"),
-    ...getLegacyRulesConfigError(getLegacyProjectRulesConfigPath(options2), paths.projectConfigPath, ".safety-net.json")
-  ]));
-}
-function getLegacyRulesConfigError(legacyPath, configPath, migratedFrom) {
-  if (!existsSync7(legacyPath))
-    return [];
-  if (hasMigrationEvidence(configPath, migratedFrom))
-    return [];
-  if (!legacyRulesConfigNeedsMigration(legacyPath))
-    return [];
-  return [
-    `legacy rules config location is no longer used; ask the user to run ${RULE_MIGRATE_COMMAND}`
-  ];
-}
-function legacyRulesConfigNeedsMigration(legacyPath) {
-  try {
-    const parsed = JSON.parse(readFileSync6(legacyPath, "utf-8"));
-    if (!parsed || typeof parsed !== "object")
-      return true;
-    const config = parsed;
-    if (config.version !== 1)
-      return true;
-    if (config.rules === undefined)
-      return false;
-    if (!Array.isArray(config.rules))
-      return true;
-    return config.rules.length > 0;
-  } catch {
-    return true;
-  }
-}
-function hasMigrationEvidence(configPath, migratedFrom) {
-  const config = readRulesConfig(configPath).config;
-  if (!config)
-    return false;
-  return config.rules.some((source) => getRulebookMigratedFrom(dirname6(configPath), source) === migratedFrom);
-}
-function getRulebookMigratedFrom(configDir, source) {
-  if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(source))
-    return null;
-  const path = join6(configDir, source, RULEBOOK_FILE);
-  if (!existsSync7(path))
-    return null;
-  try {
-    const rulebook = JSON.parse(readFileSync6(path, "utf-8"));
-    return typeof rulebook.migrated_from === "string" ? rulebook.migrated_from : null;
-  } catch {
-    return null;
-  }
-}
-function getLocalSourceDriftError(spec, content) {
-  try {
-    assertValidRulebook(JSON.parse(content));
-  } catch (error) {
-    return `invalid local rulebook for ${spec}: ${error instanceof Error ? error.message : String(error)}; fix the rulebook, then run ${RULE_SYNC_COMMAND}`;
-  }
-  return `local source digest mismatch for ${spec}; run ${RULE_SYNC_COMMAND}`;
-}
-function applyOverrides(rules, overrides) {
-  return rules.flatMap((rule) => {
-    const override = overrides[rule.name];
-    if (override === "off") {
-      return [];
-    }
-    if (override && typeof override === "object") {
-      return [{ ...rule, reason: override.reason }];
-    }
-    return [rule];
-  });
-}
-function getUnknownOverrideErrors(overrides, knownRuleIds) {
-  return Object.keys(overrides).filter((key) => !knownRuleIds.has(key)).map((key) => `unknown override key "${key}"`);
-}
-function getDuplicateRulebookNames(entries) {
-  const seen = new Set;
-  const duplicates = new Set;
-  for (const entry of entries) {
-    if (seen.has(entry.name)) {
-      duplicates.add(entry.name);
-      continue;
-    }
-    seen.add(entry.name);
-  }
-  return [...duplicates];
-}
-function getConfiguredLockEntries(config, path) {
-  return (readLockfile(path).lock?.rulebooks ?? []).filter((entry) => config.rules.includes(entry.spec));
-}
-function emptyScopePolicy() {
-  return {
-    rules: [],
-    rulebooks: [],
-    entries: [],
-    knownRuleIds: new Set,
-    errors: [],
-    canValidateOverrides: true
-  };
-}
-function withTerminalPeriod(message) {
-  return /[.!?]$/.test(message) ? message : `${message}.`;
-}
-
-// src/core/rules/policy/sync.ts
-import {
-  existsSync as existsSync8,
-  lstatSync as lstatSync4,
-  mkdirSync as mkdirSync2,
-  readdirSync,
-  readFileSync as readFileSync7,
-  rmdirSync,
-  rmSync,
-  unlinkSync,
-  writeFileSync as writeFileSync2
-} from "node:fs";
-import { dirname as dirname7, isAbsolute as isAbsolute7, join as join7, relative as relative2, resolve as resolve6, sep as sep5 } from "node:path";
-async function syncRulesConfig(options2 = {}) {
-  const internalOptions = options2;
-  const scope = getScopePaths(options2);
-  const scopeConfig = readScopeRulesConfig(scope.configPath);
-  if (!scopeConfig.ok)
-    return scopeConfig.result;
-  const config = scopeConfig.config;
-  if (options2.check) {
-    return checkRulesConfig(config, scope.configDir, scope.lockPath, options2);
-  }
-  try {
-    const existingLockResult = readLockfile(scope.lockPath);
-    if (options2.only && existingLockResult.errors.length > 0) {
-      return { ok: false, errors: existingLockResult.errors, warnings: [], entries: [] };
-    }
-    const previousLock = existingLockResult.errors.length > 0 ? null : existingLockResult.lock;
-    const selectedSpecs = options2.only ? getSelectedUpdateSpecs(config, previousLock, options2.only) : { ok: true, specs: config.rules };
-    if (!selectedSpecs.ok) {
-      return selectedSpecs.result;
-    }
-    if (options2.only && !previousLock && selectedSpecs.specs.length < config.rules.length) {
-      return {
-        ok: false,
-        errors: [`No lockfile available for partial update; run ${RULE_SYNC_COMMAND}`],
-        warnings: [],
-        entries: []
-      };
-    }
-    const resolved = (await Promise.all(selectedSpecs.specs.map((spec) => resolveRulebookSourceForSync(spec, scope.configDir, options2, previousLock)))).map((item) => preserveDisplayRef(item, previousLock, internalOptions.discoveredDisplayRefs));
-    for (const item of resolved) {
-      writeCache(item.content, item.entry, scope.configDir, options2);
-    }
-    const entries = options2.only ? mergeSelectedLockEntries(config, previousLock, resolved) : resolved.map((item) => item.entry);
-    writeJsonAtomic(scope.lockPath, { version: 1, rulebooks: entries });
-    const ruleCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.rules.length]));
-    const warnings = pruneUnreferencedRulebookCaches(entries, scope.configDir, options2);
-    return {
-      ok: true,
-      errors: [],
-      warnings,
-      entries: entries.map((entry) => addRuleCount(entry, ruleCountsBySpec))
-    };
-  } catch (error) {
-    return failWithError(error);
-  }
-}
-async function testRulebookSources(sources, options2 = {}) {
-  const scope = getScopePaths(options2);
-  try {
-    const resolved = await Promise.all(sources.map((spec) => resolveRulebookSource(spec, scope.configDir, options2)));
-    const ruleCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.rules.length]));
-    const testCountsBySpec = new Map(resolved.map((item) => [item.entry.spec, item.rulebook.tests.length]));
-    const fixtureErrors = resolved.flatMap((item) => runRulebookFixtures(item.rulebook).failures.map((failure) => [
-      `${item.entry.spec}: ${failure.command}: ${failure.message}`,
-      ...failure.trace.map((line) => `  ${line}`)
-    ].join(`
-`)));
-    return {
-      ok: fixtureErrors.length === 0,
-      errors: fixtureErrors,
-      warnings: [],
-      entries: resolved.map((item) => ({
-        ...addRuleCount(item.entry, ruleCountsBySpec),
-        testCount: testCountsBySpec.get(item.entry.spec)
-      }))
-    };
-  } catch (error) {
-    return failWithError(error);
-  }
-}
-async function addRulebookSource(source, options2 = {}) {
-  const scope = getScopePaths(options2);
-  mkdirSync2(scope.configDir, { recursive: true });
-  const before = existsSync8(scope.configPath) ? readFileSync7(scope.configPath, "utf-8") : null;
-  const scopeConfig = readScopeRulesConfig(scope.configPath);
-  if (!scopeConfig.ok)
-    return scopeConfig.result;
-  const config = scopeConfig.config;
-  let discoveredSources;
-  try {
-    discoveredSources = isGitHubRepositorySource(source) ? await discoverGitHubRepositoryRulebooks(source) : [{ spec: source }];
-  } catch (error) {
-    return {
-      ok: false,
-      errors: [error instanceof Error ? error.message : String(error)],
-      warnings: [],
-      entries: []
-    };
-  }
-  const sources = discoveredSources.map((item) => item.spec);
-  const nextRules = [...config.rules, ...sources.filter((item) => !config.rules.includes(item))];
-  if (nextRules.length !== config.rules.length) {
-    writeJsonAtomic(scope.configPath, {
-      version: 1,
-      rules: nextRules,
-      overrides: config.overrides ?? {}
-    });
-  }
-  const result = await syncRulesConfig({
-    ...options2,
-    discoveredDisplayRefs: new Map(discoveredSources.filter((item) => !!item.display_ref).map((item) => [item.spec, item.display_ref]))
-  });
-  if (!result.ok) {
-    restoreConfig(scope.configPath, before);
-  }
-  return result;
-}
-async function removeRulebookSource(match, options2 = {}) {
-  const internalOptions = options2;
-  const scope = getScopePaths(options2);
-  const loaded = readRulesConfig(scope.configPath);
-  if (loaded.errors.length > 0) {
-    return { ok: false, errors: loaded.errors, warnings: [], entries: [] };
-  }
-  if (!loaded.config) {
-    return {
-      ok: false,
-      errors: [`No config found at ${scope.configPath}`],
-      warnings: [],
-      entries: []
-    };
-  }
-  const lockResult = readLockfile(scope.lockPath);
-  if (lockResult.errors.length > 0) {
-    return { ok: false, errors: lockResult.errors, warnings: [], entries: [] };
-  }
-  const matches = getRemoveMatches(loaded.config.rules, lockResult.lock, match);
-  if (!matches.ok)
-    return matches.result;
-  const sourceDirs = options2.deleteSource ? getLocalSourceDirsForDelete(scope.configDir, matches.specs, lockResult.lock) : { ok: true, dirs: [] };
-  if (!sourceDirs.ok)
-    return sourceDirs.result;
-  const before = readFileSync7(scope.configPath, "utf-8");
-  writeJsonAtomic(scope.configPath, {
-    version: 1,
-    rules: loaded.config.rules.filter((spec) => !matches.specs.includes(spec)),
-    overrides: loaded.config.overrides ?? {}
-  });
-  const result = await syncRulesConfig(options2);
-  if (!result.ok) {
-    restoreConfig(scope.configPath, before);
-    return result;
-  }
-  const deleteResult = deleteLocalSourceDirs(sourceDirs.dirs, internalOptions);
-  if (!deleteResult.ok) {
-    restoreConfig(scope.configPath, before);
-    const rollback = await syncRulesConfig(options2);
-    if (!rollback.ok) {
-      return {
-        ok: false,
-        errors: [...deleteResult.result.errors, ...rollback.errors],
-        warnings: rollback.warnings,
-        entries: rollback.entries
-      };
-    }
-    return deleteResult.result;
-  }
-  return result;
-}
-function repairLocalRulesPolicy(options2 = {}) {
-  repairLocalRulesScope({ ...options2, global: true });
-  repairLocalRulesScope({ ...options2, global: false });
-}
-async function checkRulesConfig(config, configDir, lockPath, options2) {
-  const result = loadScopePolicy(config, lockPath, configDir, options2, "project");
-  return {
-    ok: result.errors.length === 0,
-    errors: result.errors,
-    warnings: [],
-    entries: result.entries
-  };
-}
-function repairLocalRulesScope(options2) {
-  const scope = getScopePaths(options2);
-  const loaded = readRulesConfig(scope.configPath);
-  if (!loaded.config || loaded.errors.length > 0 || loaded.config.rules.length === 0) {
-    return;
-  }
-  if (!loaded.config.rules.every((spec) => /^[a-zA-Z0-9_-]{1,64}$/.test(spec))) {
-    return;
-  }
-  try {
-    const resolved = loaded.config.rules.map((spec) => resolveLocalRulebook(spec, scope.configDir, options2));
-    for (const item of resolved) {
-      writeCache(item.content, item.entry, scope.configDir, options2);
-    }
-    writeJsonAtomic(scope.lockPath, {
-      version: 1,
-      rulebooks: resolved.map((item) => item.entry)
-    });
-  } catch {}
-}
-function preserveDisplayRef(item, previousLock, discoveredDisplayRefs) {
-  const previousEntry = previousLock?.rulebooks.find((entry) => entry.spec === item.entry.spec && entry.kind === "github");
-  const displayRef = discoveredDisplayRefs?.get(item.entry.spec) ?? (previousEntry?.kind === "github" ? previousEntry.display_ref : undefined);
-  if (!displayRef || item.entry.kind !== "github")
-    return item;
-  return { ...item, entry: { ...item.entry, display_ref: displayRef } };
-}
-function mergeSelectedLockEntries(config, previousLock, resolved) {
-  const configuredSpecs = new Set(config.rules);
-  const previousSpecs = new Set(previousLock?.rulebooks.map((entry) => entry.spec) ?? []);
-  const resolvedBySpec = new Map(resolved.map((item) => [item.entry.spec, item.entry]));
-  return [
-    ...(previousLock?.rulebooks.filter((entry) => configuredSpecs.has(entry.spec)) ?? []).map((entry) => resolvedBySpec.get(entry.spec) ?? entry),
-    ...resolved.filter((item) => !previousSpecs.has(item.entry.spec)).map((item) => item.entry)
-  ];
-}
-function addRuleCount(entry, ruleCountsBySpec) {
-  return {
-    ...entry,
-    ruleCount: ruleCountsBySpec.get(entry.spec)
-  };
-}
-function writeCache(content, entry, configDir, options2) {
-  const path = getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir });
-  mkdirSync2(dirname7(path), { recursive: true });
-  writeFileSync2(path, content, "utf-8");
-}
-function pruneUnreferencedRulebookCaches(entries, configDir, options2) {
-  const internalOptions = options2;
-  const cacheRoot = join7(dirname7(configDir), "cache", "rulebooks");
-  if (!existsSync8(cacheRoot))
-    return [];
-  const keep = new Set(entries.map((entry) => dirname7(getRulebookCachePath(entry, { ...options2, cacheConfigDir: configDir }))));
-  return readdirSync(cacheRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).flatMap((entry) => {
-    const path = join7(cacheRoot, entry.name);
-    if (keep.has(path))
-      return [];
-    try {
-      pruneRulebookCacheDir(path, internalOptions);
-      return [];
-    } catch (error) {
-      return [
-        `Failed to prune rulebook cache entry ${path}: ${error instanceof Error ? error.message : String(error)}`
-      ];
-    }
-  });
-}
-function getLocalSourceDirsForDelete(configDir, specs, lock) {
-  const entriesBySpec = new Map(lock?.rulebooks.map((entry) => [entry.spec, entry]) ?? []);
-  const errors = specs.flatMap((spec) => {
-    const entry = entriesBySpec.get(spec);
-    if (!entry) {
-      return NAME_PATTERN.test(spec) ? [] : ["--delete-source can only delete local rulebook sources"];
-    }
-    return entry.kind === "local-directory" ? [] : ["--delete-source can only delete local rulebook sources"];
-  });
-  const dirs = specs.map((spec) => {
-    const entry = entriesBySpec.get(spec);
-    return join7(configDir, entry?.kind === "local-directory" ? entry.path : spec);
-  });
-  const dirErrors = errors.length > 0 ? [] : dirs.flatMap((dir) => getLocalSourceDirDeleteError(configDir, dir));
-  const allErrors = [...errors, ...dirErrors];
-  return allErrors.length > 0 ? { ok: false, result: { ok: false, errors: allErrors, warnings: [], entries: [] } } : { ok: true, dirs };
-}
-function getLocalSourceDirDeleteError(configDir, dir) {
-  const resolvedConfigDir = resolve6(configDir);
-  const resolvedDir = resolve6(dir);
-  const relativeDir = relative2(resolvedConfigDir, resolvedDir);
-  if (relativeDir === "" || relativeDir === ".." || relativeDir.startsWith(`..${sep5}`) || isAbsolute7(relativeDir)) {
-    return [`Refusing to delete local rulebook source outside ${configDir}: ${dir}`];
-  }
-  if (!existsSync8(resolvedDir))
-    return [`Local rulebook source directory not found: ${dir}`];
-  if (!lstatSync4(resolvedDir).isDirectory()) {
-    return [`Local rulebook source is not a directory: ${dir}`];
-  }
-  const entries = readdirSync(resolvedDir);
-  if (!entries.includes("rulebook.json")) {
-    return [`Local rulebook source directory is missing rulebook.json: ${dir}`];
-  }
-  if (!lstatSync4(join7(resolvedDir, "rulebook.json")).isFile()) {
-    return [`Local rulebook source rulebook.json is not a file: ${dir}`];
-  }
-  if (entries.length > 1) {
-    return [
-      `Local rulebook source directory contains extra files: ${dir}. delete manually if you really want to remove the directory.`
-    ];
-  }
-  return [];
-}
-function deleteLocalSourceDirs(dirs, options2) {
-  const errors = dirs.flatMap((dir) => {
-    try {
-      deleteLocalSourceDir(dir, options2);
-      return [];
-    } catch (error) {
-      return [
-        `Failed to delete local rulebook source ${dir}: ${error instanceof Error ? error.message : String(error)}`
-      ];
-    }
-  });
-  return errors.length > 0 ? { ok: false, result: { ok: false, errors, warnings: [], entries: [] } } : { ok: true };
-}
-function pruneRulebookCacheDir(path, options2) {
-  if (options2._testPruneRulebookCacheDir) {
-    options2._testPruneRulebookCacheDir(path);
-    return;
-  }
-  rmSync(path, { recursive: true, force: true });
-}
-function deleteLocalSourceDir(dir, options2) {
-  if (options2._testDeleteLocalSourceDir) {
-    options2._testDeleteLocalSourceDir(dir);
-    return;
-  }
-  unlinkSync(join7(dir, "rulebook.json"));
-  rmdirSync(dir);
-}
-function restoreConfig(path, content) {
-  if (content === null) {
-    rmSync(path, { force: true });
-    return;
-  }
-  writeFileSync2(path, content, "utf-8");
-}
-function failWithError(error) {
-  return {
-    ok: false,
-    errors: [error instanceof Error ? error.message : String(error)],
-    warnings: [],
-    entries: []
-  };
-}
-
-// src/core/config.ts
-function loadConfig(cwd, options2) {
-  const safeCwd = typeof cwd === "string" ? cwd : process.cwd();
-  if (options2?.repairLocalRulebooks) {
-    repairLocalRulesPolicy({ cwd: safeCwd, userConfigDir: options2.userConfigDir });
-  }
-  return rulesPolicyToConfig(loadRulesPolicy({ cwd: safeCwd, userConfigDir: options2?.userConfigDir }));
-}
-function validateConfig(config) {
-  const errors = [];
-  const ruleNames = new Set;
-  if (!config || typeof config !== "object") {
-    errors.push("Config must be an object");
-    return { errors, ruleNames };
-  }
-  const cfg = config;
-  if (cfg.version !== 1) {
-    errors.push("version must be 1");
-  }
-  if (cfg.rules !== undefined) {
-    if (!Array.isArray(cfg.rules)) {
-      errors.push("rules must be an array");
-    } else {
-      for (let i = 0;i < cfg.rules.length; i++) {
-        errors.push(...validateCustomRule(cfg.rules[i], i, ruleNames));
-      }
-    }
-  }
-  return { errors, ruleNames };
-}
-function validateConfigFile(path) {
-  return validateParsedConfigFile(path, validateConfig);
-}
-function readConfigFileInput(path) {
-  const errors = [];
-  const ruleNames = new Set;
-  if (!existsSync9(path)) {
-    errors.push(`File not found: ${path}`);
-    return { ok: false, result: { errors, ruleNames } };
-  }
-  try {
-    const content = readFileSync8(path, "utf-8");
-    if (!content.trim()) {
-      errors.push("Config file is empty");
-      return { ok: false, result: { errors, ruleNames } };
-    }
-    return { ok: true, parsed: JSON.parse(content) };
-  } catch (e) {
-    errors.push(`Invalid JSON: ${e instanceof Error ? e.message : String(e)}`);
-    return { ok: false, result: { errors, ruleNames } };
-  }
-}
-function getLegacyProjectConfigPath(cwd) {
-  return resolve7(cwd ?? process.cwd(), ".safety-net.json");
-}
-function validateRulesConfigFile(path) {
-  const loaded = readConfigFileInput(path);
-  if (!loaded.ok)
-    return loaded.result;
-  const result = validateRulesConfig(loaded.parsed);
-  return { errors: result.errors, ruleNames: result.sources };
-}
-function validateParsedConfigFile(path, validate) {
-  const loaded = readConfigFileInput(path);
-  if (!loaded.ok)
-    return loaded.result;
-  return validate(loaded.parsed);
-}
-
-// src/core/analyze/index.ts
-function analyzeCommand(command2, options2 = {}) {
-  const config = options2.config ?? loadConfig(options2.cwd);
-  return analyzeCommandInternal(command2, 0, { ...options2, config });
-}
-
-// src/core/audit.ts
-import { appendFileSync, existsSync as existsSync10, mkdirSync as mkdirSync3 } from "node:fs";
-import { homedir as homedir3 } from "node:os";
-import { join as join8 } from "node:path";
-function sanitizeSessionIdForFilename(sessionId) {
-  const raw = sessionId.trim();
-  if (!raw) {
-    return null;
-  }
-  let safe = raw.replace(/[^A-Za-z0-9_.-]+/g, "_");
-  safe = safe.replace(/^[._-]+|[._-]+$/g, "").slice(0, 128);
-  if (!safe || safe === "." || safe === "..") {
-    return null;
-  }
-  return safe;
-}
-function writeAuditLog(sessionId, command2, segment, reason, cwd, options2 = {}) {
-  const safeSessionId = sanitizeSessionIdForFilename(sessionId);
-  if (!safeSessionId) {
-    return;
-  }
-  const home = options2.homeDir ?? process.env.HOME ?? homedir3();
-  const logsDir = join8(home, ".cc-safety-net", "logs");
-  try {
-    if (!existsSync10(logsDir)) {
-      mkdirSync3(logsDir, { recursive: true });
-    }
-    const logFile = join8(logsDir, `${safeSessionId}.jsonl`);
-    const entry = {
-      ts: new Date().toISOString(),
-      decision: options2.decision ?? "deny",
-      command: redactSecrets(command2).slice(0, 300),
-      segment: redactSecrets(segment).slice(0, 300),
-      reason,
-      cwd
-    };
-    appendFileSync(logFile, `${JSON.stringify(entry)}
-`, "utf-8");
-  } catch {}
-}
-function redactSecrets(text) {
-  let result = text;
-  result = result.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted>");
-  result = result.replace(/\b((?:DATABASE|POSTGRES|POSTGRESQL|MYSQL|MARIADB|REDIS|MONGO(?:DB)?|DB)_URL)=([^\s]+)/gi, "$1=<redacted>");
-  result = result.replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIALS)[A-Z0-9_]*)=([^\s]+)/gi, "$1=<redacted>");
-  result = result.replace(/(['"]?\s*(?:authorization|cookie|x-api-key|api-key)\s*:\s*)([^'"\r\n]+)(['"]?)/gi, "$1<redacted>$3");
-  result = result.replace(/(['"]?\s*authorization\s*:\s*)([^'"]+)(['"]?)/gi, "$1<redacted>$3");
-  result = result.replace(/(authorization\s*:\s*)([^\s"']+)(\s+[^\s"']+)?/gi, "$1<redacted>");
-  result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/:@]+):([^\s@/]+)@/gi, "$1<redacted>:<redacted>@");
-  result = result.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^\s/@:]+)@/gi, "$1<redacted>@");
-  result = result.replace(/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, "<redacted>");
-  result = result.replace(/\bxoxb-[A-Za-z0-9-]{20,}\b/g, "<redacted>");
-  result = result.replace(/\bnpm_[A-Za-z0-9_]{20,}\b/g, "<redacted>");
-  result = result.replace(/\b[rs]k_(?:live|test)_[A-Za-z0-9_]{20,}\b/g, "<redacted>");
-  result = result.replace(/\bpypi-[A-Za-z0-9_-]{20,}\b/g, "<redacted>");
-  result = result.replace(/\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}\b/g, "<redacted>");
-  result = result.replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "<redacted>");
-  return result;
-}
-
-// src/core/format.ts
-function formatBlockedMessage(input) {
-  const { reason, command: command2, segment } = input;
-  const maxLen = input.maxLen ?? 200;
-  const redact = input.redact ?? ((t) => t);
-  let message = `BLOCKED by CC Safety Net
-
-Reason: ${reason}`;
-  if (command2) {
-    const safeCommand = redact(command2);
-    message += `
-
-Command: ${excerpt(safeCommand, maxLen)}`;
-  }
-  if (segment && segment !== command2) {
-    const safeSegment = redact(segment);
-    message += `
-
-Segment: ${excerpt(safeSegment, maxLen)}`;
-  }
-  if (input.manualPermissionAdvice !== false) {
-    message += `
-
-If this operation is truly needed, ask the user for explicit permission and have them run the command manually.`;
-  }
-  return message;
-}
-function excerpt(text, maxLen) {
-  return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
-}
-
-// src/bin/hook/common.ts
-var REASON_SAFETY_NET_FAILED_CLOSED = "CC Safety Net failed closed because command analysis failed unexpectedly.";
-function outputHookDeny(createDenyOutput, reason, command2, segment, manualPermissionAdvice) {
-  console.log(JSON.stringify(createDenyOutput(formatBlockedMessage({
-    reason,
-    command: command2,
-    segment,
-    redact: redactSecrets,
-    manualPermissionAdvice
-  }))));
-}
-async function readHookInput(outputDeny) {
-  const chunks = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk);
-  }
-  const inputText = Buffer.concat(chunks).toString("utf-8").trim();
-  if (!inputText) {
-    outputDeny("Missing hook input JSON.");
-    return null;
-  }
-  return parseHookJson(inputText, outputDeny, "Failed to parse hook input JSON.");
-}
-function parseHookJson(inputText, outputDeny, strictReason) {
-  try {
-    return JSON.parse(inputText);
-  } catch {
-    outputDeny(strictReason);
-    return null;
-  }
-}
-function analyzeHookCommand(command2, cwd) {
-  const paranoidAll = envTruthy(ENV_FLAGS.paranoid);
-  return analyzeCommand(command2, {
-    cwd,
-    config: loadConfig(cwd, { repairLocalRulebooks: true }),
-    strict: envTruthy(ENV_FLAGS.strict),
-    paranoidRm: paranoidAll || envTruthy(ENV_FLAGS.paranoidRm),
-    paranoidInterpreters: paranoidAll || envTruthy(ENV_FLAGS.paranoidInterpreters),
-    worktreeMode: envTruthy(ENV_FLAGS.worktree)
-  });
-}
-function handleBlockedHookCommand(command2, cwd, sessionId, outputDeny) {
-  let result;
-  try {
-    result = analyzeHookCommand(command2, cwd);
-  } catch (error) {
-    if (envTruthy(ENV_FLAGS.debug)) {
-      console.error(`CC Safety Net debug: hook analysis failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
-    }
-    outputDeny(REASON_SAFETY_NET_FAILED_CLOSED, command2, command2);
-    return;
-  }
-  if (!result) {
-    if (sessionId && envTruthy(ENV_FLAGS.debug)) {
-      writeAuditLog(sessionId, command2, command2, "allowed", cwd, { decision: "allow" });
-    }
-    return;
-  }
-  if (sessionId) {
-    writeAuditLog(sessionId, command2, result.segment, result.reason, cwd);
-  }
-  outputDeny(result.reason, command2, result.segment);
-}
-async function runHookAdapter(adapter) {
-  const input = await readHookInput(adapter.outputDeny);
-  if (!input) {
-    return;
-  }
-  if (!adapter.isSupported(input)) {
-    return;
-  }
-  const command2 = adapter.getCommand(input, adapter.outputDeny);
-  if (!command2) {
-    return;
-  }
-  handleBlockedHookCommand(command2, adapter.getCwd(input) ?? process.cwd(), adapter.getSessionId(input), adapter.outputDeny);
-}
-async function runConfiguredHookAdapter(adapter) {
-  const outputDeny = (reason, command2, segment, manualPermissionAdvice) => outputHookDeny(adapter.createDenyOutput, reason, command2, segment, manualPermissionAdvice ?? adapter.getManualPermissionAdvice?.(reason));
-  await runHookAdapter({
-    outputDeny,
-    isSupported: adapter.isSupported,
-    getCommand: adapter.getCommand,
-    getCwd: adapter.getCwd,
-    getSessionId: adapter.getSessionId
-  });
-}
-
-// src/bin/hook/constants.ts
-var CLAUDE_CODE_HOOK_EVENT = "PreToolUse";
-var CLAUDE_CODE_TOOL_NAME = "Bash";
-var GEMINI_CLI_HOOK_EVENT = "BeforeTool";
-var GEMINI_CLI_TOOL_NAME = "run_shell_command";
-var KIMI_CODE_HOOK_EVENT = "PreToolUse";
-var KIMI_CODE_TOOL_NAME = "Bash";
-
-// src/bin/hook/claude-code.ts
-async function runClaudeCodeHook() {
-  await runConfiguredHookAdapter({
-    createDenyOutput: (message) => ({
-      hookSpecificOutput: {
-        hookEventName: CLAUDE_CODE_HOOK_EVENT,
-        permissionDecision: "deny",
-        permissionDecisionReason: message
-      }
-    }),
-    getManualPermissionAdvice: (reason) => reason.includes("rule sync") ? false : undefined,
-    isSupported: (input) => input.tool_name === CLAUDE_CODE_TOOL_NAME,
-    getCommand: (input) => input.tool_input?.command,
-    getCwd: (input) => input.cwd,
-    getSessionId: (input) => input.session_id
-  });
-}
-
-// src/bin/hook/copilot-cli.ts
-async function runCopilotCliHook() {
-  await runConfiguredHookAdapter({
-    createDenyOutput: (message) => ({
-      permissionDecision: "deny",
-      permissionDecisionReason: message
-    }),
-    isSupported: (input) => input.toolName === "bash",
-    getCommand: (input, outputDeny) => parseHookJson(input.toolArgs, outputDeny, "Failed to parse toolArgs JSON.")?.command,
-    getCwd: (input) => input.cwd,
-    getSessionId: (input) => `copilot-${input.timestamp ?? Date.now()}`
-  });
-}
-
-// src/bin/hook/gemini-cli.ts
-async function runGeminiCLIHook() {
-  await runConfiguredHookAdapter({
-    createDenyOutput: (message) => ({
-      decision: "deny",
-      reason: message,
-      systemMessage: message
-    }),
-    isSupported: (input) => input.hook_event_name === GEMINI_CLI_HOOK_EVENT && input.tool_name === GEMINI_CLI_TOOL_NAME,
-    getCommand: (input) => input.tool_input?.command,
-    getCwd: (input) => input.cwd,
-    getSessionId: (input) => input.session_id
-  });
-}
-
-// src/bin/hook/kimi-code.ts
-async function runKimiCodeHook() {
-  await runConfiguredHookAdapter({
-    createDenyOutput: (message) => ({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: message
-      }
-    }),
-    isSupported: (input) => input.hook_event_name === KIMI_CODE_HOOK_EVENT && input.tool_name === KIMI_CODE_TOOL_NAME,
-    getCommand: (input) => input.tool_input?.command,
-    getCwd: (input) => input.cwd,
-    getSessionId: (input) => input.session_id
-  });
-}
-
-// src/bin/integration-metadata.ts
-var integrationMetadata = [
   {
     id: "claude-code",
     displayName: "Claude Code",
-    doctorVisible: true,
-    runtimeHook: {
-      flags: ["-cc", "--claude-code"],
-      description: "Run as Claude Code PreToolUse hook",
-      legacyTopLevel: true,
-      order: 1
+    doctorOrder: 1,
+    runtime: {
+      order: 2,
+      displayName: "Coding CLI",
+      flags: ["-cc", "--coding-cli"],
+      legacyFlags: ["--claude-code"],
+      description: "Run as Coding CLI PreToolUse hook",
+      legacyTopLevelFlags: ["-cc", "--claude-code"]
+    },
+    install: {
+      order: 3,
+      flag: "--claude-code",
+      installLabel: "Claude Code",
+      helpTarget: "Claude Code plugin",
+      probeCommand: ["claude", "--version"]
     }
   },
   {
     id: "codex",
     displayName: "Codex",
-    doctorVisible: true
+    doctorOrder: 4,
+    install: {
+      order: 4,
+      flag: "--codex",
+      installLabel: "Codex",
+      helpTarget: "Codex plugin",
+      probeCommand: ["codex", "--version"]
+    }
   },
   {
     id: "copilot-cli",
-    displayName: "Copilot CLI",
-    doctorVisible: true,
-    runtimeHook: {
+    displayName: "GitHub Copilot CLI",
+    doctorOrder: 7,
+    runtime: {
+      order: 5,
       flags: ["-cp", "--copilot-cli"],
-      description: "Run as Copilot CLI PreToolUse hook",
-      legacyTopLevel: true,
-      order: 2
+      description: "Run as GitHub Copilot CLI PreToolUse hook",
+      legacyTopLevelFlags: ["-cp", "--copilot-cli"]
+    },
+    install: {
+      order: 7,
+      flag: "--copilot-cli",
+      installLabel: "GitHub Copilot CLI",
+      helpTarget: "GitHub Copilot CLI plugin",
+      probeCommand: ["copilot", "--binary-version"]
     }
   },
   {
     id: "gemini-cli",
     displayName: "Gemini CLI",
-    doctorVisible: true,
-    runtimeHook: {
+    doctorOrder: 6,
+    runtime: {
+      order: 4,
       flags: ["-gc", "--gemini-cli"],
       description: "Run as Gemini CLI BeforeTool hook",
-      legacyTopLevel: true,
-      order: 3
+      legacyTopLevelFlags: ["-gc", "--gemini-cli"]
+    },
+    install: {
+      order: 6,
+      flag: "--gemini-cli",
+      installLabel: "Gemini CLI",
+      helpTarget: "Gemini CLI extension",
+      probeCommand: ["gemini", "--version"]
+    }
+  },
+  {
+    id: "hermes-agent",
+    displayName: "Hermes Agent",
+    doctorOrder: 8,
+    runtime: {
+      order: 6,
+      flags: ["-ha", "--hermes-agent"],
+      description: "Run as Hermes Agent pre_tool_call hook",
+      legacyTopLevelFlags: []
+    },
+    install: {
+      order: 8,
+      flag: "--hermes-agent",
+      installLabel: "Hermes Agent",
+      helpTarget: "Hermes Agent plugin",
+      probeCommand: ["hermes", "--version"]
     }
   },
   {
     id: "kimi-code",
     displayName: "Kimi Code",
-    doctorVisible: true,
-    runtimeHook: {
+    doctorOrder: 9,
+    runtime: {
+      order: 7,
       flags: ["-kc", "--kimi-code"],
       description: "Run as Kimi Code PreToolUse hook",
-      legacyTopLevel: false,
-      order: 4
+      legacyTopLevelFlags: []
+    },
+    install: {
+      order: 9,
+      flag: "--kimi-code",
+      installLabel: "Kimi Code",
+      helpTarget: "Kimi Code hook config",
+      probeCommand: ["kimi", "--version"]
+    }
+  },
+  {
+    id: "openclaw",
+    displayName: "OpenClaw",
+    doctorOrder: 10,
+    install: {
+      order: 10,
+      flag: "--openclaw",
+      installLabel: "OpenClaw",
+      helpTarget: "OpenClaw plugin",
+      probeCommand: ["openclaw", "--version"]
     }
   },
   {
     id: "opencode",
     displayName: "OpenCode",
-    doctorVisible: true
+    doctorOrder: 11,
+    install: {
+      order: 11,
+      flag: "--opencode",
+      installLabel: "OpenCode",
+      helpTarget: "OpenCode plugin",
+      probeCommand: ["opencode", "--version"]
+    }
   },
   {
     id: "pi",
     displayName: "Pi",
-    doctorVisible: true
+    doctorOrder: 12,
+    install: {
+      order: 12,
+      flag: "--pi",
+      installLabel: "Pi",
+      helpTarget: "Pi package",
+      probeCommand: ["pi", "--version"]
+    }
+  },
+  {
+    id: "cursor",
+    displayName: "Cursor",
+    doctorOrder: 5,
+    runtime: {
+      order: 3,
+      flags: ["-cu", "--cursor"],
+      description: "Run as Cursor preToolUse hook",
+      legacyTopLevelFlags: []
+    },
+    install: {
+      order: 5,
+      flag: "--cursor",
+      installLabel: "Cursor",
+      helpTarget: "Cursor hook config",
+      probeCommand: ["cursor", "--version"]
+    }
+  },
+  {
+    id: "amp",
+    displayName: "Amp Code",
+    doctorOrder: 2,
+    install: {
+      order: 1,
+      flag: "--amp",
+      installLabel: "Amp Code",
+      helpTarget: "Amp Code plugin",
+      probeCommand: ["amp", "--version"]
+    }
   }
 ];
-var doctorIntegrationOrder = integrationMetadata.filter((integration) => integration.doctorVisible).map((integration) => integration.id);
-var runtimeHookIntegrationMetadata = integrationMetadata.filter((integration) => ("runtimeHook" in integration)).toSorted((a, b) => a.runtimeHook.order - b.runtimeHook.order).map((integration) => ({
+var doctorIntegrationOrder = catalog.slice().sort((a, b) => a.doctorOrder - b.doctorOrder).map((integration) => integration.id);
+var runtimeHookIntegrationMetadata = catalog.filter((integration) => ("runtime" in integration)).slice().sort((a, b) => a.runtime.order - b.runtime.order).map((integration) => ({
   id: integration.id,
-  displayName: integration.displayName,
-  flags: integration.runtimeHook.flags,
-  description: integration.runtimeHook.description,
-  legacyTopLevel: integration.runtimeHook.legacyTopLevel
+  displayName: "displayName" in integration.runtime ? integration.runtime.displayName : integration.displayName,
+  flags: integration.runtime.flags,
+  legacyFlags: "legacyFlags" in integration.runtime ? integration.runtime.legacyFlags : [],
+  description: integration.runtime.description,
+  legacyTopLevelFlags: integration.runtime.legacyTopLevelFlags
 }));
-function getIntegrationDisplayName(id) {
-  return integrationMetadata.find((integration) => integration.id === id)?.displayName ?? id;
-}
+var installIntegrationMetadata = catalog.slice().sort((a, b) => a.install.order - b.install.order).map((integration) => ({ id: integration.id, ...integration.install })).map(({ order: _, ...integration }) => integration);
+var integrationDisplayNames = Object.fromEntries(catalog.map((integration) => [integration.id, integration.displayName]));
 
-// src/bin/hook/integrations.ts
-var hookRunners = {
-  "claude-code": runClaudeCodeHook,
-  "copilot-cli": runCopilotCliHook,
-  "gemini-cli": runGeminiCLIHook,
-  "kimi-code": runKimiCodeHook
-};
-var hookIntegrations = runtimeHookIntegrationMetadata.map((integration) => ({
-  ...integration,
-  run: hookRunners[integration.id]
-}));
-function findHookIntegrationByFlag(args) {
-  return hookIntegrations.find((integration) => integration.flags.some((flag) => args.includes(flag)));
-}
-function findLegacyTopLevelHookIntegration(flag) {
-  return hookIntegrations.find((integration) => integration.legacyTopLevel && integration.flags.some((integrationFlag) => integrationFlag === flag));
-}
-
-// src/bin/commands/hook.ts
-var platformOptions = hookIntegrations.map((integration) => ({
-  flags: integration.flags.join(", "),
-  description: integration.description
-}));
-var platformExamples = hookIntegrations.flatMap((integration) => integration.flags.map((flag) => `cc-safety-net hook ${flag}`));
-var hookCommand = {
-  name: "hook",
-  description: "Run as an agent CLI hook (reads JSON from stdin)",
-  usage: "hook <coding cli>",
-  subcommands: [
-    { usage: "install --kimi-code", description: "Install Kimi Code hook config" },
-    { usage: "uninstall --kimi-code", description: "Uninstall Kimi Code hook config" }
+// src/gui/frontend/main.ts
+var token = JSON.parse(document.getElementById("ccsn-data").textContent).token;
+var fallbackRepoUrl = "https://github.com/kenryu42/cc-safety-net";
+var safetyLevels = {
+  standard: [
+    "Standard",
+    "Blocks recognizable destructive commands and sensitive content access while allowing metadata-only sensitive-path checks. Recommended for normal coding."
   ],
-  options: [
-    ...platformOptions,
-    {
-      flags: "-h, --help",
-      description: "Show this help"
-    }
+  strict: [
+    "Strict",
+    "Standard, plus blocks dynamic or unparseable commands and metadata-only sensitive-path discovery. Occasional false positives on advanced shell."
   ],
-  examples: [...platformExamples, "cc-safety-net hook install --kimi-code"]
-};
-
-// src/bin/commands/rule.ts
-var ruleCommand = {
-  name: "rule",
-  description: "Manage CC Safety Net rulebook sources",
-  usage: "rule <subcommand>",
-  subcommands: [
-    { usage: "init", description: "Create starter rule config and rulebook files" },
-    { usage: "add <source>", description: "Add a rulebook source and sync" },
-    { usage: "remove <source>", description: "Remove a rulebook source and sync" },
-    { usage: "update [source]", description: "Refresh rulebook lock/cache state" },
-    { usage: "sync", description: "Sync configured rulebooks" },
-    { usage: "list", description: "List active rulebooks" },
-    { usage: "test [source]", description: "Run rulebook fixtures" },
-    { usage: "migrate [--cleanup]", description: "Migrate legacy inline rules" },
-    { usage: "doc", description: "Print the rulebook authoring guide" },
-    { usage: "verify", description: "Validate rule config files" }
-  ],
-  options: [
-    { flags: "-g, --global", description: "Use user-scope rule config" },
-    { flags: "--check", description: "Check without changing lock/cache state" },
-    { flags: "--cleanup", description: "Delete legacy files after rule migrate verifies them" },
-    { flags: "--delete-source", description: "Delete clean local source directory on remove" },
-    { flags: "-h, --help", description: "Show this help" }
-  ],
-  examples: [
-    "cc-safety-net rule init",
-    "cc-safety-net rule add project-rules",
-    "cc-safety-net rule sync",
-    "cc-safety-net rule migrate --cleanup",
-    "cc-safety-net rule verify"
+  paranoid: [
+    "Paranoid",
+    "Strict, plus blocks rm -rf inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos."
   ]
 };
-
-// src/bin/commands/statusline.ts
-var statuslineCommand = {
-  name: "statusline",
-  description: "Print status line with mode indicators for shell integration",
-  usage: "statusline <coding cli>",
-  options: [
-    {
-      flags: "-cc, --claude-code",
-      description: "Print status line for Claude Code"
-    },
-    {
-      flags: "-h, --help",
-      description: "Show this help"
-    }
-  ],
-  examples: ["cc-safety-net statusline -cc", "cc-safety-net statusline --claude-code"]
+var safetyOverrides = {
+  fail_closed: ["Fail closed", "Block commands the parser cannot fully understand."],
+  paranoid_rm: ["Paranoid rm -rf checks", "Block non-temp rm -rf inside the project."],
+  paranoid_interpreters: ["Paranoid interpreters", "Block interpreter one-liners."]
 };
-
-// src/bin/commands/index.ts
-var commands = [
-  doctorCommand,
-  explainCommand,
-  ruleCommand,
-  hookCommand,
-  statuslineCommand
-];
-function getCommandAliases(command2) {
-  return command2.aliases ?? [];
-}
-function isVisibleCommand(command2) {
-  return !command2.hidden;
-}
-function findCommand(nameOrAlias) {
-  const normalized = nameOrAlias.toLowerCase();
-  return commands.find((cmd) => cmd.name.toLowerCase() === normalized || getCommandAliases(cmd).some((alias) => alias.toLowerCase() === normalized));
-}
-function getVisibleCommands() {
-  return commands.filter(isVisibleCommand);
-}
-
-// src/bin/doctor/activity.ts
-import { existsSync as existsSync11, readdirSync as readdirSync2, readFileSync as readFileSync9 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { join as join9 } from "node:path";
-function formatRelativeTime(date) {
-  const diff = Date.now() - date.getTime();
-  const minutes = Math.floor(diff / (1000 * 60));
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const days = Math.floor(hours / 24);
-  if (days > 0)
-    return `${days}d ago`;
-  if (hours > 0)
-    return `${hours}h ago`;
-  if (minutes > 0)
-    return `${minutes}m ago`;
-  return "just now";
-}
-function getActivitySummary(days = 7, logsDir = join9(homedir4(), ".cc-safety-net", "logs")) {
-  if (!existsSync11(logsDir)) {
-    return { totalBlocked: 0, sessionCount: 0, recentEntries: [] };
-  }
-  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  const recentEntries = [];
-  let totalBlocked = 0;
-  let sessionCount = 0;
-  let oldestEntry;
-  let oldestEntryTs;
-  let newestEntry;
-  let newestEntryTs;
-  let files;
-  try {
-    files = readdirSync2(logsDir).filter((f) => f.endsWith(".jsonl"));
-  } catch {
-    return { totalBlocked: 0, sessionCount: 0, recentEntries: [] };
-  }
-  for (const file of files) {
-    try {
-      const content = readFileSync9(join9(logsDir, file), "utf-8");
-      const lines = content.trim().split(`
-`).filter(Boolean);
-      let hasRecentEntry = false;
-      for (const line of lines) {
-        try {
-          const entry = JSON.parse(line);
-          if (entry.decision === "allow") {
-            continue;
-          }
-          const ts = new Date(entry.ts).getTime();
-          if (ts >= cutoff) {
-            totalBlocked++;
-            hasRecentEntry = true;
-            if (oldestEntryTs === undefined || ts <= oldestEntryTs) {
-              oldestEntry = entry.ts;
-              oldestEntryTs = ts;
-            }
-            if (newestEntryTs === undefined || ts > newestEntryTs) {
-              newestEntry = entry.ts;
-              newestEntryTs = ts;
-            }
-            insertRecentEntry(recentEntries, entry, ts);
-          }
-        } catch {}
-      }
-      if (hasRecentEntry) {
-        sessionCount++;
-      }
-    } catch {}
-  }
-  const displayEntries = recentEntries.map((e) => ({
-    timestamp: e.ts,
-    command: e.command,
-    reason: e.reason,
-    relativeTime: formatRelativeTime(new Date(e.ts))
-  }));
-  return {
-    totalBlocked,
-    sessionCount,
-    recentEntries: displayEntries,
-    oldestEntry,
-    newestEntry
-  };
-}
-function insertRecentEntry(entries, entry, ts) {
-  const index = entries.findIndex((existing) => ts > new Date(existing.ts).getTime());
-  if (index === -1) {
-    if (entries.length < 3) {
-      entries.push(entry);
-    }
-    return;
-  }
-  entries.splice(index, 0, entry);
-  if (entries.length > 3) {
-    entries.pop();
-  }
-}
-
-// src/bin/doctor/config.ts
-import { existsSync as existsSync12 } from "node:fs";
-import { dirname as dirname8 } from "node:path";
-function getConfigSourceInfo(path, lockPath, userConfigDir) {
-  if (!existsSync12(path)) {
-    return { path, exists: false, valid: false, ruleCount: 0 };
-  }
-  const validation = validateRulesConfigFile(path);
-  validation.errors.push(...getRulesConfigRuntimeErrorsForConfig(path, lockPath, { userConfigDir }));
-  return {
-    path,
-    exists: true,
-    valid: validation.errors.length === 0,
-    ruleCount: validation.ruleNames.size,
-    ...validation.errors.length > 0 ? { errors: validation.errors } : {}
-  };
-}
-function toEffectiveRule(rule, source) {
-  return {
-    source,
-    name: rule.name,
-    command: rule.command,
-    subcommand: rule.subcommand,
-    blockArgs: rule.block_args,
-    reason: rule.reason
-  };
-}
-function getConfigInfo(cwd, options2) {
-  const userPath = options2?.userConfigPath ?? getUserRulesConfigPath();
-  const projectPath = options2?.projectConfigPath ?? getProjectRulesConfigPath(cwd);
-  const userConfigDir = dirname8(userPath);
-  const policy = loadRulesPolicy({
-    cwd,
-    userConfigPath: userPath,
-    projectConfigPath: projectPath,
-    userConfigDir
-  });
-  const rulebookSources = new Map(policy.rulebooks.flatMap((rulebook) => rulebook.rules.map((rule) => [rule, rulebook.source])));
-  return {
-    userConfig: getConfigSourceInfo(userPath, getUserRulesLockPath({ userConfigPath: userPath }), userConfigDir),
-    projectConfig: getConfigSourceInfo(projectPath, getRulesLockPathForConfigPath(projectPath), userConfigDir),
-    effectiveRules: policy.rules.map((rule) => toEffectiveRule(rule, rulebookSources.get(rule.name) ?? "project")),
-    shadowedRules: []
-  };
-}
-
-// src/bin/doctor/environment.ts
-var ENV_VARS = [
-  {
-    flag: ENV_FLAGS.strict,
-    description: "Fail-closed on unparseable commands",
-    defaultBehavior: "permissive"
-  },
-  {
-    flag: ENV_FLAGS.paranoid,
-    description: "Enable all paranoid checks",
-    defaultBehavior: "off"
-  },
-  {
-    flag: ENV_FLAGS.paranoidRm,
-    description: "Block rm -rf even within cwd",
-    defaultBehavior: "off"
-  },
-  {
-    flag: ENV_FLAGS.paranoidInterpreters,
-    description: "Block interpreter one-liners",
-    defaultBehavior: "off"
-  },
-  {
-    flag: ENV_FLAGS.worktree,
-    description: "Allow local git discards in linked worktrees",
-    defaultBehavior: "off"
-  },
-  {
-    flag: ENV_FLAGS.debug,
-    description: "Log allowed hook commands for debugging",
-    defaultBehavior: "off"
-  }
-];
-function getEnvironmentInfo() {
-  return [
-    ...ENV_VARS.map((v) => ({
-      name: v.flag.name,
-      value: getEnvFlagValue(v.flag),
-      isSet: envFlagIsSet(v.flag),
-      legacyName: v.flag.legacyName,
-      legacyValue: v.flag.legacyName ? process.env[v.flag.legacyName] : undefined,
-      legacyIsSet: v.flag.legacyName ? process.env[v.flag.legacyName] !== undefined : undefined,
-      description: v.description,
-      defaultBehavior: v.defaultBehavior
-    })),
-    {
-      name: "CC_SAFETY_NET_HOME",
-      value: process.env.CC_SAFETY_NET_HOME,
-      isSet: process.env.CC_SAFETY_NET_HOME !== undefined,
-      description: "Override user-scope config/cache directory",
-      defaultBehavior: "~/.cc-safety-net"
-    }
-  ];
-}
-
-// src/bin/utils/colors.ts
-function shouldUseColor() {
-  return Boolean(process.stdout.isTTY && !process.env.NO_COLOR);
-}
-var green = (s) => shouldUseColor() ? `\x1B[32m${s}\x1B[0m` : s;
-var yellow = (s) => shouldUseColor() ? `\x1B[33m${s}\x1B[0m` : s;
-var blue = (s) => shouldUseColor() ? `\x1B[34m${s}\x1B[0m` : s;
-var magenta = (s) => shouldUseColor() ? `\x1B[35m${s}\x1B[0m` : s;
-var cyan = (s) => shouldUseColor() ? `\x1B[36m${s}\x1B[0m` : s;
-var red = (s) => shouldUseColor() ? `\x1B[31m${s}\x1B[0m` : s;
-var dim = (s) => shouldUseColor() ? `\x1B[2m${s}\x1B[0m` : s;
-var bold = (s) => shouldUseColor() ? `\x1B[1m${s}\x1B[0m` : s;
-var colors = {
-  green,
-  yellow,
-  blue,
-  magenta,
-  cyan,
-  red,
-  dim,
-  bold
+var rawCopyIcons = {
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2"></path></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>'
 };
-var ANSI_RESET = "\x1B[0m";
-var DISTINCT_COLORS = [
-  39,
-  82,
-  198,
-  226,
-  208,
-  51,
-  196,
-  46,
-  201,
-  214,
-  93,
-  154,
-  220,
-  27,
-  49,
-  190,
-  200,
-  33,
-  129,
-  227,
-  45,
-  160,
-  63,
-  118,
-  123,
-  202
-];
-function createRandom(seed) {
-  let state = seed;
-  return () => {
-    state = (state * 1664525 + 1013904223) % 4294967296;
-    return state / 4294967296;
-  };
-}
-function getShuffledPalette(seed) {
-  const palette = [...DISTINCT_COLORS];
-  const random = createRandom(seed);
-  for (let i = palette.length - 1;i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    const temp = palette[i];
-    palette[i] = palette[j];
-    palette[j] = temp;
-  }
-  return palette;
-}
-function generateDistinctColor(index, seed = 0) {
-  if (!shouldUseColor())
-    return "";
-  const palette = getShuffledPalette(seed);
-  const colorCode = palette[index % palette.length];
-  return `\x1B[38;5;${colorCode}m`;
-}
-function colorizeToken(token, index, seed = 0) {
-  if (!shouldUseColor())
-    return `"${token}"`;
-  const colorCode = generateDistinctColor(index, seed);
-  return `${colorCode}"${token}"${ANSI_RESET}`;
-}
-
-// src/bin/doctor/format.ts
-function formatAsciiTable(options2) {
-  const rawRows = options2.rawRows ?? options2.rows;
-  const colWidths = (options2.headers ?? rawRows[0] ?? []).map((h, i) => {
-    const maxDataWidth = Math.max(...rawRows.map((r) => r[i]?.length ?? 0));
-    return Math.max(h.length, maxDataWidth);
-  });
-  const pad = (s, w, raw) => s + " ".repeat(Math.max(0, w - raw.length));
-  const line = (char, corners) => corners[0] + colWidths.map((w) => char.repeat(w + 2)).join(corners[1]) + corners[2];
-  const formatRow = (cells, rawCells) => `│ ${cells.map((c, i) => pad(c, colWidths[i] ?? 0, rawCells[i] ?? "")).join(" │ ")} │`;
-  const headerLines = options2.headers ? [`   ${formatRow(options2.headers, options2.headers)}`, `   ${line("─", ["├", "┼", "┤"])}`] : [];
-  return [
-    `   ${line("─", ["┌", "┬", "┐"])}`,
-    ...headerLines,
-    ...options2.rows.map((r, i) => `   ${formatRow(r, rawRows[i] ?? [])}`),
-    `   ${line("─", ["└", "┴", "┘"])}`
-  ].join(`
-`);
-}
-function formatHooksSection(hooks) {
-  const lines = [];
-  lines.push("Hook Integration");
-  lines.push(formatHooksTable(hooks));
-  const failures = [];
-  const warnings = [];
-  const errors = [];
-  for (const hook of hooks) {
-    const platformName = getIntegrationDisplayName(hook.platform);
-    if (hook.selfTest) {
-      for (const result of hook.selfTest.results) {
-        if (!result.passed) {
-          failures.push({ platform: platformName, result });
-        }
-      }
-    }
-    if (hook.errors && hook.errors.length > 0) {
-      for (const err of hook.errors) {
-        if (hook.status === "configured") {
-          warnings.push({ platform: platformName, message: err });
-        } else {
-          errors.push({ platform: platformName, message: err });
-        }
-      }
-    }
-  }
-  if (failures.length > 0) {
-    lines.push("");
-    lines.push(colors.red("   Failures:"));
-    for (const f of failures) {
-      lines.push(colors.red(`   • ${f.platform}: ${f.result.description}`));
-      lines.push(colors.red(`     expected ${f.result.expected}, got ${f.result.actual}`));
-    }
-  }
-  for (const w of warnings) {
-    lines.push(`   Warning (${w.platform}): ${w.message}`);
-  }
-  for (const e of errors) {
-    lines.push(colors.red(`   Error (${e.platform}): ${e.message}`));
-  }
-  return lines.join(`
-`);
-}
-function formatHooksTable(hooks) {
-  const headers = ["Platform", "Status", "Tests"];
-  const getStatusDisplay = (h) => {
-    switch (h.status) {
-      case "configured":
-        return { text: "Configured", colored: colors.green("Configured") };
-      case "disabled":
-        return { text: "Disabled", colored: colors.yellow("Disabled") };
-      case "n/a":
-        return { text: "N/A", colored: colors.dim("N/A") };
-    }
-  };
-  const rowData = hooks.map((h) => {
-    const platformName = getIntegrationDisplayName(h.platform);
-    const statusDisplay = getStatusDisplay(h);
-    let testsText = "-";
-    if (h.status === "configured" && h.selfTest) {
-      const label = h.selfTest.failed > 0 ? "FAIL" : "OK";
-      testsText = `${h.selfTest.passed}/${h.selfTest.total} ${label}`;
-    }
-    return {
-      colored: [platformName, statusDisplay.colored, testsText],
-      raw: [platformName, statusDisplay.text, testsText]
-    };
-  });
-  const rows = rowData.map((r) => r.colored);
-  const rawRows = rowData.map((r) => r.raw);
-  return formatAsciiTable({ headers, rows, rawRows });
-}
-function formatRulesTable(rules) {
-  if (rules.length === 0) {
-    return "   (no custom rules)";
-  }
-  const headers = ["Source", "Name", "Command", "Block Args"];
-  const rows = rules.map((r) => [
-    r.source,
-    r.name,
-    r.subcommand ? `${r.command} ${r.subcommand}` : r.command,
-    r.blockArgs.join(", ")
-  ]);
-  return formatAsciiTable({ headers, rows });
-}
-function formatConfigSection(report) {
-  const lines = [];
-  lines.push("Configuration");
-  lines.push(formatConfigTable(report.userConfig, report.projectConfig));
-  lines.push("");
-  if (report.effectiveRules.length > 0) {
-    lines.push(`   Effective rules (${report.effectiveRules.length} total):`);
-    lines.push(formatRulesTable(report.effectiveRules));
-  } else {
-    lines.push("   Effective rules: (none - using built-in rules only)");
-  }
-  for (const shadow of report.shadowedRules) {
-    lines.push("");
-    lines.push(`   Note: Project rule "${shadow.name}" shadows user rule with same name`);
-  }
-  return lines.join(`
-`);
-}
-function formatConfigTable(userConfig, projectConfig) {
-  const headers = ["Scope", "Status"];
-  const getStatusDisplay = (config) => {
-    if (!config.exists) {
-      return { text: "N/A", colored: colors.dim("N/A") };
-    }
-    if (!config.valid) {
-      const errMsg = config.errors?.[0] ?? "unknown error";
-      const text = `Invalid (${errMsg})`;
-      return { text, colored: colors.red(text) };
-    }
-    return { text: "Configured", colored: colors.green("Configured") };
-  };
-  const userStatus = getStatusDisplay(userConfig);
-  const projectStatus = getStatusDisplay(projectConfig);
-  const rows = [
-    ["User", userStatus.colored],
-    ["Project", projectStatus.colored]
-  ];
-  const rawRows = [
-    ["User", userStatus.text],
-    ["Project", projectStatus.text]
-  ];
-  return formatAsciiTable({ headers, rows, rawRows });
-}
-function formatEnvironmentSection(envVars) {
-  const lines = [];
-  lines.push("Environment");
-  lines.push(formatEnvironmentTable(envVars));
-  return lines.join(`
-`);
-}
-function formatEnvironmentTable(envVars) {
-  const headers = ["Variable", "Status", "Legacy"];
-  const rows = envVars.map((v) => {
-    const statusIcon = v.isSet ? colors.green("✓") : colors.dim("✗");
-    const legacyStatus = v.legacyName && v.legacyIsSet ? `${v.legacyName} ${colors.green("✓")}` : v.legacyName ?? "";
-    return [v.name, statusIcon, legacyStatus];
-  });
-  const rawRows = envVars.map((v) => [
-    v.name,
-    v.isSet ? "✓" : "✗",
-    v.legacyName && v.legacyIsSet ? `${v.legacyName} ✓` : v.legacyName ?? ""
-  ]);
-  return formatAsciiTable({ headers, rows, rawRows });
-}
-function formatActivitySection(activity) {
-  const lines = [];
-  if (activity.totalBlocked === 0) {
-    lines.push("Recent Activity");
-    lines.push("   No blocked commands in the last 7 days");
-    lines.push("   Tip: This is normal for new installations");
-  } else {
-    lines.push(`Recent Activity (${activity.totalBlocked} blocked / ${activity.sessionCount} sessions)`);
-    lines.push(formatActivityTable(activity.recentEntries));
-  }
-  return lines.join(`
-`);
-}
-function formatActivityTable(entries) {
-  const headers = ["Time", "Command"];
-  const rows = entries.map((e) => {
-    const cmd = e.command.length > 40 ? `${e.command.slice(0, 37)}...` : e.command;
-    return [e.relativeTime, cmd];
-  });
-  return formatAsciiTable({ headers, rows });
-}
-function formatUpdateSection(update) {
-  const lines = [];
-  lines.push("Update Check");
-  const rowData = [];
-  if (update.latestVersion === null && !update.error) {
-    rowData.push({
-      label: "Status",
-      value: colors.dim("Skipped"),
-      rawValue: "Skipped"
-    });
-    rowData.push({
-      label: "Installed",
-      value: update.currentVersion,
-      rawValue: update.currentVersion
-    });
-    lines.push(formatUpdateTable(rowData));
-    return lines.join(`
-`);
-  }
-  if (update.error) {
-    rowData.push({
-      label: "Status",
-      value: `${colors.yellow("⚠")} Error`,
-      rawValue: "⚠ Error"
-    });
-    rowData.push({
-      label: "Installed",
-      value: update.currentVersion,
-      rawValue: update.currentVersion
-    });
-    rowData.push({
-      label: "Error",
-      value: colors.dim(update.error),
-      rawValue: update.error
-    });
-    lines.push(formatUpdateTable(rowData));
-    return lines.join(`
-`);
-  }
-  if (update.updateAvailable) {
-    rowData.push({
-      label: "Status",
-      value: `${colors.yellow("⚠")} Update Available`,
-      rawValue: "⚠ Update Available"
-    });
-    rowData.push({
-      label: "Current",
-      value: update.currentVersion,
-      rawValue: update.currentVersion
-    });
-    rowData.push({
-      label: "Latest",
-      value: colors.green(update.latestVersion ?? ""),
-      rawValue: update.latestVersion ?? ""
-    });
-    lines.push(formatUpdateTable(rowData));
-    lines.push("");
-    lines.push("   Run: bunx cc-safety-net@latest doctor");
-    lines.push("   Or:  npx cc-safety-net@latest doctor");
-    return lines.join(`
-`);
-  }
-  rowData.push({
-    label: "Status",
-    value: `${colors.green("✓")} Up to date`,
-    rawValue: "✓ Up to date"
-  });
-  rowData.push({
-    label: "Version",
-    value: update.currentVersion,
-    rawValue: update.currentVersion
-  });
-  lines.push(formatUpdateTable(rowData));
-  return lines.join(`
-`);
-}
-function formatUpdateTable(rowData) {
-  const rows = rowData.map((r) => [r.label, r.value]);
-  const rawRows = rowData.map((r) => [r.label, r.rawValue]);
-  return formatAsciiTable({ rows, rawRows });
-}
-function formatSystemInfoSection(system) {
-  const lines = [];
-  lines.push("System Info");
-  lines.push(formatSystemInfoTable(system));
-  return lines.join(`
-`);
-}
-function formatSystemInfoTable(system) {
-  const headers = ["Component", "Version"];
-  const formatValue = (value) => {
-    if (value === null)
-      return colors.dim("not found");
-    return value;
-  };
-  const rawValue = (value) => {
-    return value ?? "not found";
-  };
-  const rowData = [
-    { label: "cc-safety-net", value: system.version },
-    { label: "Claude Code", value: system.claudeCodeVersion },
-    { label: "Codex", value: system.codexCliVersion },
-    { label: "Copilot CLI", value: system.copilotCliVersion },
-    { label: "Gemini CLI", value: system.geminiCliVersion },
-    { label: "Kimi Code", value: system.kimiCodeVersion },
-    { label: "OpenCode", value: system.openCodeVersion },
-    { label: "Pi", value: system.piCliVersion },
-    { label: "Node.js", value: system.nodeVersion },
-    { label: "npm", value: system.npmVersion },
-    { label: "Bun", value: system.bunVersion },
-    { label: "Platform", value: system.platform }
-  ];
-  const rows = rowData.map((r) => [r.label, formatValue(r.value)]);
-  const rawRows = rowData.map((r) => [r.label, rawValue(r.value)]);
-  return formatAsciiTable({ headers, rows, rawRows });
-}
-function formatSummary(report) {
-  const hooksFailed = report.hooks.every((h) => h.status !== "configured");
-  const selfTestFailed = report.hooks.some((h) => h.selfTest && h.selfTest.failed > 0);
-  const configFailed = (report.userConfig.errors?.length ?? 0) > 0 || (report.projectConfig.errors?.length ?? 0) > 0;
-  const failures = [hooksFailed, selfTestFailed, configFailed].filter(Boolean).length;
-  let warnings = 0;
-  if (report.update.updateAvailable)
-    warnings++;
-  if (report.activity.totalBlocked === 0)
-    warnings++;
-  warnings += report.shadowedRules.length;
-  if (failures > 0) {
-    return colors.red(`
-${failures} check(s) failed.`);
-  }
-  if (warnings > 0) {
-    return colors.yellow(`
-All checks passed with ${warnings} warning(s).`);
-  }
-  return colors.green(`
-All checks passed.`);
-}
-
-// src/bin/doctor/hooks.ts
-import { existsSync as existsSync13, readdirSync as readdirSync3, readFileSync as readFileSync10 } from "node:fs";
-import { homedir as homedir5, tmpdir as tmpdir3 } from "node:os";
-import { join as join10 } from "node:path";
-var COPILOT_PLUGIN_CONFIG_PATH = "copilot-plugin";
-var CLAUDE_PLUGIN_LIST_CONFIG_PATH = "claude plugin list";
-var CLAUDE_SAFETY_NET_PLUGIN_ID = "safety-net@cc-marketplace";
-var GEMINI_EXTENSIONS_LIST_CONFIG_PATH = "gemini extensions list";
-var GEMINI_SAFETY_NET_SOURCE = "https://github.com/kenryu42/gemini-safety-net";
-var KIMI_HOOK_COMMAND_PATTERN = /cc-safety-net\s+hook\s+(?:[^\s]+\s+)*--kimi-code(\s|["']|$)/;
-var CODEX_PLUGIN_HOOKS_WARNING = "Codex plugin hooks are behind a feature flag. Add `plugin_hooks = true` under [features] in $CODEX_HOME/config.toml.";
-var CODEX_SAFETY_NET_PLUGIN_ID = "safety-net@cc-marketplace";
-var SELF_TEST_CASES = [
-  { command: "git reset --hard", description: "git reset --hard", expectBlocked: true },
-  { command: "rm -rf /", description: "rm -rf /", expectBlocked: true },
-  { command: "rm -rf ./node_modules", description: "rm in cwd (safe)", expectBlocked: false }
-];
-var SELF_TEST_CONFIG = { version: 1, rules: [] };
-function runSelfTest() {
-  const selfTestCwd = join10(tmpdir3(), "cc-safety-net-self-test");
-  const results = SELF_TEST_CASES.map((tc) => {
-    const result = analyzeCommand(tc.command, {
-      cwd: selfTestCwd,
-      config: SELF_TEST_CONFIG,
-      strict: false,
-      paranoidRm: false,
-      paranoidInterpreters: false
-    });
-    const wasBlocked = result !== null;
-    const expected = tc.expectBlocked ? "blocked" : "allowed";
-    const actual = wasBlocked ? "blocked" : "allowed";
-    return {
-      command: tc.command,
-      description: tc.description,
-      expected,
-      actual,
-      passed: expected === actual,
-      reason: result?.reason
-    };
-  });
-  const passed = results.filter((r) => r.passed).length;
-  const failed = results.filter((r) => !r.passed).length;
-  return { passed, failed, total: results.length, results };
-}
-function stripJsonComments(content) {
-  let result = "";
-  let i = 0;
-  let inString = false;
-  let isEscaped = false;
-  let lastCommaIndex = -1;
-  while (i < content.length) {
-    const char = content[i];
-    const next = content[i + 1];
-    if (isEscaped) {
-      result += char;
-      isEscaped = false;
-      i++;
-      continue;
-    }
-    if (char === '"' && !inString) {
-      inString = true;
-      lastCommaIndex = -1;
-      result += char;
-      i++;
-      continue;
-    }
-    if (char === '"' && inString) {
-      inString = false;
-      result += char;
-      i++;
-      continue;
-    }
-    if (char === "\\" && inString) {
-      isEscaped = true;
-      result += char;
-      i++;
-      continue;
-    }
-    if (inString) {
-      result += char;
-      i++;
-      continue;
-    }
-    if (char === "/" && next === "/") {
-      while (i < content.length && content[i] !== `
-`) {
-        i++;
-      }
-      continue;
-    }
-    if (char === "/" && next === "*") {
-      i += 2;
-      while (i < content.length - 1) {
-        if (content[i] === "*" && content[i + 1] === "/") {
-          i += 2;
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-    if (char === ",") {
-      lastCommaIndex = result.length;
-      result += char;
-      i++;
-      continue;
-    }
-    if (char === "}" || char === "]") {
-      if (lastCommaIndex !== -1) {
-        const between = result.slice(lastCommaIndex + 1);
-        if (/^\s*$/.test(between)) {
-          result = result.slice(0, lastCommaIndex) + between;
-        }
-      }
-      lastCommaIndex = -1;
-      result += char;
-      i++;
-      continue;
-    }
-    if (!/\s/.test(char)) {
-      lastCommaIndex = -1;
-    }
-    result += char;
-    i++;
-  }
-  return result;
-}
-function detectClaudeCode(pluginListOutput) {
-  if (!pluginListOutput) {
-    return { platform: "claude-code", status: "n/a" };
-  }
-  const pluginBlock = _findClaudeSafetyNetPluginBlock(pluginListOutput);
-  if (!pluginBlock) {
-    return { platform: "claude-code", status: "n/a" };
-  }
-  if (/^\s*Status:\s*.*\bdisabled\b\s*$/im.test(pluginBlock)) {
-    return {
-      platform: "claude-code",
-      status: "disabled",
-      method: "plugin list",
-      configPath: CLAUDE_PLUGIN_LIST_CONFIG_PATH
-    };
-  }
-  if (/^\s*Status:\s*.*\benabled\b\s*$/im.test(pluginBlock)) {
-    return {
-      platform: "claude-code",
-      status: "configured",
-      method: "plugin list",
-      configPath: CLAUDE_PLUGIN_LIST_CONFIG_PATH,
-      selfTest: runSelfTest()
-    };
-  }
-  return {
-    platform: "claude-code",
-    status: "disabled",
-    method: "plugin list",
-    configPath: CLAUDE_PLUGIN_LIST_CONFIG_PATH,
-    errors: ["Status is not enabled"]
-  };
-}
-function _findClaudeSafetyNetPluginBlock(output) {
-  const pluginLinePattern = new RegExp(`^\\s*(?:[^\\w\\s@]+\\s+)?${_escapeRegExp(CLAUDE_SAFETY_NET_PLUGIN_ID)}\\s*$`);
-  const pluginStartPattern = /^\s*(?:[^\w\s@]+\s+)?\S+@\S+\s*$/;
-  const lines = output.split(`
-`);
-  const startIndex = lines.findIndex((line) => pluginLinePattern.test(line));
-  if (startIndex === -1)
-    return;
-  const endIndex = lines.findIndex((line, index) => index > startIndex && pluginStartPattern.test(line));
-  return lines.slice(startIndex, endIndex === -1 ? undefined : endIndex).join(`
-`);
-}
-function _escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-function detectOpenCode(homeDir) {
-  const errors = [];
-  const configDir = join10(homeDir, ".config", "opencode");
-  const candidates = ["opencode.json", "opencode.jsonc"];
-  for (const filename of candidates) {
-    const configPath = join10(configDir, filename);
-    if (existsSync13(configPath)) {
-      try {
-        const content = readFileSync10(configPath, "utf-8");
-        const json = stripJsonComments(content);
-        const config = JSON.parse(json);
-        const plugins = config.plugin ?? [];
-        const hasSafetyNet = plugins.some((p) => p.includes("cc-safety-net"));
-        if (hasSafetyNet) {
-          return {
-            platform: "opencode",
-            status: "configured",
-            method: "plugin array",
-            configPath,
-            selfTest: runSelfTest(),
-            errors: errors.length > 0 ? errors : undefined
-          };
-        }
-      } catch (e) {
-        errors.push(`Failed to parse ${filename}: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-  }
-  return {
-    platform: "opencode",
-    status: "n/a",
-    errors: errors.length > 0 ? errors : undefined
-  };
-}
-function detectGeminiCLI(extensionsListOutput) {
-  if (!extensionsListOutput) {
-    return { platform: "gemini-cli", status: "n/a" };
-  }
-  const extension = _parseGeminiExtensionsList(extensionsListOutput).find((item) => item.source?.includes(GEMINI_SAFETY_NET_SOURCE));
-  if (!extension) {
-    return { platform: "gemini-cli", status: "n/a" };
-  }
-  const effectiveEnabled = extension.enabledWorkspace ?? extension.enabledUser ?? true;
-  const errors = effectiveEnabled ? [] : [
-    extension.enabledWorkspace === false ? "Enabled (Workspace) is false" : "Enabled (User) is false"
-  ];
-  if (errors.length > 0) {
-    return {
-      platform: "gemini-cli",
-      status: "disabled",
-      method: "extension list",
-      configPath: GEMINI_EXTENSIONS_LIST_CONFIG_PATH,
-      errors
-    };
-  }
-  return {
-    platform: "gemini-cli",
-    status: "configured",
-    method: "extension list",
-    configPath: GEMINI_EXTENSIONS_LIST_CONFIG_PATH,
-    selfTest: runSelfTest()
-  };
-}
-function _getKimiConfigPath(homeDir) {
-  return join10(process.env.KIMI_CODE_HOME || join10(homeDir, ".kimi-code"), "config.toml");
-}
-function detectKimiCode(homeDir) {
-  const configPath = _getKimiConfigPath(homeDir);
-  if (!existsSync13(configPath)) {
-    return { platform: "kimi-code", status: "n/a", configPath };
-  }
-  try {
-    if (!KIMI_HOOK_COMMAND_PATTERN.test(readFileSync10(configPath, "utf-8"))) {
-      return { platform: "kimi-code", status: "n/a", configPath };
-    }
-  } catch (e) {
-    return {
-      platform: "kimi-code",
-      status: "n/a",
-      configPath,
-      errors: [`Failed to read ${configPath}: ${e instanceof Error ? e.message : String(e)}`]
-    };
-  }
-  return {
-    platform: "kimi-code",
-    status: "configured",
-    method: "hook config",
-    configPath,
-    selfTest: runSelfTest()
-  };
-}
-function detectPi(probe) {
-  if (!probe || probe.status === "unavailable") {
-    return { platform: "pi", status: "n/a" };
-  }
-  if (probe.status === "error") {
-    return {
-      platform: "pi",
-      status: "n/a",
-      method: "pi probe",
-      errors: [probe.error ?? "Pi probe failed"]
-    };
-  }
-  if (!probe.installedAndEnabled) {
-    return { platform: "pi", status: "n/a", method: "pi probe" };
-  }
-  const configPaths = probe.matched.map((resource) => resource.path).filter((path) => typeof path === "string");
-  return {
-    platform: "pi",
-    status: "configured",
-    method: "pi probe",
-    configPath: configPaths[0],
-    configPaths: configPaths.length > 0 ? configPaths : undefined,
-    selfTest: runSelfTest()
-  };
-}
-function _parseGeminiExtensionsList(output) {
-  const blocks = output.split(`
-`).reduce((result, line) => {
-    if (/^\S/.test(line) || result.length === 0) {
-      result.push(line);
-      return result;
-    }
-    const index = result.length - 1;
-    result[index] = `${result[index]}
-${line}`;
-    return result;
-  }, []);
-  return blocks.map((block) => ({
-    source: /^\s*Source:\s*(.+)$/m.exec(block)?.[1],
-    enabledUser: _parseGeminiEnabledValue(block, "User"),
-    enabledWorkspace: _parseGeminiEnabledValue(block, "Workspace")
-  }));
-}
-function _parseGeminiEnabledValue(block, scope) {
-  const match = new RegExp(`^\\s*Enabled \\(${scope}\\):\\s*(true|false)\\s*$`, "im").exec(block);
-  if (!match)
-    return;
-  return match[1] === "true";
-}
-function _getCodexHome(homeDir) {
-  return process.env.CODEX_HOME || join10(homeDir, ".codex");
-}
-function _parseCodexConfig(content) {
-  const result = {};
-  content.split(`
-`).reduce((activeSection, line) => {
-    const trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("#"))
-      return activeSection;
-    const sectionMatch = /^\[([^\]]+)]\s*(?:#.*)?$/.exec(trimmed);
-    if (sectionMatch)
-      return sectionMatch[1];
-    if (activeSection === "features") {
-      const pluginHooksMatch = /^plugin_hooks\s*=\s*(true|false)\s*(?:#.*)?$/.exec(trimmed);
-      if (pluginHooksMatch)
-        result.pluginHooks = pluginHooksMatch[1] === "true";
-    }
-    if (activeSection === `plugins."${CODEX_SAFETY_NET_PLUGIN_ID}"`) {
-      const enabledMatch = /^enabled\s*=\s*(true|false)\s*(?:#.*)?$/.exec(trimmed);
-      if (enabledMatch)
-        result.safetyNetEnabled = enabledMatch[1] === "true";
-    }
-    return activeSection;
-  }, undefined);
-  return result;
-}
-function _readCodexConfig(configPath, errors) {
-  try {
-    return _parseCodexConfig(readFileSync10(configPath, "utf-8"));
-  } catch (e) {
-    errors.push(`Failed to read ${configPath}: ${e instanceof Error ? e.message : String(e)}`);
-    return {};
-  }
-}
-function detectCodex(homeDir) {
-  const codexHome = _getCodexHome(homeDir);
-  const pluginCachePath = join10(codexHome, "plugins", "cache", "cc-marketplace", "safety-net");
-  const errors = [];
-  if (!existsSync13(pluginCachePath)) {
-    return { platform: "codex", status: "n/a", configPath: pluginCachePath };
-  }
-  try {
-    if (readdirSync3(pluginCachePath).length === 0) {
-      return { platform: "codex", status: "n/a", configPath: pluginCachePath };
-    }
-  } catch (e) {
-    return {
-      platform: "codex",
-      status: "n/a",
-      configPath: pluginCachePath,
-      errors: [`Failed to read ${pluginCachePath}: ${e instanceof Error ? e.message : String(e)}`]
-    };
-  }
-  const configPath = join10(codexHome, "config.toml");
-  const config = _readCodexConfig(configPath, errors);
-  if (config.safetyNetEnabled !== true) {
-    return {
-      platform: "codex",
-      status: "disabled",
-      method: "plugin cache",
-      configPath,
-      errors: [
-        ...errors,
-        `Codex plugin ${CODEX_SAFETY_NET_PLUGIN_ID} is not enabled. Add enabled = true under [plugins."${CODEX_SAFETY_NET_PLUGIN_ID}"] in $CODEX_HOME/config.toml.`
-      ]
-    };
-  }
-  if (config.pluginHooks !== true) {
-    return {
-      platform: "codex",
-      status: "disabled",
-      method: "plugin cache",
-      configPath,
-      errors: [...errors, CODEX_PLUGIN_HOOKS_WARNING]
-    };
-  }
-  return {
-    platform: "codex",
-    status: "configured",
-    method: "plugin cache",
-    configPath,
-    selfTest: runSelfTest(),
-    errors: errors.length > 0 ? errors : undefined
-  };
-}
-function _isSafetyNetCopilotCommand(command2) {
-  if (!command2?.includes("cc-safety-net"))
-    return false;
-  return /(^|\s)hook\s+(?:[^\s]+\s+)*(--copilot-cli|-cp)(\s|$)/.test(command2);
-}
-function _parseSemver(version) {
-  if (!version)
-    return null;
-  const match = version.match(/(\d+)\.(\d+)\.(\d+)/);
-  if (!match)
-    return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
-}
-function _compareSemver(version, threshold) {
-  const parsed = _parseSemver(version);
-  if (!parsed)
-    return null;
-  for (let index = 0;index < threshold.length; index++) {
-    const left = parsed[index] ?? 0;
-    const right = threshold[index] ?? 0;
-    if (left > right)
-      return 1;
-    if (left < right)
-      return -1;
-  }
-  return 0;
-}
-function _supportsCopilotUserHookFiles(version) {
-  const comparison = _compareSemver(version, [0, 0, 422]);
-  if (comparison === null)
-    return null;
-  return comparison >= 0;
-}
-function _supportsCopilotInlineHooks(version) {
-  const comparison = _compareSemver(version, [1, 0, 8]);
-  if (comparison === null)
-    return null;
-  return comparison >= 0;
-}
-function _getCopilotConfigHome(homeDir) {
-  return process.env.COPILOT_HOME || join10(homeDir, ".copilot");
-}
-function _hasSafetyNetCopilotHook(config) {
-  const preToolUseHooks = config.hooks?.preToolUse ?? [];
-  return preToolUseHooks.some((hook) => {
-    if (hook.type !== "command")
-      return false;
-    return _isSafetyNetCopilotCommand(hook.command) || _isSafetyNetCopilotCommand(hook.bash) || _isSafetyNetCopilotCommand(hook.powershell);
-  });
-}
-function _readCopilotConfigFile(configPath, errors) {
-  try {
-    return JSON.parse(stripJsonComments(readFileSync10(configPath, "utf-8")));
-  } catch (e) {
-    errors?.push(`Failed to parse ${configPath}: ${e instanceof Error ? e.message : String(e)}`);
-    return;
-  }
-}
-function _listJsonFiles(dirPath, errors) {
-  try {
-    return readdirSync3(dirPath).filter((name) => name.endsWith(".json")).sort((a, b) => a.localeCompare(b));
-  } catch (e) {
-    errors?.push(`Failed to read ${dirPath}: ${e instanceof Error ? e.message : String(e)}`);
-    return [];
-  }
-}
-function _collectSafetyNetCopilotHookFiles(dirPath, errors) {
-  if (!existsSync13(dirPath))
-    return [];
-  const matches = [];
-  for (const filename of _listJsonFiles(dirPath, errors)) {
-    const configPath = join10(dirPath, filename);
-    const config = _readCopilotConfigFile(configPath, errors);
-    if (config && _hasSafetyNetCopilotHook(config)) {
-      matches.push(configPath);
-    }
-  }
-  return matches;
-}
-function _collectCopilotInlineConfig(configPath, errors) {
-  if (!existsSync13(configPath))
-    return;
-  const config = _readCopilotConfigFile(configPath, errors);
-  if (!config)
-    return;
-  return { path: configPath, config };
-}
-function _warnOnUnsupportedCopilotSource(errors, version, sourceDescription, requiredVersion) {
-  if (version) {
-    errors.push(`Copilot CLI ${version} does not support ${sourceDescription}; requires ${requiredVersion}+`);
-    return;
-  }
-  errors.push(`Copilot CLI version unavailable; skipping ${sourceDescription} because it requires ${requiredVersion}+`);
-}
-function _resolveCopilotInlineDisableSource(inlineSources) {
-  const precedence = [
-    inlineSources.localSettings,
-    inlineSources.repoSettings,
-    inlineSources.userConfig
-  ];
-  for (const source of precedence) {
-    if (source?.config.disableAllHooks === true)
-      return source.path;
-    if (source?.config.disableAllHooks === false)
-      return;
-  }
-  return;
-}
-function _checkCopilotEnabled(homeDir, cwd, copilotCliVersion, errors) {
-  const configHome = _getCopilotConfigHome(homeDir);
-  const repoHookDir = join10(cwd, ".github", "hooks");
-  const userHookDir = join10(configHome, "hooks");
-  const repoConfigDir = join10(cwd, ".github", "copilot");
-  const inlineSupport = _supportsCopilotInlineHooks(copilotCliVersion);
-  const inlineErrors = inlineSupport === true ? errors : undefined;
-  const inlineSources = {
-    userConfig: _collectCopilotInlineConfig(join10(configHome, "config.json"), inlineErrors),
-    repoSettings: _collectCopilotInlineConfig(join10(repoConfigDir, "settings.json"), inlineErrors),
-    localSettings: _collectCopilotInlineConfig(join10(repoConfigDir, "settings.local.json"), inlineErrors)
-  };
-  if (inlineSupport !== false) {
-    const disableSource = _resolveCopilotInlineDisableSource(inlineSources);
-    if (disableSource) {
-      if (inlineSupport === null) {
-        errors.push(`Copilot CLI version unavailable; treating disableAllHooks in ${disableSource} as active`);
-      }
-      return { activeConfigPaths: [], disabledBy: disableSource };
-    }
-  }
-  const repoHookPaths = _collectSafetyNetCopilotHookFiles(repoHookDir, errors);
-  const userHookSupport = _supportsCopilotUserHookFiles(copilotCliVersion);
-  const userHookErrors = userHookSupport === true ? errors : undefined;
-  const userHookFiles = existsSync13(userHookDir) ? _listJsonFiles(userHookDir, userHookErrors) : [];
-  const userHookPaths = [];
-  for (const filename of userHookFiles) {
-    const configPath = join10(userHookDir, filename);
-    const config = _readCopilotConfigFile(configPath, userHookErrors);
-    if (config && _hasSafetyNetCopilotHook(config)) {
-      userHookPaths.push(configPath);
-    }
-  }
-  if (userHookSupport !== true && userHookPaths.length > 0) {
-    _warnOnUnsupportedCopilotSource(errors, copilotCliVersion, `user hook files in ${userHookDir}`, "0.0.422");
-    userHookPaths.length = 0;
-  }
-  const inlinePaths = [];
-  const inlineSourcesByPrecedence = [
-    inlineSources.localSettings,
-    inlineSources.repoSettings,
-    inlineSources.userConfig
-  ];
-  for (const source of inlineSourcesByPrecedence) {
-    if (!source)
-      continue;
-    if (!_hasSafetyNetCopilotHook(source.config))
-      continue;
-    if (inlineSupport === true) {
-      inlinePaths.push(source.path);
-      continue;
-    }
-    _warnOnUnsupportedCopilotSource(errors, copilotCliVersion, "inline hook definitions in Copilot config files", "1.0.8");
-    break;
-  }
-  return {
-    activeConfigPaths: [
-      ...inlinePaths.filter((path) => path.endsWith("settings.local.json")),
-      ...inlinePaths.filter((path) => path.endsWith("settings.json")),
-      ...repoHookPaths,
-      ...inlinePaths.filter((path) => path.endsWith("config.json")),
-      ...userHookPaths
-    ]
-  };
-}
-function detectAllHooks(cwd, options2) {
-  const homeDir = options2?.homeDir ?? homedir5();
-  const detectCopilotCLI = () => {
-    const errors = [];
-    const hooksCheck = _checkCopilotEnabled(homeDir, cwd, options2?.copilotCliVersion, errors);
-    if (hooksCheck.disabledBy) {
-      return {
-        platform: "copilot-cli",
-        status: "disabled",
-        method: "hook config",
-        configPath: hooksCheck.disabledBy,
-        configPaths: [hooksCheck.disabledBy],
-        errors: errors.length > 0 ? errors : undefined
-      };
-    }
-    if (options2?.copilotPluginInstalled === true || hooksCheck.activeConfigPaths.length > 0) {
-      const viaPlugin = options2?.copilotPluginInstalled === true;
-      const primaryConfigPath = hooksCheck.activeConfigPaths[0];
-      return {
-        platform: "copilot-cli",
-        status: "configured",
-        method: viaPlugin ? "plugin list" : "hook config",
-        configPath: primaryConfigPath ?? (viaPlugin ? COPILOT_PLUGIN_CONFIG_PATH : undefined),
-        configPaths: hooksCheck.activeConfigPaths.length > 0 ? hooksCheck.activeConfigPaths : undefined,
-        selfTest: runSelfTest(),
-        errors: errors.length > 0 ? errors : undefined
-      };
-    }
-    return {
-      platform: "copilot-cli",
-      status: "n/a",
-      errors: errors.length > 0 ? errors : undefined
-    };
-  };
-  return doctorIntegrationOrder.map((platform) => {
-    switch (platform) {
-      case "claude-code":
-        return detectClaudeCode(options2?.claudePluginListOutput);
-      case "opencode":
-        return detectOpenCode(homeDir);
-      case "gemini-cli":
-        return detectGeminiCLI(options2?.geminiExtensionsListOutput);
-      case "copilot-cli":
-        return detectCopilotCLI();
-      case "kimi-code":
-        return detectKimiCode(homeDir);
-      case "pi":
-        return detectPi(options2?.piSafetyNetProbe);
-      case "codex":
-        return detectCodex(homeDir);
-    }
-    return platform;
-  });
-}
-
-// src/bin/doctor/system-info.ts
-import { spawn } from "node:child_process";
-import { existsSync as existsSync14 } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir as tmpdir4 } from "node:os";
-import { delimiter, extname, join as join11 } from "node:path";
-var CURRENT_VERSION = "1.0.6";
-var VERSION_FETCH_TIMEOUT_MS = 2000;
-var PI_PROBE_TIMEOUT_MS = 5000;
-var PI_SENTINEL_COMMAND = "cc-safety-net";
-var PI_PROBE_COMMAND = "__cc_safety_net_probe";
-var TEST_SPAWN_PLATFORM_ENV = "_CC_SAFETY_NET_TEST_SPAWN_PLATFORM";
-var PI_PROBE_UNAVAILABLE = {
-  status: "unavailable",
-  installedAndEnabled: false,
-  matched: []
+var starIcons = {
+  outline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>',
+  filled: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"></path></svg>'
 };
-function getPackageVersion() {
-  return CURRENT_VERSION;
-}
-var COPILOT_PLUGIN_ID = "copilot-safety-net";
-function getEnvValue(env, name) {
-  const direct = env[name];
-  if (direct)
-    return direct;
-  const matchingName = Object.keys(env).find((key) => key.toLowerCase() === name.toLowerCase() && !!env[key]);
-  return matchingName ? env[matchingName] : direct;
-}
-function getWindowsExecutableExtensions(env) {
-  return (getEnvValue(env, "PATHEXT") || ".COM;.EXE;.BAT;.CMD").split(";").filter((extension) => extension.length > 0);
-}
-function resolveWindowsCommand(command2, env) {
-  const candidates = extname(command2) ? [command2] : [
-    ...getWindowsExecutableExtensions(env).map((extension) => `${command2}${extension}`),
-    command2
-  ];
-  if (command2.includes("/") || command2.includes("\\")) {
-    return candidates.find((candidate) => existsSync14(candidate)) ?? command2;
-  }
-  return (getEnvValue(env, "PATH") ?? "").split(delimiter).flatMap((dir) => candidates.map((candidate) => join11(dir, candidate))).find((candidate) => existsSync14(candidate)) ?? command2;
-}
-function quoteWindowsCommandArg(value) {
-  if (!/[\s"&|<>^]/.test(value))
-    return value;
-  return `"${value.replace(/"/g, '""')}"`;
-}
-function getSpawnCommand(args, env) {
-  const [command2, ...rest] = args;
-  const platform = env[TEST_SPAWN_PLATFORM_ENV] === "win32" ? "win32" : process.platform;
-  if (!command2 || platform !== "win32")
-    return { cmd: command2 ?? "", args: rest };
-  const resolved = resolveWindowsCommand(command2, env);
-  if (!/\.(?:bat|cmd)$/i.test(resolved))
-    return { cmd: resolved, args: rest };
-  return {
-    cmd: getEnvValue(env, "COMSPEC") ?? "cmd.exe",
-    args: [
-      "/d",
-      "/c",
-      ["call", quoteWindowsCommandArg(resolved), ...rest.map(quoteWindowsCommandArg)].join(" ")
-    ]
-  };
-}
-var defaultVersionFetcher = async (args) => {
-  const [cmd, ...rest] = args;
-  if (!cmd)
-    return null;
-  return new Promise((resolve8) => {
-    try {
-      const spawnCommand = getSpawnCommand([cmd, ...rest], process.env);
-      const proc = spawn(spawnCommand.cmd, spawnCommand.args, {
-        stdio: ["ignore", "pipe", "pipe"]
-      });
-      let isSettled = false;
-      let output = "";
-      let errorOutput = "";
-      proc.stdout.on("data", (data) => {
-        output += data.toString();
-      });
-      proc.stderr.on("data", (data) => {
-        errorOutput += data.toString();
-      });
-      const finish = (value) => {
-        if (isSettled)
-          return;
-        isSettled = true;
-        clearTimeout(timeoutId);
-        resolve8(value);
-      };
-      const timeoutId = setTimeout(() => {
-        proc.kill();
-        finish(null);
-      }, VERSION_FETCH_TIMEOUT_MS);
-      proc.on("close", (code) => {
-        finish(code === 0 ? output.trim() || errorOutput.trim() || null : null);
-      });
-      proc.on("error", () => {
-        finish(null);
-      });
-    } catch {
-      resolve8(null);
-    }
-  });
+var reportIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><path d="M4 22v-7"></path></svg>';
+var pathListIcons = {
+  add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
+  remove: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M10 11v6M14 11v6"></path></svg>'
 };
-var PI_PROBE_EXTENSION = `
-import { writeFileSync } from "node:fs";
-
-export default function (pi) {
-  pi.registerCommand("${PI_PROBE_COMMAND}", {
-    description: "Probe loaded CC Safety Net Pi resources",
-    handler: async (args, ctx) => {
-      const needle = args.trim();
-      const commands = typeof pi.getCommands === "function"
-        ? pi.getCommands().map((command) => ({
-            kind: "command",
-            name: command.name,
-            path: command.sourceInfo?.path,
-            source: command.sourceInfo?.source,
-          }))
-        : [];
-      const tools = typeof pi.getAllTools === "function"
-        ? pi.getAllTools().map((tool) => ({
-            kind: "tool",
-            name: tool.name,
-            path: tool.sourceInfo?.path,
-            source: tool.sourceInfo?.source,
-          }))
-        : [];
-      const resources = [...commands, ...tools];
-      const matched = resources.filter(
-        (resource) => resource.name === needle || resource.path === needle,
-      );
-
-      writeFileSync(
-        process.env.PI_PROBE_OUT,
-        JSON.stringify({
-          installedAndEnabled: matched.length > 0,
-          matched,
-        }),
-      );
-
-      ctx.shutdown?.();
-    },
-  });
-}
-`.trimStart();
-function runCommand(args, options2) {
-  const [cmd, ...rest] = args;
-  if (!cmd) {
-    return Promise.resolve({ code: null, stdout: "", stderr: "", timedOut: false });
+var state;
+var draftPolicy;
+var preview;
+var previewRequestId = 0;
+var dirty = false;
+var searchActive = false;
+var OVERVIEW_DAYS = 7;
+var DEFAULT_RETENTION_DAYS = 30;
+var MAX_RETENTION_DAYS = 365;
+var overview = null;
+var activity = null;
+var knownRuleIds = new Set;
+var activityFilters = { days: 7, decision: "all", agent: "all", query: "", command: "" };
+var tierExpanded = new Map([
+  ["enforced", false],
+  ["normal", false],
+  ["strict", false],
+  ["paranoid", false]
+]);
+var searchCollapsedTiers = new Set;
+var secretGroupExpanded = new Map;
+var searchCollapsedSecretGroups = new Set;
+var rawCopyResetTimer = null;
+var feedCopyResetTimer = null;
+var activityQueryTimer;
+var renderedFeedEntries = [];
+var suspects = new Set;
+var activeStarContext = { starred: null, starCount: null, blockedTotal: 0 };
+var integrations = null;
+var integrationsRequested = false;
+var integrationBusy = new Set;
+var rulesData = null;
+var rulesRequested = false;
+var rulesScope = "project";
+var pendingRuleFocus = null;
+var directoryPickerFailed = false;
+var api = (path, init = {}) => fetch(\`\${path}\${path.includes("?") ? "&" : "?"}token=\${encodeURIComponent(token)}\`, {
+  ...init,
+  headers: {
+    "content-type": "application/json",
+    "x-cc-safety-net-token": token,
+    ...init.headers || {}
   }
-  return new Promise((resolve8) => {
-    try {
-      const env = { ...process.env, ...options2.env ?? {} };
-      const spawnCommand = getSpawnCommand([cmd, ...rest], env);
-      const proc = spawn(spawnCommand.cmd, spawnCommand.args, {
-        cwd: options2.cwd,
-        env,
-        stdio: ["ignore", "pipe", "pipe"]
-      });
-      let isSettled = false;
-      let stdout = "";
-      let stderr = "";
-      proc.stdout.on("data", (data) => {
-        stdout += data.toString();
-      });
-      proc.stderr.on("data", (data) => {
-        stderr += data.toString();
-      });
-      const finish = (result) => {
-        if (isSettled)
-          return;
-        isSettled = true;
-        clearTimeout(timeoutId);
-        resolve8(result);
-      };
-      const timeoutId = setTimeout(() => {
-        proc.kill();
-        finish({ code: null, stdout, stderr, timedOut: true });
-      }, options2.timeoutMs);
-      proc.on("close", (code) => {
-        finish({ code, stdout, stderr, timedOut: false });
-      });
-      proc.on("error", (error) => {
-        finish({ code: null, stdout, stderr, timedOut: false, error: error.message });
-      });
-    } catch (error) {
-      resolve8({
-        code: null,
-        stdout: "",
-        stderr: "",
-        timedOut: false,
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
-  });
-}
-var defaultPiProbeRunner = async (cwd) => {
-  const tempDir = await mkdtemp(join11(tmpdir4(), "cc-safety-net-pi-probe-"));
-  const probePath = join11(tempDir, "pi-extension-probe.ts");
-  const resultPath = join11(tempDir, "result.json");
-  const stdoutPath = join11(tempDir, "stdout.jsonl");
+});
+var requestJson = async (path, init) => {
   try {
-    await writeFile(probePath, PI_PROBE_EXTENSION);
-    const result = await runCommand(["pi", "-e", probePath, "--mode", "json", `/${PI_PROBE_COMMAND} ${PI_SENTINEL_COMMAND}`], {
-      cwd,
-      env: { PI_PROBE_OUT: resultPath },
-      timeoutMs: PI_PROBE_TIMEOUT_MS
-    });
-    await writeFile(stdoutPath, result.stdout);
-    if (result.timedOut) {
-      return {
-        status: "error",
-        installedAndEnabled: false,
-        matched: [],
-        error: "Pi probe timed out"
-      };
-    }
-    if (result.error) {
-      return {
-        status: "error",
-        installedAndEnabled: false,
-        matched: [],
-        error: `Pi probe failed: ${result.error}`
-      };
-    }
-    if (result.code !== 0) {
-      return {
-        status: "error",
-        installedAndEnabled: false,
-        matched: [],
-        error: `Pi probe exited with code ${result.code ?? "unknown"}${result.stderr.trim() ? `: ${result.stderr.trim()}` : ""}`
-      };
-    }
-    return parsePiProbeResult(await readFile(resultPath, "utf-8"));
-  } catch (error) {
+    const response = await api(path, init);
+    const text = await response.text();
     return {
-      status: "error",
-      installedAndEnabled: false,
-      matched: [],
-      error: `Pi probe failed: ${error instanceof Error ? error.message : String(error)}`
-    };
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
-};
-function parsePiProbeResult(content) {
-  try {
-    const parsed = JSON.parse(content);
-    if (!isObject(parsed)) {
-      return {
-        status: "error",
-        installedAndEnabled: false,
-        matched: [],
-        error: "Pi probe result was not an object"
-      };
-    }
-    const matched = Array.isArray(parsed.matched) ? parsed.matched.map(parsePiProbeResource).filter((resource) => resource !== null) : [];
-    const installedAndEnabled = parsed.installedAndEnabled === true;
-    return {
-      status: installedAndEnabled ? "configured" : "not-found",
-      installedAndEnabled,
-      matched
-    };
-  } catch (error) {
-    return {
-      status: "error",
-      installedAndEnabled: false,
-      matched: [],
-      error: `Failed to parse Pi probe result: ${error instanceof Error ? error.message : String(error)}`
-    };
-  }
-}
-function parsePiProbeResource(value) {
-  if (!isObject(value))
-    return null;
-  if (value.kind !== "command" && value.kind !== "tool")
-    return null;
-  if (typeof value.name !== "string")
-    return null;
-  return {
-    kind: value.kind,
-    name: value.name,
-    ...typeof value.path === "string" ? { path: value.path } : {},
-    ...typeof value.source === "string" ? { source: value.source } : {}
-  };
-}
-function isObject(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-function parseVersion(output) {
-  if (!output)
-    return null;
-  const claudeMatch = /Claude Code\s+(\d+\.\d+\.\d+)/i.exec(output);
-  if (claudeMatch)
-    return claudeMatch[1] ?? null;
-  const versionMatch = /v?(\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?)/i.exec(output);
-  if (versionMatch)
-    return versionMatch[1] ?? null;
-  const firstLine = output.split(`
-`)[0]?.trim();
-  return firstLine || null;
-}
-function hasCopilotSafetyNetPlugin(output) {
-  if (!output)
-    return false;
-  const pluginPattern = new RegExp(`(^|[^a-z0-9-])${COPILOT_PLUGIN_ID}([^a-z0-9-]|$)`, "m");
-  return pluginPattern.test(output);
-}
-async function getSystemInfo(fetcher = defaultVersionFetcher, options2 = {}) {
-  const piRawPromise = fetcher(["pi", "--version"]);
-  const piProbeRunner = options2.piProbeRunner ?? defaultPiProbeRunner;
-  const shouldRunPiProbe = !!options2.piProbeRunner || fetcher === defaultVersionFetcher;
-  const piProbePromise = piRawPromise.then((piRaw2) => {
-    if (!piRaw2)
-      return PI_PROBE_UNAVAILABLE;
-    if (!shouldRunPiProbe)
-      return PI_PROBE_UNAVAILABLE;
-    return piProbeRunner(options2.cwd ?? process.cwd());
-  });
-  const fetchCopilotVersion = async () => {
-    const binaryVersionPromise = fetcher(["copilot", "--binary-version"]);
-    const fallbackVersionPromise = fetcher(["copilot", "--version"]);
-    const binaryVersion = await binaryVersionPromise;
-    if (binaryVersion) {
-      return binaryVersion;
-    }
-    return fallbackVersionPromise;
-  };
-  const [
-    claudeRaw,
-    claudePluginListOutput,
-    openCodeRaw,
-    codexRaw,
-    geminiRaw,
-    geminiExtensionsListOutput,
-    copilotRaw,
-    kimiRaw,
-    piRaw,
-    nodeRaw,
-    npmRaw,
-    bunRaw,
-    pluginListRaw,
-    piSafetyNetProbe
-  ] = await Promise.all([
-    fetcher(["claude", "--version"]),
-    fetcher(["claude", "plugin", "list"]),
-    fetcher(["opencode", "--version"]),
-    fetcher(["codex", "--version"]),
-    fetcher(["gemini", "--version"]),
-    fetcher(["gemini", "extensions", "list"]),
-    fetchCopilotVersion(),
-    fetcher(["kimi", "--version"]),
-    piRawPromise,
-    fetcher(["node", "--version"]),
-    fetcher(["npm", "--version"]),
-    fetcher(["bun", "--version"]),
-    fetcher(["copilot", "plugin", "list"]),
-    piProbePromise
-  ]);
-  return {
-    version: CURRENT_VERSION,
-    claudeCodeVersion: parseVersion(claudeRaw),
-    claudePluginListOutput,
-    openCodeVersion: parseVersion(openCodeRaw),
-    codexCliVersion: parseVersion(codexRaw),
-    geminiCliVersion: parseVersion(geminiRaw),
-    geminiExtensionsListOutput,
-    copilotCliVersion: parseVersion(copilotRaw),
-    kimiCodeVersion: parseVersion(kimiRaw),
-    piCliVersion: parseVersion(piRaw),
-    nodeVersion: parseVersion(nodeRaw),
-    npmVersion: parseVersion(npmRaw),
-    bunVersion: parseVersion(bunRaw),
-    copilotPluginInstalled: hasCopilotSafetyNetPlugin(pluginListRaw),
-    piSafetyNetProbe,
-    platform: `${process.platform} ${process.arch}`
-  };
-}
-
-// src/bin/doctor/updates.ts
-function isNewerVersion(latest, current) {
-  if (current === "dev")
-    return false;
-  const latestParts = latest.split(".").map(Number);
-  const currentParts = current.split(".").map(Number);
-  const [latestMajor = 0, latestMinor = 0, latestPatch = 0] = latestParts;
-  const [currentMajor = 0, currentMinor = 0, currentPatch = 0] = currentParts;
-  if (latestMajor !== currentMajor)
-    return latestMajor > currentMajor;
-  if (latestMinor !== currentMinor)
-    return latestMinor > currentMinor;
-  return latestPatch > currentPatch;
-}
-async function checkForUpdates() {
-  const currentVersion = getPackageVersion();
-  const controller = new AbortController;
-  const timeout = setTimeout(() => controller.abort(), 3000);
-  try {
-    const res = await fetch("https://registry.npmjs.org/cc-safety-net/latest", {
-      signal: controller.signal
-    });
-    if (!res.ok) {
-      return {
-        currentVersion,
-        latestVersion: null,
-        updateAvailable: false,
-        error: `npm registry returned ${res.status}`
-      };
-    }
-    const data = await res.json();
-    const updateAvailable = isNewerVersion(data.version, currentVersion);
-    return {
-      currentVersion,
-      latestVersion: data.version,
-      updateAvailable
-    };
-  } catch (e) {
-    return {
-      currentVersion,
-      latestVersion: null,
-      updateAvailable: false,
-      error: e instanceof Error ? e.message : "Network error"
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-// src/bin/doctor/flags.ts
-function parseDoctorFlags(args) {
-  return {
-    json: args.includes("--json"),
-    skipUpdateCheck: args.includes("--skip-update-check")
-  };
-}
-
-// src/bin/doctor/index.ts
-async function runDoctor(options2 = {}) {
-  const cwd = options2.cwd ?? process.cwd();
-  const system = await getSystemInfo(undefined, { cwd });
-  const hooks = detectAllHooks(cwd, {
-    claudePluginListOutput: system.claudePluginListOutput,
-    geminiExtensionsListOutput: system.geminiExtensionsListOutput,
-    copilotCliVersion: system.copilotCliVersion,
-    copilotPluginInstalled: system.copilotPluginInstalled,
-    piSafetyNetProbe: system.piSafetyNetProbe
-  });
-  const configInfo = getConfigInfo(cwd);
-  const environment = getEnvironmentInfo();
-  const activity = getActivitySummary(7);
-  const update = options2.skipUpdateCheck ? {
-    currentVersion: getPackageVersion(),
-    latestVersion: null,
-    updateAvailable: false
-  } : await checkForUpdates();
-  const report = {
-    hooks,
-    userConfig: configInfo.userConfig,
-    projectConfig: configInfo.projectConfig,
-    effectiveRules: configInfo.effectiveRules,
-    shadowedRules: configInfo.shadowedRules,
-    environment,
-    activity,
-    update,
-    system
-  };
-  if (options2.json) {
-    console.log(JSON.stringify(report, null, 2));
-  } else {
-    printReport(report);
-  }
-  const hasFailure = doctorHasFailure(hooks, configInfo);
-  return hasFailure ? 1 : 0;
-}
-function doctorHasFailure(hooks, configInfo) {
-  return hooks.length > 0 && hooks.every((h) => h.status !== "configured") || hooks.some((h) => h.selfTest && h.selfTest.failed > 0) || configInfo.userConfig.exists && !configInfo.userConfig.valid || configInfo.projectConfig.exists && !configInfo.projectConfig.valid;
-}
-function printReport(report) {
-  console.log();
-  console.log(formatHooksSection(report.hooks));
-  console.log();
-  console.log(formatConfigSection(report));
-  console.log();
-  console.log(formatEnvironmentSection(report.environment));
-  console.log();
-  console.log(formatActivitySection(report.activity));
-  console.log();
-  console.log(formatSystemInfoSection(report.system));
-  console.log();
-  console.log(formatUpdateSection(report.update));
-  console.log(formatSummary(report));
-}
-
-// src/bin/explain/config.ts
-import { existsSync as existsSync15 } from "node:fs";
-import { resolve as resolve8 } from "node:path";
-function getConfigSource(options2) {
-  const projectPath = getProjectRulesConfigPath(options2?.cwd);
-  let invalidProjectPath = null;
-  if (existsSync15(projectPath)) {
-    const validation = validateRulesConfigFile(projectPath);
-    if (validation.errors.length === 0) {
-      return { configSource: projectPath, configValid: true };
-    }
-    invalidProjectPath = projectPath;
-  }
-  const userPath = options2?.userConfigPath ?? getUserRulesConfigPath(options2);
-  if (existsSync15(userPath)) {
-    const validation = validateRulesConfigFile(userPath);
-    return { configSource: userPath, configValid: validation.errors.length === 0 };
-  }
-  if (invalidProjectPath) {
-    return { configSource: invalidProjectPath, configValid: false };
-  }
-  return { configSource: null, configValid: true };
-}
-function buildAnalyzeOptions(explainOptions) {
-  const cwd = resolve8(explainOptions?.cwd ?? process.cwd());
-  const modes = getCCSafetyNetEnvModes();
-  return {
-    cwd,
-    effectiveCwd: cwd,
-    config: explainOptions?.config ?? loadConfig(cwd, { userConfigDir: explainOptions?.userConfigDir }),
-    strict: explainOptions?.strict ?? modes.strict,
-    paranoidRm: modes.paranoidRm,
-    paranoidInterpreters: modes.paranoidInterpreters,
-    worktreeMode: modes.worktreeMode
-  };
-}
-
-// src/bin/explain/redact.ts
-var ENV_ASSIGNMENT_RE2 = /^[A-Za-z_][A-Za-z0-9_]*=/;
-function redactEnvVars(envMap) {
-  const result = {};
-  for (const key of envMap.keys()) {
-    result[key] = "<redacted>";
-  }
-  return result;
-}
-function redactEnvAssignmentsInString(str) {
-  return str.replace(/\b([A-Za-z_][A-Za-z0-9_]*)=\$\([^)]*\)/g, "$1=<redacted>").replace(/\b([A-Za-z_][A-Za-z0-9_]*)=(?:"[^"]*"|'[^']*'|\S+)/g, "$1=<redacted>");
-}
-function redactEnvAssignmentTokens(tokens) {
-  return tokens.map((token) => {
-    if (ENV_ASSIGNMENT_RE2.test(token)) {
-      const eqIdx = token.indexOf("=");
-      return `${token.slice(0, eqIdx)}=<redacted>`;
-    }
-    return token;
-  });
-}
-
-// src/bin/explain/segment.ts
-var REASON_STRICT_UNPARSEABLE2 = "Command could not be safely analyzed (strict mode). Verify manually.";
-function isUnparseableCommand(command2, segments2) {
-  return segments2.length === 1 && segments2[0]?.length === 1 && segments2[0][0] === command2 && command2.includes(" ");
-}
-function explainInnerSegments(innerCmd, depth, options2, steps) {
-  if (depth + 1 >= MAX_RECURSION_DEPTH) {
-    steps.push({
-      type: "error",
-      message: REASON_RECURSION_LIMIT
-    });
-    return { reason: REASON_RECURSION_LIMIT };
-  }
-  const innerSegments = splitShellCommands(innerCmd);
-  if (options2.strict && isUnparseableCommand(innerCmd, innerSegments)) {
-    steps.push({
-      type: "strict-unparseable",
-      rawCommand: redactEnvAssignmentsInString(innerCmd),
-      reason: REASON_STRICT_UNPARSEABLE2
-    });
-    return { reason: REASON_STRICT_UNPARSEABLE2 };
-  }
-  let effectiveCwd = options2.effectiveCwd === undefined ? options2.cwd : options2.effectiveCwd;
-  const shellGitContextState = createShellGitContextEnvState(options2.envAssignments);
-  for (const segment of innerSegments) {
-    if (segment.length === 1 && segment[0]?.includes(" ")) {
-      const textReason = dangerousInText(segment[0]);
-      if (textReason) {
-        steps.push({
-          type: "dangerous-text",
-          token: redactEnvAssignmentsInString(segment[0]),
-          matched: true,
-          reason: textReason
-        });
-        return { reason: textReason };
-      }
-      steps.push({
-        type: "dangerous-text",
-        token: redactEnvAssignmentsInString(segment[0]),
-        matched: false
-      });
-      if (segmentChangesCwd(segment)) {
-        steps.push({
-          type: "cwd-change",
-          segment: redactEnvAssignmentsInString(segment.join(" ")),
-          effectiveCwdNowUnknown: true
-        });
-        effectiveCwd = null;
-      }
-      continue;
-    }
-    const result = explainSegment(segment, depth + 1, {
-      ...options2,
-      effectiveCwd,
-      envAssignments: getSegmentGitContextEnvAssignments(segment, shellGitContextState)
-    }, steps);
-    if (result)
-      return result;
-    if (segmentChangesCwd(segment)) {
-      steps.push({
-        type: "cwd-change",
-        segment: redactEnvAssignmentsInString(segment.join(" ")),
-        effectiveCwdNowUnknown: true
-      });
-      effectiveCwd = null;
-    }
-    applyShellGitContextEnvSegment(segment, shellGitContextState);
-  }
-  return null;
-}
-function explainSegment(tokens, depth, options2, steps) {
-  if (depth >= MAX_RECURSION_DEPTH) {
-    steps.push({
-      type: "error",
-      message: REASON_RECURSION_LIMIT
-    });
-    return { reason: REASON_RECURSION_LIMIT };
-  }
-  const envResult = stripEnvAssignmentsWithInfo(tokens);
-  if (envResult.envAssignments.size > 0) {
-    steps.push({
-      type: "env-strip",
-      input: redactEnvAssignmentTokens(tokens),
-      envVars: redactEnvVars(envResult.envAssignments),
-      output: envResult.tokens
-    });
-  }
-  const effectiveCwd = options2.effectiveCwd === undefined ? options2.cwd : options2.effectiveCwd;
-  const cwdUnknown = effectiveCwd === null;
-  const baseCwdForRm = cwdUnknown ? undefined : effectiveCwd ?? options2.cwd;
-  const originalCwd = cwdUnknown ? undefined : options2.cwd;
-  const wrapperResult = stripWrappersWithInfo(envResult.tokens, baseCwdForRm);
-  const removed = envResult.tokens.slice(0, envResult.tokens.length - wrapperResult.tokens.length);
-  if (removed.length > 0) {
-    steps.push({
-      type: "leading-tokens-stripped",
-      input: redactEnvAssignmentTokens(envResult.tokens),
-      removed: redactEnvAssignmentTokens(removed),
-      output: wrapperResult.tokens
-    });
-  }
-  const strippedTokens = wrapperResult.tokens;
-  const envAssignments = new Map(options2.envAssignments ?? []);
-  for (const [k, v] of envResult.envAssignments) {
-    envAssignments.set(k, v);
-  }
-  for (const [k, v] of wrapperResult.envAssignments) {
-    envAssignments.set(k, v);
-  }
-  const cwdForRm = wrapperResult.cwd === null ? undefined : wrapperResult.cwd ?? baseCwdForRm;
-  const nestedEffectiveCwd = wrapperResult.cwd === undefined ? options2.effectiveCwd : wrapperResult.cwd;
-  const nestedOptions = {
-    ...options2,
-    effectiveCwd: nestedEffectiveCwd,
-    envAssignments
-  };
-  if (strippedTokens.length === 0) {
-    return null;
-  }
-  const head = strippedTokens[0];
-  if (!head)
-    return null;
-  const baseName = head.split("/").pop() ?? head;
-  const baseNameLower = baseName.toLowerCase();
-  if (isShellWrapperCommand2(head, baseNameLower)) {
-    const innerCmd = extractDashCArg(strippedTokens);
-    if (innerCmd) {
-      const redactedInnerCmd = redactEnvAssignmentsInString(innerCmd);
-      steps.push({
-        type: "shell-wrapper",
-        wrapper: baseNameLower,
-        innerCommand: redactedInnerCmd
-      });
-      steps.push({
-        type: "recurse",
-        reason: "shell-wrapper",
-        innerCommand: redactedInnerCmd,
-        depth: depth + 1
-      });
-      return explainInnerSegments(innerCmd, depth, nestedOptions, steps);
-    }
-  }
-  if (AWK_INTERPRETERS.has(baseNameLower)) {
-    const awkReason = analyzeAwkSystemCalls(strippedTokens, (command2) => {
-      const nestedResult = explainInnerSegments(command2, depth, nestedOptions, steps);
-      return nestedResult?.reason ?? null;
-    });
-    if (awkReason) {
-      steps.push({
-        type: "rule-check",
-        ruleModule: "awk",
-        ruleFunction: "analyzeAwkSystemCalls",
-        matched: true,
-        reason: awkReason
-      });
-      return {
-        reason: awkReason === REASON_AWK_SYSTEM_DYNAMIC ? REASON_AWK_SYSTEM_DYNAMIC : awkReason
-      };
-    }
-  }
-  if (INTERPRETERS.has(baseNameLower)) {
-    const codeArg = extractInterpreterCodeArg(strippedTokens);
-    if (codeArg) {
-      const paranoidBlocked = !!options2.paranoidInterpreters;
-      const redactedCodeArg = redactEnvAssignmentsInString(codeArg);
-      steps.push({
-        type: "interpreter",
-        interpreter: baseNameLower,
-        codeArg: redactedCodeArg,
-        paranoidBlocked
-      });
-      if (paranoidBlocked) {
-        return { reason: REASON_INTERPRETER_BLOCKED + PARANOID_INTERPRETERS_SUFFIX };
-      }
-      steps.push({
-        type: "recurse",
-        reason: "interpreter",
-        innerCommand: redactedCodeArg,
-        depth: depth + 1
-      });
-      const nestedResult = explainInnerSegments(codeArg, depth, nestedOptions, steps);
-      if (nestedResult)
-        return nestedResult;
-      if (containsDangerousCode(codeArg)) {
-        steps.push({
-          type: "dangerous-text",
-          token: redactedCodeArg,
-          matched: true,
-          reason: REASON_INTERPRETER_DANGEROUS
-        });
-        return { reason: REASON_INTERPRETER_DANGEROUS };
-      }
-      return null;
-    }
-  }
-  if (baseNameLower === "busybox" && strippedTokens.length > 1) {
-    const subcommand = strippedTokens[1] ?? "unknown";
-    steps.push({
-      type: "busybox",
-      subcommand
-    });
-    const busyboxInnerCmd = strippedTokens.slice(1).join(" ");
-    steps.push({
-      type: "recurse",
-      reason: "busybox",
-      innerCommand: redactEnvAssignmentsInString(busyboxInnerCmd),
-      depth: depth + 1
-    });
-    return explainSegment(strippedTokens.slice(1), depth + 1, nestedOptions, steps);
-  }
-  const allowTmpdirVar = !isTmpdirOverriddenToNonTemp(envAssignments);
-  const tmpdirValue = envAssignments.get("TMPDIR") ?? process.env.TMPDIR ?? null;
-  const isGit = baseNameLower === "git";
-  const isRm = baseName === "rm";
-  const isFind = baseName === "find";
-  const isXargs = baseName === "xargs";
-  const isParallel = baseName === "parallel";
-  if (isRm || isXargs || isParallel) {
-    steps.push({
-      type: "tmpdir-check",
-      tmpdirValue,
-      isOverriddenToNonTemp: !allowTmpdirVar,
-      allowTmpdirVar
-    });
-  }
-  if (isGit) {
-    const gitOptions = {
-      cwd: cwdForRm,
-      envAssignments,
-      worktreeMode: options2.worktreeMode
-    };
-    const relaxation = getGitWorktreeRelaxation(strippedTokens, gitOptions);
-    const reason = analyzeGit(strippedTokens, gitOptions);
-    steps.push({
-      type: "rule-check",
-      ruleModule: "git",
-      ruleFunction: "analyzeGit",
-      matched: !!reason || !!relaxation,
-      reason: reason ?? relaxation?.originalReason
-    });
-    if (relaxation) {
-      steps.push({
-        type: "worktree-relaxation",
-        originalReason: relaxation.originalReason,
-        gitCwd: relaxation.gitCwd
-      });
-    }
-    if (reason)
-      return { reason };
-  }
-  if (isRm) {
-    const reason = analyzeRm(strippedTokens, {
-      cwd: cwdForRm,
-      originalCwd,
-      paranoid: options2.paranoidRm,
-      allowTmpdirVar
-    });
-    steps.push({
-      type: "rule-check",
-      ruleModule: "analyze/rm.ts",
-      ruleFunction: "analyzeRm",
-      matched: !!reason,
-      reason: reason ?? undefined
-    });
-    if (reason)
-      return { reason };
-  }
-  if (isFind) {
-    const reason = analyzeFind(strippedTokens);
-    steps.push({
-      type: "rule-check",
-      ruleModule: "analyze/find.ts",
-      ruleFunction: "analyzeFind",
-      matched: !!reason,
-      reason: reason ?? undefined
-    });
-    if (reason)
-      return { reason };
-  }
-  if (isXargs) {
-    const reason = analyzeXargs(strippedTokens, {
-      cwd: cwdForRm,
-      originalCwd,
-      paranoidRm: options2.paranoidRm,
-      allowTmpdirVar,
-      envAssignments,
-      worktreeMode: options2.worktreeMode
-    });
-    steps.push({
-      type: "rule-check",
-      ruleModule: "analyze/xargs.ts",
-      ruleFunction: "analyzeXargs",
-      matched: !!reason,
-      reason: reason ?? undefined
-    });
-    if (reason)
-      return { reason };
-  }
-  if (isParallel) {
-    const analyzeNested = (cmd, overrides) => {
-      const overriddenOptions = {
-        ...nestedOptions,
-        effectiveCwd: overrides && Object.hasOwn(overrides, "effectiveCwd") ? overrides.effectiveCwd : nestedOptions.effectiveCwd,
-        envAssignments: overrides?.envAssignments ?? nestedOptions.envAssignments,
-        worktreeMode: overrides?.worktreeMode ?? nestedOptions.worktreeMode
-      };
-      const result = explainInnerSegments(cmd, depth, overriddenOptions, steps);
-      return result?.reason ?? null;
-    };
-    const reason = analyzeParallel(strippedTokens, {
-      cwd: cwdForRm,
-      originalCwd,
-      paranoidRm: options2.paranoidRm,
-      allowTmpdirVar,
-      envAssignments,
-      worktreeMode: options2.worktreeMode,
-      analyzeNested
-    });
-    steps.push({
-      type: "rule-check",
-      ruleModule: "analyze/parallel.ts",
-      ruleFunction: "analyzeParallel",
-      matched: !!reason,
-      reason: reason ?? undefined
-    });
-    if (reason)
-      return { reason };
-  }
-  const matchedKnown = isGit || isRm || isFind || isXargs || isParallel;
-  const tokensScanned = [];
-  let fallbackReason = null;
-  let fallbackRelaxation = null;
-  let embeddedCommandFound;
-  if (!matchedKnown && !DISPLAY_COMMANDS.has(normalizeCommandToken(head))) {
-    for (let i = 1;i < strippedTokens.length && !fallbackReason; i++) {
-      const token = strippedTokens[i];
-      if (!token)
-        continue;
-      tokensScanned.push(token);
-      const cmd = normalizeCommandToken(token);
-      if (isShellWrapperCommand2(token, cmd)) {
-        const innerCmd = extractDashCArg([token, ...strippedTokens.slice(i + 1)]);
-        if (innerCmd) {
-          embeddedCommandFound = cmd;
-          const redactedInnerCmd = redactEnvAssignmentsInString(innerCmd);
-          steps.push({
-            type: "shell-wrapper",
-            wrapper: cmd,
-            innerCommand: redactedInnerCmd
-          });
-          steps.push({
-            type: "recurse",
-            reason: "shell-wrapper",
-            innerCommand: redactedInnerCmd,
-            depth: depth + 1
-          });
-          fallbackReason = explainInnerSegments(innerCmd, depth, nestedOptions, steps)?.reason ?? null;
-        }
-      }
-      if (!fallbackReason && cmd === "rm") {
-        embeddedCommandFound = "rm";
-        const rmTokens = ["rm", ...strippedTokens.slice(i + 1)];
-        fallbackReason = analyzeRm(rmTokens, {
-          cwd: cwdForRm,
-          originalCwd,
-          paranoid: options2.paranoidRm,
-          allowTmpdirVar
-        });
-      }
-      if (!fallbackReason && cmd === "git") {
-        embeddedCommandFound = "git";
-        const gitTokens = ["git", ...strippedTokens.slice(i + 1)];
-        const gitOptions = {
-          cwd: cwdForRm,
-          envAssignments,
-          worktreeMode: false
-        };
-        fallbackRelaxation = getGitWorktreeRelaxation(gitTokens, gitOptions);
-        fallbackReason = analyzeGit(gitTokens, gitOptions);
-      }
-      if (!fallbackReason && cmd === "find") {
-        embeddedCommandFound = "find";
-        const findTokens = ["find", ...strippedTokens.slice(i + 1)];
-        fallbackReason = analyzeFind(findTokens);
-      }
-    }
-  }
-  steps.push({
-    type: "fallback-scan",
-    tokensScanned,
-    embeddedCommandFound
-  });
-  if (fallbackRelaxation) {
-    steps.push({
-      type: "worktree-relaxation",
-      originalReason: fallbackRelaxation.originalReason,
-      gitCwd: fallbackRelaxation.gitCwd
-    });
-  }
-  if (fallbackReason)
-    return { reason: fallbackReason };
-  const shouldCheckCustomRules = depth === 0 || !matchedKnown;
-  const hasRules = options2.config?.rules && options2.config.rules.length > 0;
-  if (shouldCheckCustomRules && hasRules && options2.config) {
-    const customResult = checkCustomRules(strippedTokens, options2.config.rules);
-    steps.push({
-      type: "custom-rules-check",
-      rulesChecked: true,
-      matched: !!customResult,
-      reason: customResult ?? undefined
-    });
-    if (customResult)
-      return { reason: customResult };
-  } else {
-    steps.push({
-      type: "custom-rules-check",
-      rulesChecked: false,
-      matched: false
-    });
-  }
-  return null;
-}
-function isShellWrapperCommand2(head, baseNameLower) {
-  return SHELL_WRAPPERS.has(baseNameLower) || head === "$SHELL";
-}
-
-// src/bin/explain/analyze.ts
-function explainCommand2(command2, options2) {
-  const trace = { steps: [], segments: [] };
-  const analyzeOpts = buildAnalyzeOptions(options2);
-  const { configSource, configValid } = getConfigSource({
-    cwd: options2?.cwd,
-    userConfigDir: options2?.userConfigDir
-  });
-  if (!command2 || !command2.trim()) {
-    trace.steps.push({ type: "error", message: "No command provided" });
-    return {
-      trace,
-      result: "allowed",
-      configSource,
-      configValid
-    };
-  }
-  const segments2 = splitShellCommands(command2);
-  const redactedInput = redactEnvAssignmentsInString(command2);
-  const redactedSegments = splitShellCommands(redactedInput).map((seg) => redactEnvAssignmentTokens(seg));
-  trace.steps.push({
-    type: "parse",
-    input: redactedInput,
-    segments: redactedSegments
-  });
-  if (analyzeOpts.strict && isUnparseableCommand(command2, segments2)) {
-    trace.steps.push({
-      type: "strict-unparseable",
-      rawCommand: redactedInput,
-      reason: REASON_STRICT_UNPARSEABLE2
-    });
-    return {
-      trace,
-      result: "blocked",
-      reason: REASON_STRICT_UNPARSEABLE2,
-      segment: redactEnvAssignmentsInString(command2),
-      configSource,
-      configValid
-    };
-  }
-  let blocked = false;
-  let blockReason;
-  let blockSegment;
-  let effectiveCwd = analyzeOpts.effectiveCwd;
-  const shellGitContextState = createShellGitContextEnvState(analyzeOpts.envAssignments);
-  for (let i = 0;i < segments2.length; i++) {
-    const segment = segments2[i];
-    if (!segment)
-      continue;
-    const segmentSteps = [];
-    if (blocked) {
-      segmentSteps.push({
-        type: "segment-skipped",
-        index: i,
-        reason: "prior-segment-blocked"
-      });
-      trace.segments.push({ index: i, steps: segmentSteps });
-      continue;
-    }
-    if (segment.length === 1 && segment[0]?.includes(" ")) {
-      const textReason = dangerousInText(segment[0]);
-      if (textReason) {
-        segmentSteps.push({
-          type: "dangerous-text",
-          token: redactEnvAssignmentsInString(segment[0]),
-          matched: true,
-          reason: textReason
-        });
-        trace.segments.push({ index: i, steps: segmentSteps });
-        blocked = true;
-        blockReason = textReason;
-        blockSegment = redactEnvAssignmentsInString(segment.join(" "));
-        continue;
-      }
-      segmentSteps.push({
-        type: "dangerous-text",
-        token: redactEnvAssignmentsInString(segment[0]),
-        matched: false
-      });
-      const nextCwd2 = resolveCwdAfterSegment(segment, effectiveCwd);
-      if (nextCwd2 !== undefined) {
-        if (nextCwd2 !== null) {
-          effectiveCwd = nextCwd2;
-          trace.segments.push({ index: i, steps: segmentSteps });
-          continue;
-        }
-        segmentSteps.push(cwdChangeStep(segment));
-        effectiveCwd = null;
-      }
-      trace.segments.push({ index: i, steps: segmentSteps });
-      continue;
-    }
-    const result = explainSegment(segment, 0, {
-      ...analyzeOpts,
-      effectiveCwd,
-      envAssignments: getSegmentGitContextEnvAssignments(segment, shellGitContextState)
-    }, segmentSteps);
-    if (result) {
-      blocked = true;
-      blockReason = result.reason;
-      blockSegment = redactEnvAssignmentsInString(segment.join(" "));
-    }
-    const nextCwd = resolveCwdAfterSegment(segment, effectiveCwd);
-    if (nextCwd !== undefined) {
-      if (nextCwd !== null) {
-        effectiveCwd = nextCwd;
-        applyShellGitContextEnvSegment(segment, shellGitContextState);
-        trace.segments.push({ index: i, steps: segmentSteps });
-        continue;
-      }
-      segmentSteps.push(cwdChangeStep(segment));
-      effectiveCwd = null;
-    }
-    applyShellGitContextEnvSegment(segment, shellGitContextState);
-    trace.segments.push({ index: i, steps: segmentSteps });
-  }
-  return {
-    trace,
-    result: blocked ? "blocked" : "allowed",
-    reason: blockReason,
-    segment: blockSegment,
-    customRule: getCustomRuleMetadata(blockReason, options2, analyzeOpts.cwd ?? process.cwd()),
-    configSource,
-    configValid
-  };
-}
-function cwdChangeStep(segment) {
-  return {
-    type: "cwd-change",
-    segment: redactEnvAssignmentsInString(segment.join(" ")),
-    effectiveCwdNowUnknown: true
-  };
-}
-function getCustomRuleMetadata(reason, options2, cwd) {
-  const id = reason?.match(/^\[([^\]]+)]/)?.[1];
-  if (!id)
-    return;
-  if (options2?.config) {
-    return options2.config.rules.some((rule) => rule.name === id) ? { id } : undefined;
-  }
-  const policy = loadRulesPolicy({ cwd, userConfigDir: options2?.userConfigDir });
-  if (!policy.rules.some((rule) => rule.name === id))
-    return;
-  const rulebook = policy.rulebooks.find((item) => item.rules.includes(id));
-  const override = {
-    ...policy.userConfig?.overrides ?? {},
-    ...policy.projectConfig?.overrides ?? {}
-  }[id];
-  return {
-    id,
-    ...rulebook ? {
-      rulebook: { name: rulebook.name, version: rulebook.version },
-      source: rulebook.spec
-    } : {},
-    ...override && typeof override === "object" ? { override: { type: "reason", reason: override.reason } } : {}
-  };
-}
-// src/bin/explain/flags.ts
-function parseExplainFlags(args) {
-  let json = false;
-  let cwd;
-  const remaining = [];
-  let i = 0;
-  while (i < args.length) {
-    const arg = args[i];
-    if (arg === "--help" || arg === "-h") {
-      i++;
-      continue;
-    }
-    if (arg === "--") {
-      remaining.push(...args.slice(i + 1));
-      break;
-    }
-    if (!arg?.startsWith("--")) {
-      remaining.push(...args.slice(i));
-      break;
-    }
-    if (arg === "--json") {
-      json = true;
-      i++;
-    } else if (arg === "--cwd") {
-      i++;
-      if (i >= args.length || args[i]?.startsWith("--")) {
-        console.error("Error: --cwd requires a path");
-        return null;
-      }
-      cwd = args[i];
-      i++;
-    } else {
-      remaining.push(...args.slice(i));
-      break;
-    }
-  }
-  const command2 = remaining.length === 1 ? remaining[0] : $quote(remaining);
-  if (!command2) {
-    console.error("Error: No command provided");
-    console.error("Usage: cc-safety-net explain [--json] [--cwd <path>] <command>");
-    return null;
-  }
-  return { json, cwd, command: command2 };
-}
-// src/bin/explain/format-helpers.ts
-function getBoxChars(asciiOnly) {
-  if (asciiOnly) {
-    return {
-      dh: "=",
-      dv: "|",
-      dtl: "+",
-      dtr: "+",
-      dbl: "+",
-      dbr: "+",
-      h: "-",
-      v: "|",
-      tl: "+",
-      tr: "+",
-      bl: "+",
-      br: "+",
-      sh: "="
-    };
-  }
-  return {
-    dh: "═",
-    dv: "║",
-    dtl: "╔",
-    dtr: "╗",
-    dbl: "╚",
-    dbr: "╝",
-    h: "─",
-    v: "│",
-    tl: "┌",
-    tr: "┐",
-    bl: "└",
-    br: "┘",
-    sh: "━"
-  };
-}
-function formatHeader(box, width) {
-  const title = "  Command Analysis";
-  const padding = width - title.length;
-  return [
-    `${box.dtl}${box.dh.repeat(width)}${box.dtr}`,
-    `${box.dv}${title}${" ".repeat(padding)}${box.dv}`,
-    `${box.dbl}${box.dh.repeat(width)}${box.dbr}`
-  ];
-}
-function formatTokenArray(tokens) {
-  return JSON.stringify(tokens);
-}
-function formatColoredTokenArray(tokens, seed = 0) {
-  const coloredTokens = tokens.map((token, index) => colorizeToken(token, index, seed));
-  return `[${coloredTokens.join(",")}]`;
-}
-function wrapReason(reason, indent, maxWidth = 70) {
-  const words = reason.split(" ");
-  const lines = [];
-  let current = "";
-  for (const word of words) {
-    if (current.length + word.length + 1 > maxWidth) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = current ? `${current} ${word}` : word;
-    }
-  }
-  if (current)
-    lines.push(current);
-  return lines.map((line, i) => i === 0 ? line : `${indent}${line}`);
-}
-function formatStepStyleD(step, stepNum, box) {
-  const lines = [];
-  switch (step.type) {
-    case "parse":
-      return null;
-    case "env-strip": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Strip environment variables`);
-      const envKeys = Object.keys(step.envVars);
-      lines.push(`  Removed: ${envKeys.map((k) => `${k}=<redacted>`).join(", ")}`);
-      lines.push(`  Tokens:  ${formatTokenArray(step.output)}`);
-      return { lines, incrementStep: true };
-    }
-    case "leading-tokens-stripped": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Strip wrappers`);
-      lines.push(`  Removed: ${step.removed.join(", ")}`);
-      lines.push(`  Tokens:  ${formatTokenArray(step.output)}`);
-      return { lines, incrementStep: true };
-    }
-    case "shell-wrapper": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Detect shell wrapper`);
-      lines.push(`  Wrapper: ${step.wrapper} -c`);
-      lines.push(`  Inner:   ${step.innerCommand}`);
-      return { lines, incrementStep: true };
-    }
-    case "interpreter": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Detect interpreter`);
-      lines.push(`  Interpreter: ${step.interpreter}`);
-      lines.push(`  Code:        ${step.codeArg}`);
-      if (step.paranoidBlocked) {
-        lines.push(`  Result:      ✗ BLOCKED (paranoid mode)`);
-      }
-      return { lines, incrementStep: true };
-    }
-    case "busybox": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Busybox wrapper`);
-      lines.push(`  Subcommand: ${step.subcommand}`);
-      return { lines, incrementStep: true };
-    }
-    case "recurse":
-      return { lines: [], incrementStep: false };
-    case "rule-check": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Match rules`);
-      const ruleRef = `${step.ruleModule}:${step.ruleFunction}()`;
-      lines.push(`  Rule:   ${ruleRef}`);
-      if (step.matched) {
-        lines.push(`  Result: MATCHED`);
-      } else {
-        lines.push(`  Result: No match`);
-      }
-      return { lines, incrementStep: true };
-    }
-    case "worktree-relaxation": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Worktree relaxation`);
-      lines.push(`  Mode:   ${ENV_FLAGS.worktree.name}`);
-      lines.push(`  Git cwd: ${step.gitCwd}`);
-      lines.push(`  Result: Allowed local discard in linked worktree`);
-      return { lines, incrementStep: true };
-    }
-    case "tmpdir-check":
-      return null;
-    case "fallback-scan": {
-      if (step.embeddedCommandFound) {
-        lines.push("");
-        lines.push(`STEP ${stepNum} ${box.h} Fallback scan`);
-        lines.push(`  Found: ${step.embeddedCommandFound}`);
-        return { lines, incrementStep: true };
-      }
-      return null;
-    }
-    case "custom-rules-check": {
-      if (step.rulesChecked) {
-        lines.push("");
-        lines.push(`STEP ${stepNum} ${box.h} Custom rules`);
-        if (step.matched) {
-          lines.push(`  Result: MATCHED`);
-        } else {
-          lines.push(`  Result: No match`);
-        }
-        return { lines, incrementStep: true };
-      }
-      return null;
-    }
-    case "cwd-change":
-      return null;
-    case "dangerous-text": {
-      if (step.matched) {
-        lines.push("");
-        lines.push(`STEP ${stepNum} ${box.h} Dangerous text check`);
-        lines.push(`  Token:  ${step.token}`);
-        lines.push(`  Result: MATCHED`);
-        return { lines, incrementStep: true };
-      }
-      return null;
-    }
-    case "strict-unparseable": {
-      lines.push("");
-      lines.push(`STEP ${stepNum} ${box.h} Strict mode check`);
-      lines.push(`  Command: ${step.rawCommand}`);
-      lines.push(`  Result:  ✗ UNPARSEABLE`);
-      return { lines, incrementStep: true };
-    }
-    case "segment-skipped":
-      return null;
-    case "error": {
-      lines.push("");
-      lines.push(`ERROR: ${step.message}`);
-      return { lines, incrementStep: false };
-    }
-    default:
-      return null;
-  }
-}
-
-// src/bin/explain/format.ts
-function formatTraceHuman(result, options2) {
-  const box = getBoxChars(options2?.asciiOnly ?? false);
-  const width = 58;
-  const lines = [];
-  let stepNum = 1;
-  lines.push(...formatHeader(box, width));
-  lines.push("");
-  const errorStep = result.trace.steps.find((s) => s.type === "error");
-  if (errorStep && errorStep.type === "error") {
-    lines.push("ERROR");
-    lines.push(`  ${errorStep.message}`);
-    lines.push("");
-    lines.push("RESULT");
-    lines.push(`  Status: ${result.result === "blocked" ? colors.red("BLOCKED") : colors.green("ALLOWED")}`);
-    lines.push("");
-    lines.push("CONFIG");
-    const configPath2 = result.configSource ?? "none";
-    lines.push(`  Path: ${configPath2}`);
-    return lines.join(`
-`);
-  }
-  const parseStep = result.trace.steps.find((s) => s.type === "parse");
-  if (parseStep && parseStep.type === "parse") {
-    lines.push("INPUT");
-    lines.push(`  ${parseStep.input}`);
-    lines.push("");
-    lines.push(`STEP ${stepNum} ${box.h} Split shell commands`);
-    stepNum++;
-    for (let i = 0;i < parseStep.segments.length; i++) {
-      const seg = parseStep.segments[i];
-      if (seg) {
-        const seed = Math.random();
-        lines.push(`  Segment ${i + 1}: ${formatColoredTokenArray(seg, seed)}`);
-      }
-    }
-  }
-  const segments2 = result.trace.segments;
-  const hasMultipleSegments = segments2.length > 1;
-  for (const seg of segments2) {
-    if (hasMultipleSegments) {
-      lines.push("");
-      let segCommand = "";
-      if (parseStep && parseStep.type === "parse") {
-        const tokens = parseStep.segments[seg.index];
-        if (tokens) {
-          segCommand = tokens.join(" ");
-        }
-      }
-      const maxLabelLen = width - 4;
-      let displayCommand = segCommand;
-      const baseLabel = ` Segment ${seg.index + 1}: `;
-      const suffix = " ";
-      if (segCommand) {
-        const totalLen = baseLabel.length + segCommand.length + suffix.length;
-        if (totalLen > maxLabelLen) {
-          const availableForCmd = maxLabelLen - baseLabel.length - suffix.length;
-          displayCommand = `${segCommand.substring(0, availableForCmd - 1)}…`;
-        }
-      }
-      const labelContent = segCommand ? `${baseLabel}${displayCommand}${suffix}` : ` Segment ${seg.index + 1} `;
-      const coloredContent = segCommand ? `${baseLabel}${colors.cyan(displayCommand)}${suffix}` : labelContent;
-      const segLineLen = width - labelContent.length;
-      const leftLen = Math.floor(segLineLen / 2);
-      const rightLen = segLineLen - leftLen;
-      lines.push(`${box.sh.repeat(leftLen)}${coloredContent}${box.sh.repeat(rightLen)}`);
-    }
-    const skippedStep = seg.steps.find((s) => s.type === "segment-skipped");
-    if (skippedStep) {
-      lines.push("");
-      lines.push("  (skipped — prior segment blocked)");
-      continue;
-    }
-    let inRecursion = false;
-    let hasVisibleSteps = false;
-    for (const step of seg.steps) {
-      const formattedStep = formatStepStyleD(step, stepNum, box);
-      if (formattedStep) {
-        hasVisibleSteps = true;
-        if (step.type === "recurse") {
-          lines.push("");
-          const recurseLabel = " RECURSING ";
-          const recurseLineLen = width - recurseLabel.length - 4;
-          lines.push(`  ${box.tl}${box.h}${recurseLabel}${box.h.repeat(recurseLineLen)}`);
-          lines.push(`  ${box.v}`);
-          inRecursion = true;
-          continue;
-        }
-        for (const line of formattedStep.lines) {
-          if (inRecursion) {
-            lines.push(`  ${box.v} ${line}`);
-          } else {
-            lines.push(line);
-          }
-        }
-        if (formattedStep.incrementStep) {
-          stepNum++;
-        }
-      }
-    }
-    if (inRecursion) {
-      lines.push(`  ${box.v}`);
-      lines.push(`  ${box.bl}${box.h.repeat(width - 2)}`);
-      inRecursion = false;
-    }
-    if (!hasVisibleSteps) {
-      lines.push("");
-      lines.push(`  ${colors.green("✓")} Allowed (no matching rules)`);
-    }
-  }
-  lines.push("");
-  lines.push("RESULT");
-  if (result.result === "blocked") {
-    lines.push(`  Status: ${colors.red("BLOCKED")}`);
-    if (result.customRule) {
-      lines.push(`  Rule: ${result.customRule.id}`);
-      if (result.customRule.rulebook) {
-        lines.push(`  Rulebook: ${result.customRule.rulebook.name} ${result.customRule.rulebook.version}`);
-      }
-      if (result.customRule.source) {
-        lines.push(`  Source: ${result.customRule.source}`);
-      }
-      if (result.customRule.override) {
-        lines.push(`  Override: reason ${result.customRule.override.reason}`);
-      }
-    }
-    if (result.reason) {
-      const reasonLines = wrapReason(result.reason, "          ");
-      lines.push(`  Reason: ${reasonLines[0]}`);
-      for (let i = 1;i < reasonLines.length; i++) {
-        lines.push(reasonLines[i] ?? "");
-      }
-    }
-  } else {
-    lines.push(`  Status: ${colors.green("ALLOWED")}`);
-  }
-  lines.push("");
-  lines.push("CONFIG");
-  const configPath = result.configSource ?? "none";
-  const configStatus = result.configValid ? "" : " (invalid)";
-  lines.push(`  Path: ${configPath}${configStatus}`);
-  return lines.join(`
-`);
-}
-function formatTraceJson(result) {
-  return JSON.stringify(result, null, 2);
-}
-// src/bin/help.ts
-var version = "1.0.6";
-var INDENT = "  ";
-var PROGRAM_NAME = "cc-safety-net";
-function formatOptionFlags(option) {
-  return option.argument ? `${option.flags} ${option.argument}` : option.flags;
-}
-function getOptionsColumnWidth(options2) {
-  return Math.max(...options2.map((opt) => formatOptionFlags(opt).length));
-}
-function getSubcommandsColumnWidth(subcommands) {
-  return Math.max(...subcommands.map((subcommand) => subcommand.usage.length));
-}
-function getCommandSummaryWidth(commands2) {
-  return Math.max(...commands2.map((cmd) => `${PROGRAM_NAME} ${cmd.usage}`.length));
-}
-function formatCommandSummary(cmd, maxUsageWidth) {
-  const usage = `${PROGRAM_NAME} ${cmd.usage}`;
-  return `${INDENT}${usage.padEnd(maxUsageWidth + 2)}${cmd.description}`;
-}
-function formatEnvironmentVariable(name, description) {
-  return `${INDENT}${name.padEnd(40)}${description}`;
-}
-function printCommandHelp(command2) {
-  const lines = [];
-  lines.push(`${PROGRAM_NAME} ${command2.name}`);
-  lines.push("");
-  lines.push(`${INDENT}${command2.description}`);
-  lines.push("");
-  lines.push("USAGE:");
-  lines.push(`${INDENT}${PROGRAM_NAME} ${command2.usage}`);
-  lines.push("");
-  if (command2.subcommands && command2.subcommands.length > 0) {
-    lines.push("SUBCOMMANDS:");
-    const subcommandWidth = getSubcommandsColumnWidth(command2.subcommands);
-    for (const subcommand of command2.subcommands) {
-      lines.push(`${INDENT}${subcommand.usage.padEnd(subcommandWidth + 2)}${subcommand.description}`);
-    }
-    lines.push("");
-  }
-  if (command2.options.length > 0) {
-    lines.push("OPTIONS:");
-    const optWidth = getOptionsColumnWidth(command2.options);
-    for (const opt of command2.options) {
-      const flags = formatOptionFlags(opt);
-      lines.push(`${INDENT}${flags.padEnd(optWidth + 2)}${opt.description}`);
-    }
-    lines.push("");
-  }
-  if (command2.examples && command2.examples.length > 0) {
-    lines.push("EXAMPLES:");
-    for (const example of command2.examples) {
-      lines.push(`${INDENT}${example}`);
-    }
-  }
-  console.log(lines.join(`
-`));
-}
-function printHelp() {
-  const visibleCommands = getVisibleCommands();
-  const maxUsageWidth = getCommandSummaryWidth(visibleCommands);
-  const lines = [];
-  lines.push(`${PROGRAM_NAME} v${version}`);
-  lines.push("");
-  lines.push("Blocks destructive git and filesystem commands before execution.");
-  lines.push("");
-  lines.push("COMMANDS:");
-  for (const cmd of visibleCommands) {
-    lines.push(formatCommandSummary(cmd, maxUsageWidth));
-  }
-  lines.push("");
-  lines.push("GLOBAL OPTIONS:");
-  lines.push(`${INDENT}-h, --help       Show help (use with command for command-specific help)`);
-  lines.push(`${INDENT}-V, --version    Show version`);
-  lines.push("");
-  lines.push("HELP:");
-  lines.push(`${INDENT}${PROGRAM_NAME} help <command>     Show help for a specific command`);
-  lines.push(`${INDENT}${PROGRAM_NAME} <command> --help   Show help for a specific command`);
-  lines.push("");
-  lines.push("ENVIRONMENT VARIABLES:");
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.strict.name}=1`, "Fail-closed on unparseable commands"));
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoid.name}=1`, "Enable all paranoid checks"));
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidRm.name}=1`, "Block non-temp rm -rf within cwd"));
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.paranoidInterpreters.name}=1`, "Block interpreter one-liners"));
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.worktree.name}=1`, "Allow local git discards in linked worktrees"));
-  lines.push(formatEnvironmentVariable(`${ENV_FLAGS.debug.name}=1`, "Log allowed hook commands for debugging"));
-  lines.push(formatEnvironmentVariable("CC_SAFETY_NET_HOME", "Override rule config home directory"));
-  console.log(lines.join(`
-`));
-}
-function printVersion() {
-  console.log(version);
-}
-function showCommandHelp(commandName) {
-  const command2 = findCommand(commandName);
-  if (!command2) {
-    return false;
-  }
-  if (command2.hidden || command2.name.toLowerCase() !== commandName.toLowerCase()) {
-    return false;
-  }
-  printCommandHelp(command2);
-  return true;
-}
-
-// src/bin/hook/install.ts
-import { homedir as homedir6 } from "node:os";
-
-// src/bin/hook/install/kimi-code.ts
-import { existsSync as existsSync16, mkdirSync as mkdirSync4, readFileSync as readFileSync11, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname9, join as join12 } from "node:path";
-
-// src/bin/hook/config-edit.ts
-function isWhitespace(char) {
-  return char !== undefined && /\s/.test(char);
-}
-function skipString(content, index, errorMessage) {
-  let current = index + 1;
-  let isEscaped = false;
-  while (current < content.length) {
-    const char = content[current];
-    if (isEscaped) {
-      isEscaped = false;
-      current++;
-      continue;
-    }
-    if (char === "\\") {
-      isEscaped = true;
-      current++;
-      continue;
-    }
-    if (char === '"')
-      return current + 1;
-    current++;
-  }
-  throw new Error(errorMessage);
-}
-function findMatchingBracket(content, openIndex, options2) {
-  const open = content[openIndex];
-  const close = open === "[" ? "]" : "}";
-  let depth = 0;
-  let index = openIndex;
-  while (index < content.length) {
-    const nextIndex = options2.skipComment?.(content, index) ?? index;
-    if (nextIndex !== index) {
-      index = nextIndex;
-      continue;
-    }
-    if (content[index] === '"') {
-      index = skipString(content, index, options2.stringError);
-      continue;
-    }
-    if (content[index] === open)
-      depth++;
-    if (content[index] === close) {
-      depth--;
-      if (depth === 0)
-        return index;
-    }
-    index++;
-  }
-  throw new Error(options2.bracketError);
-}
-function getLineIndent(content, index) {
-  const lineStart = content.lastIndexOf(`
-`, index) + 1;
-  const match = /^[ \t]*/.exec(content.slice(lineStart));
-  return match?.[0] ?? "";
-}
-function removeArrayRangeItem(content, item) {
-  let removeStart = item.start;
-  let removeEnd = item.end;
-  let index = item.end;
-  while (isWhitespace(content[index]))
-    index++;
-  if (content[index] === ",") {
-    removeEnd = index + 1;
-    if (content[removeEnd] === `
-`)
-      removeEnd++;
-    return `${content.slice(0, removeStart)}${content.slice(removeEnd)}`;
-  }
-  index = item.start - 1;
-  while (isWhitespace(content[index]))
-    index--;
-  if (content[index] === ",") {
-    removeStart = index;
-    const lineStart = content.lastIndexOf(`
-`, removeStart - 1);
-    if (lineStart !== -1 && /^\s*$/.test(content.slice(lineStart + 1, removeStart))) {
-      removeStart = lineStart;
-    }
-  }
-  return `${content.slice(0, removeStart)}${content.slice(removeEnd)}`;
-}
-
-// src/bin/hook/install/kimi-code.ts
-var KIMI_HOOK_COMMAND = "npx -y cc-safety-net hook --kimi-code";
-var KIMI_HOOK_BLOCK = `[[hooks]]
-event = "PreToolUse"
-matcher = "Bash"
-command = "${KIMI_HOOK_COMMAND}"`;
-var KIMI_INLINE_HOOK = `{ event = "PreToolUse", matcher = "Bash", command = "${KIMI_HOOK_COMMAND}" }`;
-function getKimiConfigPath(homeDir) {
-  return join12(process.env.KIMI_CODE_HOME ?? join12(homeDir, ".kimi-code"), "config.toml");
-}
-function removeTopLevelEmptyHooksArray(content) {
-  const result = content.split(`
-`).reduce((state, line) => {
-    if (/^\s*\[/.test(line)) {
-      state.activeTable = true;
-      state.lines.push(line);
-      return state;
-    }
-    if (!state.activeTable && /^\s*hooks\s*=\s*\[\s*]\s*(?:#.*)?$/.test(line))
-      return state;
-    state.lines.push(line);
-    return state;
-  }, { activeTable: false, lines: [] });
-  return result.lines.join(`
-`);
-}
-function skipTomlComment(content, index) {
-  if (content[index] !== "#")
-    return index;
-  const newlineIndex = content.indexOf(`
-`, index + 1);
-  return newlineIndex === -1 ? content.length : newlineIndex + 1;
-}
-function findTomlArrayClose(content, openIndex) {
-  return findMatchingBracket(content, openIndex, {
-    skipComment: skipTomlComment,
-    stringError: "Unterminated string in Kimi Code config",
-    bracketError: "Unmatched hooks array in Kimi Code config"
-  });
-}
-function findTopLevelInlineHooksArray(content) {
-  let activeTable = false;
-  let index = 0;
-  while (index < content.length) {
-    const lineEnd = content.indexOf(`
-`, index);
-    const end = lineEnd === -1 ? content.length : lineEnd;
-    const line = content.slice(index, end);
-    if (/^\s*\[/.test(line))
-      activeTable = true;
-    if (!activeTable) {
-      const match = /^(\s*)hooks\s*=\s*\[/.exec(line);
-      if (match) {
-        const arrayStart = index + match[0].lastIndexOf("[");
-        return { start: arrayStart, end: findTomlArrayClose(content, arrayStart) };
-      }
-    }
-    index = lineEnd === -1 ? content.length : lineEnd + 1;
-  }
-  return;
-}
-function appendKimiInlineHook(content, hooksRange) {
-  const beforeClose = content.slice(0, hooksRange.end).trimEnd();
-  const closingIndent = getLineIndent(content, hooksRange.end);
-  const itemIndent = closingIndent === "" ? "     " : `${closingIndent}  `;
-  const needsComma = !beforeClose.endsWith("[") && !beforeClose.endsWith(",");
-  return `${beforeClose}${needsComma ? "," : ""}
-${itemIndent}${KIMI_INLINE_HOOK}${content.slice(hooksRange.end)}`;
-}
-function appendKimiHook(content) {
-  const inlineHooksRange = findTopLevelInlineHooksArray(content);
-  if (inlineHooksRange && content.slice(inlineHooksRange.start + 1, inlineHooksRange.end).trim()) {
-    return appendKimiInlineHook(content, inlineHooksRange);
-  }
-  const trimmed = removeTopLevelEmptyHooksArray(content).trimEnd();
-  if (trimmed === "")
-    return `${KIMI_HOOK_BLOCK}
-`;
-  return `${trimmed}
-
-${KIMI_HOOK_BLOCK}
-`;
-}
-function removeKimiTableHookBlocks(content) {
-  const blocks = content.split(/(?=^\s*\[\[hooks]]\s*$)/m);
-  return blocks.filter((block) => !/^\s*\[\[hooks]]\s*$/m.test(block) || !block.includes(KIMI_HOOK_COMMAND)).join("").trimEnd();
-}
-function removeKimiInlineHook(content, hooksRange) {
-  const itemStart = content.indexOf(KIMI_INLINE_HOOK, hooksRange.start);
-  if (itemStart === -1 || itemStart > hooksRange.end)
-    return content;
-  return removeArrayRangeItem(content, {
-    start: itemStart,
-    end: itemStart + KIMI_INLINE_HOOK.length
-  });
-}
-function installKimiCode(homeDir) {
-  const configPath = getKimiConfigPath(homeDir);
-  mkdirSync4(dirname9(configPath), { recursive: true });
-  if (!existsSync16(configPath)) {
-    writeFileSync3(configPath, `${KIMI_HOOK_BLOCK}
-`);
-    return { path: configPath, alreadyInstalled: false };
-  }
-  const content = readFileSync11(configPath, "utf-8");
-  if (content.includes(KIMI_HOOK_COMMAND))
-    return { path: configPath, alreadyInstalled: true };
-  writeFileSync3(configPath, appendKimiHook(content));
-  return { path: configPath, alreadyInstalled: false };
-}
-function uninstallKimiCode(homeDir) {
-  const configPath = getKimiConfigPath(homeDir);
-  if (!existsSync16(configPath))
-    return { path: configPath, alreadyInstalled: false };
-  const content = readFileSync11(configPath, "utf-8");
-  if (!content.includes(KIMI_HOOK_COMMAND))
-    return { path: configPath, alreadyInstalled: false };
-  const inlineHooksRange = findTopLevelInlineHooksArray(content);
-  const updated = inlineHooksRange ? removeKimiInlineHook(content, inlineHooksRange) : `${removeKimiTableHookBlocks(content)}
-`;
-  writeFileSync3(configPath, updated);
-  return { path: configPath, alreadyInstalled: true };
-}
-
-// src/bin/hook/install.ts
-function getHomeDir() {
-  return process.env.HOME ?? homedir6();
-}
-function parseInstallTarget(args, action) {
-  const unknownOption = args.find((arg) => arg.startsWith("-") && !["--kimi-code"].includes(arg));
-  if (unknownOption)
-    throw new Error(`Unknown install option: ${unknownOption}`);
-  const unexpectedArg = args.find((arg) => !arg.startsWith("-"));
-  if (unexpectedArg)
-    throw new Error(`Unexpected argument for hook ${action}: ${unexpectedArg}`);
-  if (!args.includes("--kimi-code"))
-    throw new Error("Choose exactly one install target: --kimi-code");
-}
-function runHookInstallCommand(action, args) {
-  try {
-    parseInstallTarget(args, action);
-    const homeDir = getHomeDir();
-    const result = action === "install" ? installKimiCode(homeDir) : uninstallKimiCode(homeDir);
-    const name = "Kimi Code";
-    const pastTense = action === "install" ? "Installed" : "Uninstalled";
-    console.log(action === "install" && result.alreadyInstalled ? `${name} hook already installed in ${result.path}` : action === "uninstall" && !result.alreadyInstalled ? `${name} hook not installed in ${result.path}` : `${pastTense} ${name} hook ${action === "install" ? "in" : "from"} ${result.path}`);
-    return 0;
-  } catch (e) {
-    console.error(formatInstallError(e));
-    return 1;
-  }
-}
-function formatInstallError(error) {
-  const message = error instanceof Error ? error.message : String(error);
-  const code = typeof error === "object" && error !== null && "code" in error ? error.code : null;
-  if (code === "EACCES" || code === "EPERM") {
-    return `${message}
-Check file permissions for the target config file and parent directory.`;
-  }
-  if (code === "ENOENT") {
-    return `${message}
-Check that the target config path and parent directory exist.`;
-  }
-  if (code === "ENOTDIR") {
-    return `${message}
-Check that every parent path component is a directory.`;
-  }
-  return message;
-}
-
-// src/bin/rule/index.ts
-import { existsSync as existsSync19 } from "node:fs";
-import { join as join15 } from "node:path";
-
-// src/bin/rule/doc.ts
-var RULE_DOC = `# Custom Rules Reference
-
-Agent reference for generating CC Safety Net rulebook configuration.
-
-## Config Locations
-
-| Scope | Config path | Rulebook path | Cache path | Priority |
-|-------|-------------|---------------|------------|----------|
-| User | \`~/.cc-safety-net/rules/rule.json\` | \`~/.cc-safety-net/rules/<rulebook-name>/rulebook.json\` | \`~/.cc-safety-net/cache/rulebooks/\` | Lower |
-| Project | \`.cc-safety-net/rules/rule.json\` | \`.cc-safety-net/rules/<rulebook-name>/rulebook.json\` | \`.cc-safety-net/cache/rulebooks/\` | Higher |
-| GitHub source | Listed in a local \`rule.json\` | \`.cc-safety-net/rules/<rulebook-name>/rulebook.json\` in the source repository | Consumer local cache | Source order |
-
-Use \`cc-safety-net rule init\` to create a starter local config and rulebook. Use \`--global\` for user scope.
-
-Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files are not loaded at runtime. Convert them with \`cc-safety-net rule migrate\`.
-
-## rule.json Schema
-
-\`\`\`json
-{
-  "version": 1,
-  "rules": ["project-rules", "owner/repo#main/team-rules"],
-  "overrides": {
-    "project-rules/block-docker-system-prune": {
-      "reason": "Use targeted Docker cleanup commands."
-    },
-    "team-rules/block-npm-global": "off"
-  }
-}
-\`\`\`
-
-- \`version\`: Required. Must be \`1\`.
-- \`rules\`: Optional array of rulebook source strings. Missing \`rules\` is treated as \`[]\`.
-- \`overrides\`: Optional object keyed by \`<rulebook-name>/<rule-name>\`.
-- Override values are either \`"off"\` to disable a rule or \`{ "reason": "..." }\` to replace the rule reason.
-
-## Rulebook Sources
-
-- Local sources are bare rulebook names such as \`project-rules\`; the rulebook file is \`.cc-safety-net/rules/project-rules/rulebook.json\`.
-- GitHub sources use \`owner/repo#ref/<rulebook-name>\`.
-- GitHub refs must be one path segment, such as a tag, SHA, or branch name without \`/\`.
-- Rulebook source names must be unique in a config.
-
-## rulebook.json Schema
-
-\`\`\`json
-{
-  "rulebook_version": 1,
-  "name": "project-rules",
-  "version": "1.0.0",
-  "description": "Project-specific CC Safety Net rules.",
-  "author": "project",
-  "allowed_commands": ["docker"],
-  "rules": [
-    {
-      "name": "block-docker-system-prune",
-      "command": "docker",
-      "subcommand": "system",
-      "block_args": ["prune"],
-      "reason": "Use targeted cleanup instead."
-    }
-  ],
-  "tests": [
-    {
-      "command": "docker system prune",
-      "expect": "blocked",
-      "rule": "block-docker-system-prune"
-    },
-    {
-      "command": "docker ps",
-      "expect": "allowed"
-    }
-  ]
-}
-\`\`\`
-
-### Rulebook Fields
-
-| Field | Required | Constraints |
-|-------|----------|-------------|
-| \`rulebook_version\` | Yes | Must be \`1\` |
-| \`name\` | Yes | \`^[a-zA-Z][a-zA-Z0-9_-]{0,63}$\` |
-| \`version\` | Yes | Non-empty string |
-| \`description\` | No | String |
-| \`author\` | No | String |
-| \`allowed_commands\` | Yes | Unique command names matching \`^[a-zA-Z][a-zA-Z0-9_-]*$\` |
-| \`rules\` | Yes | Array of rule objects |
-| \`tests\` | Yes | Array of fixtures |
-
-### Rule Fields
-
-| Field | Required | Constraints |
-|-------|----------|-------------|
-| \`name\` | Yes | Unique within the rulebook; same pattern as rulebook \`name\` |
-| \`command\` | Yes | Must be listed in \`allowed_commands\`; basename only, not path |
-| \`subcommand\` | No | Same pattern as \`command\`; omit to match any subcommand |
-| \`block_args\` | Yes | Non-empty array of non-empty strings |
-| \`reason\` | Yes | Non-empty string, max 256 chars |
-
-### Test Fixture Fields
-
-| Field | Required | Constraints |
-|-------|----------|-------------|
-| \`command\` | Yes | Non-empty shell command string |
-| \`expect\` | Yes | \`"blocked"\` or \`"allowed"\` |
-| \`rule\` | Required for blocked fixtures | Rule name expected to block the command |
-
-Every rule must have at least one blocked fixture. Add allowed fixtures for close-but-safe commands.
-
-## Matching Behavior
-
-- **Command**: Normalized to basename (\`/usr/bin/git\` → \`git\`).
-- **Subcommand**: First non-option argument after command.
-- **Arguments**: Matched literally. Command blocked if **any** \`block_args\` item is present.
-- **Short options**: Expanded (\`-Ap\` matches \`-A\`).
-- **Long options**: Exact match (\`--all-files\` does not match \`--all\`).
-- **Execution order**: Built-in rules first, then custom rulebooks. Custom rules only add restrictions.
-
-## Workflow
-
-1. Run \`cc-safety-net rule init\` or create \`rule.json\` and \`rulebook.json\` manually.
-2. Run \`cc-safety-net rule sync\` after adding or changing rulebook sources.
-3. Run \`cc-safety-net rule verify\` to validate config, lock/cache state, local rulebooks, and GitHub source rulebooks.
-4. Run \`cc-safety-net rule test\` to execute rulebook fixtures.
-5. Run \`cc-safety-net rule list\` to inspect active rulebooks.
-
-Invalid rule config, corrupt cache, invalid local rulebooks, or remote rulebook repair failures fail closed until repaired with \`cc-safety-net rule sync\`.
-`;
-
-// src/bin/rule/format.ts
-function printRuleChangeResult(result, action) {
-  if (!result.ok) {
-    printResultErrors(result);
-    return;
-  }
-  printResultWarnings(result);
-  console.log(action);
-  console.log("Rule config synced.");
-  console.log("");
-  printActiveRulebookSummary(result.entries);
-}
-function printActiveRulebookSummary(entries) {
-  if (entries.length === 0) {
-    console.log("Active rulebooks: (none)");
-    return;
-  }
-  console.log(`Active rulebooks (${entries.length}):`);
-  for (const entry of entries) {
-    console.log(`  - ${entry.name} ${entry.version} (${formatRuleCount(entry.ruleCount ?? 0)})`);
-    console.log(`    Source: ${formatRulebookSource(entry, new Map)}`);
-  }
-}
-function formatRuleCount(count) {
-  return `${count} ${count === 1 ? "rule" : "rules"}`;
-}
-function formatRulebookSource(entry, sourceDisplayMap) {
-  return sourceDisplayMap.get(entry.spec) ?? getRulebookDisplaySource(entry);
-}
-function printRulesTestResult(result, sourceDisplayMap = new Map) {
-  if (!result.ok) {
-    printResultErrors(result);
-    return;
-  }
-  printResultWarnings(result);
-  console.log("Rulebook tests passed.");
-  console.log("");
-  for (const entry of result.entries) {
-    console.log(`  ${entry.name} ${entry.version}`);
-    console.log(`    Source: ${formatRulebookSource(entry, sourceDisplayMap)}`);
-    console.log(`    Rules: ${entry.ruleCount ?? 0}`);
-    console.log(`    Tests: ${entry.testCount ?? 0}`);
-  }
-  if (result.entries.length < 2)
-    return;
-  console.log("");
-  console.log(`Tested ${result.entries.length} rulebooks, ${sumStats(result.entries, "ruleCount")} rules, ${sumStats(result.entries, "testCount")} tests.`);
-}
-function printRulesListReport(policy, sourceDisplayMaps) {
-  printListSection("Active sources", policy.rulebooks, (rulebook) => [
-    `[${rulebook.source}] ${rulebook.name} ${rulebook.version}`,
-    `  Source: ${sourceDisplayMaps[rulebook.source].get(rulebook.spec) ?? rulebook.spec}`
-  ]);
-  printListSection("Active rules", policy.rules, (rule) => [
-    `[${getRuleSource(policy, rule.name)}] ${rule.name}`,
-    `  Command: ${rule.subcommand ? `${rule.command} ${rule.subcommand}` : rule.command}`,
-    `  Block args: ${rule.block_args.join(", ")}`,
-    `  Reason: ${rule.reason}`
-  ]);
-  printListSection("Disabled rules", getMergedOverrides(policy, "off"), (override) => [
-    override.key
-  ]);
-  printListSection("Reason overrides", getMergedOverrides(policy, "reason"), (override) => [
-    override.key,
-    `  Reason: ${override.value.reason}`
-  ]);
-  printListSection("Issues", policy.errors, (error) => [error]);
-}
-function printListSection(title, items, format) {
-  if (items.length === 0) {
-    console.log(`${title}: (none)`);
-    return;
-  }
-  console.log(`${title} (${items.length}):`);
-  for (const item of items) {
-    const [firstLine, ...detailLines] = format(item);
-    console.log(`  - ${firstLine}`);
-    for (const line of detailLines)
-      console.log(`    ${line}`);
-  }
-}
-function getRuleSource(policy, ruleName) {
-  return policy.rulebooks.find((rulebook) => rulebook.rules.includes(ruleName))?.source ?? "project";
-}
-function getMergedOverrides(policy, kind) {
-  return Object.entries({
-    ...policy.userConfig?.overrides ?? {},
-    ...policy.projectConfig?.overrides ?? {}
-  }).filter((entry) => {
-    if (kind === "off")
-      return entry[1] === "off";
-    return !!entry[1] && typeof entry[1] === "object";
-  }).map(([key, value]) => ({ key, value }));
-}
-function sumStats(entries, key) {
-  return entries.reduce((total, entry) => total + (entry[key] ?? 0), 0);
-}
-function printResultErrors(result) {
-  for (const error of result.errors)
-    console.error(error);
-}
-function printResultWarnings(result) {
-  if (!result.warnings || result.warnings.length === 0)
-    return;
-  for (const warning of result.warnings)
-    console.warn(warning);
-}
-
-// src/bin/rule/migrate.ts
-import { existsSync as existsSync17, readFileSync as readFileSync12, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname10, join as join13 } from "node:path";
-var PROJECT_MIGRATED_FROM = ".safety-net.json";
-var USER_MIGRATED_FROM = "~/.cc-safety-net/config.json";
-async function runRulesMigrate(options2) {
-  const results = [
-    await migrateRulesScope({
-      legacyPath: getLegacyProjectRulesConfigPath({ cwd: options2.cwd }),
-      configPath: getProjectRulesConfigPath(options2.cwd),
-      defaultRulebookName: "project-rules",
-      migratedFrom: PROJECT_MIGRATED_FROM,
-      cleanup: options2.cleanup,
-      syncOptions: { cwd: options2.cwd }
-    }),
-    await migrateRulesScope({
-      legacyPath: getLegacyUserRulesConfigPath(),
-      configPath: getUserRulesConfigPath(),
-      defaultRulebookName: "user-rules",
-      migratedFrom: USER_MIGRATED_FROM,
-      cleanup: options2.cleanup,
-      syncOptions: { cwd: options2.cwd, global: true }
-    })
-  ];
-  return results.every((result) => result) ? 0 : 1;
-}
-async function migrateRulesScope(options2) {
-  if (!existsSync17(options2.legacyPath)) {
-    console.log(`No legacy config found at ${options2.legacyPath}`);
-    return true;
-  }
-  const legacy = readLegacyRulesConfig(options2.legacyPath);
-  if (!legacy.ok) {
-    for (const error of legacy.errors)
-      console.error(error);
-    return false;
-  }
-  const loaded = readRulesConfig(options2.configPath);
-  if (loaded.errors.length > 0) {
-    for (const error of loaded.errors)
-      console.error(error);
-    return false;
-  }
-  const config = loaded.config ?? { version: 1, rules: [], overrides: {} };
-  const rulebookName = getMigratedRulebookName(dirname10(options2.configPath), config.rules, options2.defaultRulebookName, options2.migratedFrom);
-  const rulebookPath = join13(dirname10(options2.configPath), rulebookName, "rulebook.json");
-  const snapshots = [
-    snapshotFile(options2.configPath),
-    snapshotFile(rulebookPath),
-    snapshotFile(getRulesLockPathForConfigPath(options2.configPath))
-  ];
-  const result = await writeAndSyncMigratedRulebook(options2, rulebookPath, rulebookName, legacy.config.rules, config.rules.includes(rulebookName) ? config.rules : [...config.rules, rulebookName], config.overrides ?? {});
-  if (!result.ok) {
-    restoreFiles(snapshots);
-    for (const error of result.errors)
-      console.error(error);
-    return false;
-  }
-  if (!options2.cleanup) {
-    console.log(`Migrated legacy config at ${options2.legacyPath}. Legacy file is no longer used.`);
-    return true;
-  }
-  if (!isCleanupVerified(options2.configPath, rulebookPath, rulebookName, options2.migratedFrom, legacy.config.rules)) {
-    console.error(`Migration cleanup verification failed for ${options2.legacyPath}`);
-    return false;
-  }
-  rmSync2(options2.legacyPath, { force: true });
-  console.log(`Deleted legacy config at ${options2.legacyPath}`);
-  return true;
-}
-async function writeAndSyncMigratedRulebook(options2, rulebookPath, rulebookName, rules, configRules, overrides) {
-  try {
-    writeJsonAtomic(options2.configPath, {
-      version: 1,
-      rules: configRules,
-      overrides
-    });
-    writeJsonAtomic(rulebookPath, getMigratedRulebook(rulebookName, options2.migratedFrom, rules));
-    return await syncRulesConfig(options2.syncOptions);
-  } catch (error) {
-    return { ok: false, errors: [error instanceof Error ? error.message : String(error)] };
-  }
-}
-function readLegacyRulesConfig(path) {
-  try {
-    const parsed = JSON.parse(readFileSync12(path, "utf-8"));
-    const validation = validateConfig(parsed);
-    if (validation.errors.length > 0)
-      return { ok: false, errors: validation.errors };
-    return {
-      ok: true,
-      config: {
-        version: 1,
-        rules: parsed.rules ?? []
-      }
+      ok: response.ok,
+      status: response.status,
+      data: text ? JSON.parse(text) : {},
+      error: undefined
     };
   } catch (error) {
     return {
       ok: false,
-      errors: [`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`]
+      status: 0,
+      data: undefined,
+      error: error instanceof Error ? error.message : String(error)
     };
   }
-}
-function getMigratedRulebookName(configDir, sources, defaultRulebookName, migratedFrom) {
-  const existing = sources.find((source) => getRulebookMigratedFrom(configDir, source) === migratedFrom);
-  if (existing)
-    return existing;
-  if (!existsSync17(join13(configDir, defaultRulebookName, "rulebook.json")))
-    return defaultRulebookName;
-  for (let i = 2;; i++) {
-    const name = `${defaultRulebookName}-${i}`;
-    if (!existsSync17(join13(configDir, name, "rulebook.json")))
-      return name;
-  }
-}
-function getMigratedRulebook(name, migratedFrom, rules) {
-  return {
-    rulebook_version: 1,
-    name,
-    version: "1.0.0",
-    description: "Migrated CC Safety Net rules.",
-    author: "project",
-    migrated_from: migratedFrom,
-    allowed_commands: [...new Set(rules.map((rule) => rule.command))],
-    rules,
-    tests: rules.map((rule) => ({
-      command: [rule.command, rule.subcommand, rule.block_args[0]].filter(Boolean).join(" "),
-      expect: "blocked",
-      rule: rule.name
-    }))
-  };
-}
-function isCleanupVerified(configPath, rulebookPath, rulebookName, migratedFrom, legacyRules) {
-  const config = readRulesConfig(configPath).config;
-  if (!config?.rules.includes(rulebookName) || !existsSync17(rulebookPath))
-    return false;
-  try {
-    const rulebook = JSON.parse(readFileSync12(rulebookPath, "utf-8"));
-    return rulebook.migrated_from === migratedFrom && JSON.stringify(rulebook.rules) === JSON.stringify(legacyRules);
-  } catch {
-    return false;
-  }
-}
-function snapshotFile(path) {
-  return { path, content: existsSync17(path) ? readFileSync12(path, "utf-8") : null };
-}
-function restoreFiles(snapshots) {
-  for (const snapshot of snapshots) {
-    if (snapshot.content === null) {
-      rmSync2(snapshot.path, { force: true });
-      continue;
-    }
-    writeFileSync4(snapshot.path, snapshot.content, "utf-8");
-  }
-}
-
-// src/bin/rule/verify.ts
-import { existsSync as existsSync18, readdirSync as readdirSync4, readFileSync as readFileSync13, statSync as statSync2, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname11, join as join14, resolve as resolve9 } from "node:path";
-var VERIFY_HEADER = "CC Safety Net Config";
-var VERIFY_SEPARATOR = "═".repeat(VERIFY_HEADER.length);
-var RULES_SCHEMA_URL = "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json";
-var RULES_DIR_RESERVED_ENTRIES = new Set(["rule.json", "rule.lock", "cache"]);
-function runRulesVerify(options2 = {}) {
-  const cwd = options2.cwd ?? process.cwd();
-  const userConfig = options2.userConfigPath ?? getUserRulesConfigPath();
-  const projectConfig = options2.projectConfigPath ?? getProjectRulesConfigPath(cwd);
-  const legacyUserConfig = options2.legacyUserConfigPath ?? getLegacyUserRulesConfigPath();
-  const legacyProjectConfig = options2.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd);
-  const githubSourceRulesDir = resolve9(cwd, RULES_DIR);
-  const userConfigDir = dirname11(userConfig);
-  let hasErrors = false;
-  let hasWarnings = false;
-  const configsChecked = [];
-  const warnings = [];
-  const githubSourceRules = getGitHubSourceRulesValidation(githubSourceRulesDir);
-  printRulesVerifyHeader();
-  if (existsSync18(userConfig)) {
-    const result = validateRulesConfigFile(userConfig);
-    result.errors.push(...getRulesConfigRuntimeErrorsForConfig(userConfig, getUserRulesLockPath({ userConfigDir }), {
-      userConfigDir
-    }));
-    configsChecked.push({
-      scope: "User",
-      path: userConfig,
-      result,
-      schema: "rules",
-      sourceDisplayMap: getRulesConfigSourceDisplayMap(userConfig)
-    });
-    if (result.errors.length > 0)
-      hasErrors = true;
-  }
-  if (existsSync18(legacyUserConfig)) {
-    hasWarnings = true;
-    if (existsSync18(userConfig)) {
-      warnings.push(getLegacyRulesConfigWarning("user", "cleanup"));
-    } else {
-      const result = validateConfigFile(legacyUserConfig);
-      configsChecked.push({
-        scope: "User",
-        path: legacyUserConfig,
-        result,
-        schema: "legacy",
-        sourceDisplayMap: new Map,
-        inactive: true
-      });
-      warnings.push(getLegacyRulesConfigWarning("user", result.errors.length > 0 ? "fix-or-delete" : "migrate"));
-      if (result.errors.length > 0)
-        hasErrors = true;
-    }
-  }
-  if (existsSync18(projectConfig)) {
-    const result = validateRulesConfigFile(projectConfig);
-    result.errors.push(...getRulesConfigRuntimeErrorsForConfig(projectConfig, getRulesLockPathForConfigPath(projectConfig), {
-      userConfigDir
-    }));
-    configsChecked.push({
-      scope: "Project",
-      path: resolve9(projectConfig),
-      result,
-      schema: "rules",
-      sourceDisplayMap: getRulesConfigSourceDisplayMap(projectConfig)
-    });
-    if (result.errors.length > 0)
-      hasErrors = true;
-    if (existsSync18(legacyProjectConfig)) {
-      hasWarnings = true;
-      warnings.push(getLegacyRulesConfigWarning("project", "cleanup"));
-    }
-  } else if (existsSync18(legacyProjectConfig)) {
-    hasWarnings = true;
-    hasErrors = true;
-    const result = validateConfigFile(legacyProjectConfig);
-    configsChecked.push({
-      scope: "Project",
-      path: resolve9(legacyProjectConfig),
-      result,
-      schema: "legacy",
-      sourceDisplayMap: new Map,
-      inactive: true
-    });
-    warnings.push(getLegacyRulesConfigWarning("project", result.errors.length > 0 ? "fix-or-delete" : "migrate"));
-  }
-  if (githubSourceRules?.result.errors.length)
-    hasErrors = true;
-  if (configsChecked.length === 0 && !githubSourceRules) {
-    console.log(`
-No config files found. Using built-in rules only.`);
-    return 0;
-  }
-  for (const config of configsChecked) {
-    if (config.inactive) {
-      printInactiveLegacyRulesConfig(config.scope, config.path, config.result, config.sourceDisplayMap);
-    } else if (config.result.errors.length > 0) {
-      printInvalidRulesConfig(config.scope, config.path, config.result.errors);
-    } else {
-      if (config.schema === "rules" && addRulesSchemaIfMissing(config.path)) {
-        console.log(`
-Added $schema to ${config.scope.toLowerCase()} config.`);
-      }
-      printValidRulesConfig(config.scope, config.path, config.result, config.schema, config.sourceDisplayMap);
-    }
-  }
-  for (const warning of warnings)
-    console.error(`
-${colors.red(warning)}`);
-  if (githubSourceRules) {
-    if (githubSourceRules.result.errors.length > 0) {
-      printInvalidGitHubSourceRules(githubSourceRules.path, githubSourceRules.result.errors);
-    } else {
-      printValidGitHubSourceRules(githubSourceRules.path, githubSourceRules.result);
-    }
-  }
-  if (hasErrors) {
-    console.error(`
-Config validation failed.`);
-    return 1;
-  }
-  console.log(hasWarnings ? `
-Configs valid with warnings.` : `
-All configs valid.`);
-  return 0;
-}
-function getLegacyRulesConfigWarning(scope, action) {
-  const label = `legacy ${scope} config`;
-  if (action === "cleanup") {
-    return `Warning: Legacy ${scope} config is no longer needed. Run \`npx -y cc-safety-net rule migrate --cleanup\` to clean it up safely.`;
-  }
-  if (action === "migrate") {
-    return `Warning: Legacy ${scope} config is ignored by CC Safety Net. Run \`npx -y cc-safety-net rule migrate\`.`;
-  }
-  return `Warning: Legacy ${scope} config is no longer supported. Fix or delete the ${label}, then run \`npx -y cc-safety-net rule migrate\`.`;
-}
-function getGitHubSourceRulesValidation(path) {
-  if (!existsSync18(path))
-    return null;
-  const result = validateGitHubSourceRules(path);
-  if (result.ruleNames.size === 0 && result.errors.length === 0)
-    return null;
-  return { path, result };
-}
-function validateGitHubSourceRules(path) {
-  const errors = [];
-  const ruleNames = new Set;
-  try {
-    if (!statSync2(path).isDirectory()) {
-      return { errors: [`${RULES_DIR} must be a directory`], ruleNames };
-    }
-  } catch (error) {
-    return {
-      errors: [
-        error instanceof Error ? `Failed to inspect ${RULES_DIR}: ${error.message}` : `Failed to inspect ${RULES_DIR}: ${String(error)}`
-      ],
-      ruleNames
-    };
-  }
-  const entries = readdirSync4(path, { withFileTypes: true }).filter((entry) => !RULES_DIR_RESERVED_ENTRIES.has(entry.name)).sort((a, b) => a.name.localeCompare(b.name));
-  if (entries.length === 0) {
-    return { errors, ruleNames };
-  }
-  for (const entry of entries) {
-    if (!NAME_PATTERN.test(entry.name)) {
-      errors.push(`rulebook directory names must match ${NAME_PATTERN}: ${entry.name}`);
-      continue;
-    }
-    if (!entry.isDirectory()) {
-      errors.push(`${entry.name} must be a rulebook directory`);
-      continue;
-    }
-    const rulebookPath = join14(path, entry.name, "rulebook.json");
-    if (!existsSync18(rulebookPath)) {
-      errors.push(`${entry.name}/rulebook.json is required`);
-      continue;
-    }
-    try {
-      const rulebook = assertValidRulebook(JSON.parse(readFileSync13(rulebookPath, "utf-8")));
-      if (rulebook.name !== entry.name) {
-        errors.push(`rulebook name "${rulebook.name}" must match folder "${entry.name}"`);
-        continue;
-      }
-      ruleNames.add(entry.name);
-    } catch (error) {
-      errors.push(error instanceof Error ? `${entry.name}/rulebook.json: ${error.message}` : `${entry.name}/rulebook.json: ${String(error)}`);
-    }
-  }
-  return { errors, ruleNames };
-}
-function printRulesVerifyHeader() {
-  console.log(VERIFY_HEADER);
-  console.log(VERIFY_SEPARATOR);
-}
-function printValidRulesConfig(scope, path, result, schema, sourceDisplayMap) {
-  console.log(`
-✓ ${scope} config: ${path}`);
-  console.log(`  Schema: ${schema === "rules" ? "rulebook sources" : "legacy inline rules"}`);
-  if (result.ruleNames.size > 0) {
-    console.log(`  ${schema === "rules" ? "Sources" : "Rules"}:`);
-    let i = 1;
-    for (const name of result.ruleNames) {
-      console.log(`    ${i}. ${sourceDisplayMap.get(name) ?? name}`);
-      i++;
-    }
-  } else {
-    console.log(`  ${schema === "rules" ? "Sources" : "Rules"}: (none)`);
-  }
-}
-function printInactiveLegacyRulesConfig(scope, path, result, sourceDisplayMap) {
-  console.error(`
-✗ Legacy ${scope.toLowerCase()} config: ${path}`);
-  console.error("  Schema: legacy inline rules");
-  console.error("  Status: ignored by CC Safety Net");
-  if (result.errors.length > 0) {
-    console.error("  Errors:");
-    let errorNum = 1;
-    for (const error of result.errors) {
-      for (const part of error.split("; ")) {
-        console.error(`    ${errorNum}. ${part}`);
-        errorNum++;
-      }
-    }
-    return;
-  }
-  if (result.ruleNames.size > 0) {
-    console.error("  Rules:");
-    let i = 1;
-    for (const name of result.ruleNames) {
-      console.error(`    ${i}. ${sourceDisplayMap.get(name) ?? name}`);
-      i++;
-    }
-    return;
-  }
-  console.error("  Rules: (none)");
-}
-function printInvalidRulesConfig(scope, path, errors) {
-  printInvalidVerifyTarget(`${scope} config`, path, errors);
-}
-function printValidGitHubSourceRules(path, result) {
-  console.log(`
-✓ GitHub source rules: ${path}`);
-  console.log("  Rulebooks:");
-  let i = 1;
-  for (const name of result.ruleNames) {
-    console.log(`    ${i}. ${name}`);
-    i++;
-  }
-}
-function printInvalidGitHubSourceRules(path, errors) {
-  printInvalidVerifyTarget("GitHub source rules", path, errors);
-}
-function printInvalidVerifyTarget(label, path, errors) {
-  console.error(`
-✗ ${label}: ${path}`);
-  console.error("  Errors:");
-  let errorNum = 1;
-  for (const error of errors) {
-    for (const part of error.split("; ")) {
-      console.error(`    ${errorNum}. ${part}`);
-      errorNum++;
-    }
-  }
-}
-function addRulesSchemaIfMissing(path) {
-  try {
-    const content = readFileSync13(path, "utf-8");
-    const parsed = JSON.parse(content);
-    if (parsed.$schema)
-      return false;
-    writeFileSync5(path, JSON.stringify({ $schema: RULES_SCHEMA_URL, ...parsed }, null, 2), "utf-8");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// src/bin/rule/index.ts
-var RULE_SUBCOMMANDS = new Set([
-  "init",
-  "add",
-  "remove",
-  "update",
-  "sync",
-  "list",
-  "test",
-  "migrate",
-  "doc",
-  "verify"
-]);
-async function runRuleCommand(args) {
-  const flags = parseRuleFlags(args);
-  if (flags.errors.length > 0) {
-    for (const error of flags.errors)
-      console.error(error);
-    return 1;
-  }
-  const subcommand = flags.positionals[0];
-  if (flags.help) {
-    printCommandHelp(ruleCommand);
-    return 0;
-  }
-  if (!subcommand) {
-    printCommandHelp(ruleCommand);
-    return 1;
-  }
-  const value = flags.positionals[1];
-  const options2 = { global: flags.global, check: flags.check };
-  if (subcommand === "init") {
-    const dir = flags.global ? getUserRulesDir() : getProjectRulesDir();
-    const configPath = flags.global ? getUserRulesConfigPath() : getProjectRulesConfigPath();
-    const rulebookName = flags.global ? "user-rules" : "project-rules";
-    ensureDefaultRulebookSource(configPath, rulebookName);
-    const rulebookPath = join15(dir, rulebookName, "rulebook.json");
-    if (!existsSync19(rulebookPath))
-      writeStarterRulebook(rulebookPath, rulebookName);
-    const result = await syncRulesConfig(options2);
-    printRuleChangeResult(result, "Rule config initialized.");
-    return result.ok ? 0 : 1;
-  }
-  if (subcommand === "add") {
-    if (!value) {
-      console.error("rule add requires a source");
-      return 1;
-    }
-    const result = await addRulebookSource(value, options2);
-    printRuleChangeResult(result, `Added rulebook source: ${value}`);
-    return result.ok ? 0 : 1;
-  }
-  if (subcommand === "remove") {
-    if (!value) {
-      console.error("rule remove requires a source");
-      return 1;
-    }
-    const result = await removeRulebookSource(value, {
-      ...options2,
-      deleteSource: flags.deleteSource
-    });
-    printRuleChangeResult(result, `Removed rulebook source: ${value}`);
-    return result.ok ? 0 : 1;
-  }
-  if (subcommand === "update" || subcommand === "sync") {
-    const result = await syncRulesConfig({
-      ...options2,
-      only: subcommand === "update" ? value : undefined
-    });
-    printRuleChangeResult(result, flags.check ? "Rule config checked." : "Rule config synced.");
-    return result.ok ? 0 : 1;
-  }
-  if (subcommand === "list") {
-    const policy = loadRulesPolicy();
-    printRulesListReport(policy, {
-      user: getRulesConfigSourceDisplayMap(policy.userConfigPath),
-      project: getRulesConfigSourceDisplayMap(policy.projectConfigPath)
-    });
-    return policy.errors.length > 0 ? 1 : 0;
-  }
-  if (subcommand === "test") {
-    const sources = value ? [value] : [];
-    const result = await testRulebookSources(sources, options2);
-    printRulesTestResult(result);
-    return result.ok ? 0 : 1;
-  }
-  if (subcommand === "migrate") {
-    return runRulesMigrate({ cleanup: flags.cleanup, cwd: process.cwd() });
-  }
-  if (subcommand === "doc") {
-    console.log(RULE_DOC);
-    return 0;
-  }
-  if (subcommand === "verify") {
-    return runRulesVerify();
-  }
-  return 1;
-}
-function parseRuleFlags(args) {
-  const flags = {
-    global: false,
-    check: false,
-    cleanup: false,
-    deleteSource: false,
-    help: false,
-    positionals: [],
-    errors: []
-  };
-  for (const arg of args) {
-    if (arg === "-g" || arg === "--global") {
-      flags.global = true;
-    } else if (arg === "--check") {
-      flags.check = true;
-    } else if (arg === "--delete-source") {
-      flags.deleteSource = true;
-    } else if (arg === "--cleanup") {
-      flags.cleanup = true;
-    } else if (arg === "-h" || arg === "--help") {
-      flags.help = true;
-    } else if (arg.startsWith("-")) {
-      flags.errors.push(unknownRuleOption(flags.positionals[0], arg));
-    } else {
-      flags.positionals.push(arg);
-    }
-  }
-  validateRuleFlags(flags);
-  return flags;
-}
-function validateRuleFlags(flags) {
-  const [subcommand] = flags.positionals;
-  if (subcommand && !RULE_SUBCOMMANDS.has(subcommand)) {
-    flags.errors.push(`Unknown rule subcommand: ${subcommand}`);
-  }
-  if (flags.deleteSource && subcommand !== "remove") {
-    if (subcommand && RULE_SUBCOMMANDS.has(subcommand)) {
-      flags.errors.push(`Unknown option for rule ${subcommand}: --delete-source`);
-    } else {
-      flags.errors.push("--delete-source is only valid with 'rule remove'");
-    }
-  }
-  if (flags.cleanup && subcommand !== "migrate") {
-    flags.errors.push(unknownRuleOption(subcommand, "--cleanup"));
-  }
-  if (subcommand === "migrate") {
-    if (flags.global)
-      flags.errors.push("Unknown option for rule migrate: --global");
-    if (flags.check)
-      flags.errors.push("Unknown option for rule migrate: --check");
-    if (flags.positionals.length > 1) {
-      flags.errors.push(`Unexpected rule migrate argument: ${flags.positionals[1]}`);
-    }
-  } else if (flags.positionals.length > 2) {
-    flags.errors.push(`Unexpected rule argument: ${flags.positionals[2]}`);
-  }
-  if (subcommand === "list" && flags.global) {
-    flags.errors.push("Unknown option for rule list: --global");
-  }
-}
-function unknownRuleOption(subcommand, option) {
-  if (subcommand === "migrate")
-    return `Unknown option for rule migrate: ${option}`;
-  return `Unknown rule option: ${option}`;
-}
-function ensureDefaultRulebookSource(configPath, rulebookName) {
-  if (!existsSync19(configPath)) {
-    writeDefaultRulesConfig(configPath, [rulebookName]);
-    return;
-  }
-  const loaded = readRulesConfig(configPath);
-  if (!loaded.config || loaded.config.rules.includes(rulebookName))
-    return;
-  writeJsonAtomic(configPath, {
-    version: 1,
-    rules: [...loaded.config.rules, rulebookName],
-    overrides: loaded.config.overrides ?? {}
-  });
-}
-
-// src/bin/statusline.ts
-import { existsSync as existsSync20, readFileSync as readFileSync14 } from "node:fs";
-import { homedir as homedir7 } from "node:os";
-import { join as join16 } from "node:path";
-async function readStdinAsync() {
-  if (process.stdin.isTTY) {
-    return null;
-  }
-  return new Promise((resolve10) => {
-    let data = "";
-    process.stdin.setEncoding("utf-8");
-    process.stdin.on("data", (chunk) => {
-      data += chunk;
-    });
-    process.stdin.on("end", () => {
-      const trimmed = data.trim();
-      resolve10(trimmed || null);
-    });
-    process.stdin.on("error", () => {
-      resolve10(null);
-    });
-  });
-}
-function getSettingsPath() {
-  if (process.env.CLAUDE_SETTINGS_PATH) {
-    return process.env.CLAUDE_SETTINGS_PATH;
-  }
-  return join16(homedir7(), ".claude", "settings.json");
-}
-function isPluginEnabled() {
-  const settingsPath = getSettingsPath();
-  if (!existsSync20(settingsPath)) {
-    return false;
-  }
-  try {
-    const content = readFileSync14(settingsPath, "utf-8");
-    const settings = JSON.parse(content);
-    if (!settings.enabledPlugins) {
-      return false;
-    }
-    const pluginKey = "safety-net@cc-marketplace";
-    if (!(pluginKey in settings.enabledPlugins)) {
-      return false;
-    }
-    return settings.enabledPlugins[pluginKey] === true;
-  } catch (error) {
-    if (envTruthy(ENV_FLAGS.debug)) {
-      console.error(`CC Safety Net debug: failed to read Claude settings: ${settingsPath}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    return false;
-  }
-}
-async function printStatusline() {
-  const enabled = isPluginEnabled();
-  let status;
-  if (!enabled) {
-    status = "\uD83D\uDEE1️ CC Safety Net ❌";
-  } else {
-    const modes = getCCSafetyNetEnvModes();
-    let modeEmojis = "";
-    if (modes.strict) {
-      modeEmojis += "\uD83D\uDD12";
-    }
-    if (modes.paranoidAll || modes.paranoidRm && modes.paranoidInterpreters) {
-      modeEmojis += "\uD83D\uDC41️";
-    } else if (modes.paranoidRm) {
-      modeEmojis += "\uD83D\uDDD1️";
-    } else if (modes.paranoidInterpreters) {
-      modeEmojis += "\uD83D\uDC1A";
-    }
-    if (modes.worktreeMode) {
-      modeEmojis += "\uD83C\uDF33";
-    }
-    const statusEmoji = modeEmojis || "✅";
-    status = `\uD83D\uDEE1️ CC Safety Net ${statusEmoji}`;
-  }
-  const stdinInput = await readStdinAsync();
-  if (stdinInput && !stdinInput.startsWith("{")) {
-    console.log(`${stdinInput} | ${status}`);
-  } else {
-    console.log(status);
-  }
-}
-
-// src/bin/cc-safety-net.ts
-function hasHelpFlag(args) {
-  return args.includes("--help") || args.includes("-h");
-}
-function handleHelpCommand(args) {
-  if (args[0] !== "help") {
-    return false;
-  }
-  const commandName = args[1];
-  if (!commandName) {
-    printHelp();
-    process.exit(0);
-  }
-  if (showCommandHelp(commandName)) {
-    process.exit(0);
-  }
-  console.error(`Unknown command: ${commandName}`);
-  console.error("Run 'cc-safety-net --help' for available commands.");
-  process.exit(1);
-}
-function handleCommandHelp(args) {
-  if (!hasHelpFlag(args)) {
-    return false;
-  }
-  const commandName = args[0];
-  if (!commandName || commandName.startsWith("-")) {
-    return false;
-  }
-  const command2 = findCommand(commandName);
-  if (command2) {
-    showCommandHelp(commandName);
-    process.exit(0);
-  }
-  return false;
-}
-var commandParsers = {
-  explain: (args) => ({ mode: "explain", args }),
-  rule: (args) => ({ mode: "rule", args }),
-  statusline: (args) => {
-    if (args.includes("--claude-code") || args.includes("-cc"))
-      return { mode: "statusline" };
-    console.error("statusline requires --claude-code (-cc)");
-    showCommandHelp("statusline");
-    process.exit(1);
-  },
-  hook: (args) => {
-    if (args[0] === "install")
-      return { mode: "hook-install", args: args.slice(1) };
-    if (args[0] === "uninstall")
-      return { mode: "hook-uninstall", args: args.slice(1) };
-    const integration = findHookIntegrationByFlag(args);
-    if (integration)
-      return { mode: "hook", integration };
-    console.error("hook requires a subcommand or integration flag. Try: cc-safety-net hook install --kimi-code");
-    showCommandHelp("hook");
-    process.exit(1);
-  },
-  doctor: (args) => ({ mode: "doctor", args })
 };
-function parseCliArgs(args) {
-  if (handleHelpCommand(args)) {
-    return null;
-  }
-  if (handleCommandHelp(args)) {
-    return null;
-  }
-  if (args.length === 0 || hasHelpFlag(args)) {
-    printHelp();
-    process.exit(0);
-  }
-  if (args.includes("--version") || args.includes("-V")) {
-    printVersion();
-    process.exit(0);
-  }
-  const commandName = args[0];
-  if (!commandName) {
-    printHelp();
-    process.exit(0);
-  }
-  const command2 = findCommand(commandName);
-  if (command2) {
-    return commandParsers[command2.name](args.slice(1));
-  }
-  const legacyIntegration = findLegacyTopLevelHookIntegration(commandName);
-  if (legacyIntegration)
-    return { mode: "hook", integration: legacyIntegration };
-  if (commandName === "--statusline")
-    return { mode: "statusline" };
-  console.error(`Unknown option: ${commandName}`);
-  console.error("Run 'cc-safety-net --help' for usage.");
-  process.exit(1);
-}
-var commandHandlers = {
-  hook: async (command2) => {
-    await command2.integration.run();
-  },
-  "hook-install": async (command2) => {
-    process.exit(runHookInstallCommand("install", command2.args));
-  },
-  "hook-uninstall": async (command2) => {
-    process.exit(runHookInstallCommand("uninstall", command2.args));
-  },
-  rule: async (command2) => {
-    process.exit(await runRuleCommand(command2.args));
-  },
-  statusline: async (_command) => {
-    await printStatusline();
-  },
-  doctor: async (command2) => {
-    const flags = parseDoctorFlags(command2.args);
-    const exitCode = await runDoctor({
-      json: flags.json,
-      skipUpdateCheck: flags.skipUpdateCheck
-    });
-    process.exit(exitCode);
-  },
-  explain: async (command2) => {
-    if (hasHelpFlag(command2.args) || command2.args.length === 0) {
-      showCommandHelp("explain");
-      process.exit(0);
-    }
-    const flags = parseExplainFlags(command2.args);
-    if (!flags) {
-      process.exit(1);
-    }
-    const result = explainCommand2(flags.command, { cwd: flags.cwd });
-    const asciiOnly = !!process.env.NO_COLOR || !process.stdout.isTTY;
-    if (flags.json) {
-      console.log(formatTraceJson(result));
-    } else {
-      console.log(formatTraceHuman(result, { asciiOnly }));
-    }
-    process.exit(0);
+var errorText = (result) => result.error ?? (Array.isArray(result.data?.errors) && result.data.errors.length ? result.data.errors.join(\`
+\`) : null) ?? result.data?.error ?? \`Request failed (status \${result.status}).\`;
+var isWriteSuccess = (result) => result.ok && !(Array.isArray(result.data?.errors) && result.data.errors.length > 0);
+var isPolicyState = (value) => !!value && typeof value === "object" && !!value.policy && typeof value.policy === "object" && !!value.policy.safety && !!value.policy.workflow && !!value.policy.secret_protection && Array.isArray(value.destructiveCommandRules) && Array.isArray(value.secretPatterns) && (value.preview === null || value.preview && typeof value.preview === "object") && Array.isArray(value.errors);
+var qs = (id) => document.getElementById(id);
+var setDetailStatus = (text, kind = "") => {
+  qs("status").textContent = text;
+  qs("status").className = \`status \${kind}\`;
+};
+var appStatusTimer;
+var setAppStatus = (text, kind = "") => {
+  qs("app-status").textContent = text;
+  qs("app-status").className = \`app-status \${kind}\`;
+  clearTimeout(appStatusTimer);
+  if (kind === "ok")
+    appStatusTimer = setTimeout(() => setAppStatus(""), 4000);
+};
+var busy = false;
+var updateActions = () => {
+  const hasErrors = (state?.errors.length ?? 0) > 0;
+  qs("save").disabled = busy || !state || hasErrors;
+  qs("reset").disabled = busy || !state;
+  qs("repair").disabled = busy || !hasErrors;
+};
+var runExclusive = async (pendingText, fn) => {
+  if (busy)
+    return;
+  busy = true;
+  updateActions();
+  setAppStatus(pendingText);
+  setDetailStatus("");
+  try {
+    await fn();
+  } finally {
+    busy = false;
+    updateActions();
   }
 };
-function assertNever(command2) {
-  throw new Error(`Unhandled command mode: ${JSON.stringify(command2)}`);
-}
-async function runParsedCommand(command2) {
-  switch (command2.mode) {
-    case "hook":
-      await commandHandlers.hook(command2);
-      return;
-    case "hook-install":
-      await commandHandlers["hook-install"](command2);
-      return;
-    case "hook-uninstall":
-      await commandHandlers["hook-uninstall"](command2);
-      return;
-    case "rule":
-      await commandHandlers.rule(command2);
-      return;
-    case "statusline":
-      await commandHandlers.statusline(command2);
-      return;
-    case "doctor":
-      await commandHandlers.doctor(command2);
-      return;
-    case "explain":
-      await commandHandlers.explain(command2);
-      return;
-    default:
-      assertNever(command2);
-  }
-}
-async function main() {
-  const command2 = parseCliArgs(process.argv.slice(2));
-  if (command2)
-    await runParsedCommand(command2);
-}
-main().catch((error) => {
-  console.error("CC Safety Net error:", error);
-  process.exit(1);
+var checkbox = (checked) => checked ? "checked" : "";
+var dayCount = (days) => \`\${days} day\${days === 1 ? "" : "s"}\`;
+var syncMasterBadges = () => {
+  document.querySelectorAll("label.row.master input").forEach((input) => {
+    const badge = input.closest("label")?.querySelector(".master-badge");
+    if (badge)
+      badge.textContent = input.checked ? "On" : "Off";
+  });
+};
+var escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;"
+})[char] ?? char);
+var clonePolicy = (policy) => JSON.parse(JSON.stringify(policy));
+var pathLines = (value) => value.split(\`
+\`).map((line) => line.trim()).filter(Boolean);
+var formatPolicy = (policy) => \`\${JSON.stringify(policy, null, 2)}
+\`;
+var collectFormPolicy = () => ({
+  version: 1,
+  safety: {
+    level: draftPolicy.safety.level,
+    overrides: Object.fromEntries(Object.entries(draftPolicy.safety.overrides).filter(([, value]) => typeof value === "boolean"))
+  },
+  workflow: draftPolicy.workflow,
+  destructive_command_protection: draftPolicy.destructive_command_protection,
+  secret_protection: {
+    enabled: draftPolicy.secret_protection.enabled,
+    overrides: draftPolicy.secret_protection.overrides,
+    deny_paths: draftPolicy.secret_protection.deny_paths
+  },
+  audit: draftPolicy.audit
 });
+var requestPolicyPreview = (policy = collectFormPolicy()) => requestJson("/api/policy/preview", {
+  method: "POST",
+  body: JSON.stringify(policy)
+});
+var viewNames = ["overview", "activity", "policy", "rules", "integrations", "settings"];
+var viewTitles = {
+  overview: "Overview",
+  activity: "Activity",
+  policy: "Policy",
+  rules: "Rules",
+  integrations: "Integrations",
+  settings: "Settings"
+};
+var currentView = () => {
+  const hash = location.hash.replace("#", "");
+  return viewNames.includes(hash) ? hash : "overview";
+};
+var applyView = () => {
+  const view = currentView();
+  document.body.dataset.view = view;
+  const hasSearch = view === "activity" || view === "policy";
+  qs("topbar-title").textContent = viewTitles[view];
+  qs("topbar-title").classList.toggle("sr-only", hasSearch);
+  document.querySelectorAll(".topbar-search").forEach((el) => {
+    el.hidden = el.dataset.searchView !== view;
+  });
+  qs("topbar").classList.toggle("has-search", hasSearch);
+  document.title = \`\${viewTitles[view]} · CC Safety Net\`;
+  document.querySelectorAll("[data-view]").forEach((section) => {
+    section.hidden = section.dataset.view !== view;
+  });
+  document.querySelectorAll("[data-nav]").forEach((link) => {
+    if (link.dataset.nav === view)
+      link.setAttribute("aria-current", "page");
+    else
+      link.removeAttribute("aria-current");
+  });
+  qs("dirty-chip").hidden = !dirty || view === "policy";
+  if (view === "activity")
+    applyFeedClamps(qs("activity-feed"));
+  if (view === "integrations" && !integrationsRequested) {
+    integrationsRequested = true;
+    loadIntegrations();
+  }
+  if (view === "rules" && !rulesRequested) {
+    rulesRequested = true;
+    loadRules();
+  }
+  if (view === "rules" && rulesData && pendingRuleFocus)
+    renderRules();
+};
+var isActivityFeed = (value) => !!value && typeof value === "object" && Array.isArray(value.entries) && !!value.counts && typeof value.counts === "object";
+var agentLabels = integrationDisplayNames;
+var tierCountHtml = (segments) => {
+  const parts = segments.filter(([count]) => count > 0).map(([count, label, tone]) => tone ? \`<span class="count-\${tone}">\${count} \${label}</span>\` : \`\${count} \${label}\`);
+  return parts.length > 0 ? parts.join(" · ") : "0 on";
+};
+var feedItemHtml = (entry, index) => {
+  const deny = entry.decision !== "allow";
+  const badgeClass = entry.failureStage ? "error" : deny ? "deny" : "allow";
+  const badgeLabel = entry.failureStage ? "Error" : deny ? "Blocked" : "Allowed";
+  return \`<article class="feed-item">
+    <div class="feed-meta">
+      <span class="decision-badge \${badgeClass}">\${badgeLabel}</span>
+      \${entry.agent && entry.agent !== "unknown" ? \`<span class="agent-badge">\${escapeHtml(agentLabels[entry.agent] ?? entry.agent)}</span>\` : ""}
+      \${entry.ruleId ? knownRuleIds.has(entry.ruleId) ? \`<button type="button" class="rule-id" data-jump-rule="\${escapeHtml(entry.ruleId)}" title="Show this rule in Policy">\${escapeHtml(entry.ruleId)}</button>\` : \`<code class="rule-id">\${escapeHtml(entry.ruleId)}</code>\` : ""}
+      <time datetime="\${escapeHtml(entry.ts)}" title="\${escapeHtml(entry.ts)}">\${formatRelativeTime(entry.ts)}</time>
+      <button type="button" class="icon-button feed-copy" data-log-copy="\${index}" aria-label="Copy log entry as JSON">\${rawCopyIcons.copy}</button>
+      \${deny ? \`<button type="button" class="icon-button feed-report" data-report-fp="\${index}" aria-label="Report false positive" title="Report false positive">\${reportIcon}</button>\` : \`<button type="button" class="feed-toggle feed-block" data-block-future="\${index}">Block this in future</button>\`}
+    </div>
+    <code class="feed-command">\${escapeHtml(entry.segment || entry.command || "(no command recorded)")}</code>
+    \${entry.reason && entry.reason !== "allowed" ? \`<p class="feed-reason muted">\${escapeHtml(entry.reason)}</p>\` : ""}
+  </article>\`;
+};
+var applyFeedClamps = (root) => {
+  const overflowing = [...root.querySelectorAll(".feed-command")].filter((command) => !command.classList.contains("clamped") && command.scrollHeight > command.clientHeight + 1);
+  overflowing.forEach((command) => {
+    command.classList.add("clamped");
+    command.insertAdjacentHTML("afterend", '<button type="button" class="feed-toggle" data-feed-toggle aria-expanded="false">Show more</button>');
+  });
+};
+var dayLabel = (ts) => {
+  const date = new Date(ts);
+  if (date.toDateString() === new Date().toDateString())
+    return "Today";
+  if (date.toDateString() === new Date(Date.now() - 86400000).toDateString())
+    return "Yesterday";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+};
+var renderOverviewActivity = () => {
+  if (!overview)
+    return;
+  const tile = (value, label, extra) => \`<div class="tile"><strong>\${escapeHtml(value.toLocaleString("en-US"))}</strong><span>\${escapeHtml(label)}</span>\${extra}</div>\`;
+  const dayAgoLabel = (daysAgo) => daysAgo === 0 ? "Today" : daysAgo === 1 ? "Yesterday" : \`\${daysAgo} days ago\`;
+  const sparkline = (byDay, noun) => {
+    const max = Math.max(...byDay, 1);
+    return \`<div class="tile-spark" role="group" aria-label="Commands \${noun} per day, most recent \${dayCount(byDay.length)}">\${byDay.map((count, index) => {
+      const label = \`\${dayAgoLabel(byDay.length - 1 - index)}: \${count.toLocaleString("en-US")} \${noun}\`;
+      return \`<div class="spark-col" role="img" tabindex="0" data-count="\${count.toLocaleString("en-US")}" aria-label="\${escapeHtml(label)}"><div class="spark-bar\${count === 0 ? " spark-zero" : ""}" aria-hidden="true" style="height:\${count === 0 ? 2 : Math.max(2, Math.round(count / max * 40))}px"></div></div>\`;
+    }).join("")}</div>\`;
+  };
+  qs("overview-window").textContent = \`Last \${dayCount(overview.days)}\`;
+  qs("overview-tiles").innerHTML = [
+    tile(overview.counts.blocked, "Blocked", sparkline(overview.counts.blockedByDay, "blocked")),
+    tile(overview.totalInWindow, "Analyzed", sparkline(overview.counts.analyzedByDay, "analyzed"))
+  ].join("");
+};
+var retentionDays = () => state?.policy?.audit?.retention_days ?? DEFAULT_RETENTION_DAYS;
+var overviewDays = () => Math.min(OVERVIEW_DAYS, retentionDays());
+var renderRetention = (loaded) => {
+  qs("retention-days").value = String(loaded.policy.audit.retention_days);
+  qs("retention-unit").textContent = loaded.policy.audit.retention_days === 1 ? "day" : "days";
+  qs("retention-note").textContent = "Saved on change. Lowering this deletes anything already older than the new window; the Activity tab can only look back as far as it.";
+};
+var activityWindowOptions = () => {
+  const retained = retentionDays();
+  const windows = [7, 30, 90, 180, 365].filter((days) => days < retained);
+  return [...windows, retained];
+};
+var configStateNotice = () => {
+  const configState = state?.configState;
+  if (!configState || configState.state === "ready")
+    return null;
+  return \`A fallback configuration is being enforced: \${configState.reason}\`;
+};
+var setProtectionBanner = (notices) => {
+  const text = notices.filter(Boolean).join(" ");
+  qs("protection-banner").textContent = text;
+  qs("protection-banner").hidden = text === "";
+};
+var renderProtectionCard = () => {
+  const configNotice = configStateNotice();
+  if (!state?.preview) {
+    qs("protection-card").hidden = true;
+    setProtectionBanner([configNotice]);
+    return;
+  }
+  const policy = state.policy;
+  const customized = state.preview.counts.effectiveCustomizations > 0 || Object.entries(policy.safety.overrides).some(([key, value]) => value !== levelCapabilities(policy.safety.level)[key]);
+  const commandsOn = policy.destructive_command_protection.enabled;
+  const secretsOn = policy.secret_protection.enabled;
+  const off = [
+    commandsOn ? null : "Destructive command protection is off — configurable destructive command rules are not being enforced (catastrophic and custom rules remain active)",
+    secretsOn ? null : "Secret protection is off — sensitive paths and deny paths are not being blocked"
+  ].filter(Boolean);
+  setProtectionBanner([
+    off.length > 0 ? \`\${off.join(". ")}. Re-enable \${off.length > 1 ? "them" : "it"} in Policy.\` : null,
+    configNotice
+  ]);
+  qs("protection-card").hidden = false;
+  qs("protection-card").classList.toggle("protection-warning", !commandsOn || !secretsOn);
+  qs("protection-card").innerHTML = \`<div class="panel-head"><div class="panel-title"><h2>Protection status</h2></div><a class="panel-head-action view-all-link" href="#policy">Configure</a></div>\` + \`<p>\${escapeHtml(safetyLevels[policy.safety.level][0])}\${customized ? " · Customized" : ""}</p>\` + \`<p\${commandsOn ? "" : ' class="state-disabled"'}>\${commandsOn ? \`\${state.preview.counts.enabled} rules active\` : "Destructive command protection is OFF"}</p>\` + \`<p\${secretsOn ? "" : ' class="state-disabled"'}>\${secretsOn ? "Secret protection on" : "Secret protection is OFF"}</p>\`;
+};
+var renderTopList = (containerId, counts, className, dataAttr) => {
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  qs(containerId).innerHTML = top.length === 0 ? '<p class="empty">No blocked commands in this window.</p>' : top.map(([key, count]) => \`<button type="button" class="\${className}" \${dataAttr}="\${escapeHtml(key)}"><code class="rule-id">\${escapeHtml(key)}</code><span class="chip-count">\${count.toLocaleString("en-US")}</span></button>\`).join("");
+};
+var renderTopRules = () => {
+  if (!overview)
+    return;
+  renderTopList("top-rules", overview.counts.rules, "top-rule", "data-rule-id");
+};
+var findSuspects = (entries) => {
+  const signatureKey = (entry) => \`\${entry.sessionId}
+\${commandSignature(entry.segment || entry.command)}\`;
+  const repeats = entries.filter((entry) => entry.decision !== "allow" && entry.sessionId).reduce((counts, entry) => {
+    const key = signatureKey(entry);
+    return counts.set(key, (counts.get(key) ?? 0) + 1);
+  }, new Map);
+  return new Set(entries.filter((entry) => entry.decision !== "allow" && (entry.failureStage || (repeats.get(signatureKey(entry)) ?? 0) >= 2)));
+};
+var clearCommandFilter = () => {
+  if (!activityFilters.command)
+    return false;
+  activityFilters.command = "";
+  return true;
+};
+var jumpToActivityRule = (ruleId) => {
+  activityFilters.command = "";
+  activityFilters.query = ruleId.toLowerCase();
+  qs("activity-search").value = ruleId;
+  if (activity) {
+    renderActivityControls();
+    renderActivityFeed();
+  }
+  location.hash = "activity";
+};
+var renderTopCommands = () => {
+  if (!overview)
+    return;
+  renderTopList("top-commands", overview.counts.commands, "top-command", "data-command");
+};
+var renderTopLists = () => {
+  renderTopCommands();
+  renderTopRules();
+};
+var renderGuardErrors = () => {
+  if (!overview)
+    return;
+  qs("guard-errors").hidden = overview.counts.errors === 0;
+  if (overview.counts.errors === 0)
+    return;
+  qs("guard-errors").textContent = \`\${overview.counts.errors.toLocaleString("en-US")} guard error\${overview.counts.errors === 1 ? "" : "s"} in the last \${dayCount(overview.days)} — commands blocked because evaluation failed, not by policy. Click to view.\`;
+};
+var renderActivityControls = () => {
+  if (!activity)
+    return;
+  const agentCounts = activity.counts.agents;
+  const chipHtml = (kind, value, label, count) => \`<button type="button" class="chip" data-activity-chip="\${kind}" data-chip-value="\${escapeHtml(value)}" aria-pressed="\${activityFilters[kind] === value}">\${escapeHtml(label)}\${count === undefined ? "" : \` <span class="chip-count">\${count.toLocaleString("en-US")}</span>\`}</button>\`;
+  qs("activity-decision").innerHTML = [
+    chipHtml("decision", "all", "All", activity.totalInWindow),
+    chipHtml("decision", "deny", "Blocked", activity.counts.blocked),
+    chipHtml("decision", "allow", "Allowed", activity.counts.allowed),
+    ...activity.counts.errors > 0 ? [chipHtml("decision", "error", "Errors", activity.counts.errors)] : [],
+    ...suspects.size > 0 ? [chipHtml("decision", "suspect", "Likely false positive", suspects.size)] : []
+  ].join("");
+  const agentNames = Object.keys(agentCounts).filter((name) => name !== "unknown").sort();
+  qs("activity-agents").innerHTML = agentNames.length < 2 ? "" : [
+    chipHtml("agent", "all", "All agents"),
+    ...agentNames.map((name) => chipHtml("agent", name, agentLabels[name] ?? name, agentCounts[name]))
+  ].join("");
+  qs("activity-command-filter").innerHTML = activityFilters.command ? \`<button type="button" class="filter-pill" data-clear-command aria-label="Clear command filter">Command: <code>\${escapeHtml(activityFilters.command)}</code><span class="filter-pill-x" aria-hidden="true">✕</span></button>\` : "";
+  qs("activity-days").innerHTML = activityWindowOptions().map((days) => \`<option value="\${days}">Last \${dayCount(days)}</option>\`).join("");
+  qs("activity-days").value = String(activity.days);
+};
+var renderActivityFeed = () => {
+  if (!activity)
+    return;
+  const matchesFilters = (entry) => {
+    if (activityFilters.decision === "deny" && entry.decision === "allow")
+      return false;
+    if (activityFilters.decision === "allow" && entry.decision !== "allow")
+      return false;
+    if (activityFilters.decision === "error" && !entry.failureStage)
+      return false;
+    if (activityFilters.decision === "suspect" && !suspects.has(entry))
+      return false;
+    if (activityFilters.agent !== "all" && (entry.agent || "unknown") !== activityFilters.agent)
+      return false;
+    if (activityFilters.command) {
+      if (entry.decision === "allow")
+        return false;
+      return commandSignature(entry.segment || entry.command) === activityFilters.command;
+    }
+    if (!activityFilters.query)
+      return true;
+    return [entry.ruleId, entry.segment || entry.command].filter(Boolean).join(" ").toLowerCase().includes(activityFilters.query);
+  };
+  const entries = activity.entries.filter(matchesFilters);
+  renderedFeedEntries = entries;
+  qs("activity-feed").innerHTML = entries.length === 0 ? '<p class="empty">No audit log entries match.</p>' : \`<div class="feed-list">\${entries.map((entry, index) => {
+    const label = dayLabel(entry.ts);
+    const previous = entries[index - 1];
+    const separator = previous && label === dayLabel(previous.ts) ? "" : \`<div class="feed-day-sep">\${escapeHtml(label)}</div>\`;
+    return separator + feedItemHtml(entry, index);
+  }).join("")}</div>\`;
+  applyFeedClamps(qs("activity-feed"));
+  qs("activity-count").textContent = \`Showing \${entries.length.toLocaleString("en-US")} of \${activity.totalInWindow.toLocaleString("en-US")} entries from the last \${dayCount(activity.days)}\${activity.truncated ? " (capped at 500, newest of each decision)" : ""}.\${activity.unreadable > 0 ? \` \${activity.unreadable.toLocaleString("en-US")} audit log source\${activity.unreadable === 1 ? "" : "s"} could not be read, so this list is incomplete.\` : ""}\`;
+};
+var loadOverview = async () => {
+  const result = await requestJson(\`/api/activity?days=\${overviewDays()}\`);
+  if (!result.ok || !isActivityFeed(result.data)) {
+    const message = \`<p class="empty">Could not load activity: \${escapeHtml(errorText(result))}</p>\`;
+    qs("overview-window").textContent = "";
+    qs("overview-tiles").innerHTML = "";
+    qs("top-rules").innerHTML = message;
+    qs("guard-errors").hidden = true;
+    return;
+  }
+  overview = result.data;
+  qs("logs-path").textContent = overview.logsDir ?? "Not available";
+  renderOverviewActivity();
+  renderTopLists();
+  renderGuardErrors();
+};
+var loadActivity = async () => {
+  const result = await requestJson(\`/api/activity?days=\${activityFilters.days}\`);
+  if (!result.ok || !isActivityFeed(result.data)) {
+    const message = \`<p class="empty">Could not load activity: \${escapeHtml(errorText(result))}</p>\`;
+    qs("activity-feed").innerHTML = message;
+    qs("activity-count").textContent = "";
+    return;
+  }
+  activity = result.data;
+  suspects = findSuspects(activity.entries);
+  if (activityFilters.agent !== "all" && !(activityFilters.agent in activity.counts.agents)) {
+    activityFilters.agent = "all";
+  }
+  if (activityFilters.decision === "error" && activity.counts.errors === 0) {
+    activityFilters.decision = "all";
+  }
+  if (activityFilters.decision === "suspect" && suspects.size === 0) {
+    activityFilters.decision = "all";
+  }
+  renderActivityControls();
+  renderActivityFeed();
+};
+var refreshActivity = async () => {
+  const button = qs("activity-refresh");
+  if (button.disabled)
+    return;
+  button.disabled = true;
+  button.classList.add("spinning");
+  await Promise.all([
+    loadOverview(),
+    loadActivity(),
+    new Promise((resolve) => setTimeout(resolve, 600))
+  ]);
+  button.classList.remove("spinning");
+  button.disabled = false;
+};
+var renderIntegrations = () => {
+  const loaded = integrations;
+  if (!loaded)
+    return;
+  qs("integrations-list").innerHTML = loaded.targets.map((row) => {
+    const busy2 = integrationBusy.has(row.target);
+    const version = row.version === null ? '<span class="muted">not detected</span>' : \`<span class="agent-badge">v\${escapeHtml(row.version)}</span>\`;
+    const status = row.status === "active" ? '<span class="state-active">Installed</span>' : row.status === "disabled" ? '<span class="state-disabled">Disabled</span>' : row.status === "not-inspected" ? \`<span class="muted" title="This runtime's state file could not be read, so its status is unknown.">Not inspected</span>\` : '<span class="muted">Not installed</span>';
+    const uninstall = row.status === "active";
+    const busyLabel = uninstall ? "Uninstalling…" : "Installing…";
+    const action = row.version === null ? "" : \`<button type="button" class="\${uninstall ? "danger" : "primary"}" data-integration-action="\${uninstall ? "uninstall" : "install"}" data-integration-target="\${escapeHtml(row.target)}"\${busy2 ? " disabled" : ""}>\${busy2 ? busyLabel : uninstall ? "Uninstall" : row.status === "disabled" ? "Enable" : "Install"}</button>\`;
+    const note = row.note ? \`<div class="status \${row.note.kind}">\${escapeHtml(row.note.text)}</div>\` : "";
+    return \`<div class="integration-row">
+        <span class="integration-info"><strong>\${escapeHtml(row.label)}</strong> \${version} \${status}</span>
+        \${action}
+        \${note}
+      </div>\`;
+  }).join("");
+};
+var loadHealth = async () => {
+  const result = await requestJson("/api/health");
+  if (!result.ok || !Array.isArray(result.data?.hooks))
+    return;
+  const active = result.data.hooks.filter((hook) => hook.configured);
+  const inactive = result.data.hooks.filter((hook) => !hook.configured);
+  const attention = inactive.length > 0 || active.length === 0;
+  const parts = [];
+  const labelHtml = (hook) => \`<strong>\${escapeHtml(hook.label)}</strong>\`;
+  if (active.length)
+    parts.push(\`Hook active in \${active.map(labelHtml).join(", ")}\`);
+  if (inactive.length)
+    parts.push(\`\${inactive.map(labelHtml).join(", ")} detected without an active hook\`);
+  if (!parts.length)
+    parts.push("No agent hooks detected");
+  if (result.data.update?.updateAvailable)
+    parts.push(\`v\${escapeHtml(result.data.update.latestVersion)} available\`);
+  const link = attention ? ' <a class="view-all-link" href="#integrations">Fix in Integrations</a>' : "";
+  const el = qs("health-strip");
+  el.className = attention ? "status health-strip error" : "status health-strip ok";
+  el.innerHTML = parts.join(" · ") + link;
+  el.hidden = false;
+};
+var loadIntegrations = async () => {
+  const result = await requestJson("/api/integrations");
+  if (!result.ok || !Array.isArray(result.data?.targets)) {
+    qs("integrations-list").innerHTML = \`<p class="empty">Could not load integrations: \${escapeHtml(errorText(result))}</p>\`;
+    integrationsRequested = false;
+    return;
+  }
+  integrations = result.data;
+  renderIntegrations();
+  qs("integrations-pkg-version").textContent = result.data.system.version;
+  qs("integrations-node-version").textContent = result.data.system.nodeVersion ?? "unknown";
+  qs("integrations-platform").textContent = result.data.system.platform;
+  qs("integrations-system").hidden = false;
+};
+var refreshIntegrations = async () => {
+  const button = qs("integrations-refresh");
+  if (button.disabled)
+    return;
+  button.disabled = true;
+  button.classList.add("spinning");
+  integrationsRequested = true;
+  await Promise.all([loadIntegrations(), new Promise((resolve) => setTimeout(resolve, 600))]);
+  button.classList.remove("spinning");
+  button.disabled = false;
+};
+var renderRules = () => {
+  const loaded = rulesData;
+  if (!loaded)
+    return;
+  if (!qs("rules-project-path").value)
+    qs("rules-project-path").value = loaded.projectPath;
+  const canPick = loaded.canPickDirectory && !directoryPickerFailed;
+  qs("rules-project-path").readOnly = canPick;
+  qs("rules-choose-directory").hidden = !canPick;
+  qs("rules-list").innerHTML = loaded.rulebooks.length === 0 ? loaded.errors.length > 0 ? '<p class="empty">Every configured rulebook was dropped, so no custom rule is enforced. See Diagnostics below.</p>' : '<p class="empty">No custom rulebooks. Run <code>npx -y cc-safety-net rule init</code> to create one, or see the <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener">documentation</a>.</p>' : loaded.rulebooks.map((rulebook) => \`<div class="rulebook-card">
+    <div class="rulebook-head">
+      <strong>\${escapeHtml(rulebook.name)}</strong>
+      <span class="agent-badge">v\${escapeHtml(rulebook.version)}</span>
+      \${rulebook.spec === rulebook.name ? "" : \`<code>\${escapeHtml(rulebook.spec)}</code>\`}
+      <span>\${rulebook.source === "user" ? "All projects" : "This project"}</span>
+      <span>\${rulebook.rules.length} rule\${rulebook.rules.length === 1 ? "" : "s"}</span>
+    </div>
+    \${rulebook.rules.map((rule) => \`<div class="rulebook-rule\${pendingRuleFocus === rule.name ? " rules-focus" : ""}">
+      <code class="rule-id">custom.\${escapeHtml(rule.name)}</code>
+      <code>\${escapeHtml([rule.command, rule.subcommand].filter(Boolean).join(" "))}</code>
+      <p>Blocked arguments (any one matches): \${rule.block_args.map((arg) => \`<code>\${escapeHtml(arg)}</code>\`).join(" ")}</p>
+      <p>\${escapeHtml(rule.reason)}</p>
+    </div>\`).join("")}
+  </div>\`).join("");
+  const diagnostics = [
+    ...loaded.errors.map((text) => \`<div class="status error">\${escapeHtml(text)}</div>\`),
+    ...loaded.warnings.map((text) => \`<div class="status">\${escapeHtml(text)}</div>\`)
+  ];
+  qs("rules-diagnostics").innerHTML = diagnostics.join("");
+  qs("rules-diagnostics-panel").hidden = diagnostics.length === 0;
+  if (!pendingRuleFocus)
+    return;
+  const focused = qs("rules-list").querySelector(".rules-focus");
+  if (focused)
+    focused.scrollIntoView({ block: "center" });
+  if (!focused)
+    setAppStatus(\`custom.\${pendingRuleFocus} is not in any rulebook\`, "error");
+  pendingRuleFocus = null;
+};
+var loadRules = async () => {
+  const result = await requestJson("/api/rules");
+  if (!result.ok || !Array.isArray(result.data?.rulebooks)) {
+    qs("rules-list").innerHTML = \`<p class="empty">Could not load rules: \${escapeHtml(errorText(result))}</p>\`;
+    rulesData = null;
+    qs("rules-diagnostics-panel").hidden = true;
+    rulesRequested = false;
+    return;
+  }
+  rulesData = result.data;
+  renderRules();
+};
+var refreshRules = async () => {
+  const button = qs("rules-refresh");
+  if (button.disabled)
+    return;
+  button.disabled = true;
+  button.classList.add("spinning");
+  rulesRequested = true;
+  await Promise.all([loadRules(), new Promise((resolve) => setTimeout(resolve, 600))]);
+  button.classList.remove("spinning");
+  button.disabled = false;
+};
+var jumpToRulesRule = (ruleId) => {
+  pendingRuleFocus = ruleId.replace(/^custom\\./, "");
+  location.hash = "rules";
+};
+var openRuleComposer = (command) => {
+  qs("rules-composer-input").value = command;
+  location.hash = "rules";
+};
+var setRulesScope = (scope) => {
+  rulesScope = scope;
+  document.querySelectorAll("[data-rules-scope]").forEach((chip) => {
+    chip.setAttribute("aria-pressed", String(chip.dataset.rulesScope === scope));
+  });
+  qs("rules-project-path-field").hidden = scope !== "project";
+};
+var rulePromptText = () => {
+  const names = rulesData?.rulebooks.map((rulebook) => rulebook.name) ?? [];
+  return [
+    "Use the cc-safety-net skill for this request.",
+    "If that skill is not available, run \`npx -y cc-safety-net rule doc\` first and treat its output as the source of truth for schema, paths, and validation.",
+    "",
+    rulesScope === "project" ? \`Scope: this project - \${qs("rules-project-path").value.trim()}\` : "Scope: all projects (user scope)",
+    \`Existing rulebooks (names must stay unique across both scopes): \${names.length > 0 ? names.join(", ") : "none"}\`,
+    "",
+    qs("rules-composer-input").value.trim()
+  ].join(\`
+\`);
+};
+var chooseProjectDirectory = async () => {
+  const button = qs("rules-choose-directory");
+  if (button.disabled)
+    return;
+  button.disabled = true;
+  const result = await requestJson("/api/rules/choose-directory", { method: "POST" });
+  button.disabled = false;
+  if (result.ok && result.data.path) {
+    qs("rules-project-path").value = result.data.path;
+    return;
+  }
+  if (result.ok && result.data.cancelled)
+    return;
+  directoryPickerFailed = true;
+  qs("rules-project-path").readOnly = false;
+  button.hidden = true;
+  setAppStatus(\`\${result.ok ? result.data.error : errorText(result)} - type the project path instead\`, "error");
+};
+var copyRulePrompt = async () => {
+  if (!rulesData) {
+    setAppStatus("Rules have not loaded yet - refresh the Rulebooks panel", "error");
+    return;
+  }
+  if (!qs("rules-composer-input").value.trim()) {
+    setAppStatus("Describe what you want first", "error");
+    return;
+  }
+  if (rulesScope === "project" && !qs("rules-project-path").value.trim()) {
+    setAppStatus("Enter the project path the rule belongs to", "error");
+    return;
+  }
+  qs("rules-copy-prompt").disabled = true;
+  try {
+    await navigator.clipboard.writeText(rulePromptText());
+    qs("rules-composer-input").value = "";
+    setAppStatus("Prompt copied - paste it into your coding CLI", "ok");
+  } catch {
+    setAppStatus("Copy failed", "error");
+  } finally {
+    qs("rules-copy-prompt").disabled = false;
+  }
+};
+var runIntegrationAction = async (button) => {
+  const target = button.dataset.integrationTarget;
+  if (!target || integrationBusy.has(target))
+    return;
+  integrationBusy.add(target);
+  const action = button.dataset.integrationAction;
+  renderIntegrations();
+  const result = await requestJson(\`/api/\${action}\`, {
+    method: "POST",
+    body: JSON.stringify({ target })
+  });
+  integrationBusy.delete(target);
+  const row = integrations?.targets.find((entry) => entry.target === target);
+  if (!row)
+    return;
+  const ok = result.ok && result.data.ok === true;
+  if (ok)
+    row.status = action === "install" ? "active" : "not-installed";
+  row.note = {
+    kind: ok ? "ok" : "error",
+    text: ok ? result.data.output : result.data?.output || errorText(result)
+  };
+  if (!ok)
+    setAppStatus(action === "install" ? "Install failed" : "Uninstall failed", "error");
+  renderIntegrations();
+};
+var confirmDialog = (() => {
+  const dialog = qs("confirm-dialog");
+  const confirm = qs("confirm-dialog-confirm");
+  const cancel = qs("confirm-dialog-cancel");
+  let resolvePending = null;
+  dialog.addEventListener("close", () => {
+    if (!resolvePending)
+      return;
+    resolvePending(dialog.returnValue === "confirm");
+    resolvePending = null;
+  });
+  dialog.addEventListener("cancel", () => {
+    dialog.returnValue = "cancel";
+  });
+  return (options) => new Promise((resolve) => {
+    if (resolvePending) {
+      resolve(false);
+      return;
+    }
+    qs("confirm-dialog-title").textContent = options.title;
+    qs("confirm-dialog-body").textContent = options.body;
+    qs("confirm-dialog-detail").textContent = options.detail ?? "";
+    const detailRow = qs("confirm-dialog-detail").parentElement;
+    if (detailRow)
+      detailRow.hidden = !options.detail;
+    confirm.textContent = options.confirmLabel;
+    confirm.className = options.confirmClass ?? "danger";
+    dialog.returnValue = "cancel";
+    resolvePending = resolve;
+    dialog.showModal();
+    cancel.focus();
+  });
+})();
+var confirmProtectionDisable = (options) => confirmDialog({
+  title: options.title,
+  body: options.body,
+  detail: options.detail,
+  confirmLabel: "Disable protection"
+});
+var togglePanel = (button) => {
+  const controls = button.getAttribute("aria-controls");
+  if (!controls)
+    return;
+  const expanded = button.getAttribute("aria-expanded") !== "true";
+  button.setAttribute("aria-expanded", String(expanded));
+  qs(controls).hidden = !expanded;
+};
+var syncSearchState = () => {
+  const active = qs("policy-search").value.trim().length > 0;
+  if (active === searchActive)
+    return;
+  searchActive = active;
+  if (active)
+    return;
+  searchCollapsedTiers.clear();
+  searchCollapsedSecretGroups.clear();
+};
+var updateRawSource = () => {
+  qs("raw-source").textContent = state?.errors.length ? "Read-only original policy JSON. Repair preserves valid settings and writes canonical JSON." : "Read-only mirror of the controls.";
+};
+var setRawCopyCopied = (copied) => {
+  qs("raw-copy").innerHTML = copied ? rawCopyIcons.check : rawCopyIcons.copy;
+  qs("raw-copy").classList.toggle("copied", copied);
+  qs("raw-copy").setAttribute("aria-label", copied ? "Copied raw JSON" : "Copy raw JSON to clipboard");
+};
+var resetFeedCopy = () => {
+  document.querySelectorAll(".feed-copy.copied").forEach((button) => {
+    button.classList.remove("copied");
+    button.innerHTML = rawCopyIcons.copy;
+    button.setAttribute("aria-label", "Copy log entry as JSON");
+  });
+};
+var reportIssueUrl = "https://github.com/kenryu42/cc-safety-net/issues/new?template=false_positive.yml";
+var reportUrlLimit = 8000;
+var endsAtPathBoundary = (following) => following === "" || /^[/\\\\\\s'"]/.test(following);
+var scrubReportPaths = (text, cwd, home) => [
+  [cwd, "<project>"],
+  [home, "~"]
+].reduce((scrubbed, [from, to]) => from ? scrubbed.split(from).reduce((joined, part) => joined + (endsAtPathBoundary(part) ? to : from) + part) : scrubbed, text);
+var buildReportUrl = (fields) => {
+  const url = new URL(reportIssueUrl);
+  Object.entries(fields).filter(([, value]) => value).forEach(([field, value]) => {
+    url.searchParams.set(field, value);
+  });
+  return url.toString();
+};
+var buildReportRequest = (fields, dropped = []) => {
+  const url = buildReportUrl(fields);
+  if (url.length <= reportUrlLimit)
+    return { url, dropped };
+  const largest = Object.entries(fields).filter(([, value]) => value).sort((left, right) => right[1].length - left[1].length)[0];
+  if (!largest)
+    return { url, dropped };
+  return buildReportRequest({ ...fields, [largest[0]]: "" }, [...dropped, largest[0]]);
+};
+var openReportDialog = (button) => {
+  const entry = renderedFeedEntries[Number(button.dataset.reportFp)];
+  if (!entry)
+    return;
+  const scrub = (text) => scrubReportPaths(text, entry.cwd, activity?.homeDir);
+  qs("report-command").value = scrub(entry.command || entry.segment || "");
+  qs("report-entry").value = JSON.stringify(entry, (_key, value) => typeof value === "string" ? scrub(value) : value, 2);
+  qs("report-dialog").returnValue = "cancel";
+  qs("report-dialog").showModal();
+};
+var openFalsePositiveForm = async () => {
+  const fields = {
+    command: qs("report-command").value,
+    entry: qs("report-entry").value
+  };
+  const request = buildReportRequest(fields);
+  const copying = request.dropped.length ? navigator.clipboard.writeText(request.dropped.map((field) => \`### \${field}
+\${fields[field]}\`).join(\`
+
+\`)) : null;
+  window.open(request.url, "_blank", "noopener");
+  if (!copying)
+    return;
+  const names = request.dropped.join(" and ");
+  setAppStatus(await copying.then(() => true).catch(() => false) ? \`Report too long to prefill — \${names} copied to your clipboard. Paste into the form on GitHub.\` : \`Report too long to prefill — \${names} left out. Copy the entry from the feed and paste it into the form on GitHub.\`, "error");
+};
+qs("report-dialog").addEventListener("close", () => {
+  if (qs("report-dialog").returnValue === "report")
+    openFalsePositiveForm();
+});
+var copyFeedEntry = async (button) => {
+  const entry = renderedFeedEntries[Number(button.dataset.logCopy)];
+  if (!entry)
+    return;
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(entry, null, 2));
+    if (feedCopyResetTimer)
+      clearTimeout(feedCopyResetTimer);
+    resetFeedCopy();
+    button.classList.add("copied");
+    button.innerHTML = rawCopyIcons.check;
+    button.setAttribute("aria-label", "Copied log entry");
+    feedCopyResetTimer = setTimeout(resetFeedCopy, 2000);
+  } catch {
+    setAppStatus("Copy failed", "error");
+  }
+};
+var copyRawToClipboard = async () => {
+  qs("raw-copy").disabled = true;
+  try {
+    await navigator.clipboard.writeText(qs("raw").value);
+    setRawCopyCopied(true);
+    if (rawCopyResetTimer)
+      clearTimeout(rawCopyResetTimer);
+    rawCopyResetTimer = setTimeout(() => setRawCopyCopied(false), 2000);
+  } catch (error) {
+    setAppStatus("Copy failed", "error");
+    setDetailStatus(\`Error: Could not copy Raw JSON: \${error instanceof Error ? error.message : String(error)}\`, "error");
+  } finally {
+    qs("raw-copy").disabled = false;
+  }
+};
+var formatStarCount = (count) => {
+  if (typeof count !== "number")
+    return "";
+  if (count >= 1000)
+    return \`\${(count / 1000).toFixed(1).replace(/\\.0$/, "")}k\`;
+  return String(count);
+};
+var starCountHtml = (count) => {
+  const formatted = formatStarCount(count);
+  return formatted ? \`<span class="star-count">\${escapeHtml(formatted)}</span>\` : "";
+};
+var hideStarCta = () => {
+  qs("star-row").hidden = true;
+  qs("star-slot").innerHTML = "";
+};
+var renderStarPitch = (context, starred = false) => {
+  const evidence = context.blockedTotal > 0 ? \`CC Safety Net has blocked <strong>\${escapeHtml(context.blockedTotal.toLocaleString("en-US"))}</strong> risky command\${context.blockedTotal === 1 ? "" : "s"} on this machine in its retained \${escapeHtml(dayCount(retentionDays()))} history.\` : "";
+  if (starred) {
+    qs("star-pitch-text").innerHTML = evidence;
+    return;
+  }
+  qs("star-pitch-text").innerHTML = evidence ? \`\${evidence} If it saved your work, star it on GitHub.\` : "If CC Safety Net is useful to you, star it on GitHub.";
+};
+var renderStarLink = (context, href = fallbackRepoUrl) => {
+  qs("star-slot").innerHTML = \`<a class="star-cta" href="\${escapeHtml(href)}" target="_blank" rel="noopener" aria-label="Star CC Safety Net on GitHub (opens github.com)">
+      <span class="star-icon" aria-hidden="true">\${starIcons.outline}</span>
+      <span class="star-label">Star on GitHub</span>
+      \${starCountHtml(context.starCount)}
+    </a>\`;
+  qs("star-row").hidden = false;
+};
+var renderStarCta = (context) => {
+  activeStarContext = context;
+  if (context.starred === true) {
+    hideStarCta();
+    return;
+  }
+  renderStarPitch(context);
+  qs("star-mechanism").hidden = context.starred !== false;
+  if (context.starred === null) {
+    renderStarLink(context);
+    return;
+  }
+  qs("star-slot").innerHTML = \`<button type="button" class="star-cta" aria-label="Star CC Safety Net on GitHub. One click via your GitHub CLI.">
+      <span class="star-icon" aria-hidden="true">\${starIcons.outline}</span>
+      <span class="star-label">Star on GitHub</span>
+      \${starCountHtml(context.starCount)}
+    </button>\`;
+  qs("star-row").hidden = false;
+};
+var starRepo = async (button) => {
+  button.disabled = true;
+  const result = await requestJson("/api/star", { method: "POST" });
+  if (result.ok && result.data?.ok === true) {
+    const icon = button.querySelector(".star-icon");
+    const label = button.querySelector(".star-label");
+    if (icon)
+      icon.innerHTML = starIcons.filled;
+    if (label)
+      label.textContent = "Starred. Thank you.";
+    button.setAttribute("aria-label", "CC Safety Net starred on GitHub");
+    button.classList.add("starred");
+    qs("star-mechanism").hidden = true;
+    renderStarPitch(activeStarContext, true);
+    setAppStatus("Starred on GitHub", "ok");
+    setDetailStatus("");
+    return;
+  }
+  qs("star-mechanism").hidden = true;
+  renderStarLink(activeStarContext, result.data?.fallbackUrl ?? fallbackRepoUrl);
+};
+var loadStarContext = async () => {
+  const result = await requestJson("/api/star/context");
+  renderStarCta(result.ok && result.data ? result.data : { starred: null, starCount: null, blockedTotal: 0 });
+};
+var syncRawFromForm = () => {
+  if (state?.errors.length)
+    return;
+  qs("raw").value = formatPolicy(collectFormPolicy());
+  updateRawSource();
+};
+var updateDirtyStatus = () => {
+  if (!state || state.errors.length)
+    return;
+  const draftJson = JSON.stringify(collectFormPolicy());
+  dirty = draftJson !== JSON.stringify(state.policy);
+  qs("policy-savebar").hidden = !dirty;
+  qs("dirty-chip").hidden = !dirty || currentView() === "policy";
+  if (dirty)
+    sessionStorage.setItem("cc-safety-net-draft", draftJson);
+  if (!dirty)
+    sessionStorage.removeItem("cc-safety-net-draft");
+  setDetailStatus("");
+  updateActions();
+};
+var createPathList = (prefix, config) => {
+  const setHint = (text) => {
+    qs(\`\${prefix}-hint\`).textContent = text;
+    qs(\`\${prefix}-hint\`).hidden = !text;
+  };
+  const render = () => {
+    const paths = config.getPaths();
+    const disabled = config.isDisabled();
+    qs(\`\${prefix}-count\`).textContent = \`\${paths.length} path\${paths.length === 1 ? "" : "s"}\`;
+    qs(\`\${prefix}-input\`).disabled = disabled;
+    qs(\`\${prefix}-add-button\`).disabled = disabled;
+    qs(\`\${prefix}-list\`).innerHTML = paths.length === 0 ? \`<li class="empty">No \${config.itemLabel}s configured.</li>\` : paths.map((path, index) => \`<li class="path-item \${disabled ? "row-disabled" : ""}">
+          <code>\${escapeHtml(path)}</code>
+          <button type="button" class="icon-button" data-path-list="\${prefix}" data-path-remove="\${index}" \${disabled ? "disabled" : ""} aria-label="Remove \${config.itemLabel} \${escapeHtml(path)}">\${pathListIcons.remove}</button>
+        </li>\`).join("");
+  };
+  let adding = false;
+  const add = async (value) => {
+    if (adding)
+      return;
+    const entries = [...new Set(pathLines(value))];
+    if (entries.length === 0)
+      return;
+    const submitted = qs(\`\${prefix}-input\`).value;
+    const additions = entries.filter((entry) => !config.getPaths().includes(entry));
+    if (config.validateAdditions && additions.length) {
+      adding = true;
+      try {
+        const error = await config.validateAdditions([...config.getPaths(), ...additions]);
+        if (error) {
+          setHint(\`Not added: \${additions.join(", ")} — \${error}\`);
+          return;
+        }
+      } finally {
+        adding = false;
+      }
+    }
+    const current = config.getPaths();
+    const duplicates = entries.filter((entry) => current.includes(entry));
+    config.setPaths([...current, ...additions.filter((entry) => !current.includes(entry))]);
+    if (qs(\`\${prefix}-input\`).value === submitted)
+      qs(\`\${prefix}-input\`).value = "";
+    setHint(duplicates.length ? \`Already listed: \${duplicates.join(", ")}\` : "");
+    render();
+    syncRawFromForm();
+    updateDirtyStatus();
+    qs(\`\${prefix}-input\`).focus();
+  };
+  const remove = (index) => {
+    config.setPaths(config.getPaths().filter((_, position) => position !== index));
+    setHint("");
+    render();
+    syncRawFromForm();
+    updateDirtyStatus();
+  };
+  return { render, add, remove };
+};
+var pathLists = {
+  "deny-paths": createPathList("deny-paths", {
+    getPaths: () => draftPolicy.secret_protection.deny_paths,
+    setPaths: (paths) => {
+      draftPolicy.secret_protection.deny_paths = paths;
+    },
+    isDisabled: () => !draftPolicy.secret_protection.enabled,
+    itemLabel: "deny path",
+    validateAdditions: async (paths) => {
+      const candidate = collectFormPolicy();
+      candidate.secret_protection = {
+        ...candidate.secret_protection,
+        deny_paths: paths
+      };
+      const result = await requestPolicyPreview(candidate);
+      if (result.ok && result.data?.preview)
+        return null;
+      return errorText(result);
+    }
+  }),
+  "allow-paths": createPathList("allow-paths", {
+    getPaths: () => draftPolicy.destructive_command_protection.allow_paths,
+    setPaths: (paths) => {
+      draftPolicy.destructive_command_protection.allow_paths = paths;
+    },
+    isDisabled: () => !draftPolicy.destructive_command_protection.enabled,
+    itemLabel: "allow path",
+    validateAdditions: async (paths) => {
+      const candidate = collectFormPolicy();
+      candidate.destructive_command_protection = {
+        ...candidate.destructive_command_protection,
+        allow_paths: paths
+      };
+      const result = await requestPolicyPreview(candidate);
+      if (result.ok && result.data?.preview)
+        return null;
+      return errorText(result);
+    }
+  })
+};
+var pathListFor = (name) => name === "deny-paths" || name === "allow-paths" ? pathLists[name] : null;
+var secretRuleIsActive = (rule, overrides) => overrides[rule.id] ? overrides[rule.id] === "on" : !rule.defaultOff;
+var setSecretOverride = (rule, active) => {
+  if (active === !rule.defaultOff) {
+    delete draftPolicy.secret_protection.overrides[rule.id];
+    return;
+  }
+  draftPolicy.secret_protection.overrides[rule.id] = active ? "on" : "off";
+};
+var groupRules = (rules) => rules.reduce((groups, rule) => {
+  const group = groups.find((item) => item.category === rule.category);
+  if (group) {
+    group.rules.push(rule);
+    return groups;
+  }
+  groups.push({ category: rule.category, rules: [rule] });
+  return groups;
+}, []);
+var renderSecretPatterns = () => {
+  if (!state)
+    return;
+  const loaded = state;
+  const query = qs("policy-search").value.trim().toLowerCase();
+  const rules = state.secretPatterns.filter((rule) => [rule.category, rule.label, rule.id, rule.description, ...rule.paths ?? []].join(" ").toLowerCase().includes(query));
+  const overrides = draftPolicy.secret_protection.overrides;
+  const disabled = !draftPolicy.secret_protection.enabled;
+  const disabledCount = state.secretPatterns.filter((rule) => !secretRuleIsActive(rule, overrides)).length;
+  qs("secret-summary").textContent = disabled ? "Protection disabled. Saved rule settings and deny paths are preserved." : \`\${state.secretPatterns.length - disabledCount} active, \${disabledCount} disabled\`;
+  qs("secret-patterns").innerHTML = rules.length === 0 ? '<p class="empty">No secret protections match the search.</p>' : groupRules(rules).map((group) => {
+    const expanded = secretGroupExpanded.get(group.category) || searchActive && !searchCollapsedSecretGroups.has(group.category);
+    const contentId = \`secret-group-\${group.category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}\`;
+    const allGroupRules = loaded.secretPatterns.filter((rule) => rule.category === group.category);
+    const onCount = disabled ? 0 : allGroupRules.filter((rule) => secretRuleIsActive(rule, overrides)).length;
+    return \`
+      <section class="rule-tier">
+        <div class="rule-tier-head">
+          <button type="button" class="tier-collapse" data-secret-group-toggle="\${escapeHtml(group.category)}" aria-expanded="\${expanded}" aria-controls="\${contentId}">
+            <span class="panel-chevron" aria-hidden="true"></span>
+            <span class="tier-label"><strong>\${escapeHtml(group.category)}</strong></span>
+            <span class="tier-counts">\${tierCountHtml([
+      [onCount, "on"],
+      [allGroupRules.length - onCount, "off", "off"]
+    ])}</span>
+          </button>
+          <input type="checkbox" class="tier-switch" data-secret-group-active="\${escapeHtml(group.category)}" \${checkbox(allGroupRules.some((rule) => secretRuleIsActive(rule, overrides)))} \${disabled ? "disabled" : ""} aria-label="\${escapeHtml(\`All \${group.category} protections\`)}">
+        </div>
+        <div id="\${contentId}" class="tier-content" \${expanded ? "" : "hidden"}>
+        <div class="grid">\${group.rules.map((rule) => {
+      const active = secretRuleIsActive(rule, overrides);
+      const ruleState = active && !disabled ? { label: "Active", className: "state-active" } : { label: "Disabled", className: "state-disabled" };
+      const control = \`<input type="checkbox" data-secret-active="\${escapeHtml(rule.id)}" \${checkbox(active)} \${disabled ? "disabled" : ""}>
+            <span>
+              <strong>\${escapeHtml(rule.label)}</strong>
+              <button type="button" class="rule-id" data-rule-activity="\${escapeHtml(rule.id)}" title="Show recent blocks in Activity">\${escapeHtml(rule.id)}</button>
+              <small><span class="\${ruleState.className}">\${ruleState.label}</span> \${escapeHtml(rule.description ?? "")}</small>
+            </span>\`;
+      if (!rule.paths) {
+        return \`<label class="row \${disabled ? "row-disabled" : ""}">\${control}</label>\`;
+      }
+      return \`<div class="row rule-row \${disabled ? "row-disabled" : ""}">
+            <label class="rule-control">\${control}</label>
+            <button type="button" class="rule-example-button" data-secret-paths="\${escapeHtml(rule.id)}" aria-label="\${escapeHtml(\`Show protected paths for \${rule.label}\`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
+          </div>\`;
+    }).join("")}</div>
+        </div>
+      </section>
+    \`;
+  }).join("");
+};
+var levelCapabilities = (level) => ({
+  fail_closed: level === "strict" || level === "paranoid",
+  paranoid_rm: level === "paranoid",
+  paranoid_interpreters: level === "paranoid"
+});
+var presetName = () => safetyLevels[draftPolicy.safety.level][0];
+var renderPresetStatus = () => {
+  if (!preview)
+    return;
+  const customized = preview.counts.effectiveCustomizations > 0 || Object.entries(draftPolicy.safety.overrides).some(([key, value]) => value !== levelCapabilities(draftPolicy.safety.level)[key]);
+  qs("safety-preset-status").textContent = customized ? \`\${presetName()} · Customized\` : "";
+  qs("safety-preset-status").classList.toggle("customized", customized);
+};
+var renderSafety = () => {
+  const environmentSources = preview ? [
+    ...new Set(Object.values(preview.capabilities).filter((capability) => capability.source === "environment").flatMap((capability) => capability.sources.filter((source) => source.startsWith("env "))))
+  ] : [];
+  qs("environment-overrides").hidden = environmentSources.length === 0;
+  qs("environment-overrides").textContent = environmentSources.length ? \`Environment-raised protection: \${environmentSources.join(", ")}\` : "";
+  qs("safety-level").innerHTML = Object.entries(safetyLevels).map(([level, meta]) => \`<label class="row preset-\${level}"><input type="radio" name="safety-level" value="\${level}" \${checkbox(draftPolicy.safety.level === level)}><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span></label>\`).join("");
+  const inherited = levelCapabilities(draftPolicy.safety.level);
+  qs("safety-overrides").innerHTML = Object.entries(safetyOverrides).map(([key, meta]) => {
+    const value = draftPolicy.safety.overrides[key];
+    const inheritedText = inherited[key] ? "on" : "off";
+    return \`<label class="row safety-override-row"><span><strong>\${meta[0]}</strong><small>\${meta[1]}</small></span><select data-safety-override="\${key}">
+      <option value="inherit" \${value === undefined ? "selected" : ""}>Inherit from preset (\${inheritedText})</option>
+      <option value="true" \${value === true ? "selected" : ""}>Force on</option>
+      <option value="false" \${value === false ? "selected" : ""}>Force off</option>
+    </select></label>\`;
+  }).join("");
+  qs("workflow").innerHTML = \`<label class="row"><input type="checkbox" data-workflow-worktree \${checkbox(draftPolicy.workflow.worktree_mode)}><span><strong>Allow discarding local changes in linked git worktrees</strong><small>Only relaxes linked worktree discard checks.</small></span></label>\`;
+  renderPresetStatus();
+};
+var tierForRule = (rule) => {
+  if (!rule.activationCapability)
+    return "normal";
+  return rule.activationCapability === "fail_closed" ? "strict" : "paranoid";
+};
+var tierMeta = {
+  normal: ["Available in every preset", "No additional capability required"],
+  strict: ["Strict tier", "Inherits from Fail closed"],
+  paranoid: ["Paranoid tier", "Inherits from Paranoid rm or Paranoid interpreters"]
+};
+var ruleStateText = (rule, effective, capabilities) => {
+  const capability = rule.activationCapability;
+  if (effective.source === "master_disabled")
+    return "Off — destructive-command protection disabled";
+  if (effective.source === "rule_override")
+    return \`\${effective.enabled ? "On" : "Off"} — user rule override\`;
+  if (effective.source === "built_in_default")
+    return "On — available in every preset";
+  if (effective.source === "environment") {
+    const sources = capability ? capabilities[capability]?.sources ?? [] : [];
+    const source = [...sources].reverse().find((item) => item.startsWith("env "));
+    return \`\${effective.enabled ? "On" : "Off"} — environment\${source ? \`; \${source.slice(4)}\` : ""}\`;
+  }
+  if (effective.source === "capability_override" && capability) {
+    return \`\${effective.enabled ? "On" : "Off"} — capability override; \${safetyOverrides[capability][0]} forced \${effective.enabled ? "on" : "off"}\`;
+  }
+  if (effective.enabled)
+    return \`On — \${presetName()} preset\`;
+  return \`Off — \${presetName()} preset; requires \${tierForRule(rule) === "strict" ? "Strict" : "Paranoid"}\`;
+};
+var showRulePopover = (button, label, title, body) => {
+  const popover = qs("rule-example-popover");
+  qs("rule-example-label").textContent = label;
+  qs("rule-example-title").textContent = title;
+  qs("rule-example-command").textContent = body;
+  if (!popover.matches(":popover-open"))
+    popover.showPopover();
+  const buttonRect = button.getBoundingClientRect();
+  const popoverRect = popover.getBoundingClientRect();
+  const gap = 8;
+  const edge = 12;
+  const below = buttonRect.bottom + gap;
+  const top = below + popoverRect.height <= window.innerHeight - edge ? below : Math.max(edge, buttonRect.top - gap - popoverRect.height);
+  const left = Math.min(window.innerWidth - popoverRect.width - edge, Math.max(edge, buttonRect.right - popoverRect.width));
+  popover.style.top = \`\${top}px\`;
+  popover.style.left = \`\${left}px\`;
+};
+var openRuleExample = (button) => {
+  const rule = state?.destructiveCommandRules.find((item) => item.id === button.dataset.ruleExample);
+  if (!rule)
+    return;
+  showRulePopover(button, "Blocked command example", rule.label, rule.example);
+};
+var openSecretPaths = (button) => {
+  const rule = state?.secretPatterns.find((item) => item.id === button.dataset.secretPaths);
+  if (!rule?.paths)
+    return;
+  showRulePopover(button, "Protected paths", rule.label, rule.paths.join(\`
+\`));
+};
+var renderDestructiveCommands = () => {
+  if (!state || !preview)
+    return;
+  const loaded = state;
+  const effectiveState = preview;
+  const query = qs("policy-search").value.trim().toLowerCase();
+  const matchingRules = state.destructiveCommandRules.filter((rule) => [rule.category, rule.label, rule.id, rule.description, tierMeta[tierForRule(rule)][0]].join(" ").toLowerCase().includes(query));
+  qs("destructive-command-summary").textContent = draftPolicy.destructive_command_protection.enabled ? \`\${preview.counts.enabled} active, \${preview.counts.disabled} disabled\` : "Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.";
+  const enforcedRules = matchingRules.filter((rule) => rule.catastrophic);
+  const configurableRules = matchingRules.filter((rule) => !rule.catastrophic);
+  const enforcedExpanded = tierExpanded.get("enforced") || searchActive && !searchCollapsedTiers.has("enforced");
+  const enforcedSection = enforcedRules.length === 0 ? "" : \`<section class="rule-tier rule-tier-enforced">
+        <div class="rule-tier-head">
+          <button type="button" class="tier-collapse" data-tier-toggle="enforced" aria-expanded="\${enforcedExpanded}" aria-controls="destructive-tier-enforced">
+            <span class="panel-chevron" aria-hidden="true"></span>
+            <span class="tier-label"><strong>Always enforced</strong><small>Cannot be disabled by any preset, rule override, or allow path</small></span>
+            <span class="tier-counts">\${enforcedRules.length} protection\${enforcedRules.length === 1 ? "" : "s"}</span>
+          </button>
+        </div>
+        <div id="destructive-tier-enforced" class="tier-content" \${enforcedExpanded ? "" : "hidden"}>
+          \${groupRules(enforcedRules).map((group) => \`<section class="destructive-command-group">
+            <h3>\${escapeHtml(group.category)}</h3>
+            <div class="grid">\${group.rules.map((rule) => \`<div class="row rule-row">
+                <span class="rule-control">
+                  <span>
+                    <strong>\${escapeHtml(rule.label)}</strong>
+                    <button type="button" class="rule-id" data-rule-activity="\${escapeHtml(rule.id)}" title="Show recent blocks in Activity">\${escapeHtml(rule.id)}</button>
+                    <small><span class="state-active">Always enforced</span> \${escapeHtml(rule.description)}</small>
+                  </span>
+                </span>
+                <button type="button" class="rule-example-button" data-rule-example="\${escapeHtml(rule.id)}" aria-label="\${escapeHtml(\`Show blocked example for \${rule.label}\`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
+              </div>\`).join("")}</div>
+          </section>\`).join("")}
+        </div>
+      </section>\`;
+  qs("destructive-command-rules").innerHTML = matchingRules.length === 0 ? '<p class="empty">No built-in protections match the search.</p>' : enforcedSection + Object.keys(tierMeta).map((tier) => {
+    const rules = configurableRules.filter((rule) => tierForRule(rule) === tier);
+    if (rules.length === 0)
+      return "";
+    const allTierRules = loaded.destructiveCommandRules.filter((rule) => !rule.catastrophic && tierForRule(rule) === tier);
+    const tierStates = allTierRules.flatMap((rule) => effectiveState.rules[rule.id] ?? []);
+    const expanded = tierExpanded.get(tier) || searchActive && !searchCollapsedTiers.has(tier);
+    const contentId = \`destructive-tier-\${tier}\`;
+    return \`<section class="rule-tier rule-tier-\${tier}">
+        <div class="rule-tier-head">
+          <button type="button" class="tier-collapse" data-tier-toggle="\${tier}" aria-expanded="\${expanded}" aria-controls="\${contentId}">
+            <span class="panel-chevron" aria-hidden="true"></span>
+            <span class="tier-label"><strong>\${tierMeta[tier][0]}</strong><small>\${tierMeta[tier][1]}</small></span>
+            <span class="tier-counts">\${tierCountHtml([
+      [tierStates.filter((item) => item.enabled).length, "on"],
+      [tierStates.filter((item) => !item.enabled).length, "off", "off"]
+    ])}</span>
+          </button>
+          <input type="checkbox" class="tier-switch" data-destructive-tier-active="\${tier}" \${checkbox(tierStates.some((item) => item.enabled))} \${!draftPolicy.destructive_command_protection.enabled ? "disabled" : ""} aria-label="\${escapeHtml(\`All \${tierMeta[tier][0]} protections\`)}">
+        </div>
+        <div id="\${contentId}" class="tier-content" \${expanded ? "" : "hidden"}>
+          \${groupRules(rules).map((group) => \`<section class="destructive-command-group">
+            <h3>\${escapeHtml(group.category)}</h3>
+            <div class="grid">\${group.rules.map((rule) => {
+      const effective = effectiveState.rules[rule.id];
+      if (!effective)
+        return "";
+      const override = draftPolicy.destructive_command_protection.overrides[rule.id];
+      const status = ruleStateText(rule, effective, effectiveState.capabilities);
+      const disabled = !draftPolicy.destructive_command_protection.enabled;
+      return \`<div class="row rule-row \${disabled ? "row-disabled" : ""}">
+                <label class="rule-control">
+                  <input type="checkbox" data-destructive-command-active="\${escapeHtml(rule.id)}" \${checkbox(effective.enabled)} \${disabled ? "disabled" : ""} aria-label="\${escapeHtml(\`\${rule.label}: \${status}\`)}">
+                  <span>
+                    <strong>\${escapeHtml(rule.label)}</strong>
+                    <button type="button" class="rule-id" data-rule-activity="\${escapeHtml(rule.id)}" title="Show recent blocks in Activity">\${escapeHtml(rule.id)}</button>
+                    <small><span class="\${effective.enabled ? "state-active" : "state-disabled"}">\${escapeHtml(status)}</span> \${escapeHtml(rule.description)}</small>
+                  </span>
+                </label>
+                <button type="button" class="rule-example-button" data-rule-example="\${escapeHtml(rule.id)}" aria-label="\${escapeHtml(\`Show blocked example for \${rule.label}\`)}" aria-haspopup="dialog" aria-controls="rule-example-popover">?</button>
+                \${override && !effective.changesInherited ? \`<button type="button" class="inherit-button" data-use-inherited="\${escapeHtml(rule.id)}">Use inherited setting</button>\` : ""}
+              </div>\`;
+    }).join("")}</div>
+          </section>\`).join("")}
+        </div>
+      </section>\`;
+  }).join("");
+};
+var refreshPolicyPreview = async () => {
+  const requestId = ++previewRequestId;
+  const result = await requestPolicyPreview();
+  if (requestId !== previewRequestId)
+    return false;
+  if (!result.ok || !result.data?.preview) {
+    setAppStatus("Preview failed", "error");
+    setDetailStatus(\`Error: \${errorText(result)}\`, "error");
+    return false;
+  }
+  preview = result.data.preview;
+  renderProtectionCard();
+  renderSafety();
+  renderDestructiveCommands();
+  runCommandTest();
+  return true;
+};
+var testerRequestId = 0;
+var runCommandTest = async () => {
+  const command = qs("tester-input").value.trim();
+  if (!command) {
+    qs("tester-result").hidden = true;
+    return;
+  }
+  const requestId = ++testerRequestId;
+  const result = await requestJson("/api/policy/explain", {
+    method: "POST",
+    body: JSON.stringify({ command, policy: collectFormPolicy() })
+  });
+  if (requestId !== testerRequestId)
+    return;
+  const el = qs("tester-result");
+  el.hidden = false;
+  if (!result.ok) {
+    el.className = "status error";
+    el.textContent = \`Could not evaluate: \${errorText(result)}\`;
+    return;
+  }
+  if (result.data.result === "allowed") {
+    el.className = "status ok";
+    el.innerHTML = \`Allowed — no rule blocks this command under the current draft policy. <button type="button" class="feed-toggle" data-create-rule="\${escapeHtml(command)}">Create a rule for this</button>\`;
+    return;
+  }
+  const ruleId = result.data.customRule?.id ?? result.data.ruleId;
+  const ruleIdHtml = result.data.customRule ? \`<button type="button" class="rule-id" data-jump-custom-rule="\${escapeHtml(ruleId)}" title="Show this rule in Rules">\${escapeHtml(ruleId)}</button>\` : \`<code class="rule-id">\${escapeHtml(ruleId)}</code>\`;
+  const segment = result.data.segment && result.data.segment !== command ? \`<div class="tester-segment">Segment: <code>\${escapeHtml(result.data.segment)}</code></div>\` : "";
+  el.className = "status error";
+  el.innerHTML = \`Blocked\${ruleId ? \` by \${ruleIdHtml}\` : ""} — \${escapeHtml(result.data.reason || "")}\${segment}\`;
+};
+function render() {
+  if (!state)
+    return;
+  draftPolicy = clonePolicy(state.policy);
+  preview = state.preview;
+  knownRuleIds = new Set([...state.destructiveCommandRules, ...state.secretPatterns].map((rule) => rule.id));
+  dirty = false;
+  qs("policy-savebar").hidden = true;
+  qs("dirty-chip").hidden = true;
+  qs("policy-path").textContent = state.path + (state.exists ? "" : " (not created yet)");
+  qs("app-version").textContent = state.version;
+  renderSafety();
+  qs("destructive-command").innerHTML = '<label class="row master"><input type="checkbox" data-destructive-command-enabled ' + checkbox(state.policy.destructive_command_protection.enabled) + '><span><strong>Destructive command protection</strong><small>Block configurable destructive git, filesystem, and execution patterns. Catastrophic and custom rules remain active when disabled.</small></span><span class="master-badge">' + (state.policy.destructive_command_protection.enabled ? "On" : "Off") + "</span></label>" + '<div id="destructive-command-rules"></div>' + '<section class="rule-tier">' + '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="allow-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="allow-paths-label">Allow paths</strong><small>Recursive deletes targeting these paths are not blocked, like /tmp. The home directory, or any path containing it, is rejected.</small></span><span class="tier-counts" id="allow-paths-count"></span></button>' + '<div class="tier-content paths-content" id="allow-paths-content" hidden>' + '<p class="muted">Use an absolute path or a ~/ path. Paste multiple lines to add several paths at once.</p>' + '<div class="paths-add"><input type="text" id="allow-paths-input" data-path-input="allow-paths" autocomplete="off" spellcheck="false" placeholder="/absolute/path or ~/path" aria-labelledby="allow-paths-label"><button type="button" class="icon-button" id="allow-paths-add-button" data-path-add="allow-paths" aria-label="Add allow path">' + pathListIcons.add + "</button></div>" + '<p class="paths-hint" id="allow-paths-hint" hidden></p>' + '<ul class="paths-list" id="allow-paths-list"></ul>' + "</div></section>";
+  qs("secret").innerHTML = '<label class="row master"><input type="checkbox" id="secret-enabled" ' + checkbox(state.policy.secret_protection.enabled) + '><span><strong>Secret protection</strong><small>Block default sensitive paths, coding CLI credential locations, and configured deny paths.</small></span><span class="master-badge">' + (state.policy.secret_protection.enabled ? "On" : "Off") + "</span></label>" + '<div id="secret-patterns"></div>' + '<section class="rule-tier">' + '<button type="button" class="rule-tier-head" aria-expanded="false" aria-controls="deny-paths-content"><span class="panel-chevron" aria-hidden="true"></span><span class="tier-label"><strong id="deny-paths-label">Deny paths</strong><small>Configured paths and everything inside them are blocked while Secret protection is on.</small></span><span class="tier-counts" id="deny-paths-count"></span></button>' + '<div class="tier-content paths-content" id="deny-paths-content" hidden>' + '<p class="muted">Paste multiple lines to add several paths at once.</p>' + '<div class="paths-add"><input type="text" id="deny-paths-input" data-path-input="deny-paths" autocomplete="off" spellcheck="false" placeholder="path/to/protect" aria-labelledby="deny-paths-label"><button type="button" class="icon-button" id="deny-paths-add-button" data-path-add="deny-paths" aria-label="Add deny path">' + pathListIcons.add + "</button></div>" + '<p class="paths-hint" id="deny-paths-hint" hidden></p>' + '<ul class="paths-list" id="deny-paths-list"></ul>' + "</div></section>";
+  qs("raw").value = state.errors.length ? state.raw : formatPolicy(draftPolicy);
+  qs("policy-search").value = "";
+  syncSearchState();
+  renderDestructiveCommands();
+  renderSecretPatterns();
+  pathLists["deny-paths"].render();
+  pathLists["allow-paths"].render();
+  updateRawSource();
+  renderRetention(state);
+  qs("recovery").hidden = state.errors.length === 0;
+  updateActions();
+  renderProtectionCard();
+  if (state.errors.length) {
+    if (currentView() !== "policy")
+      location.hash = "policy";
+    setAppStatus("Repair required", "error");
+    setDetailStatus(\`Error: \${state.errors.join(\`
+\`)}\`, "error");
+    return;
+  }
+  setAppStatus("");
+  setDetailStatus("");
+}
+var restoreDraft = () => {
+  if (!state || state.errors.length)
+    return;
+  const stored = sessionStorage.getItem("cc-safety-net-draft");
+  if (!stored)
+    return;
+  const parsed = (() => {
+    try {
+      return JSON.parse(stored);
+    } catch {
+      return null;
+    }
+  })();
+  const isPolicyShape = [
+    "safety",
+    "workflow",
+    "destructive_command_protection",
+    "secret_protection",
+    "audit"
+  ].every((key) => parsed && typeof parsed[key] === "object" && parsed[key] !== null);
+  if (!isPolicyShape || stored === JSON.stringify(state.policy)) {
+    sessionStorage.removeItem("cc-safety-net-draft");
+    return;
+  }
+  draftPolicy = parsed;
+  const masterToggle = document.querySelector("[data-destructive-command-enabled]");
+  if (masterToggle)
+    masterToggle.checked = draftPolicy.destructive_command_protection.enabled;
+  qs("secret-enabled").checked = draftPolicy.secret_protection.enabled;
+  syncMasterBadges();
+  renderSafety();
+  renderDestructiveCommands();
+  renderSecretPatterns();
+  pathLists["deny-paths"].render();
+  pathLists["allow-paths"].render();
+  syncRawFromForm();
+  updateDirtyStatus();
+  refreshPolicyPreview();
+  setAppStatus("Restored unsaved draft", "ok");
+};
+async function load() {
+  const result = await requestJson("/api/policy");
+  if (!isPolicyState(result.data)) {
+    setAppStatus("Load failed", "error");
+    setDetailStatus(\`Error: Could not load policy: \${errorText(result)}\`, "error");
+    return false;
+  }
+  state = result.data;
+  render();
+  restoreDraft();
+  return true;
+}
+var targetInput = (event) => event.target instanceof HTMLInputElement ? event.target : null;
+var targetElement = (event) => event.target instanceof Element ? event.target : null;
+document.addEventListener("input", (event) => {
+  const input = targetInput(event);
+  if (!input)
+    return;
+  if (input.id === "policy-search") {
+    syncSearchState();
+    renderDestructiveCommands();
+    renderSecretPatterns();
+    return;
+  }
+  if (input.id === "activity-search" && activity) {
+    if (clearCommandFilter())
+      renderActivityControls();
+    activityFilters.query = input.value.trim().toLowerCase();
+    clearTimeout(activityQueryTimer);
+    activityQueryTimer = setTimeout(renderActivityFeed, 120);
+  }
+});
+document.addEventListener("keydown", (event) => {
+  const input = targetInput(event);
+  if (!input)
+    return;
+  if (input.id === "tester-input" && event.key === "Enter") {
+    event.preventDefault();
+    runCommandTest();
+    return;
+  }
+  const list = pathListFor(input.dataset.pathInput);
+  if (!list || event.key !== "Enter")
+    return;
+  event.preventDefault();
+  list.add(input.value);
+});
+document.addEventListener("paste", (event) => {
+  const input = targetInput(event);
+  if (!input)
+    return;
+  const list = pathListFor(input.dataset.pathInput);
+  if (!list)
+    return;
+  const text = event.clipboardData?.getData("text") ?? "";
+  if (!text.includes(\`
+\`))
+    return;
+  event.preventDefault();
+  list.add(\`\${input.value}
+\${text}\`);
+});
+var saveRetentionDays = async (days) => {
+  const saved = state;
+  if (!saved)
+    return;
+  const current = saved.policy.audit.retention_days;
+  if (!Number.isInteger(days) || days < 1 || days > MAX_RETENTION_DAYS) {
+    qs("retention-days").value = String(current);
+    setAppStatus("Retention unchanged", "error");
+    setDetailStatus(\`Error: retention must be a whole number of days from 1 to \${MAX_RETENTION_DAYS}.\`, "error");
+    return;
+  }
+  if (days === current)
+    return;
+  if (dirty) {
+    qs("retention-days").value = String(current);
+    setAppStatus("Retention unchanged", "error");
+    setDetailStatus("Error: save or discard your unsaved Policy changes first.", "error");
+    return;
+  }
+  if (days < current && !await confirmDialog({
+    title: \`Shorten retention to \${dayCount(days)}?\`,
+    body: \`Audit entries older than \${dayCount(days)} are deleted on the next sweep and cannot be recovered. The Activity tab will only look back \${dayCount(days)}.\`,
+    detail: overview?.logsDir ?? "",
+    confirmLabel: "Shorten",
+    confirmClass: "danger"
+  })) {
+    qs("retention-days").value = String(current);
+    return;
+  }
+  await runExclusive("Saving...", async () => {
+    const policy = clonePolicy(saved.policy);
+    policy.audit.retention_days = days;
+    const result = await requestJson("/api/policy", {
+      method: "POST",
+      body: JSON.stringify(policy)
+    });
+    if (!isWriteSuccess(result)) {
+      qs("retention-days").value = String(current);
+      setAppStatus("Save failed", "error");
+      setDetailStatus(\`Error: \${errorText(result)}\`, "error");
+      return;
+    }
+    if (!await load())
+      return;
+    activityFilters.days = Math.min(activityFilters.days, days);
+    await Promise.all([loadOverview(), loadActivity()]);
+    setAppStatus(\`Retention set to \${dayCount(days)}.\`, "ok");
+    setDetailStatus("");
+  });
+};
+document.addEventListener("change", (event) => {
+  const control = event.target;
+  if (!(control instanceof HTMLInputElement || control instanceof HTMLSelectElement))
+    return;
+  if (control.id === "activity-days") {
+    activityFilters.days = Number(control.value);
+    loadActivity();
+    return;
+  }
+  if (control.id === "retention-days") {
+    saveRetentionDays(Number(control.value));
+    return;
+  }
+  if (control.name === "safety-level") {
+    draftPolicy.safety.level = control.value;
+    renderSafety();
+    syncRawFromForm();
+    updateDirtyStatus();
+    refreshPolicyPreview();
+    return;
+  }
+  if (control.dataset?.safetyOverride) {
+    if (control.value === "inherit")
+      delete draftPolicy.safety.overrides[control.dataset.safetyOverride];
+    if (control.value === "true")
+      draftPolicy.safety.overrides[control.dataset.safetyOverride] = true;
+    if (control.value === "false")
+      draftPolicy.safety.overrides[control.dataset.safetyOverride] = false;
+    syncRawFromForm();
+    updateDirtyStatus();
+    refreshPolicyPreview();
+    return;
+  }
+  const input = control instanceof HTMLInputElement ? control : null;
+  if (!input)
+    return;
+  if ("workflowWorktree" in input.dataset) {
+    draftPolicy.workflow.worktree_mode = input.checked;
+    syncRawFromForm();
+    updateDirtyStatus();
+    return;
+  }
+  if ("destructiveCommandEnabled" in input.dataset) {
+    (async () => {
+      if (!input.checked && !await confirmProtectionDisable({
+        title: "Disable destructive command protection?",
+        body: "Built-in destructive git, filesystem, and execution protections will stop blocking commands until you turn this back on.",
+        detail: "Custom rules remain active."
+      })) {
+        input.checked = true;
+        return;
+      }
+      draftPolicy.destructive_command_protection.enabled = input.checked;
+      syncMasterBadges();
+      pathLists["allow-paths"].render();
+      syncRawFromForm();
+      updateDirtyStatus();
+      refreshPolicyPreview();
+    })();
+    return;
+  }
+  if (input.dataset?.destructiveTierActive) {
+    const effectiveState = preview;
+    if (!effectiveState)
+      return;
+    state?.destructiveCommandRules.filter((rule) => !rule.catastrophic && tierForRule(rule) === input.dataset.destructiveTierActive).forEach((rule) => {
+      if (input.checked === effectiveState.rules[rule.id]?.inheritedEnabled) {
+        delete draftPolicy.destructive_command_protection.overrides[rule.id];
+        return;
+      }
+      draftPolicy.destructive_command_protection.overrides[rule.id] = input.checked ? "on" : "off";
+    });
+    syncRawFromForm();
+    updateDirtyStatus();
+    refreshPolicyPreview();
+    return;
+  }
+  if (input.dataset?.destructiveCommandActive) {
+    const ruleId = input.dataset.destructiveCommandActive;
+    if (input.checked === preview?.rules[ruleId]?.inheritedEnabled)
+      delete draftPolicy.destructive_command_protection.overrides[ruleId];
+    else
+      draftPolicy.destructive_command_protection.overrides[ruleId] = input.checked ? "on" : "off";
+    syncRawFromForm();
+    updateDirtyStatus();
+    refreshPolicyPreview();
+    return;
+  }
+  if (input.dataset?.secretGroupActive) {
+    state?.secretPatterns.filter((rule) => rule.category === input.dataset.secretGroupActive).forEach((rule) => {
+      setSecretOverride(rule, input.checked);
+    });
+    renderSecretPatterns();
+    syncRawFromForm();
+    updateDirtyStatus();
+    return;
+  }
+  if (input.dataset?.secretActive) {
+    const rule = state?.secretPatterns.find((item) => item.id === input.dataset.secretActive);
+    if (!rule)
+      return;
+    setSecretOverride(rule, input.checked);
+    renderSecretPatterns();
+    syncRawFromForm();
+    updateDirtyStatus();
+    return;
+  }
+  if (input.id === "secret-enabled") {
+    (async () => {
+      if (!input.checked && !await confirmProtectionDisable({
+        title: "Disable secret protection?",
+        body: "Default sensitive paths, coding CLI credential locations, and deny paths will stop blocking access until you turn this back on."
+      })) {
+        input.checked = true;
+        return;
+      }
+      draftPolicy.secret_protection.enabled = input.checked;
+      syncMasterBadges();
+      renderSecretPatterns();
+      pathLists["deny-paths"].render();
+      syncRawFromForm();
+      updateDirtyStatus();
+    })();
+  }
+});
+document.addEventListener("click", (event) => {
+  const target = targetElement(event);
+  if (!target)
+    return;
+  if (target.closest("#tester-run")) {
+    runCommandTest();
+    return;
+  }
+  const createRule = target.closest("[data-create-rule]");
+  if (createRule) {
+    openRuleComposer(createRule.dataset.createRule ?? "");
+    return;
+  }
+  const feedToggle = target.closest("[data-feed-toggle]");
+  if (feedToggle) {
+    const command = feedToggle.previousElementSibling;
+    if (!command)
+      return;
+    const expanded = command.classList.toggle("expanded");
+    feedToggle.setAttribute("aria-expanded", String(expanded));
+    feedToggle.textContent = expanded ? "Show less" : "Show more";
+    return;
+  }
+  const feedCopy = target.closest("[data-log-copy]");
+  if (feedCopy) {
+    copyFeedEntry(feedCopy);
+    return;
+  }
+  const feedReport = target.closest("[data-report-fp]");
+  if (feedReport) {
+    openReportDialog(feedReport);
+    return;
+  }
+  const blockFuture = target.closest("[data-block-future]");
+  if (blockFuture) {
+    const entry = renderedFeedEntries[Number(blockFuture.dataset.blockFuture)];
+    if (entry?.segment || entry?.command)
+      openRuleComposer(entry.segment || entry.command || "");
+    return;
+  }
+  const topRule = target.closest(".top-rule");
+  if (topRule) {
+    const ruleId = topRule.dataset.ruleId ?? "";
+    (ruleId.startsWith("custom.") ? jumpToRulesRule : jumpToActivityRule)(ruleId);
+    return;
+  }
+  const ruleActivity = target.closest("[data-rule-activity]");
+  if (ruleActivity) {
+    jumpToActivityRule(ruleActivity.dataset.ruleActivity ?? "");
+    return;
+  }
+  const jumpRule = target.closest("[data-jump-rule]");
+  if (jumpRule) {
+    qs("policy-search").value = jumpRule.dataset.jumpRule ?? "";
+    syncSearchState();
+    renderDestructiveCommands();
+    renderSecretPatterns();
+    location.hash = "policy";
+    return;
+  }
+  const jumpCustom = target.closest("[data-jump-custom-rule]");
+  if (jumpCustom) {
+    jumpToRulesRule(jumpCustom.dataset.jumpCustomRule ?? "");
+    return;
+  }
+  const topCommand = target.closest(".top-command");
+  if (topCommand) {
+    activityFilters.command = topCommand.dataset.command ?? "";
+    activityFilters.decision = "deny";
+    activityFilters.query = "";
+    qs("activity-search").value = "";
+    if (activity) {
+      renderActivityControls();
+      renderActivityFeed();
+    }
+    location.hash = "activity";
+    return;
+  }
+  if (target.closest("[data-clear-command]")) {
+    clearCommandFilter();
+    renderActivityControls();
+    renderActivityFeed();
+    return;
+  }
+  if (target.closest("#guard-errors")) {
+    clearCommandFilter();
+    activityFilters.decision = "error";
+    if (activity) {
+      renderActivityControls();
+      renderActivityFeed();
+    }
+    location.hash = "activity";
+    return;
+  }
+  const chip = target.closest("[data-activity-chip]");
+  if (chip && activity) {
+    clearCommandFilter();
+    activityFilters[chip.dataset.activityChip] = chip.dataset.chipValue ?? "";
+    renderActivityControls();
+    renderActivityFeed();
+    return;
+  }
+  if (target.closest("#activity-refresh")) {
+    refreshActivity();
+    return;
+  }
+  if (target.closest("#integrations-refresh")) {
+    refreshIntegrations();
+    return;
+  }
+  if (target.closest("#rules-refresh")) {
+    refreshRules();
+    return;
+  }
+  const scopeChip = target.closest("[data-rules-scope]");
+  if (scopeChip) {
+    setRulesScope(scopeChip.dataset.rulesScope ?? "");
+    return;
+  }
+  const exampleChip = target.closest("[data-rules-example]");
+  if (exampleChip) {
+    qs("rules-composer-input").value = exampleChip.dataset.rulesExample ?? "";
+    return;
+  }
+  if (target.closest("#rules-choose-directory")) {
+    chooseProjectDirectory();
+    return;
+  }
+  if (target.closest("#rules-copy-prompt")) {
+    copyRulePrompt();
+    return;
+  }
+  const integrationButton = target.closest("[data-integration-action]");
+  if (integrationButton) {
+    runIntegrationAction(integrationButton);
+    return;
+  }
+  const ruleExampleButton = target.closest("[data-rule-example]");
+  if (ruleExampleButton) {
+    openRuleExample(ruleExampleButton);
+    return;
+  }
+  const secretPathsButton = target.closest("[data-secret-paths]");
+  if (secretPathsButton) {
+    openSecretPaths(secretPathsButton);
+    return;
+  }
+  const tierButton = target.closest("[data-tier-toggle]");
+  if (tierButton) {
+    const tier = tierButton.dataset.tierToggle ?? "";
+    const expanded = tierButton.getAttribute("aria-expanded") === "true";
+    tierExpanded.set(tier, !expanded);
+    if (searchActive && expanded)
+      searchCollapsedTiers.add(tier);
+    if (!expanded)
+      searchCollapsedTiers.delete(tier);
+    renderDestructiveCommands();
+    return;
+  }
+  const secretGroupButton = target.closest("[data-secret-group-toggle]");
+  if (secretGroupButton) {
+    const category = secretGroupButton.dataset.secretGroupToggle ?? "";
+    const expanded = secretGroupButton.getAttribute("aria-expanded") === "true";
+    secretGroupExpanded.set(category, !expanded);
+    if (searchActive && expanded)
+      searchCollapsedSecretGroups.add(category);
+    if (!expanded)
+      searchCollapsedSecretGroups.delete(category);
+    renderSecretPatterns();
+    return;
+  }
+  if (target.closest("[data-secret-group-active], [data-destructive-tier-active]"))
+    return;
+  const button = target.closest(".panel-toggle, .rule-tier-head");
+  if (button) {
+    togglePanel(button);
+    return;
+  }
+  const inheritedButton = target.closest("[data-use-inherited]");
+  if (inheritedButton) {
+    delete draftPolicy.destructive_command_protection.overrides[inheritedButton.dataset.useInherited ?? ""];
+    syncRawFromForm();
+    updateDirtyStatus();
+    refreshPolicyPreview();
+    return;
+  }
+  if (target.closest("#reset-rule-customizations")) {
+    if (Object.keys(draftPolicy.destructive_command_protection.overrides).length === 0) {
+      setAppStatus("No customizations to reset", "ok");
+      return;
+    }
+    (async () => {
+      if (!await confirmDialog({
+        title: "Restore defaults?",
+        body: "All built-in destructive-command rules will return to their inherited preset settings.",
+        confirmLabel: "Restore defaults"
+      }))
+        return;
+      draftPolicy.destructive_command_protection.overrides = {};
+      syncRawFromForm();
+      updateDirtyStatus();
+      refreshPolicyPreview();
+    })();
+    return;
+  }
+  if (target.closest("#reset-secret-customizations")) {
+    if (Object.keys(draftPolicy.secret_protection.overrides).length === 0) {
+      setAppStatus("No customizations to reset", "ok");
+      return;
+    }
+    (async () => {
+      if (!await confirmDialog({
+        title: "Restore defaults?",
+        body: "All built-in secret rules will return to their inherited preset settings.",
+        confirmLabel: "Restore defaults"
+      }))
+        return;
+      draftPolicy.secret_protection.overrides = {};
+      renderSecretPatterns();
+      syncRawFromForm();
+      updateDirtyStatus();
+      refreshPolicyPreview();
+    })();
+    return;
+  }
+  if (target.closest("#discard-changes")) {
+    (async () => {
+      if (!await confirmDialog({
+        title: "Discard unsaved changes?",
+        body: "All changes since your last save will be reverted.",
+        confirmLabel: "Discard changes",
+        confirmClass: ""
+      }))
+        return;
+      runExclusive("Discarding...", async () => {
+        sessionStorage.removeItem("cc-safety-net-draft");
+        if (await load())
+          setAppStatus("Changes discarded.", "ok");
+      });
+    })();
+    return;
+  }
+  const addButton = target.closest("[data-path-add]");
+  if (addButton) {
+    const list = pathListFor(addButton.dataset.pathAdd);
+    if (list)
+      list.add(qs(\`\${addButton.dataset.pathAdd}-input\`).value);
+    return;
+  }
+  const removeButton = target.closest("[data-path-remove]");
+  if (removeButton)
+    pathListFor(removeButton.dataset.pathList)?.remove(Number(removeButton.dataset.pathRemove));
+  const starButton = target.closest(".star-cta");
+  if (starButton instanceof HTMLButtonElement) {
+    starRepo(starButton);
+    return;
+  }
+});
+qs("dirty-chip").onclick = () => {
+  location.hash = "policy";
+};
+qs("save").onclick = () => {
+  if (!state) {
+    setAppStatus("Load failed", "error");
+    setDetailStatus("Error: Policy is not loaded yet. Reload the page.", "error");
+    return;
+  }
+  if (state.errors.length) {
+    setAppStatus("Repair required", "error");
+    setDetailStatus("Error: Repair policy before saving changes.", "error");
+    return;
+  }
+  if (!dirty) {
+    setAppStatus("No changes to save", "ok");
+    setDetailStatus("");
+    return;
+  }
+  const policy = collectFormPolicy();
+  runExclusive("Saving...", async () => {
+    const result = await requestJson("/api/policy", {
+      method: "POST",
+      body: JSON.stringify(policy)
+    });
+    if (!isWriteSuccess(result)) {
+      setAppStatus("Save failed", "error");
+      setDetailStatus(\`Error: \${errorText(result)}\`, "error");
+      return;
+    }
+    const savedPath = result.data.path;
+    sessionStorage.removeItem("cc-safety-net-draft");
+    if (await load()) {
+      dirty = false;
+      setAppStatus(\`Saved \${savedPath}.\`, "ok");
+      setDetailStatus("");
+    }
+  });
+};
+qs("repair").onclick = async () => {
+  if (!state) {
+    setAppStatus("Load failed", "error");
+    setDetailStatus("Error: Policy is not loaded yet. Reload the page.", "error");
+    return;
+  }
+  if (state.errors.length === 0) {
+    setAppStatus("");
+    setDetailStatus("");
+    return;
+  }
+  if (!await confirmDialog({
+    title: "Repair policy?",
+    body: "This will write canonical policy JSON. Valid settings are preserved; invalid fields are discarded. If the JSON cannot be parsed, defaults are restored.",
+    detail: state.path,
+    confirmLabel: "Repair",
+    confirmClass: "primary"
+  })) {
+    return;
+  }
+  runExclusive("Repairing...", async () => {
+    const result = await requestJson("/api/repair", { method: "POST", body: "{}" });
+    if (!isWriteSuccess(result)) {
+      setAppStatus("Repair failed", "error");
+      setDetailStatus(\`Error: \${errorText(result)}\`, "error");
+      return;
+    }
+    const repairedPath = result.data.path;
+    sessionStorage.removeItem("cc-safety-net-draft");
+    if (await load()) {
+      dirty = false;
+      setAppStatus(\`Repaired \${repairedPath}.\`, "ok");
+      setDetailStatus("");
+    }
+  });
+};
+qs("reset").onclick = async () => {
+  if (!state) {
+    setAppStatus("Load failed", "error");
+    setDetailStatus("Error: Policy is not loaded yet. Reload the page.", "error");
+    return;
+  }
+  if (!await confirmDialog({
+    title: "Reset policy?",
+    body: "This will restore the default policy JSON at this path.",
+    detail: state.path,
+    confirmLabel: "Reset policy"
+  })) {
+    return;
+  }
+  runExclusive("Resetting...", async () => {
+    const result = await requestJson("/api/reset", { method: "POST", body: "{}" });
+    if (!isWriteSuccess(result)) {
+      setAppStatus("Reset failed", "error");
+      setDetailStatus(\`Error: \${errorText(result)}\`, "error");
+      return;
+    }
+    const resetPath = result.data.path;
+    sessionStorage.removeItem("cc-safety-net-draft");
+    if (await load()) {
+      dirty = false;
+      setAppStatus(\`Reset \${resetPath} to defaults.\`, "ok");
+      setDetailStatus("");
+    }
+  });
+};
+setRawCopyCopied(false);
+qs("raw-copy").onclick = () => {
+  copyRawToClipboard();
+};
+var themeOrder = ["auto", "light", "dark"];
+var themeIcons = {
+  auto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5"></rect><path d="M8 20h8M12 16v4"></path></svg>',
+  light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"></path></svg>',
+  dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>'
+};
+var themeLabels = { auto: "Auto", light: "Light", dark: "Dark" };
+var applyTheme = (pref) => {
+  document.documentElement.style.colorScheme = pref === "auto" ? "light dark" : pref;
+  qs("theme-toggle").innerHTML = \`\${themeIcons[pref]}<span>\${themeLabels[pref]}</span>\`;
+  qs("theme-toggle").setAttribute("aria-label", \`Color theme: \${themeLabels[pref]}. Click to change.\`);
+};
+var themePref = themeOrder.includes(localStorage.getItem("cc-safety-net-theme")) ? localStorage.getItem("cc-safety-net-theme") : "auto";
+applyTheme(themePref);
+qs("theme-toggle").onclick = () => {
+  themePref = themeOrder[(themeOrder.indexOf(themePref) + 1) % themeOrder.length] ?? "auto";
+  if (themePref === "auto")
+    localStorage.removeItem("cc-safety-net-theme");
+  else
+    localStorage.setItem("cc-safety-net-theme", themePref);
+  applyTheme(themePref);
+};
+window.addEventListener("beforeunload", (event) => {
+  if (!dirty)
+    return;
+  event.preventDefault();
+  event.returnValue = "";
+});
+window.addEventListener("hashchange", applyView);
+applyView();
+loadHealth();
+load().then((loaded) => {
+  if (loaded)
+    loadStarContext();
+  activityFilters.days = Math.min(activityFilters.days, retentionDays());
+  loadOverview();
+  loadActivity();
+}).catch((error) => {
+  setAppStatus("Load failed", "error");
+  setDetailStatus(String(error), "error");
+});
+
+  </script>
+</body>
+</html>
+`;var Gl='<script id="ccsn-data" type="application/json">';function Ul(n){return Vl.replace(Gl,()=>Gl+JSON.stringify({token:n}).replaceAll("<","\\u003c"))}var vt="kenryu42/cc-safety-net",Po=`https://github.com/${vt}`,sr=1e4,Io=7;async function ad(n,t={}){let e=j({label:"gui",booleans:{noOpen:["--no-open"]}},n),r=t.log??console.log,a=t.error??console.error;if(e.errors.length>0){for(let d of e.errors)a(d);return a("Usage: cc-safety-net gui [--no-open]"),1}let l=await No(t);if(r(`CC Safety Net policy GUI: ${l.url}`),!e.flags.noOpen)try{await(t.openBrowser??su)(l.url)}catch(d){a(`Failed to open browser: ${d instanceof Error?d.message:String(d)}`),a(`Open this URL manually: ${l.url}`)}if(t.keepAlive===!1)return await l.close(),0;return await du(l),0}async function No(n={}){let t=n.token??To(24).toString("base64url"),e=_o((l,d)=>{nu(l,d,t,n)});await new Promise((l,d)=>{e.once("error",d),e.listen(0,"127.0.0.1",()=>{e.off("error",d),l()})});let a=`http://127.0.0.1:${e.address().port}`;return{origin:a,token:t,url:`${a}/?token=${encodeURIComponent(t)}`,close:()=>lu(e)}}async function nu(n,t,e,r){let a=new URL(n.url??"/","http://127.0.0.1");if(n.method==="GET"&&a.pathname==="/favicon.ico"){t.writeHead(204,{"cache-control":"no-store"}),t.end();return}if(!ru(n,a,e)){k(t,403,{error:"Forbidden"});return}if(n.method==="GET"&&a.pathname==="/"){au(t,Ul(e));return}if(n.method==="GET"&&a.pathname==="/api/policy"){let l=El(r);k(t,200,{...l,configState:on(H(r)),destructiveCommandRules:sn,secretPatterns:Tl,version:z(),preview:l.errors.length>0?null:Il(l.policy)});return}if(n.method==="POST"&&a.pathname==="/api/policy/preview"){let l=await pt(n);if(!l.ok){k(t,400,{errors:[l.error]});return}let d=Pl(l.value);k(t,d.errors.length>0?400:200,d);return}if(n.method==="POST"&&a.pathname==="/api/policy/explain"){let l=await pt(n);if(!l.ok){k(t,400,{errors:[l.error]});return}let d=l.value;if(d===null||typeof d.command!=="string"){k(t,400,{errors:["command must be a string"]});return}let s=Vt(d.policy);if(s.length>0){k(t,400,{errors:s});return}k(t,200,tu(d.command,d.policy,r));return}if(n.method==="POST"&&a.pathname==="/api/policy"){let l=await pt(n);if(!l.ok){k(t,400,{errors:[l.error]});return}let d=lr(l.value,r);k(t,d.errors.length>0?400:200,d);return}if(n.method==="POST"&&a.pathname==="/api/reset"){k(t,200,lr(_l,r));return}if(n.method==="POST"&&a.pathname==="/api/repair"){k(t,200,Nl(r));return}if(n.method==="GET"&&a.pathname==="/api/activity"){let l=M2(r),d=eu(a.searchParams.get("days"),l);if(d===null){k(t,400,{error:`days must be an integer between 1 and ${l}`});return}k(t,200,Al(d,r.activityLogsDir));return}if(n.method==="POST"&&a.pathname==="/api/rules/choose-directory"){k(t,200,await Kl());return}if(n.method==="GET"&&a.pathname==="/api/rules"){let l=u2(r),d=new Map(l.rules.map((s)=>[s.name,s]));k(t,200,{projectPath:r.cwd??process.cwd(),canPickDirectory:Wl(process.platform,process.env),rulebooks:l.rulebooks.map((s)=>({source:s.source,spec:s.spec,name:s.name,version:s.version,rules:s.rules.flatMap((i)=>{let c=d.get(i);if(!c)return[];return[{name:c.name,command:c.command,subcommand:c.subcommand,block_args:c.block_args,reason:c.reason}]})})),errors:l.errors,warnings:l.warnings});return}if(n.method==="GET"&&a.pathname==="/api/star/context"){k(t,200,await(r.fetchStarContext??(()=>pu({logsDir:r.activityLogsDir})))());return}if(n.method==="POST"&&a.pathname==="/api/star"){let l=await(r.starRepo??iu)();k(t,200,l.ok?{ok:!0}:{ok:!1,fallbackUrl:Po});return}if(n.method==="GET"&&a.pathname==="/api/integrations"){k(t,200,await(r.fetchIntegrations??Lu)());return}if(n.method==="GET"&&a.pathname==="/api/health"){k(t,200,await(r.fetchHealth??ou)());return}if(n.method==="POST"&&(a.pathname==="/api/install"||a.pathname==="/api/uninstall")){let l=await pt(n);if(!l.ok){k(t,400,{errors:[l.error]});return}let d=l.value?.target;if(typeof d!=="string"||!G.some((i)=>i.target===d)){k(t,400,{error:"unknown target"});return}let s=a.pathname==="/api/install"?"install":"uninstall";k(t,200,await(r.runIntegration??uu)(s,d));return}k(t,404,{error:"Not found"})}function tu(n,t,e){let r=nd(t),a=H(e),l=cn({rules:a.policy.rules,transparentWrappers:a.policy.transparentWrappers,safety:ed(r.safety),worktreeMode:r.workflow.worktree_mode,destructiveCommandProtectionEnabled:r.destructive_command_protection.enabled,destructiveCommandRuleOverrides:r.destructive_command_protection.overrides,destructiveCommandAllowPaths:r.destructive_command_protection.allow_paths,secretProtection:{enabled:r.secret_protection.enabled,disabledRules:[...td(r.secret_protection.overrides)],denyPaths:r.secret_protection.deny_paths}});return C2(n,{policySnapshot:l,cwd:e.cwd,userConfigDir:e.userConfigDir})}function eu(n,t){if(n===null)return Math.min(Io,t);let e=Number(n);if(!Number.isInteger(e)||e<1||e>t)return null;return e}function ru(n,t,e){if(t.searchParams.get("token")!==e)return!1;if(n.method!=="POST")return!0;return n.headers["x-cc-safety-net-token"]===e}async function pt(n){let t=[];for await(let e of n)t.push(e);try{return{ok:!0,value:JSON.parse(Buffer.concat(t).toString("utf-8")||"{}")}}catch(e){return{ok:!1,error:`Invalid JSON: ${e instanceof Error?e.message:String(e)}`}}}function au(n,t){n.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"no-store"}),n.end(t)}function k(n,t,e){n.writeHead(t,{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}),n.end(JSON.stringify(e))}function lu(n){return new Promise((t,e)=>{n.close((r)=>r?e(r):t())})}function du(n){return new Promise((t)=>{let e=()=>{process.off("SIGINT",r),process.off("SIGTERM",r)},r=()=>{e(),n.close().then(t)};process.once("SIGINT",r),process.once("SIGTERM",r)})}function su(n){let t=process.platform==="darwin"?"open":process.platform==="win32"?"cmd":"xdg-open",e=process.platform==="win32"?["/c","start","",n]:[n];return new Promise((r,a)=>{let l=rd(t,e,{detached:!0,stdio:"ignore"}),d=(i)=>{l.off("spawn",s),a(i)},s=()=>{l.off("error",d),l.unref(),r()};l.once("error",d),l.once("spawn",s)})}async function iu(n="gh",t=sr){return{ok:await dr(n,["api","-X","PUT",`/user/starred/${vt}`],t)===0}}var cu={amp:"ampVersion","antigravity-cli":"antigravityCliVersion","claude-code":"claudeCodeVersion",codex:"codexCliVersion","copilot-cli":"copilotCliVersion",cursor:"cursorVersion","gemini-cli":"geminiCliVersion","hermes-agent":"hermesAgentVersion","kimi-code":"kimiCodeVersion",openclaw:"openClawVersion",opencode:"openCodeVersion",pi:"piCliVersion"};async function Lu(n={}){let t=await bn(n.fetcher),e=ld(t,n.homeDir);return{targets:i2.map((r)=>{let a=e.find((l)=>l.platform===r.id);return{target:r.id,label:p2(r.id),version:t[cu[r.id]],status:a?.configured?"active":a?.detected?"disabled":a?.inspectionStatus==="not-inspected"?"not-inspected":"not-installed"}}),system:{version:t.version,nodeVersion:t.nodeVersion,platform:t.platform}}}function ld(n,t){return P2(process.cwd(),{homeDir:t,codexPluginListOutput:n.codexPluginListOutput,copilotCliVersion:n.copilotCliVersion})}async function ou(n={}){let[t,e]=await Promise.all([bn(n.fetcher),(n.checkUpdates??U2)()]);return{hooks:ld(t,n.homeDir).filter((r)=>r.detected).map((r)=>({platform:r.platform,label:p2(r.platform),configured:r.configured})),update:{currentVersion:e.currentVersion,latestVersion:e.latestVersion??null,updateAvailable:e.updateAvailable}}}var Ol=Promise.resolve();function uu(n,t,e={}){let r=async()=>{let l=[],d=console.log,s=console.error;console.log=(...i)=>l.push(i.map(String).join(" ")),console.error=console.log;try{return{ok:await qn(n,[],{selectTargets:async()=>[t],output:new Eo({write(c,L,u){u()}}),...e})===0,output:l.join(`
+`)}}finally{console.log=d,console.error=s}},a=Ol.then(r);return Ol=a.then(()=>{return},()=>{return}),a}async function pu(n={}){let[t,e,r]=await Promise.all([vu(n.command),bu(n.fetchRepo),Promise.resolve(Yn(M2(),n.logsDir).totalBlocked)]);return{starred:t,starCount:e,blockedTotal:r}}async function vu(n="gh",t=sr){if(await dr(n,["auth","status"],t)!==0)return null;let e=await dr(n,["api",`/user/starred/${vt}`],t);if(e===0)return!0;if(e===null)return null;return!1}function dr(n,t,e){return new Promise((r)=>{let a=rd(n,t,{stdio:"ignore",windowsHide:!0}),l=!1,d,s=(i)=>{if(l)return;if(l=!0,d)clearTimeout(d);r(i)};a.once("error",()=>s(null)),a.once("close",s),d=setTimeout(()=>{a.kill(),s(null)},e)})}async function bu(n=fetch){try{let t=await n(`https://api.github.com/repos/${vt}`,{headers:{accept:"application/vnd.github+json"},signal:AbortSignal.timeout(sr)});if(!t.ok)return null;let e=await t.json();return typeof e.stargazers_count==="number"?e.stargazers_count:null}catch{return null}}function fu(n){if(n[0]!=="help")return!1;let t=n[1];if(!t)Ye(),process.exit(0);if(Dn(t))process.exit(0);console.error(`Unknown command: ${t}`),console.error("Run 'cc-safety-net --help' for available commands."),process.exit(1)}var hu={hook:async(n)=>{let t=za(n);if(t){await t.run();return}console.error("hook requires exactly one integration flag. Try: cc-safety-net hook --kimi-code"),Dn("hook",console.error),process.exit(1)},install:async(n)=>{process.exit(await qn("install",n))},update:async(n)=>{process.exit(await nr(n))},uninstall:async(n)=>{process.exit(await qn("uninstall",n))},rule:async(n)=>{process.exit(await Xl(n))},status:async(n)=>{if(e2(j({label:"status"},n).errors))process.exit(1);Yl()},statusline:async(n)=>{let t=j({label:"statusline",booleans:{claudeCode:["-cc","--claude-code"]}},n);if(t.errors.length===0&&t.flags.claudeCode){await ar();return}if(e2(t.errors),!t.flags.claudeCode)console.error("statusline requires --claude-code (-cc)");Dn("statusline",console.error),process.exit(1)},doctor:async(n)=>{let t=Se(n);if(!t)process.exit(1);let e=await k0({json:t.json,skipUpdateCheck:t.skipUpdateCheck});process.exit(e)},logs:async(n)=>{process.exit(await Ir(n))},gui:async(n)=>{process.exit(await ad(n))},explain:async(n)=>{let t=Ze(n);if(!t)process.exit(1);let e=C2(t.command,{cwd:t.cwd}),r=!!process.env.NO_COLOR||!process.stdout.isTTY;if(t.json)console.log(Re(e));else console.log(Xe(e,{asciiOnly:r}));process.exit(0)}};async function yu(){let n=process.argv.slice(2),t=j({label:"cc-safety-net",booleans:{version:["-V","--version"]},positionals:"list"},n);if(fu(n))return;let e=n[0],r=e?Rn(e):void 0;if(t.help&&r&&r.name!=="rule")Dn(r.name),process.exit(0);if(!e||t.help&&!r)Ye(),process.exit(0);if(t.flags.version)Z0(),process.exit(0);if(r){await hu[r.name](n.slice(1));return}let a=Ba(e);if(a){await a.run();return}if(e==="--statusline"){await ar();return}console.error(e.startsWith("-")?`Unknown option: ${e}`:`Unknown command: ${e}`),console.error("Run 'cc-safety-net --help' for usage."),process.exit(1)}yu().catch((n)=>{console.error("CC Safety Net error:",n),process.exit(1)});

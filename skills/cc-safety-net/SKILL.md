@@ -3,7 +3,7 @@ name: cc-safety-net
 description: Configure CC Safety Net rulebooks for user, project, or shareable GitHub scope.
 ---
 
-<!-- Keep the workflow below in sync with src/opencode/builtin-commands/templates/cc-safety-net.ts. -->
+<!-- Keep the workflow below in sync with src/integrations/templates/cc-safety-net.ts. -->
 
 ## Workflow
 
@@ -28,18 +28,22 @@ Use information already provided in the user's prompt. Ask only when the scope, 
 7. Preserve unrelated existing rulebook sources, overrides, and rulebooks. Preview proposed JSON before writing when creating a new rulebook, merging with existing config, or resolving ambiguity.
 8. For GitHub rules, ensure the repository layout is `.cc-safety-net/rules/<rulebook-name>/rulebook.json`, and ensure the source name, directory name, and rulebook `name` match exactly.
 9. Validate after edits:
-   - Project rules: run `npx -y cc-safety-net rule sync`, `npx -y cc-safety-net rule verify`, `npx -y cc-safety-net rule test`, and `npx -y cc-safety-net rule list`.
-   - User rules: run `npx -y cc-safety-net rule sync --global`, `npx -y cc-safety-net rule verify`, `npx -y cc-safety-net rule test --global`, and `npx -y cc-safety-net rule list`.
-   - Shareable GitHub rulebook-only edits: run `npx -y cc-safety-net rule verify` and `npx -y cc-safety-net rule test <rulebook-name>`. Run `sync` and `list` only if the rulebook is also installed in local `rule.json`.
-10. If validation or tests fail, show the exact errors and make the smallest fix.
+   - Project rules: run `npx -y cc-safety-net rule sync`, `npx -y cc-safety-net rule verify`, and `npx -y cc-safety-net rule list`.
+   - User rules: run `npx -y cc-safety-net rule sync --global`, `npx -y cc-safety-net rule verify`, and `npx -y cc-safety-net rule list`.
+   - Shareable GitHub rulebook-only edits: run `npx -y cc-safety-net rule verify`. Run `sync` and `list` only if the rulebook is also installed in local `rule.json`.
+10. If validation fails, show the exact errors and make the smallest fix.
 11. Confirm the saved paths or GitHub rulebook path and summarize the added or updated rules.
 
 ## Rules
 
+- If a command prints an `UPDATE_AVAILABLE:` line, ask the user once whether to run `npx -y cc-safety-net@latest update`, continue the workflow without waiting either way, and do not raise it again.
 - Custom rules can only add restrictions; they cannot bypass built-in CC Safety Net protections.
 - Config files list rulebook sources. Rule definitions live in `rulebook.json`, not directly in `rule.json`.
 - Do not use legacy inline `.safety-net.json` or `~/.cc-safety-net/config.json` rules. Convert existing legacy files with `npx -y cc-safety-net rule migrate`.
-- Every rule command must be listed in `allowed_commands`, and every rule must have at least one blocked fixture.
-- Blocked fixtures must specify the expected `rule`; include allowed fixtures for close-but-safe commands.
+- Every rule command must be listed in `allowed_commands`. The `tests` fixtures are optional and never executed.
+- A blocked fixture, when present, must specify the expected `rule`, and that rule must exist in the rulebook.
 - Local source names are bare names such as `project-rules`; do not put filesystem paths in `rules`.
-- Invalid config, corrupt cache, invalid local rulebooks, or remote rulebook repair failures fail closed until repaired with `npx -y cc-safety-net rule sync`.
+- An edited or invalid local rulebook keeps its last synced, digest-verified version enforced and the edit stays pending until `npx -y cc-safety-net rule sync` validates it.
+- A missing lock entry or cache, a cache digest mismatch, or an invalid cached rulebook makes that source inactive, and a missing lockfile or an unreadable `rule.json` makes every source in its scope inactive: those rules stop applying while other custom rules and built-in protections stay active. Repair the condition, then run `npx -y cc-safety-net rule sync` — a rule you just added silently does nothing until it is synced. Run `npx -y cc-safety-net status` if a rule does not fire; unlike `rule list` it also reports a degraded `policy.json`.
+- A duplicate rulebook name keeps the first claim, user scope before project scope, and ignores the later rulebook.
+- `rule sync` reports failure with the remaining diagnostic instead of success when the synchronized scope still does not load cleanly.

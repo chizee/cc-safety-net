@@ -57,7 +57,8 @@ A quick 5-minute issue can save hours of implementation time on both sides.
 
 ### Prerequisites
 
-- **Bun** - Required runtime and package manager ([install guide](https://bun.sh/docs/installation))
+- **Bun 1.3.14** - Required build/test runtime and package manager ([install guide](https://bun.sh/docs/installation))
+- **Node.js 18 or newer** - Supported runtime for built artifacts
 - **Claude Code** or **OpenCode** - For testing the plugin
 
 ### Development Setup
@@ -155,14 +156,13 @@ bun run check
 ### Build Commands
 
 ```bash
-# Run all checks (lint, type check, dead code, ast-grep scan, tests)
+# Run all checks (lint, type check, dead code, tests)
 bun run check
 
 # Individual commands
 bun run lint          # Lint + format (Biome)
 bun run typecheck     # Type check
 bun run knip          # Dead code detection
-bun run sg:scan       # AST pattern scan
 bun test              # Run tests
 
 # Run specific test
@@ -179,7 +179,8 @@ bun run build
 
 | Convention | Rule |
 |------------|------|
-| Runtime | **Bun** |
+| Build/test runtime | **Bun 1.3.14** |
+| Published runtime | **Node.js 18+** |
 | Package Manager | **bun only** (`bun install`, `bun run`) |
 | Formatter/Linter | **Biome** |
 | Type Hints | Required on all functions |
@@ -218,14 +219,32 @@ bun run build
 **Important**: Version bumping and releases are handled by maintainers only.
 
 - **Never** modify the version in `package.json` or `plugin.json` directly
-- Maintainers handle versioning, tagging, and releases
+- Start `.github/workflows/prepare-release.yml` with a stable semantic version. Its dry-run mode
+  performs the same checks without changing Git.
+- Preparation requires clean `main` at `origin/main`, updates both version manifests, rebuilds and
+  verifies every package surface, then atomically pushes one release commit and one new immutable
+  tag.
+- The tag-bound `.github/workflows/publish.yml` workflow independently rebuilds and verifies the
+  exact npm tarball before trusted publishing with provenance. It attaches the tarball and its
+  SHA-256 checksum to the GitHub release.
+- Configure npm trusted publishing with repository `kenryu42/cc-safety-net`, workflow filename
+  `publish.yml`, environment `npm`, and permission to run `npm publish`. Protect release tags and
+  configure the GitHub `npm` environment with the required maintainer reviewers. The workflow
+  refuses branch-dispatched runs even when the input names a valid tag.
+- Resume only the same tag at the same commit. Never move or recreate a release tag, force-push
+  `main`, or unpublish a bad npm version.
+- If a release is defective, deprecate that npm version and prepare a patch release. If npm publish
+  succeeded but the GitHub release is missing, rerun the publisher for the same immutable tag; it
+  verifies the `gitHead`, tarball, checksum, draft/prerelease state, and exact asset allowlist before
+  completing only the missing release assets. Any npm version collision before tag creation is a
+  hard stop.
 
 ## Getting Help
 
 - **Diagnostics**: Run `bunx cc-safety-net doctor` to verify your setup is working correctly
 - **Debug Analysis**: Run `bunx cc-safety-net explain "git command"` to see step-by-step how a command is analyzed
 - **Project Knowledge**: Check `CLAUDE.md` or `AGENTS.md` for detailed architecture and conventions
-- **Code Patterns**: Review existing implementations in `src/core/`
+- **Code Patterns**: Review existing implementations in `src/analyzer/`
 - **Test Patterns**: See `tests/helpers.ts` for test utilities
 - **Issues**: Open an issue for bugs or feature requests
 

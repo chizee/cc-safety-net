@@ -1,7 +1,7 @@
 {
-  "name": "safety-net-dev",
+  "name": "cc-safety-net-dev",
   "metadata": {
-    "description": "Development marketplace for safety net plugin",
+    "description": "Development marketplace for cc safety net plugin",
     "version": "1.0.0"
   },
   "owner": {
@@ -10,8 +10,8 @@
   },
   "plugins": [
     {
-      "name": "safety-net",
-      "description": "Block destructive git and filesystem commands in Claude Code",
+      "name": "cc-safety-net",
+      "description": "Block destructive commands and secret access",
       "source": "./",
       "author": {
         "name": "J Liew",

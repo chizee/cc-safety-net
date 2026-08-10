@@ -9,195 +9,224 @@
 [![CI](https://github.com/kenryu42/cc-safety-net/actions/workflows/ci.yml/badge.svg)](https://github.com/kenryu42/cc-safety-net/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/github/kenryu42/cc-safety-net/branch/main/graph/badge.svg?token=C9QTION6ZF)](https://codecov.io/github/kenryu42/cc-safety-net)
 [![Version](https://img.shields.io/github/v/tag/kenryu42/cc-safety-net?label=version&color=blue)](https://github.com/kenryu42/cc-safety-net)
-[![Codex](https://img.shields.io/badge/Codex-white)](#codex-installation)
-[![Claude Code](https://img.shields.io/badge/Claude%20Code-D27656)](#claude-code-installation)
-[![Copilot CLI](https://img.shields.io/badge/Copilot%20CLI-4EA5C9)](#github-copilot-cli-installation)
-[![Gemini CLI](https://img.shields.io/badge/Gemini%20CLI-678AE3)](#gemini-cli-installation)
-[![Kimi Code](https://img.shields.io/badge/Kimi%20Code-5587FF)](#kimi-code-installation)
-[![OpenCode](https://img.shields.io/badge/OpenCode-black)](#opencode-installation)
-[![Pi](https://img.shields.io/badge/Pi%20Coding-22262E)](#pi-installation)
+[![Amp Code](https://img.shields.io/badge/Amp%20Code-467C51)](https://ccsafetynet.com/docs/installation#amp-code-installation)
+[![Antigravity CLI](https://img.shields.io/badge/Antigravity%20CLI-8AA1F8)](https://ccsafetynet.com/docs/installation#antigravity-cli-installation)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-D27656)](https://ccsafetynet.com/docs/installation#claude-code-installation)
+[![Codex](https://img.shields.io/badge/Codex-white)](https://ccsafetynet.com/docs/installation#codex-installation)
+[![Cursor](https://img.shields.io/badge/Cursor-000000)](https://ccsafetynet.com/docs/installation#cursor-installation)
+[![Gemini CLI](https://img.shields.io/badge/Gemini%20CLI-678AE3)](https://ccsafetynet.com/docs/installation#gemini-cli-installation)
+[![GitHub Copilot CLI](https://img.shields.io/badge/GitHub%20Copilot%20CLI-4EA5C9)](https://ccsafetynet.com/docs/installation#github-copilot-cli-installation)
+[![Hermes Agent](https://img.shields.io/badge/Hermes%20Agent-2D3E50)](#hermes-agent-and-openclaw)
+[![Kimi Code](https://img.shields.io/badge/Kimi%20Code-5587FF)](https://ccsafetynet.com/docs/installation#kimi-code-installation)
+[![OpenClaw](https://img.shields.io/badge/OpenClaw-B4532A)](#hermes-agent-and-openclaw)
+[![OpenCode](https://img.shields.io/badge/OpenCode-black)](https://ccsafetynet.com/docs/installation#opencode-installation)
+[![Pi](https://img.shields.io/badge/Pi%20Coding-22262E)](https://ccsafetynet.com/docs/installation#pi-installation)
 [![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
 
 <div align="center">
 
-[![CC Safety Net](./.github/assets/cc-safety-net.png)](./.github/assets/cc-safety-net.png)
+[![CC Safety Net](./.github/assets/cc-safety-net-v2.png)](./.github/assets/cc-safety-net-v2.png)
 
 </div>
 
-A PreToolUse hook that intercepts and blocks destructive git and filesystem commands before AI coding agents run them. CC Safety Net parses command **semantics** — so flag reordering, shell wrappers, and interpreter one-liners can't bypass it.
+CC Safety Net — short for **Coding CLI** Safety Net — is a PreToolUse hook that blocks destructive commands and access to secrets like SSH keys and `.env` files, before AI coding agents run them. It parses command **semantics**, so flag reordering, shell wrappers, and interpreter one-liners can't bypass it.
 
 > [!NOTE]
-> **[Full documentation →](https://ccsafetynet.com/docs)** — installation, configuration, reference, guides, and the security model live on the docs site.
+> **[Full documentation →](https://ccsafetynet.com/docs)** — installation, configuration, reference, guides, and the security model live on the docs site. This README is the short version.
 
 ## Why this exists
 
-We learned the [hard way](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) that instructions aren't enough to keep AI agents in check. After an agent silently wiped hours of progress with a single `rm -rf ~/` or `git checkout --`, it became clear that **soft** rules in a `CLAUDE.md` or `AGENTS.md` file cannot replace **hard** technical constraints. CC Safety Net is that constraint: it intercepts every Bash tool call and blocks destructive commands before they reach the shell. See [What Is CC Safety Net](https://ccsafetynet.com/docs/introduction) for the full background.
+We learned the [hard way](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) that instructions aren't enough to keep AI agents in check. After an agent silently wiped hours of progress with a single `rm -rf ~/` or `git checkout --`, it became clear that **soft** rules in a `CLAUDE.md` or `AGENTS.md` file cannot replace **hard** technical constraints. CC Safety Net is that constraint: it observes relevant tool calls and blocks destructive commands and secret access before they reach the shell. See [What Is CC Safety Net](https://ccsafetynet.com/docs/introduction) for the full background.
 
-## Supported agents
+## What's new in v2.0.0
 
-CC Safety Net works across seven coding agent CLIs: **Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, and Pi**. Each integration is documented at [Architecture](https://ccsafetynet.com/docs/guides/architecture).
+> [!TIP]
+> **Already running v1?** One command upgrades every installed integration to v2: `npx -y cc-safety-net@latest update`. If you defined custom rules under v1, also read [Upgrading from an older version](#upgrading-from-an-older-version).
 
-## Supported platforms
-
-CC Safety Net runs on **Windows, macOS, and Linux**. It detects the host OS to apply correct behavior — case-insensitive path comparison on Windows, both `/` and `\` path separators, and `cmd.exe`/PowerShell command resolution via `COMSPEC`/`PATHEXT`.
-
-## Prerequisites
-
-- **Node.js** 18 or higher.
+- **Rebuilt evaluation engine** — canonical command IR, deeply immutable policy snapshots, and an ordered guard pipeline with intrinsic decision tracing behind `explain`.
+- **Secret protection** — built-in rules block content access to SSH keys, `.env` files, cloud credentials, and coding-CLI credential stores, across shell commands and file tools alike.
+- **Always-on catastrophic protections** — recursive deletion of root or home, Git metadata mutation (`.git` control plane, hooks, worktrees, submodules), and mutation of the user policy file are blocked in every mode, regardless of overrides.
+- **Safety presets** — `standard`/`strict`/`paranoid` levels with per-rule overrides, trusted delete allow-paths, and env vars that can only raise protection.
+- **Policy GUI** — `cc-safety-net gui` serves a local, token-authenticated editor with live preset preview.
+- **Universal installer** — interactive `install`/`uninstall` across all twelve supported agent CLIs, with an `update` command for installed integrations.
+- **Command-decision audit trail** — allowed and blocked command decisions recorded by default to local per-project JSONL with secret redaction, retained for 30 days by default, browsable via `cc-safety-net logs`.
+- **Documented threat model** — the [SECURITY.md](SECURITY.md) mode contract, explicit resource limits, and a residual-risk registry of adjudicated bypass families.
 
 ## Quick start
 
-### Codex Installation
+**Prerequisite:** Node.js 18 or higher.
 
-1. Enable Codex plugin hooks in `~/.codex/config.toml`:
-
-  ```toml
-  [features]
-  plugin_hooks = true
-  ```
-
-2. Add the marketplace:
-
-  ```bash
-  codex plugin marketplace add kenryu42/cc-marketplace
-  ```
-
-3. Start Codex.
-4. In the TUI, run `/plugins`.
-5. Use arrow keys to select `[cc-marketplace]`.
-6. Press Enter to install the plugin.
-7. run `/hooks` and select the safety-net PreToolUse hook and press `t` to trust it.
-
----
-
-### Claude Code Installation
+Run the interactive selector to install CC Safety Net into one or more installed coding CLIs:
 
 ```bash
-/plugin marketplace add kenryu42/cc-marketplace
-/plugin install safety-net@cc-marketplace
-/reload-plugins
+npx -y cc-safety-net@latest install
 ```
 
-### Claude Code Auto-Update
-
-1. Run `/plugin` → Select `Marketplaces` → Choose `cc-marketplace` → Enable auto-update
-
----
-
-### Gemini CLI Installation
+To update every installed integration:
 
 ```bash
-gemini extensions install https://github.com/kenryu42/gemini-safety-net
+npx -y cc-safety-net@latest update
 ```
 
----
+The `@latest` qualifier matters: a bare `cc-safety-net` spec can re-run an older
+cached copy from the npx cache instead of the current release.
 
-### GitHub Copilot CLI Installation
+To remove integrations interactively:
 
 ```bash
-/plugin install kenryu42/copilot-safety-net
+npx -y cc-safety-net uninstall
 ```
 
----
-
-### Kimi Code Installation
-
-Install CC Safety Net into your Kimi Code config:
+If you use the CLI often, install it globally to get `ccsn`, a shorter alias for the same commands:
 
 ```bash
-npx -y cc-safety-net hook install --kimi-code
+npm install -g cc-safety-net
+ccsn doctor
 ```
 
-Optional: run `npx skill add kenryu42/cc-safety-net` to add the `/cc-safety-net` skill for configuring custom rules.
+CC Safety Net works across twelve coding agent CLIs — **Claude Code, Antigravity CLI, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, Pi, Cursor, Amp Code, Hermes Agent, and OpenClaw** — on **Windows, macOS, and Linux** (the Hermes Agent and OpenClaw integrations are macOS and Linux only; see [Hermes Agent and OpenClaw](#hermes-agent-and-openclaw)). Per-agent instructions, the target flags for scripted non-interactive installs, post-install steps, and per-agent caveats are on [Installation](https://ccsafetynet.com/docs/installation); how each integration hooks its agent is on [Integration Architecture](https://ccsafetynet.com/docs/guides/integration-architecture).
 
----
+## Hermes Agent and OpenClaw
 
-### OpenCode Installation
-
-Install CC Safety Net with OpenCode's native plugin command:
+These two integrations are newer than the docs site, so their setup steps and coverage
+boundaries live here.
 
 ```bash
-opencode plugin -g cc-safety-net
+# Hermes Agent — installs a managed Python plugin, then restart Hermes
+npx -y cc-safety-net@latest install --hermes-agent
+npx -y cc-safety-net@latest uninstall --hermes-agent
+
+# OpenClaw — installs a bundled plugin through OpenClaw's own CLI, then restart the Gateway
+npx -y cc-safety-net@latest install --openclaw
+npx -y cc-safety-net@latest uninstall --openclaw
 ```
 
-> [!NOTE]
-> OpenCode can sometimes keep using a stale cached plugin version. See
-> anomalyco/opencode#25293 for the current tracking issue.
->
-> To force OpenCode to reinstall `cc-safety-net`, remove its cached package and
-> install the version you want:
->
-> ```sh
-> rm -rf ~/.cache/opencode/packages/cc-safety-net@latest
-> opencode plugin -g -f cc-safety-net@latest
-> ```
->
-> If you prefer pinning a specific version:
->
-> ```sh
-> rm -rf ~/.cache/opencode/packages/cc-safety-net@latest
-> opencode plugin -g -f cc-safety-net@<version>
-> ```
->
-> Restart OpenCode after updating so the plugin is loaded from the refreshed
-> cache.
+Run `npx cc-safety-net doctor` after either install: it is the only surface that reports a plugin
+that is present but not enabled, not ours, or out of date. It reads disk and config only and never
+asks a running host whether the plugin loaded, so a stopped OpenClaw Gateway is not reported as a
+failure — the OpenClaw install verifies the load itself.
 
----
+**Hermes Agent.** Install writes a managed plugin to `$HERMES_HOME/plugins/cc-safety-net/`
+(`~/.hermes` when `HERMES_HOME` is unset) and then
+runs `hermes plugins enable cc-safety-net --no-allow-tool-override`. It is an ordinary Hermes user
+plugin: it runs inside the Hermes process with the trust Hermes grants user plugins, and it is
+inert until Hermes is restarted. On every `pre_tool_call` it shells out to
+`npx -y cc-safety-net hook --hermes-agent` with a 30-second timeout, and blocks the call itself
+whenever that analysis cannot complete — missing `npx`, spawn failure, timeout, unreadable output,
+or a Hermes session directory it cannot read.
+Protected tools are `terminal`, `read_file`, `write_file`, and `patch`; calls to any other Hermes
+tool are not forwarded and get no decision. Uninstall runs `hermes plugins disable cc-safety-net`
+first — Hermes only resolves a plugin that is still on disk — and then removes the managed files,
+so the config entry goes with them; a failing or missing `hermes` is reported as a warning and the
+files are removed anyway.
 
-### Pi Installation
+**OpenClaw.** Install runs `openclaw plugins install <bundled plugin dir> --force` followed by
+`openclaw plugins enable cc-safety-net`, then verifies the plugin actually loaded. **Restart the
+OpenClaw Gateway afterwards, and if `plugins.allow` is set in `openclaw.json` it must also list
+`cc-safety-net`** — until both are true the plugin never runs and nothing is blocked. The plugin
+registers `before_tool_call` for the canonical `exec` tool only and returns a plain allow or
+block; it never rewrites tool parameters. It resolves the agent workspace as the policy and
+execution directory, and denies a call whose `workdir` resolves outside that workspace or whose
+agent or workspace context cannot be established. Live end-to-end tests (`bun run test:e2e:live`,
+run before a release) drive the real `openclaw` binary against a throwaway state directory: our
+CLI installs the plugin, the host reports it loaded with the hook registered, and a real Gateway
+agent turn puts a real `exec` call through it — a harmless command runs, `git reset --hard` is
+blocked before it can touch the workspace.
 
-Install CC Safety Net with Pi's package installer:
+**What is not covered.**
 
-```bash
-pi install npm:cc-safety-net
-```
-
----
+- **Hermes bang-shell.** A `!command` you type yourself does not raise `pre_tool_call`; it goes
+  straight to Hermes' own command guard. CC Safety Net sees model-generated tool calls only, not
+  every subprocess Hermes starts.
+- **Hermes shell hooks fail open.** Hermes' `hooks:` dispatcher allows the tool call when a hook
+  cannot start, times out, or returns unparseable output. That is why the shipped integration is
+  the Python plugin, which blocks on its own failures, and why `hooks:` is a diagnostic path only.
+  One case stays outside our reach either way: if Hermes never loads the plugin, nothing blocks
+  and only `doctor` will say so.
+- **OpenClaw execution hosts.** `exec` calls with no `host`, `host: "auto"`, or `host: "gateway"`
+  are analysed as local Gateway calls. Explicit `host: "sandbox"` and `host: "node"` are blocked
+  as unsupported, because no test proves a correct path mapping for them. When a sandbox runtime
+  is active, an `auto` call runs in the sandbox filesystem while paths are still analysed against
+  the Gateway workspace — command rules are unaffected, path rules can be evaluated against the
+  wrong filesystem. The same applies when a call carries no `host` and your configured
+  `tools.exec.host` default is `node` or `sandbox`: the call is still analysed as a local Gateway
+  call.
+- **OpenClaw Codex-native relay.** Untested, and therefore unclaimed. The live end-to-end tests
+  drive OpenClaw's own agent runtime, so they say nothing about a Codex-native shell, patch, or
+  MCP call.
+- **OpenClaw file tools.** `apply_patch` and OpenClaw's read/write/edit tools are not protected;
+  only `exec` is.
+- **Windows.** Both integrations assume the POSIX layout. Relocated state is handled the way the
+  hosts resolve it — `HERMES_HOME` for Hermes, then `OPENCLAW_STATE_DIR` and the directory of
+  `OPENCLAW_CONFIG_PATH` for OpenClaw, falling back to `~/.hermes` and `~/.openclaw`. The Windows
+  defaults are not: install and detection target the POSIX path there, so Hermes writes to the
+  wrong directory and OpenClaw's own CLI installs correctly while `doctor` misreports the state.
 
 ## What it does
 
 | Capability | What it catches |
 |---|---|
-| **Semantic command analysis** | `rm -rf` on destructive targets, `git reset --hard`, `git checkout --`, `git push --force`, `git stash clear`, `git clean -f`, `find -delete`, `dd`/`mkfs`/`shred` — by intent, not string pattern. `git checkout -b feature` (safe) is allowed while `git checkout -- file` (destructive) is blocked. |
+| **Semantic command analysis** | `rm -rf` on destructive targets, `git reset --hard`, `git checkout --`, `git push --force`, `git stash clear`, `git clean -f`, unsafe `find -delete`, `dd`/`mkfs`/`shred` — by intent, not string pattern. `git checkout -b feature` (safe) is allowed while `git checkout -- file` (destructive) is blocked. |
 | **Shell wrapper detection** | Destructive commands hidden in `bash -c`, `sh -c`, and similar wrappers, recursively analyzed up to 10 levels deep. |
 | **Interpreter one-liners** | Destructive code in `python -c`, `node -e`, `ruby -e`, `perl -e` one-liners (e.g. `os.system("rm -rf /")`). |
-| **Fail-closed by default** | Malformed hook input, unparseable commands (in strict mode), invalid config, and broken rulebooks block rather than allow. |
+| **Fail-closed by default** | Malformed hook input and unparseable commands (in strict mode) block rather than allow. Invalid config never blocks: an unverifiable rule source is dropped and an unreadable `policy.json` falls back to protective defaults, both with a warning on every reporting surface. |
+| **Secret protection** | Content access to SSH keys, `.env` files, `~/.aws`, kube/docker/gcloud configs, and coding-CLI credential stores — enforced on shell commands and file tools (read/edit/write/search) alike. |
 | **Custom rules via rulebooks** | Add your own blocking rules at user or project scope, pinned by SHA-256 digest when fetched from GitHub. |
-| **Audit logging** | Every blocked command logged to `~/.cc-safety-net/logs/<session_id>.jsonl` with secrets auto-redacted. |
+| **Audit logging** | Allowed and blocked command decisions written to local per-project JSONL with secrets auto-redacted, retained for 30 days by default. Browse them with `npx cc-safety-net logs`, or triage them in the **Activity** view of `npx cc-safety-net gui`. |
 
-Full blocked/allowed command lists: [Blocked Commands](https://ccsafetynet.com/docs/reference/blocked-commands) · [Allowed Commands](https://ccsafetynet.com/docs/reference/allowed-commands).
+Full rule catalogs: [Blocked Commands](https://ccsafetynet.com/docs/reference/blocked-commands) · [Allowed Commands](https://ccsafetynet.com/docs/reference/allowed-commands) · [Secret Protection](https://ccsafetynet.com/docs/reference/secret-protection).
 
 ## Why not just use a sandbox?
 
 A workspace-writable sandbox still permits `git reset --hard`, `git push --force`, and `rm -rf .` *inside* the project directory, because the OS only sees writes to an allowed path. Sandboxing contains blast radius; CC Safety Net catches the destructive operations sandboxing permits — use both for defense-in-depth. See [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing).
 
-## Modes
+## Safety presets
 
-CC Safety Net has opt-in modes toggled by `CC_SAFETY_NET_*` environment variables (legacy `SAFETY_NET_*` names also accepted):
+Set a session safety preset with `CC_SAFETY_NET_LEVEL=standard|strict|paranoid`:
 
-| Mode | Flag | Effect |
-|---|---|---|
-| Strict | `CC_SAFETY_NET_STRICT=1` | Fail closed on unparseable commands, not just malformed input. |
-| Paranoid | `CC_SAFETY_NET_PARANOID=1` | Stricter checks; or use `CC_SAFETY_NET_PARANOID_RM=1` (block `rm -rf` even within cwd) and `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` (block interpreter one-liners). |
-| Worktree | `CC_SAFETY_NET_WORKTREE=1` | Relax local git discards inside verified linked worktrees. |
+| Preset | Effect |
+|---|---|
+| Standard | Blocks recognizable destructive Git and filesystem commands. Allows metadata-only checks of built-in sensitive paths while continuing to block content access. Recommended for normal coding. |
+| Strict | Standard, plus blocks dynamic or unparseable commands the analyzer cannot verify safely and metadata-only discovery of built-in sensitive paths. Occasional false positives on advanced shell. |
+| Paranoid | Strict, plus blocks `rm -rf` inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos. |
 
-See [Modes](https://ccsafetynet.com/docs/configuration/modes) and [Environment](https://ccsafetynet.com/docs/configuration/environment).
+Presets supply inherited defaults; `policy.json` stores only your explicit deviations — per-rule overrides, allow paths, deny paths, worktree mode, and audit retention. Environment variables can only raise protection, never lower it. The full contract is on [Modes](https://ccsafetynet.com/docs/configuration/modes), [Policy](https://ccsafetynet.com/docs/configuration/policy), and [Environment](https://ccsafetynet.com/docs/configuration/environment), or edit everything visually with the [local GUI](https://ccsafetynet.com/docs/guides/dashboard).
 
 ## Diagnostics and tracing
 
 ```bash
+# Summarize what is being enforced right now
+npx cc-safety-net status
 # Verify your installation and run a self-test
 npx cc-safety-net doctor
 # Trace how a command is analyzed step-by-step
 npx cc-safety-net explain "git reset --hard"
+# Browse recorded denials from the audit trail (add --all to include allowed commands)
+npx cc-safety-net logs
+# Review what was blocked and edit your policy in a local web GUI
+npx cc-safety-net gui
 ```
 
-Both support `--json` for machine-readable output. Full reference: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace).
+`doctor`, `explain`, and `logs` support `--json` for machine-readable output. The audit trail records command decisions only — never command output or prompts — and stays on your machine. Invalid configuration never blocks your agent: unverifiable rule sources are dropped and every degraded state is reported on the next block message, `doctor`, the status line, and the GUI banner.
+
+Details: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace) · [Audit Log](https://ccsafetynet.com/docs/reference/audit-log) · [Dashboard](https://ccsafetynet.com/docs/guides/dashboard) · [Configuration Recovery](https://ccsafetynet.com/docs/configuration/recovery).
+
+## Limitations
+
+CC Safety Net denies a tool call before it runs; it does not enforce filesystem permissions, inspect network egress, or contain a process. Two v2 bounds worth knowing up front: the policy and sensitive-path command extractors remain primarily POSIX-oriented, so native PowerShell path expressions such as `Get-Content $HOME\.ssh\id_rsa` can evade static path extraction; and policy-file protection is a best-effort exact-path guard, not command emulation. Use operating-system permissions, a sandbox, or equivalent runtime enforcement when complete protection is required.
+
+The full residual-risk registry lives in [SECURITY.md](SECURITY.md); the practical consequences are on [Known Limitations](https://ccsafetynet.com/docs/guides/known-limitations).
 
 ## Upgrading from an older version
 
+Upgrade every installed integration to the current release with one command:
+
+```bash
+npx -y cc-safety-net@latest update
+```
+
 > [!WARNING]
-> If you previously defined custom rules in a legacy inline config (`.safety-net.json` or `~/.cc-safety-net/config.json`), those files are **no longer loaded at runtime**. Commands now **fail closed** (stay blocked) until you migrate. Run `npx -y cc-safety-net rule migrate` to convert them to the rulebook layout. See the [migration guide](https://ccsafetynet.com/docs/configuration/custom-rules#migration-from-legacy-config).
+> If you previously defined custom rules in a legacy inline config (`.safety-net.json` or `~/.cc-safety-net/config.json`), those files are **no longer loaded at runtime** and **their rules are not enforcing anything**. Nothing is blocked, so you will not notice this from normal use — the commands those rules used to block now run. Run `npx -y cc-safety-net rule migrate` to convert them to the rulebook layout, then `npx -y cc-safety-net doctor` to confirm the runtime is `ready`. See the [migration guide](https://ccsafetynet.com/docs/configuration/custom-rules#migration-from-legacy-config).
 
 ## Full documentation
 
@@ -205,15 +234,20 @@ All details live on the docs site at **[ccsafetynet.com/docs](https://ccsafetyne
 
 | Area | Pages |
 |---|---|
-| Get started | [Introduction](https://ccsafetynet.com/docs/introduction) · [Installation](https://ccsafetynet.com/docs/installation) · [Quickstart](https://ccsafetynet.com/docs/quickstart) |
-| Configuration | [Modes](https://ccsafetynet.com/docs/configuration/modes) · [Environment](https://ccsafetynet.com/docs/configuration/environment) · [Custom Rules](https://ccsafetynet.com/docs/configuration/custom-rules) · [Status Line](https://ccsafetynet.com/docs/configuration/status-line) |
-| Reference | [Blocked Commands](https://ccsafetynet.com/docs/reference/blocked-commands) · [Allowed Commands](https://ccsafetynet.com/docs/reference/allowed-commands) · [Audit Log](https://ccsafetynet.com/docs/reference/audit-log) · [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace) · [Glossary](https://ccsafetynet.com/docs/reference/glossary) |
-| Guides | [How It Works](https://ccsafetynet.com/docs/guides/how-it-works) · [Architecture](https://ccsafetynet.com/docs/guides/architecture) · [Analysis Engine](https://ccsafetynet.com/docs/guides/analysis-engine) · [Design Principles](https://ccsafetynet.com/docs/guides/design-principles) · [Security Model](https://ccsafetynet.com/docs/guides/security-model) · [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing) · [Known Limitations](https://ccsafetynet.com/docs/guides/known-limitations) · [Troubleshooting](https://ccsafetynet.com/docs/guides/troubleshooting) |
+| Get started | [Introduction](https://ccsafetynet.com/docs/introduction) · [Installation](https://ccsafetynet.com/docs/installation) · [Quickstart](https://ccsafetynet.com/docs/quickstart) · [How It Works](https://ccsafetynet.com/docs/guides/how-it-works) · [Dashboard](https://ccsafetynet.com/docs/guides/dashboard) |
+| Configuration | [Modes](https://ccsafetynet.com/docs/configuration/modes) · [Policy](https://ccsafetynet.com/docs/configuration/policy) · [Environment](https://ccsafetynet.com/docs/configuration/environment) · [Custom Rules](https://ccsafetynet.com/docs/configuration/custom-rules) · [Status Line](https://ccsafetynet.com/docs/configuration/status-line) · [Configuration Recovery](https://ccsafetynet.com/docs/configuration/recovery) |
+| Reference | [Blocked Commands](https://ccsafetynet.com/docs/reference/blocked-commands) · [Allowed Commands](https://ccsafetynet.com/docs/reference/allowed-commands) · [Secret Protection](https://ccsafetynet.com/docs/reference/secret-protection) · [Audit Log](https://ccsafetynet.com/docs/reference/audit-log) · [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace) · [Glossary](https://ccsafetynet.com/docs/reference/glossary) |
+| Guides | [Architecture](https://ccsafetynet.com/docs/guides/architecture) · [Analysis Engine](https://ccsafetynet.com/docs/guides/analysis-engine) · [Design Principles](https://ccsafetynet.com/docs/guides/design-principles) · [Security Model](https://ccsafetynet.com/docs/guides/security-model) · [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing) · [Integration Architecture](https://ccsafetynet.com/docs/guides/integration-architecture) · [Known Limitations](https://ccsafetynet.com/docs/guides/known-limitations) · [Troubleshooting](https://ccsafetynet.com/docs/guides/troubleshooting) |
 | Project | [Contributing](https://ccsafetynet.com/docs/contributing) · [Security Policy](https://ccsafetynet.com/docs/security) |
 
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
+
+Generated distribution ownership is intentionally narrow. Only `dist/index.js`,
+`dist/index.d.ts`, `dist/bin/cc-safety-net.js`, and `dist/pi/index.js` are tracked. Run
+`bun run verify:build`, `bun run verify:package`, and `bun run verify:repository-plugin` when
+changing packaging, integrations, or release automation.
 
 ## License
 

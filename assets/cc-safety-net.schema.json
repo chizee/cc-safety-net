@@ -2,12 +2,11 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json",
   "title": "CC Safety Net Configuration",
-  "description": "Configuration file for cc-safety-net plugin custom rules",
+  "description": "Configuration file for cc-safety-net rulebook sources and local policy",
   "type": "object",
   "properties": {
     "$schema": {
-      "description": "JSON Schema reference for IDE support",
-      "type": "string"
+      "description": "JSON Schema reference for IDE support"
     },
     "version": {
       "type": "number",
@@ -16,48 +15,67 @@
     },
     "rules": {
       "default": [],
-      "description": "Custom blocking rules",
+      "description": "Rulebook source strings such as project-rules or owner/repo#main/team-rules",
+      "maxItems": 64,
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
-            "description": "Unique identifier for the rule (case-insensitive for duplicate detection)"
-          },
-          "command": {
-            "type": "string",
-            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$",
-            "description": "Base command to match (e.g., 'git', 'npm', 'docker'). Paths are normalized to basename."
-          },
-          "subcommand": {
-            "description": "Optional subcommand to match (e.g., 'add', 'install'). If omitted, matches any subcommand.",
-            "type": "string",
-            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
-          },
-          "block_args": {
-            "minItems": 1,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Arguments that trigger the block. Command is blocked if ANY of these are present."
-          },
-          "reason": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256,
-            "description": "Message shown when the command is blocked"
-          }
-        },
-        "required": ["name", "command", "block_args", "reason"],
-        "additionalProperties": false,
-        "description": "A custom rule that blocks specific command patterns"
+        "type": "string",
+        "minLength": 1
       }
+    },
+    "overrides": {
+      "default": {},
+      "description": "Rule overrides by id",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[^/]+\\/[^/]+$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string",
+            "const": "off"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "description": "Replacement block reason"
+              },
+              "intent": {
+                "type": "string",
+                "enum": [
+                  "hard_stop",
+                  "use_alternative",
+                  "scope_down",
+                  "manual_only",
+                  "stop_and_explain"
+                ]
+              }
+            },
+            "required": ["reason"],
+            "additionalProperties": {}
+          }
+        ],
+        "description": "Disable a rule or replace its block reason and intent."
+      }
+    },
+    "transparent_wrappers": {
+      "default": [],
+      "description": "Commands that transparently execute a visible protected child command",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$",
+        "description": "Command name such as 'git', 'docker', or 'rtk'."
+      },
+      "uniqueItems": true
     }
   },
   "required": ["version"],
-  "additionalProperties": false
+  "additionalProperties": {}
 }

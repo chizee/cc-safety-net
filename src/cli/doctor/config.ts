@@ -1,0 +1,119 @@
+/**
+ * Rulebook-backed configuration display with source tracking.
+ */
+
+import { dirname } from 'node:path';
+import {
+  getPolicyPaths,
+  getProjectRulesConfigPath,
+  getRulesConfigRuntimeErrorsForConfig,
+  getRulesLockPathForConfigPath,
+  getUserRulesConfigPath,
+  getUserRulesLockPath,
+  loadRulesPolicy,
+  PolicyFilesystemError,
+  type PolicyFilesystemScope,
+  type PolicyFilesystemTarget,
+  readPolicyFile,
+  type ValidationResult,
+  validateRulesConfigFile,
+} from '@/engine/facade';
+import type { ConfigSourceInfo, EffectiveRule, ShadowedRule } from '@/integrations/doctor-types';
+import type { CustomRule } from '@/ir/policy';
+
+export interface ConfigInfo {
+  userConfig: ConfigSourceInfo;
+  projectConfig: ConfigSourceInfo;
+  effectiveRules: EffectiveRule[];
+  shadowedRules: ShadowedRule[];
+}
+
+export interface ConfigInfoOptions {
+  userConfigPath?: string;
+  projectConfigPath?: string;
+}
+
+function getConfigSourceInfo(
+  path: string,
+  lockPath: string,
+  userConfigDir: string,
+  target: PolicyFilesystemTarget,
+  filesystemScope: PolicyFilesystemScope,
+): ConfigSourceInfo {
+  let validation: ValidationResult;
+  try {
+    if (readPolicyFile(target) === null) {
+      return { path, exists: false, valid: false, ruleCount: 0 };
+    }
+    validation = validateRulesConfigFile(target);
+    validation.errors.push(
+      ...getRulesConfigRuntimeErrorsForConfig(path, lockPath, { userConfigDir }, filesystemScope),
+    );
+  } catch (error) {
+    if (!(error instanceof PolicyFilesystemError)) throw error;
+    validation = { errors: [error.message], ruleNames: new Set<string>() };
+  }
+
+  return {
+    path,
+    exists: true,
+    valid: validation.errors.length === 0,
+    ruleCount: validation.ruleNames.size,
+    ...(validation.errors.length > 0 ? { errors: validation.errors } : {}),
+  };
+}
+
+function toEffectiveRule(rule: CustomRule, source: 'user' | 'project'): EffectiveRule {
+  return {
+    source,
+    name: rule.name,
+    command: rule.command,
+    subcommand: rule.subcommand,
+    blockArgs: [...rule.block_args],
+    reason: rule.reason,
+  };
+}
+
+export function getConfigInfo(cwd: string, options?: ConfigInfoOptions): ConfigInfo {
+  const userPath = options?.userConfigPath ?? getUserRulesConfigPath();
+  const projectPath = options?.projectConfigPath ?? getProjectRulesConfigPath(cwd);
+  const userConfigDir = dirname(userPath);
+  const policy = loadRulesPolicy({
+    cwd,
+    userConfigPath: userPath,
+    projectConfigPath: projectPath,
+    userConfigDir,
+  });
+  const paths = getPolicyPaths({
+    cwd,
+    userConfigPath: userPath,
+    projectConfigPath: projectPath,
+    userConfigDir,
+  });
+  const rulebookSources = new Map(
+    policy.rulebooks.flatMap((rulebook) =>
+      rulebook.rules.map((rule) => [rule, rulebook.source] as const),
+    ),
+  );
+
+  return {
+    userConfig: getConfigSourceInfo(
+      userPath,
+      getUserRulesLockPath({ userConfigPath: userPath }),
+      userConfigDir,
+      paths.userConfigTarget,
+      paths.userScope,
+    ),
+    projectConfig: getConfigSourceInfo(
+      projectPath,
+      getRulesLockPathForConfigPath(projectPath),
+      userConfigDir,
+      paths.projectConfigTarget,
+      paths.projectScope,
+    ),
+    effectiveRules: policy.rules.map((rule) =>
+      toEffectiveRule(rule, rulebookSources.get(rule.name) ?? 'project'),
+    ),
+    shadowedRules: [],
+  };
+}

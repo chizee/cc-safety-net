@@ -9,12 +9,16 @@ export function getBundledOutputs(outputs: BuildOutput[]) {
       normalizeBuildPath(output.path).endsWith('dist/index.js'),
     ),
     binOutput: outputs.find((output) =>
-      normalizeBuildPath(output.path).endsWith('dist/bin/cc-safety-net.js'),
+      normalizeBuildPath(output.path).endsWith('dist/cli/cc-safety-net.js'),
     ),
     piOutput: outputs.find((output) =>
-      normalizeBuildPath(output.path).endsWith('dist/pi/index.js'),
+      normalizeBuildPath(output.path).endsWith('dist/integrations/pi/index.js'),
     ),
   };
+}
+
+export function isRootDeclarationOutput(path: string): boolean {
+  return normalizeBuildPath(path) === 'dist/index.d.ts';
 }
 
 function normalizeBuildPath(path: string): string {

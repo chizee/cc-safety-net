@@ -4,61 +4,44 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - ".github/workflows/test-windows.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - ".github/workflows/test-windows.yml"
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: read
 
 jobs:
   test-windows:
-    name: Windows Tests
     runs-on: windows-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
-          bun-version: latest
-
+          bun-version: 1.3.14
       - name: Install dependencies
-        run: bun install
-        env:
-          BUN_INSTALL_ALLOW_SCRIPTS: "@ast-grep/cli"
-
-      - name: Build
-        run: bun run build
-
-      - name: Run tests
-        run: bun test
+        run: bun install --frozen-lockfile
+      - run: bun run lint:ci
+      - run: bun run typecheck
+      - run: bun run knip
+      - run: bun run check-duplicates
+      - name: Run native Windows tests
+        run: bun test tests --test-name-pattern '\[windows\]'
         env:
           AGENT: "1"
-
-      - name: Test rm -rf within cwd
-        run: |
-          # Create test directory structure
-          mkdir test-dir
-
-          # Test: rm -rf dist should be ALLOWED within cwd
-          $result = bun run cc-safety-net explain --cwd test-dir "rm -rf dist" 2>&1
-          Write-Host "Result: $result"
-
-          if ($result -match "ALLOWED") {
-            Write-Host "✅ PASS: rm -rf dist within cwd is correctly ALLOWED"
-          } else {
-            Write-Host "❌ FAIL: rm -rf dist within cwd should be ALLOWED but was blocked"
-            exit 1
-          }
+          CC_SAFETY_NET_E2E_ARTIFACTS: ${{ runner.temp }}/cc-safety-net-e2e
+      - run: bun run build
+      - run: git diff --exit-code -- dist assets/cc-safety-net.schema.json THIRD_PARTY_LICENSES.txt
+      - name: Verify Windows command behavior
         shell: pwsh
+        run: |
+          New-Item -ItemType Directory test-dir
+          $result = bun run cc-safety-net explain --cwd test-dir "rm -rf dist" 2>&1
+          if (-not ($result -match "ALLOWED")) { exit 1 }
+      - name: Upload E2E failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: e2e-failure-evidence-windows
+          path: ${{ runner.temp }}/cc-safety-net-e2e
+          if-no-files-found: ignore
+          retention-days: 7

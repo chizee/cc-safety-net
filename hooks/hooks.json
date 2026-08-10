@@ -2,11 +2,10 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/bin/cc-safety-net.js\" hook --claude-code"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/bin/cc-safety-net.js\" hook --coding-cli"
           }
         ]
       }

@@ -2,6 +2,7 @@
   "compilerOptions": {
     // Environment setup & latest features
     "lib": ["ESNext"],
+    "types": ["bun"],
     "outDir": "dist",
     "rootDir": ".",
     "target": "ESNext",
@@ -17,9 +18,8 @@
     "noEmit": true,
 
     // Path aliases
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     },
 
     // Best practices
@@ -39,5 +39,6 @@
     "isolatedModules": true
   },
   "include": ["src/**/*", "tests/**/*", "scripts/**/*"],
-  "exclude": ["node_modules", "dist"]
+  // The frontend is browser code with its own lib and globals; tsconfig.gui.json covers it.
+  "exclude": ["node_modules", "dist", "src/gui/frontend"]
 }
