@@ -1,12 +1,20 @@
 name: Prepare Release
-run-name: prepare v${{ inputs.version }}
+run-name: prepare ${{ inputs.version || inputs.bump }} release
 
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: Stable semantic version without a v prefix
+      bump:
+        description: Semver bump applied to the version in package.json on main
         required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version:
+        description: Explicit stable version without a v prefix; overrides bump
+        required: false
         type: string
       dry_run:
         description: Validate the complete release without mutating Git
@@ -26,6 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -38,11 +48,28 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
-      - name: Validate and verify current main
+      - name: Resolve the next version
+        id: resolve
         env:
+          BUMP: ${{ inputs.bump }}
           VERSION: ${{ inputs.version }}
         run: |
+          if [ -z "$VERSION" ]; then
+            CURRENT=$(jq -r .version package.json)
+            [[ "$CURRENT" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+            IFS=. read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            case "$BUMP" in
+              major) VERSION="$((MAJOR + 1)).0.0" ;;
+              minor) VERSION="${MAJOR}.$((MINOR + 1)).0" ;;
+              patch) VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+            esac
+            echo "Resolved ${BUMP} bump from v${CURRENT}"
+          fi
           [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          echo "Preparing v${VERSION}"
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Validate and verify current main
+        run: |
           git fetch origin main --tags
           BASE=$(git rev-parse HEAD)
           test "$BASE" = "$(git rev-parse origin/main)"
@@ -57,7 +84,7 @@ jobs:
           git show-ref --tags > "$RUNNER_TEMP/prepared-release.tags" || true
       - name: Prepare and verify requested version
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.resolve.outputs.version }}
         run: |
           BASE=$(cat "$RUNNER_TEMP/prepared-release.base")
           bun run scripts/prepare-release-files.ts --version "$VERSION"
@@ -108,7 +135,7 @@ jobs:
       - name: Apply the verified release transaction
         id: transaction
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.verify.outputs.version }}
         run: |
           cd "$RUNNER_TEMP/prepared-release"
           sha256sum --check prepared-release.tgz.sha256

@@ -219,8 +219,9 @@ bun run build
 **Important**: Version bumping and releases are handled by maintainers only.
 
 - **Never** modify the version in `package.json` or `plugin.json` directly
-- Start `.github/workflows/prepare-release.yml` with a stable semantic version. Its dry-run mode
-  performs the same checks without changing Git.
+- Start `.github/workflows/prepare-release.yml` with a bump type (`patch`, `minor`, or `major`).
+  It computes the next stable version from `package.json` on `main`. An explicit `version` input
+  overrides the bump. Its dry-run mode performs the same checks without changing Git.
 - Preparation requires clean `main` at `origin/main`, updates both version manifests, rebuilds and
   verifies every package surface, then atomically pushes one release commit and one new immutable
   tag.
