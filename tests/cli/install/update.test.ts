@@ -73,6 +73,25 @@ function runUpdate(options: { homeDir: string; path: string; logPath?: string })
   });
 }
 
+async function expectCodexLegacyMigration(fake: ReturnType<typeof makeFakeBinHome>) {
+  try {
+    const result = await runUpdate(fake);
+
+    expect(result.exitCode).toBe(0);
+    expect(normalizedCommandLog(fake.logPath)).toEqual([
+      'codex plugin list',
+      'codex --version',
+      'codex plugin list',
+      'codex plugin marketplace add kenryu42/cc-marketplace',
+      'codex plugin add cc-safety-net@cc-marketplace',
+      'codex plugin remove safety-net@cc-marketplace',
+    ]);
+    expect(result.stdout).toContain('Updated Codex integration');
+  } finally {
+    rmSync(fake.homeDir, { recursive: true, force: true });
+  }
+}
+
 describe('update command', () => {
   test('updates a configured Claude Code integration', async () => {
     const fake = makeFakeBinHome('safety-net-update-claude', ['claude']);
@@ -143,6 +162,7 @@ describe('update command', () => {
       expect(normalizedCommandLog(fake.logPath)).toEqual([
         'claude --version',
         'claude plugin marketplace add kenryu42/cc-marketplace',
+        'claude plugin marketplace update cc-marketplace',
         'claude plugin install cc-safety-net@cc-marketplace',
         'claude plugin uninstall safety-net@cc-marketplace',
       ]);
@@ -164,22 +184,7 @@ fi
 `,
     );
 
-    try {
-      const result = await runUpdate(fake);
-
-      expect(result.exitCode).toBe(0);
-      expect(normalizedCommandLog(fake.logPath)).toEqual([
-        'codex plugin list',
-        'codex --version',
-        'codex plugin list',
-        'codex plugin marketplace add kenryu42/cc-marketplace',
-        'codex plugin add cc-safety-net@cc-marketplace',
-        'codex plugin remove safety-net@cc-marketplace',
-      ]);
-      expect(result.stdout).toContain('Updated Codex integration');
-    } finally {
-      rmSync(fake.homeDir, { recursive: true, force: true });
-    }
+    await expectCodexLegacyMigration(fake);
   });
 
   test('detects a legacy-only Copilot CLI plugin from the filesystem', async () => {
@@ -216,6 +221,97 @@ fi
       rmSync(fake.homeDir, { recursive: true, force: true });
     }
   });
+
+  test('migrates a pre-rename Copilot CLI plugin from the marketplace checkout', async () => {
+    const fake = makeFakeBinHome('safety-net-update-prerename-copilot', ['copilot']);
+    mkdirSync(join(fake.homeDir, '.copilot', 'installed-plugins', 'cc-marketplace', 'safety-net'), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(fake.homeDir, 'bin', 'copilot'),
+      `#!/usr/bin/env sh
+printf '%s\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'Installed plugins:\n  • safety-net@cc-marketplace (v1.0.6)\n'
+fi
+if [ "$*" = "plugin marketplace list" ]; then
+  printf 'Registered marketplaces:\n  • cc-marketplace (GitHub: kenryu42/cc-marketplace)\n'
+fi
+`,
+    );
+
+    try {
+      const result = await runUpdate(fake);
+
+      expect(result.exitCode).toBe(0);
+      expect(normalizedCommandLog(fake.logPath)).toEqual([
+        'copilot --binary-version',
+        'copilot --binary-version',
+        'copilot plugin list',
+        'copilot plugin marketplace list',
+        'copilot plugin marketplace update cc-marketplace',
+        'copilot plugin install cc-safety-net@cc-marketplace',
+        'copilot plugin uninstall safety-net@cc-marketplace',
+      ]);
+      expect(result.stdout).toContain('Updated GitHub Copilot CLI integration');
+    } finally {
+      rmSync(fake.homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('tolerates a stale legacy Claude Code plugin record', async () => {
+    const fake = makeFakeBinHome('safety-net-update-stale-legacy-claude', ['claude']);
+    writeClaudePluginRecords(
+      fake.homeDir,
+      ['cc-safety-net@cc-marketplace', 'safety-net@cc-marketplace'],
+      { enableByDefault: true },
+    );
+    writeFileSync(
+      join(fake.homeDir, 'bin', 'claude'),
+      `#!/usr/bin/env sh
+printf '%s\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin uninstall safety-net@cc-marketplace" ]; then
+  echo "Plugin \\"safety-net@cc-marketplace\\" not found in installed plugins" >&2
+  exit 1
+fi
+`,
+    );
+
+    try {
+      const result = await runUpdate(fake);
+
+      expect(result.exitCode).toBe(0);
+      expect(normalizedCommandLog(fake.logPath)).toEqual([
+        'claude --version',
+        'claude plugin marketplace update cc-marketplace',
+        'claude plugin update cc-safety-net@cc-marketplace',
+        'claude plugin uninstall safety-net@cc-marketplace',
+      ]);
+      expect(result.stdout).toContain('Updated Claude Code integration');
+      expect(result.stderr).toContain('claude plugin uninstall safety-net@cc-marketplace');
+    } finally {
+      rmSync(fake.homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('detects a Codex integration whose plugin list is slower than the version probe timeout', async () => {
+    const fake = makeFakeBinHome('safety-net-update-slow-codex', ['codex']);
+    writeFileSync(
+      join(fake.homeDir, 'bin', 'codex'),
+      `#!/usr/bin/env sh
+printf '%s\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  if [ ! -f "$HOME/.codex-slept" ]; then
+    touch "$HOME/.codex-slept"
+    sleep 6
+  fi
+  printf 'safety-net@cc-marketplace https://github.com/kenryu42/cc-safety-net.git installed, enabled\n'
+fi
+`,
+    );
+
+    await expectCodexLegacyMigration(fake);
+  }, 20000);
 
   test('skips a configured native integration when its CLI is missing', async () => {
     const homeDir = makeTempHome('safety-net-update-missing-cli');
@@ -270,7 +366,7 @@ fi
     await expectUpdateFindsNothing(makeTempHome('safety-net-update-none'));
   });
 
-  test('stops at the first target failure', async () => {
+  test('continues with the remaining targets after a target failure', async () => {
     const fake = makeFakeBinHome('safety-net-update-failure', ['claude', 'codex']);
     writeClaudePluginRecords(fake.homeDir, ['cc-safety-net@cc-marketplace'], {
       enableByDefault: true,
@@ -289,7 +385,7 @@ fi
       `#!/usr/bin/env sh
 printf '%s\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
 if [ "$*" = "plugin list" ]; then
-  printf 'cc-safety-net@cc-marketplace installed, enabled\n'
+  printf 'cc-safety-net@cc-marketplace https://github.com/kenryu42/cc-safety-net.git installed, enabled\n'
 fi
 `,
     );
@@ -298,10 +394,11 @@ fi
       const result = await runUpdate(fake);
 
       expect(result.exitCode).toBe(1);
-      expect(normalizedCommandLog(fake.logPath)).not.toContain(
+      expect(normalizedCommandLog(fake.logPath)).toContain(
         'codex plugin marketplace upgrade cc-marketplace',
       );
       expect(result.stderr).toContain('claude plugin marketplace update cc-marketplace');
+      expect(result.stdout).toContain('Updated Codex integration');
     } finally {
       rmSync(fake.homeDir, { recursive: true, force: true });
     }

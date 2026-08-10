@@ -47,3 +47,18 @@ export function runNativeCommands(commands: readonly NativeCommand[]): void {
     runNativeCommand(command);
   });
 }
+
+/**
+ * Best-effort cleanup of state the host CLI may have already dropped on its own (e.g. a legacy
+ * plugin removed by a marketplace rename migration): a failure is reported, never thrown, so it
+ * cannot fail the install that precedes it.
+ */
+export function runNativeCleanupCommands(commands: readonly NativeCommand[]): void {
+  commands.forEach((command) => {
+    try {
+      runNativeCommand(command);
+    } catch (error) {
+      console.warn(error instanceof Error ? error.message : String(error));
+    }
+  });
+}

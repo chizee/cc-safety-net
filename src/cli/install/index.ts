@@ -17,8 +17,11 @@ import {
   COPILOT_LEGACY_PLUGIN_DIR,
   COPILOT_PLUGIN_DIR,
   COPILOT_PLUGIN_ID,
+  COPILOT_PRE_RENAME_PLUGIN_DIR,
+  COPILOT_PRE_RENAME_PLUGIN_ID,
   hasCopilotLegacyPlugin,
   hasCopilotMarketplace,
+  hasCopilotPreRenamePlugin,
   hasCopilotSafetyNetPlugin,
 } from '@/integrations/copilot-cli/plugin-id';
 import { installCursor, uninstallCursor } from '@/integrations/cursor/install';
@@ -41,6 +44,7 @@ import {
 } from '@/integrations/install/choices';
 import {
   type NativeCommand,
+  runNativeCleanupCommands,
   runNativeCommand,
   runNativeCommands,
 } from '@/integrations/install/native';
@@ -70,7 +74,12 @@ type ConfigInstallTarget = Extract<InstallTarget, 'antigravity-cli' | 'kimi-code
 // Integrations whose install writes a managed artifact directly instead of driving a host CLI.
 type ManagedArtifactTarget = Extract<InstallTarget, 'amp' | 'hermes-agent'>;
 type NativeInstallTarget = Exclude<InstallTarget, ConfigInstallTarget | ManagedArtifactTarget>;
-type NativeInstallPlan = { commands: readonly NativeCommand[]; update?: boolean };
+type NativeInstallPlan = {
+  commands: readonly NativeCommand[];
+  /** Best-effort commands run after `commands`; a failure warns instead of failing the target. */
+  cleanupCommands?: readonly NativeCommand[];
+  update?: boolean;
+};
 type InstallTargetSelection = readonly InstallTarget[] | null | 'update';
 
 export type RunInstallCommandOptions = {
@@ -121,6 +130,11 @@ function hasCodexReplacementPlugin(output: string | null): boolean {
   return /^\s*cc-safety-net[^a-z0-9-][^\n]*installed,/m.test(output ?? '');
 }
 
+// `codex plugin list` prints one "Marketplace `<name>`" heading per registered marketplace.
+function hasCodexMarketplace(output: string | null): boolean {
+  return /^Marketplace `cc-marketplace`\s*$/m.test(output ?? '');
+}
+
 const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   'claude-code': {
     installCommands: (homeDir) => {
@@ -134,15 +148,20 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
               ] as const)
             : ([
                 ['claude', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
+                // `add` is a no-op on an already-registered marketplace, so its stale catalog
+                // (e.g. from before the plugin rename) would fail the install without a refresh.
+                ['claude', 'plugin', 'marketplace', 'update', 'cc-marketplace'],
                 ['claude', 'plugin', 'install', 'cc-safety-net@cc-marketplace'],
               ] as const)),
           ...(detectClaudeCode(homeDir).status === 'disabled'
             ? ([['claude', 'plugin', 'enable', 'cc-safety-net@cc-marketplace']] as const)
             : []),
-          ...(hasClaudeInstalledPlugin(homeDir, CLAUDE_LEGACY_PLUGIN_ID)
-            ? ([['claude', 'plugin', 'uninstall', CLAUDE_LEGACY_PLUGIN_ID]] as const)
-            : []),
         ],
+        // Best-effort: the marketplace refresh can migrate the rename itself, leaving a plugin
+        // record the CLI no longer accepts an uninstall for.
+        cleanupCommands: hasClaudeInstalledPlugin(homeDir, CLAUDE_LEGACY_PLUGIN_ID)
+          ? ([['claude', 'plugin', 'uninstall', CLAUDE_LEGACY_PLUGIN_ID]] as const)
+          : [],
         update,
       };
     },
@@ -157,19 +176,16 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
       const update = hasCodexReplacementPlugin(pluginList);
       return {
         commands: [
-          ...(update
-            ? ([
-                ['codex', 'plugin', 'marketplace', 'upgrade', 'cc-marketplace'],
-                ['codex', 'plugin', 'add', 'cc-safety-net@cc-marketplace'],
-              ] as const)
-            : ([
-                ['codex', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'],
-                ['codex', 'plugin', 'add', 'cc-safety-net@cc-marketplace'],
-              ] as const)),
-          ...(hasCodexLegacyPlugin(pluginList)
-            ? ([['codex', 'plugin', 'remove', 'safety-net@cc-marketplace']] as const)
-            : []),
+          // A registered marketplace holds a catalog checkout that `add` does not refresh, so a
+          // stale one (e.g. from before the plugin rename) would fail the plugin add.
+          update || hasCodexMarketplace(pluginList)
+            ? (['codex', 'plugin', 'marketplace', 'upgrade', 'cc-marketplace'] as const)
+            : (['codex', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'] as const),
+          ['codex', 'plugin', 'add', 'cc-safety-net@cc-marketplace'],
         ],
+        cleanupCommands: hasCodexLegacyPlugin(pluginList)
+          ? ([['codex', 'plugin', 'remove', 'safety-net@cc-marketplace']] as const)
+          : [],
         update,
       };
     },
@@ -183,27 +199,34 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   'copilot-cli': {
     installCommands: () => {
       const pluginList = runNativeCommand(['copilot', 'plugin', 'list']);
-      const legacyUninstall = hasCopilotLegacyPlugin(pluginList)
-        ? ([['copilot', 'plugin', 'uninstall', 'copilot-safety-net']] as const)
-        : [];
+      const cleanupCommands = [
+        ...(hasCopilotLegacyPlugin(pluginList)
+          ? ([['copilot', 'plugin', 'uninstall', 'copilot-safety-net']] as const)
+          : []),
+        ...(hasCopilotPreRenamePlugin(pluginList)
+          ? ([['copilot', 'plugin', 'uninstall', COPILOT_PRE_RENAME_PLUGIN_ID]] as const)
+          : []),
+      ];
       if (hasCopilotSafetyNetPlugin(pluginList))
         return {
           commands: [
             ['copilot', 'plugin', 'marketplace', 'update', 'cc-marketplace'],
             ['copilot', 'plugin', 'update', COPILOT_PLUGIN_ID],
-            ...legacyUninstall,
           ],
+          cleanupCommands,
           update: true,
         };
 
       return {
         commands: [
-          ...(hasCopilotMarketplace(runNativeCommand(['copilot', 'plugin', 'marketplace', 'list']))
-            ? []
-            : ([['copilot', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace']] as const)),
+          // A registered marketplace holds a catalog checkout that goes stale (e.g. from before
+          // the plugin rename) and would fail the install without a refresh.
+          hasCopilotMarketplace(runNativeCommand(['copilot', 'plugin', 'marketplace', 'list']))
+            ? (['copilot', 'plugin', 'marketplace', 'update', 'cc-marketplace'] as const)
+            : (['copilot', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'] as const),
           ['copilot', 'plugin', 'install', COPILOT_PLUGIN_ID],
-          ...legacyUninstall,
         ],
+        cleanupCommands,
       };
     },
     uninstallCommands: [
@@ -351,7 +374,9 @@ function parseInstallTarget(args: readonly string[], action: InstallAction): Ins
 // user's real config directories, and this runs on every bare install/uninstall in a TTY.
 async function detectInstallHookState(homeDir = getHomeDir()) {
   const [codexPluginListOutput, copilotCliVersion] = await Promise.all([
-    defaultVersionFetcher(['codex', 'plugin', 'list']),
+    // A cold `codex plugin list` refreshes marketplace checkouts over the network and can
+    // outlast the default 5s version timeout, which would silently drop Codex from detection.
+    defaultVersionFetcher(['codex', 'plugin', 'list'], 30_000),
     defaultVersionFetcher(['copilot', '--binary-version']),
   ]);
 
@@ -438,6 +463,7 @@ function installNativeTarget(target: NativeInstallTarget, homeDir: string, updat
       ? definition.installCommands(homeDir)
       : { commands: definition.installCommands };
   runNativeCommands(plan.commands);
+  runNativeCleanupCommands(plan.cleanupCommands ?? []);
   console.log(
     [
       `${plan.update || updating ? 'Updated' : 'Installed'} ${getIntegrationInstallLabel(target)} integration`,
@@ -676,7 +702,9 @@ async function detectUpdateTargets(homeDir: string): Promise<InstallTarget[]> {
     ...state.hooks
       .filter((hook) => hook.platform !== 'copilot-cli' && hook.detected)
       .map((hook) => hook.platform as InstallTarget),
-    ...([COPILOT_PLUGIN_DIR, COPILOT_LEGACY_PLUGIN_DIR] as const).flatMap((dir) =>
+    ...(
+      [COPILOT_PLUGIN_DIR, COPILOT_PRE_RENAME_PLUGIN_DIR, COPILOT_LEGACY_PLUGIN_DIR] as const
+    ).flatMap((dir) =>
       existsSync(join(copilotPluginsDir, ...dir)) ? (['copilot-cli'] as const) : [],
     ),
     ...(hasClaudeInstalledPlugin(homeDir, CLAUDE_LEGACY_PLUGIN_ID)
@@ -686,12 +714,12 @@ async function detectUpdateTargets(homeDir: string): Promise<InstallTarget[]> {
   ]);
 }
 
-async function updateInstalledIntegrations(): Promise<void> {
+async function updateInstalledIntegrations(): Promise<number> {
   const homeDir = getHomeDir();
   const targets = await detectUpdateTargets(homeDir);
   if (targets.length === 0) {
     console.log('No installed integrations found. Run `cc-safety-net install` to set one up.');
-    return;
+    return 0;
   }
 
   const targetSet = new Set(targets);
@@ -705,20 +733,27 @@ async function updateInstalledIntegrations(): Promise<void> {
     ),
   );
 
-  runInstallTargetsInOrder(targets, (target) => {
+  // The targets are independent, so one failure must not keep the rest from updating.
+  const failed = targets.filter((target) => {
     if (NATIVE_UPDATE_TARGETS.has(target) && !available.get(target)) {
       console.log(`${getIntegrationInstallLabel(target)} not found; skipped`);
-      return;
+      return false;
     }
-    runSingleInstallTarget('install', target, homeDir, true);
+    try {
+      runSingleInstallTarget('install', target, homeDir, true);
+      return false;
+    } catch (error) {
+      console.error(formatInstallError(error));
+      return true;
+    }
   });
+  return failed.length > 0 ? 1 : 0;
 }
 
 export function runUpdateCommand(args: readonly string[]): Promise<number> {
   return Promise.resolve()
     .then(() => parseUpdateArgs(args))
     .then(updateInstalledIntegrations)
-    .then(() => 0)
     .catch((error: unknown) => {
       console.error(formatInstallError(error));
       return 1;

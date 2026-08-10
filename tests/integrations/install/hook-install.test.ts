@@ -289,6 +289,7 @@ describe('install command', () => {
       ['claude'],
       [
         'claude plugin marketplace add kenryu42/cc-marketplace',
+        'claude plugin marketplace update cc-marketplace',
         'claude plugin install cc-safety-net@cc-marketplace',
       ],
       'Installed Claude Code integration',
@@ -301,6 +302,7 @@ describe('install command', () => {
       ['claude'],
       [
         'claude plugin marketplace add kenryu42/cc-marketplace',
+        'claude plugin marketplace update cc-marketplace',
         'claude plugin install cc-safety-net@cc-marketplace',
         'claude plugin uninstall safety-net@cc-marketplace',
       ],
@@ -493,6 +495,32 @@ fi
     );
   });
 
+  test('Codex: refreshes an already registered marketplace instead of re-adding it', async () => {
+    await expectNativeInstall(
+      '--codex',
+      ['codex'],
+      [
+        'codex plugin list',
+        'codex plugin marketplace upgrade cc-marketplace',
+        'codex plugin add cc-safety-net@cc-marketplace',
+      ],
+      'Installed Codex integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'codex'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'Marketplace \`cc-marketplace\`\\ncc-safety-net@cc-marketplace not installed https://github.com/kenryu42/cc-safety-net.git\\n'
+fi
+`,
+          );
+        },
+      },
+    );
+  });
+
   test('Codex: ignores a not-installed legacy marketplace row', async () => {
     await expectNativeInstall(
       '--codex',
@@ -547,6 +575,37 @@ fi
     );
   });
 
+  test('GitHub Copilot CLI: migrates the pre-rename marketplace plugin', async () => {
+    await expectNativeInstall(
+      '--copilot-cli',
+      ['copilot'],
+      [
+        'copilot plugin list',
+        'copilot plugin marketplace list',
+        'copilot plugin marketplace update cc-marketplace',
+        'copilot plugin install cc-safety-net@cc-marketplace',
+        'copilot plugin uninstall safety-net@cc-marketplace',
+      ],
+      'Installed GitHub Copilot CLI integration',
+      {
+        setup: (fake) => {
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'copilot'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+if [ "$*" = "plugin list" ]; then
+  printf 'Installed plugins:\\n  • safety-net@cc-marketplace (v1.0.6)\\n'
+fi
+if [ "$*" = "plugin marketplace list" ]; then
+  printf 'Registered marketplaces:\\n  • cc-marketplace (GitHub: kenryu42/cc-marketplace)\\n'
+fi
+`,
+          );
+        },
+      },
+    );
+  });
+
   test('GitHub Copilot CLI: updates the new plugin and removes the legacy plugin', async () => {
     await expectNativeInstall(
       '--copilot-cli',
@@ -574,7 +633,7 @@ fi
     );
   });
 
-  test('legacy uninstall failure fails the install', async () => {
+  test('legacy uninstall failure does not fail the install', async () => {
     const fake = makeFakeBinHome('safety-net-legacy-uninstall-fail', ['claude']);
     writeFileSync(
       join(fake.homeDir, 'bin', 'claude'),
@@ -594,13 +653,15 @@ fi
     try {
       const result = await runNativeCli(fake, 'install', '--claude-code');
 
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(0);
       expect(normalizedCommandLog(fake.logPath)).toEqual([
         'claude plugin marketplace add kenryu42/cc-marketplace',
+        'claude plugin marketplace update cc-marketplace',
         'claude plugin install cc-safety-net@cc-marketplace',
         'claude plugin uninstall safety-net@cc-marketplace',
       ]);
       expect(result.stderr).toContain('claude plugin uninstall safety-net@cc-marketplace');
+      expect(result.stdout).toContain('Installed Claude Code integration');
     } finally {
       rmSync(fake.homeDir, { recursive: true, force: true });
     }
@@ -647,13 +708,14 @@ fi
     await expectCopilotInstall();
   });
 
-  test('GitHub Copilot CLI: skips an already registered marketplace', async () => {
+  test('GitHub Copilot CLI: refreshes an already registered marketplace', async () => {
     await expectNativeInstall(
       '--copilot-cli',
       ['copilot'],
       [
         'copilot plugin list',
         'copilot plugin marketplace list',
+        'copilot plugin marketplace update cc-marketplace',
         'copilot plugin install cc-safety-net@cc-marketplace',
       ],
       'Installed GitHub Copilot CLI integration',
