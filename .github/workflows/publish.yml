@@ -131,9 +131,15 @@ jobs:
           TARBALL=$(printf '%s\n' *.tgz)
           cd ..
           TARBALL=$(basename "$TARBALL")
-          if ! gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > release.json 2>/dev/null; then
+          # The releases/tags REST endpoint cannot see draft releases, so the
+          # freshly created draft must be looked up by tag name via gh instead.
+          release_state() {
+            gh release view "$TAG" --json isDraft,isPrerelease,assets \
+              --jq '{draft: .isDraft, prerelease: .isPrerelease, assets: [.assets[] | {name}]}'
+          }
+          if ! release_state > release.json 2>/dev/null; then
             gh release create "$TAG" --draft --verify-tag --title "$TAG" --generate-notes
-            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > release.json
+            release_state > release.json
           fi
           bun run scripts/release-assets.ts --state release.json --expected SHA256SUMS --expected "$TARBALL" > release-plan.json
           mkdir existing
@@ -144,13 +150,13 @@ jobs:
           for ASSET in $(jq -r '.missing[]' release-plan.json); do
             gh release upload "$TAG" "package-output/$ASSET"
           done
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > release.json
+          release_state > release.json
           bun run scripts/release-assets.ts --state release.json --expected SHA256SUMS --expected "$TARBALL" > release-plan.json
           test "$(jq '.missing | length' release-plan.json)" = "0"
           if [ "$(jq -r .finalizeDraft release-plan.json)" = "true" ]; then
             gh release edit "$TAG" --draft=false
           fi
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > release.json
+          release_state > release.json
           bun run scripts/release-assets.ts --state release.json --expected SHA256SUMS --expected "$TARBALL" > release-plan.json
           test "$(jq '.missing | length' release-plan.json)" = "0"
           test "$(jq -r .finalizeDraft release-plan.json)" = "false"
