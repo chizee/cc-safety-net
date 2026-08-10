@@ -408,7 +408,7 @@ function readPolicyConfig(path: string): {
 }
 
 // A rule in the default-off tier stays off until an explicit 'on' override opts into it.
-export function resolveSecretDisabledRules(overrides: Record<string, unknown>): Set<string> {
+export function resolveSecretDisabledRules(overrides: Record<string, 'on' | 'off'>): Set<string> {
   const entries = Object.entries(overrides);
   const optedIn = new Set(entries.flatMap(([id, value]) => (value === 'on' ? [id] : [])));
   return new Set([
@@ -448,16 +448,13 @@ function normalizePolicyConfig(config: GuiPolicy): PartialPolicy {
   };
 }
 
-export function normalizeSafety(value: unknown): PolicySafety {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const safety = value as Record<string, unknown>;
-  const overrides = (safety.overrides as Record<string, boolean | undefined> | undefined) ?? {};
+export function normalizeSafety(safety: GuiPolicy['safety']): PolicySafety {
   return {
-    level: safety.level as PolicySafetyLevel | undefined,
+    level: safety.level,
     overrides: {
-      failClosed: overrides.fail_closed,
-      paranoidRm: overrides.paranoid_rm,
-      paranoidInterpreters: overrides.paranoid_interpreters,
+      failClosed: safety.overrides.fail_closed,
+      paranoidRm: safety.overrides.paranoid_rm,
+      paranoidInterpreters: safety.overrides.paranoid_interpreters,
     },
   };
 }
