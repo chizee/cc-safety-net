@@ -115,6 +115,7 @@ jobs:
           BASE=$(cat prepared-release.base)
           cd "$GITHUB_WORKSPACE"
           test "$(git rev-parse HEAD)" = "$BASE"
+          rm -rf dist
           tar -xzf "$RUNNER_TEMP/prepared-release/prepared-release.tgz"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
