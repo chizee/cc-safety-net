@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { getSpawnCommand } from '@/integrations/system-info';
 
 export type NativeCommand = readonly [string, ...string[]];
 
@@ -45,7 +46,10 @@ export function runNativeCommand(
   options?: { stdoutOnly: boolean },
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command[0], command.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] });
+    const spawnCommand = getSpawnCommand([...command], process.env);
+    const child = spawn(spawnCommand.cmd, spawnCommand.args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     const captured = captureOutputStreams(child);
     const merged = () => [captured.stdout, captured.stderr].filter(Boolean).join('\n');
     child.on('error', (error) => {

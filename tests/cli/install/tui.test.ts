@@ -286,6 +286,41 @@ describe('install target availability', () => {
     });
   });
 
+  async function withFakeWindowsCmdShimPath<T>(prefix: string, fn: () => T | Promise<T>) {
+    await withTempDir(prefix, async (dir) => {
+      const comspecPath = join(dir, 'cmd');
+      writeFileSync(join(dir, 'codex.CMD'), '');
+      writeFileSync(comspecPath, '#!/bin/sh\nexit 0\n');
+      chmodSync(comspecPath, 0o755);
+
+      return withEnv(
+        {
+          COMSPEC: comspecPath,
+          PATH: dir,
+          PATHEXT: '.CMD',
+          _CC_SAFETY_NET_TEST_SPAWN_PLATFORM: 'win32',
+        },
+        fn,
+      );
+    });
+  }
+
+  test('probes Windows cmd shims through COMSPEC', async () => {
+    if (process.platform === 'win32') return;
+
+    await withFakeWindowsCmdShimPath('safety-net-install-windows-probe-', () => {
+      expectAvailableTargets(buildInstallTargetChoices(), ['codex']);
+    });
+  });
+
+  test('probes Windows cmd shims through COMSPEC when probing asynchronously', async () => {
+    if (process.platform === 'win32') return;
+
+    await withFakeWindowsCmdShimPath('safety-net-install-windows-async-probe-', async () => {
+      expectAvailableTargets(await buildInstallTargetChoicesAsync(), ['codex']);
+    });
+  });
+
   test('applies configured state after async CLI probing', async () => {
     const choices = applyInstallTargetState(
       await buildInstallTargetChoices(

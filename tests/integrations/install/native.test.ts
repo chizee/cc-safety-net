@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync } from 'node:fs';
+import { chmodSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runNativeCommand, runNativeCommands } from '../../../src/integrations/install/native';
+import { withEnv, withTempDir } from '../../helpers';
 import { makeTempHome } from '../hook-helpers';
 
 function capturedFailureMessage(promise: Promise<string>): Promise<string> {
@@ -31,6 +32,32 @@ describe('runNativeCommand failures', () => {
     expect(message).toBe(
       'Failed to run sh -c echo out; echo err >&2; exit 3 (exit 3).\nout\n\nerr',
     );
+  });
+});
+
+describe('runNativeCommand on Windows', () => {
+  test('runs a PATH-installed cmd shim through COMSPEC', async () => {
+    if (process.platform === 'win32') return;
+
+    await withTempDir('safety-net-native-windows-cmd-', async (tmpDir) => {
+      const comspecPath = join(tmpDir, 'cmd');
+      writeFileSync(join(tmpDir, 'fake.CMD'), '');
+      writeFileSync(comspecPath, '#!/bin/sh\nprintf "%s" "$3"\n');
+      chmodSync(comspecPath, 0o755);
+
+      const output = await withEnv(
+        {
+          COMSPEC: comspecPath,
+          PATH: tmpDir,
+          PATHEXT: '.CMD',
+          _CC_SAFETY_NET_TEST_SPAWN_PLATFORM: 'win32',
+        },
+        () => runNativeCommand(['fake', 'arg with space'] as const),
+      );
+
+      expect(output).toContain(join(tmpDir, 'fake.CMD'));
+      expect(output).toContain('"arg with space"');
+    });
   });
 });
 
