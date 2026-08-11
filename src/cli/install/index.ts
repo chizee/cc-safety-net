@@ -11,7 +11,6 @@ import {
 } from '@/cli/install/prompt';
 import { awaitWithSpinner, resolveAfterOptionalBanner } from '@/cli/startup/banner';
 import { colors } from '@/cli/utils/colors';
-import type { LolcatSleep } from '@/cli/utils/lolcat';
 import { installAmp, uninstallAmp } from '@/integrations/amp/install';
 import {
   installAntigravityCli,
@@ -101,8 +100,6 @@ export type RunInstallCommandOptions = {
   ) => Promise<InstallTargetSelection>;
   selectKimiInstallMethod?: () => Promise<KimiInstallMethod | null>;
   runUpdate?: () => Promise<number>;
-  /** Overrides the spinner clock so tests can drive the loading state without the wall clock. */
-  sleep?: LolcatSleep;
 };
 
 type NativeInstallDefinition = {
@@ -902,7 +899,6 @@ export async function runInstallCommand(
       const message = await awaitWithSpinner(runSingleInstallTarget(action, target, homeDir), {
         loadingMessage: `${action === 'install' ? 'Installing' : 'Uninstalling'} ${getIntegrationInstallLabel(target)} integration…`,
         output,
-        sleep: options.sleep,
       });
       output.write(`${message}\n`);
     });
