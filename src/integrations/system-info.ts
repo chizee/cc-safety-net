@@ -70,7 +70,7 @@ function quoteWindowsCommandArg(value: string): string {
 }
 
 /**
- * Windows-safe argv: npm-distributed CLIs exist there only as `.cmd`/`.ps1` shims, which
+ * Windows-safe argv: npm-distributed CLIs exist there only as `.cmd` shims, which
  * spawn cannot start directly, so those are run through COMSPEC.
  */
 export function getSpawnCommand(

@@ -248,14 +248,17 @@ describe('install settings rewrites', () => {
 });
 
 describe('flagged install loading state', () => {
-  test('renders a spinner while a slow flagged install runs, then its message', async () => {
+  test('renders a spinner while a flagged install runs, then its message', async () => {
     const homeDir = makeTempHome('safety-net-install-spinner');
-    const path = makeFakeBin(homeDir, { pi: 'sleep 0.3' });
+    const path = makeFakeBin(homeDir, { pi: 'exit 0' });
     const { chunks, output } = createLolcatOutput();
 
     const exitCode = await withEnv({ HOME: homeDir, PATH: path }, () =>
       runInstallCommand('install', ['--pi'], {
         output: output as unknown as NodeJS.WriteStream,
+        // An injected sleep keeps the spinner off the wall clock: every frame deadline
+        // fires before the install can finish, so the first frame is always rendered.
+        sleep: () => new Promise<void>((resolve) => setTimeout(resolve, 0)),
       }),
     );
 

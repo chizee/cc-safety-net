@@ -73,11 +73,11 @@ function makeAmpStub(options: StubOptions = {}) {
         stderr: options.repositories?.stderr ?? '',
       };
     }
-    if (line === 'git status --porcelain') {
-      return { status: 0, stdout: state.dirty ? 'M  cc-safety-net.ts\n' : '', stderr: '' };
-    }
     if (options.failCommand && line.startsWith(options.failCommand)) {
       return { status: 1, stdout: '', stderr: `${command[0]}: boom` };
+    }
+    if (line === 'git status --porcelain') {
+      return { status: 0, stdout: state.dirty ? 'M  cc-safety-net.ts\n' : '', stderr: '' };
     }
     if (command[1] === 'clone') {
       state.checkout = command[3];
@@ -109,10 +109,14 @@ function gitCalls(calls: readonly string[]): string[] {
   return calls.filter((call) => call.startsWith('git '));
 }
 
+/** Pins the policy lookup inside the temporary home, so an exported CC_SAFETY_NET_HOME
+ * from the developer's environment can never stamp a policy onto the published artifact. */
 async function withTempHome<T>(name: string, run: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = makeTempHome(name);
   try {
-    return await run(homeDir);
+    return await withEnv({ CC_SAFETY_NET_HOME: join(homeDir, 'safety-net-home') }, () =>
+      run(homeDir),
+    );
   } finally {
     rmSync(homeDir, { recursive: true, force: true });
   }
@@ -338,6 +342,18 @@ describe('Amp personal install', () => {
         /git push origin HEAD/,
       );
       expect(existsSync(String(stub.state.checkout))).toBe(false);
+    });
+  });
+
+  test('reports the failed step when the staged-status probe fails', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
+      const artifactPath = writeArtifactFixture(homeDir);
+      const stub = makeAmpStub({ failCommand: 'git status' });
+
+      await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
+        'Failed to run git status --porcelain (exit 1).',
+      );
+      expect(gitCalls(stub.calls)).toEqual(['git add cc-safety-net.ts', 'git status --porcelain']);
     });
   });
 

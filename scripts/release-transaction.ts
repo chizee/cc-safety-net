@@ -81,8 +81,13 @@ export async function runReleaseTransaction(options: {
   const workingPluginVersion = manifestVersion(
     resolve(options.cwd, '.claude-plugin', 'plugin.json'),
   );
-  if (workingPackageVersion !== version || workingPluginVersion !== version) {
-    throw new Error(`Prepared manifests must both contain ${version}`);
+  const workingKimiVersion = manifestVersion(resolve(options.cwd, 'kimi.plugin.json'));
+  if (
+    workingPackageVersion !== version ||
+    workingPluginVersion !== version ||
+    workingKimiVersion !== version
+  ) {
+    throw new Error(`Prepared manifests must all contain ${version}`);
   }
   const changedPaths = changedReleasePaths(options.cwd);
   const unexpectedPaths = changedPaths.filter((path) => !isReleasePath(path));
@@ -109,6 +114,7 @@ export async function runReleaseTransaction(options: {
     requestedVersion: version,
     packageVersion: committedManifestVersion(options.cwd, 'package.json'),
     pluginVersion: committedManifestVersion(options.cwd, '.claude-plugin/plugin.json'),
+    kimiVersion: committedManifestVersion(options.cwd, 'kimi.plugin.json'),
     headCommit,
     tagCommit,
     npmCommit,

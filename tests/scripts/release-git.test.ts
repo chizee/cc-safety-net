@@ -48,7 +48,8 @@ function getRepositorySeed() {
     join(source, '.claude-plugin', 'plugin.json'),
     JSON.stringify({ version: '1.0.0' }),
   );
-  git(source, 'add', 'file.txt', 'package.json', '.claude-plugin/plugin.json');
+  writeFileSync(join(source, 'kimi.plugin.json'), JSON.stringify({ version: '1.0.0' }));
+  git(source, 'add', 'file.txt', 'package.json', '.claude-plugin/plugin.json', 'kimi.plugin.json');
   git(source, 'commit', '-m', 'base');
   git(root, 'clone', '--bare', '--local', source, bare);
   repositorySeed = { root, bare };
@@ -82,11 +83,13 @@ function createReleaseRepository(root: string) {
 function prepareVersion(repo: string, version: string) {
   const pkg = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'));
   const plugin = JSON.parse(readFileSync(join(repo, '.claude-plugin', 'plugin.json'), 'utf8'));
+  const kimi = JSON.parse(readFileSync(join(repo, 'kimi.plugin.json'), 'utf8'));
   writeFileSync(join(repo, 'package.json'), JSON.stringify({ ...pkg, version }));
   writeFileSync(
     join(repo, '.claude-plugin', 'plugin.json'),
     JSON.stringify({ ...plugin, version }),
   );
+  writeFileSync(join(repo, 'kimi.plugin.json'), JSON.stringify({ ...kimi, version }));
 }
 
 async function runTransaction(repo: string, version: string, dryRun = false, npmCommit?: string) {
@@ -221,6 +224,21 @@ describe('release git transaction', () => {
     await withTempDir('cc-safety-net-release-', async (root) => {
       await withPreparedRelease(root, async ({ remote, repo, before }) => {
         expect(await runTransaction(repo, '2.0.0', true)).toContain('"kind":"prepare"');
+        expectRemoteUnchanged(root, remote, before);
+      });
+    });
+  });
+
+  test('the production CLI rejects a missing or mismatched kimi manifest', async () => {
+    await withTempDir('cc-safety-net-release-', async (root) => {
+      await withPreparedRelease(root, async ({ remote, repo, before }) => {
+        writeFileSync(join(repo, 'kimi.plugin.json'), JSON.stringify({ version: '1.0.0' }));
+        await expect(runTransaction(repo, '2.0.0')).rejects.toThrow(
+          'Prepared manifests must all contain 2.0.0',
+        );
+
+        rmSync(join(repo, 'kimi.plugin.json'));
+        await expect(runTransaction(repo, '2.0.0')).rejects.toThrow('kimi.plugin.json');
         expectRemoteUnchanged(root, remote, before);
       });
     });

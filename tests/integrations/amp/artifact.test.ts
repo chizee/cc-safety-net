@@ -10,8 +10,8 @@ const ARTIFACT = resolve('dist/amp/cc-safety-net.ts');
 // runs one call. The artifact is the exact file the installer copies, so this
 // proves it is loadable and enforces the guard without any node_modules.
 function runAmpHost(command: string, artifact = ARTIFACT) {
-  if (!existsSync(ARTIFACT))
-    throw new Error(`Amp artifact not built at ${ARTIFACT}; run bun run build`);
+  if (!existsSync(artifact))
+    throw new Error(`Amp artifact not built at ${artifact}; run bun run build`);
   const workspaceRoot = mkdtempSync(join(tmpdir(), 'safety-net-amp-host-'));
   try {
     const result = Bun.spawnSync([process.execPath, '--eval', AMP_HOST_SCRIPT], {

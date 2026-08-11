@@ -436,6 +436,16 @@ describe('detectAllHooks', () => {
     });
   });
 
+  test('Amp: n/a when the plugin is active outside the personal plugins scope', () => {
+    withHookFixture('amp', ({ homeDir, projectDir }) => {
+      const amp = findHook('amp', homeDir, projectDir, {
+        ampPluginListOutput: '\u2713 cc-safety-net (Workspace Plugins) active\n  events: tool.call',
+      });
+
+      expectHookState(amp, 'n/a');
+    });
+  });
+
   test('reports parse errors for invalid hook configs', () => {
     withHookFixture('hooks', ({ homeDir, projectDir }) => {
       _writeConfigFile(join(homeDir, '.config', 'opencode', 'opencode.json'), '{ invalid json }');

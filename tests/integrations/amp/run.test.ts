@@ -12,9 +12,7 @@ import { runAmpCommand } from '@/integrations/amp/run';
 import { withEnv } from '../../helpers';
 
 describe('runAmpCommand', () => {
-  test('runs a Windows cmd shim through COMSPEC', async () => {
-    if (process.platform === 'win32') return;
-
+  test.skipIf(process.platform === 'win32')('runs a Windows cmd shim through COMSPEC', async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'amp-windows-cmd-'));
     try {
       const comspecPath = join(tmpDir, 'cmd');

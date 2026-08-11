@@ -33,32 +33,42 @@ describe('runNativeCommand failures', () => {
       'Failed to run sh -c echo out; echo err >&2; exit 3 (exit 3).\nout\n\nerr',
     );
   });
+
+  test('kills a stalled command at the timeout and reports it as a failure', async () => {
+    const command = ['sh', '-c', 'sleep 2'] as const;
+
+    const message = await capturedFailureMessage(runNativeCommand(command, { timeoutMs: 50 }));
+
+    expect(message).toContain('Failed to run sh -c sleep 2.');
+    expect(message).toContain('Timed out after 50ms');
+  });
 });
 
 describe('runNativeCommand on Windows', () => {
-  test('runs a PATH-installed cmd shim through COMSPEC', async () => {
-    if (process.platform === 'win32') return;
+  test.skipIf(process.platform === 'win32')(
+    'runs a PATH-installed cmd shim through COMSPEC',
+    async () => {
+      await withTempDir('safety-net-native-windows-cmd-', async (tmpDir) => {
+        const comspecPath = join(tmpDir, 'cmd');
+        writeFileSync(join(tmpDir, 'fake.CMD'), '');
+        writeFileSync(comspecPath, '#!/bin/sh\nprintf "%s" "$3"\n');
+        chmodSync(comspecPath, 0o755);
 
-    await withTempDir('safety-net-native-windows-cmd-', async (tmpDir) => {
-      const comspecPath = join(tmpDir, 'cmd');
-      writeFileSync(join(tmpDir, 'fake.CMD'), '');
-      writeFileSync(comspecPath, '#!/bin/sh\nprintf "%s" "$3"\n');
-      chmodSync(comspecPath, 0o755);
+        const output = await withEnv(
+          {
+            COMSPEC: comspecPath,
+            PATH: tmpDir,
+            PATHEXT: '.CMD',
+            _CC_SAFETY_NET_TEST_SPAWN_PLATFORM: 'win32',
+          },
+          () => runNativeCommand(['fake', 'arg with space'] as const),
+        );
 
-      const output = await withEnv(
-        {
-          COMSPEC: comspecPath,
-          PATH: tmpDir,
-          PATHEXT: '.CMD',
-          _CC_SAFETY_NET_TEST_SPAWN_PLATFORM: 'win32',
-        },
-        () => runNativeCommand(['fake', 'arg with space'] as const),
-      );
-
-      expect(output).toContain(join(tmpDir, 'fake.CMD'));
-      expect(output).toContain('"arg with space"');
-    });
-  });
+        expect(output).toContain(join(tmpDir, 'fake.CMD'));
+        expect(output).toContain('"arg with space"');
+      });
+    },
+  );
 });
 
 describe('runNativeCommands sequencing', () => {

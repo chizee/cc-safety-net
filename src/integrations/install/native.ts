@@ -43,7 +43,7 @@ export function captureOutputStreams(child: {
  */
 export function runNativeCommand(
   command: NativeCommand,
-  options?: { stdoutOnly: boolean },
+  options?: { stdoutOnly?: boolean; timeoutMs?: number },
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const spawnCommand = getSpawnCommand([...command], process.env);
@@ -52,12 +52,28 @@ export function runNativeCommand(
     });
     const captured = captureOutputStreams(child);
     const merged = () => [captured.stdout, captured.stderr].filter(Boolean).join('\n');
+    const timeoutMs = options?.timeoutMs ?? 120_000;
+    // A stalled host CLI must not hang the install forever.
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(
+        new Error(
+          formatCommandFailure(
+            command,
+            null,
+            `Timed out after ${timeoutMs}ms.\n${merged()}`.trim(),
+          ),
+        ),
+      );
+    }, timeoutMs);
     child.on('error', (error) => {
+      clearTimeout(timer);
       reject(
         new Error(formatCommandFailure(command, null, `${error.message}\n${merged()}`.trim())),
       );
     });
     child.on('close', (status) => {
+      clearTimeout(timer);
       if (status !== 0) {
         reject(new Error(formatCommandFailure(command, status, merged())));
         return;

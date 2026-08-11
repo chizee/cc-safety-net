@@ -15,13 +15,10 @@ function readManifest() {
 }
 
 function gitIncludes(path: string) {
-  const result = Bun.spawnSync(
-    ['git', 'ls-files', '--cached', '--others', '--exclude-standard', path],
-    {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    },
-  );
+  const result = Bun.spawnSync(['git', 'ls-files', '--cached', path], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
   return result.stdout.toString().trim().split('\n').filter(Boolean);
 }
 

@@ -79,13 +79,9 @@ function isManagedAmpArtifact(content: Buffer): boolean {
   );
 }
 
-async function runAmpStep(
-  run: AmpRunner,
-  command: readonly [string, ...string[]],
-  cwd?: string,
-): Promise<void> {
+async function runAmpStep(run: AmpRunner, command: readonly [string, ...string[]], cwd?: string) {
   const result = await run(command, cwd);
-  if (result.status === 0) return;
+  if (result.status === 0) return result;
   throw new Error(
     [
       `Failed to run ${command.join(' ')}${result.status === null ? '' : ` (exit ${result.status})`}.`,
@@ -174,8 +170,8 @@ async function commitAndPush(
   // Under core.autocrlf the clone smudges the committed LF plugin to CRLF, so the artifact
   // differs byte-for-byte while `git add` renormalizes the index straight back to HEAD; a
   // commit would then fail with "nothing to commit" on every rerun.
-  const staged = await run(['git', 'status', '--porcelain'], checkout);
-  if (staged.status === 0 && staged.stdout.trim() === '') return false;
+  const staged = await runAmpStep(run, ['git', 'status', '--porcelain'], checkout);
+  if (staged.stdout.trim() === '') return false;
   // A machine-generated commit in a throwaway checkout: the user's global signing config
   // would otherwise stop the install on a signing prompt or a missing key.
   await runAmpStep(run, ['git', '-c', 'commit.gpgsign=false', 'commit', '-m', message], checkout);

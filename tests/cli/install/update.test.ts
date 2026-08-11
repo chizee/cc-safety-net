@@ -359,7 +359,8 @@ fi
         '  "plugins repositories") printf \'[{"scope":"user","exists":true,"viewerCanWrite":true,"cloneRef":"tester/-/plugins"}]\\n\' ;;',
         'esac',
       ].join('\n'),
-      // Only `git status --porcelain` needs a real answer: an empty one means "nothing staged".
+      // Only `git status --porcelain` needs a real answer: the modified `cc-safety-net.ts` entry
+      // means the artifact is staged, so `commitAndPush` proceeds to commit and push.
       git: [
         'case "$1 $2" in',
         '  "status --porcelain") printf \'%s\\n\' "M  cc-safety-net.ts" ;;',
