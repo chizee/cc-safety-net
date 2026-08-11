@@ -8,6 +8,7 @@ import { assertReleaseVersion, classifyReleaseState } from './release-state';
 const RELEASE_PATHS = [
   'package.json',
   '.claude-plugin/plugin.json',
+  'kimi.plugin.json',
   'assets/cc-safety-net.schema.json',
   'dist',
 ] as const;

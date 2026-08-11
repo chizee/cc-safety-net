@@ -6,7 +6,7 @@ import { assertReleaseVersion } from './release-state';
 
 export function updateReleaseManifests(cwd: string, requestedVersion: string): void {
   const version = assertReleaseVersion(requestedVersion);
-  for (const relativePath of ['package.json', '.claude-plugin/plugin.json']) {
+  for (const relativePath of ['package.json', '.claude-plugin/plugin.json', 'kimi.plugin.json']) {
     const path = resolve(cwd, relativePath);
     const manifest = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
     writeFileSync(path, `${JSON.stringify({ ...manifest, version }, null, 2)}\n`);
