@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
-import { Writable } from 'node:stream';
+import { PassThrough, Writable } from 'node:stream';
 import { runInstallCommand } from '@/cli/install';
 import { AMP_MANAGED_HEADER } from '@/integrations/amp/artifact';
 import type { InstallTargetChoice } from '@/integrations/install/choices';
@@ -87,6 +87,123 @@ async function probeInstallChoices(
   expect(exitCode).toBe(0);
   return (target: InstallTarget) => choices.find((choice) => choice.target === target);
 }
+
+describe('Kimi Code install method', () => {
+  const kimiConfigPath = (homeDir: string) => join(homeDir, '.kimi-code', 'config.toml');
+  const GLOBAL_HOOK_CONFIG = `[[hooks]]
+event = "PreToolUse"
+command = "npx -y cc-safety-net hook --kimi-code"
+`;
+
+  async function runKimiInstall(
+    homeDir: string,
+    options: {
+      input?: NodeJS.ReadStream;
+      selectKimiInstallMethod?: () => Promise<'global-hook' | 'plugin' | null>;
+    },
+  ) {
+    const chunks: string[] = [];
+    const exitCode = await withEnv({ HOME: homeDir, KIMI_CODE_HOME: undefined }, () =>
+      runInstallCommand('install', ['--kimi-code'], {
+        output: new Writable({
+          write(chunk, _encoding, callback) {
+            chunks.push(String(chunk));
+            callback();
+          },
+        }) as unknown as NodeJS.WriteStream,
+        ...options,
+      }),
+    );
+    return { exitCode, text: stripAnsi(chunks.join('')) };
+  }
+
+  test('the plugin method prints the native install steps and writes no config', async () => {
+    const homeDir = makeTempHome('safety-net-kimi-method-plugin');
+
+    const result = await runKimiInstall(homeDir, {
+      selectKimiInstallMethod: async () => 'plugin',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.text).toContain('/plugins install https://github.com/kenryu42/cc-safety-net');
+    expect(result.text).toContain('/reload');
+    expect(result.text).toContain('fail-open');
+    // The instructions must not name a verification command: a destructive example would
+    // run for real whenever the hook is not yet active.
+    expect(result.text).not.toContain('shred');
+    expect(result.text).not.toContain('git reset --hard');
+    expect(result.text).not.toContain('CAUTION');
+    expect(existsSync(kimiConfigPath(homeDir))).toBeFalse();
+  });
+
+  test('the plugin method warns about an installed global hook and leaves it untouched', async () => {
+    const homeDir = makeTempHome('safety-net-kimi-method-caution');
+    const configPath = kimiConfigPath(homeDir);
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, GLOBAL_HOOK_CONFIG);
+
+    const result = await runKimiInstall(homeDir, {
+      selectKimiInstallMethod: async () => 'plugin',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.text).toContain('CAUTION');
+    expect(result.text).toContain('cc-safety-net uninstall --kimi-code');
+    expect(readFileSync(configPath, 'utf-8')).toBe(GLOBAL_HOOK_CONFIG);
+  });
+
+  test('the global-hook method installs the config.toml hook', async () => {
+    const homeDir = makeTempHome('safety-net-kimi-method-global');
+
+    const result = await runKimiInstall(homeDir, {
+      selectKimiInstallMethod: async () => 'global-hook',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.text).toContain('Installed Kimi Code hook');
+    expect(readFileSync(kimiConfigPath(homeDir), 'utf-8')).toContain(
+      'npx -y cc-safety-net hook --kimi-code',
+    );
+  });
+
+  test('cancelling the method prompt installs nothing and exits 0', async () => {
+    const homeDir = makeTempHome('safety-net-kimi-method-cancel');
+
+    const result = await runKimiInstall(homeDir, {
+      selectKimiInstallMethod: async () => null,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.text).toContain('Cancelled: Kimi Code integration was not installed.');
+    expect(existsSync(kimiConfigPath(homeDir))).toBeFalse();
+  });
+
+  test('the picker keeps a configured Kimi Code row selectable and names its state', async () => {
+    const getChoice = await withEnv({ KIMI_CODE_HOME: undefined }, () =>
+      probeInstallChoices('install', 'safety-net-kimi-configured-row', {}, (homeDir) => {
+        mkdirSync(join(homeDir, '.kimi-code'), { recursive: true });
+        writeFileSync(join(homeDir, '.kimi-code', 'config.toml'), GLOBAL_HOOK_CONFIG);
+      }),
+    );
+
+    const kimi = getChoice('kimi-code');
+    expect(kimi?.available).toBeTrue();
+    expect(kimi?.label).toContain('global hook installed');
+  });
+
+  test('a non-interactive --kimi-code install falls back to the global hook', async () => {
+    const homeDir = makeTempHome('safety-net-kimi-method-fallback');
+
+    const result = await runKimiInstall(homeDir, {
+      input: new PassThrough() as unknown as NodeJS.ReadStream,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(kimiConfigPath(homeDir), 'utf-8')).toContain(
+      'npx -y cc-safety-net hook --kimi-code',
+    );
+  });
+});
 
 describe('install settings rewrites', () => {
   test('Pi: leaves settings.json untouched when the managed package has no extensions filter', async () => {

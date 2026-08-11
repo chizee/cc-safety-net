@@ -3,8 +3,14 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseCommandArgs } from '@/cli/args';
 import { printInstallBanner } from '@/cli/install/banner';
-import { canPromptInstallTargets, promptInstallTargets } from '@/cli/install/prompt';
+import {
+  canPromptInstallTargets,
+  type KimiInstallMethod,
+  promptInstallTargets,
+  promptKimiInstallMethod,
+} from '@/cli/install/prompt';
 import { awaitWithSpinner, resolveAfterOptionalBanner } from '@/cli/startup/banner';
+import { colors } from '@/cli/utils/colors';
 import { installAmp, uninstallAmp } from '@/integrations/amp/install';
 import {
   installAntigravityCli,
@@ -59,6 +65,7 @@ import {
 } from '@/integrations/install/targets';
 import type { InstallResult } from '@/integrations/install/types';
 import { stripJsonComments } from '@/integrations/jsonc';
+import { detect as detectKimiCodeHook } from '@/integrations/kimi-code/detect';
 import { installKimiCode, uninstallKimiCode } from '@/integrations/kimi-code/install';
 import { OPENCLAW_PLUGIN_ID } from '@/integrations/openclaw/artifact';
 import {
@@ -91,6 +98,7 @@ export type RunInstallCommandOptions = {
     action: InstallAction,
     choices: readonly InstallTargetChoice[],
   ) => Promise<InstallTargetSelection>;
+  selectKimiInstallMethod?: () => Promise<KimiInstallMethod | null>;
   runUpdate?: () => Promise<number>;
 };
 
@@ -450,8 +458,8 @@ function startResolveInstallTargets(
         configuredTargets,
       });
       const selected = options.selectTargets
-        ? await options.selectTargets(action, targetChoices)
-        : await promptInstallTargets(action, targetChoices, {
+        ? await options.selectTargets(action, allowKimiMethodChoice(action, targetChoices))
+        : await promptInstallTargets(action, allowKimiMethodChoice(action, targetChoices), {
             input: options.input,
             output: options.output,
           });
@@ -688,6 +696,73 @@ const INSTALL_OPERATIONS = {
   Record<InstallAction, (homeDir: string, updating?: boolean) => string | Promise<string>>
 >;
 
+const KIMI_PLUGIN_INSTRUCTIONS = [
+  'Install CC Safety Net as a native Kimi Code plugin:',
+  '',
+  '  1. Start Kimi Code and run: /plugins install https://github.com/kenryu42/cc-safety-net',
+  '     Confirm the trust prompt; it defaults to cancel.',
+  '  2. Run /reload, or start a new session.',
+  '',
+  'Note: Kimi Code hooks are fail-open. When the hook process cannot start, crashes, or times',
+  'out, Kimi Code allows the tool call.',
+].join('\n');
+
+function formatKimiPluginInstructions(homeDir: string): string {
+  if (detectKimiCodeHook({ homeDir, cwd: process.cwd() }).status !== 'configured') {
+    return KIMI_PLUGIN_INSTRUCTIONS;
+  }
+  // Uninstall comes after the plugin works, never before: a gap with neither hook active is
+  // unsafe, while a brief overlap only duplicates the denial message.
+  return [
+    KIMI_PLUGIN_INSTRUCTIONS,
+    '',
+    colors.red(
+      [
+        'CAUTION: the global Kimi Code hook is installed and will run alongside the plugin.',
+        'After the plugin is active, remove it with: cc-safety-net uninstall --kimi-code',
+      ].join('\n'),
+    ),
+  ].join('\n');
+}
+
+// A configured Kimi Code row stays selectable on install: unlike every other target, selecting
+// it opens the method prompt, which is the only path to the native-plugin instructions.
+function allowKimiMethodChoice(
+  action: InstallAction,
+  choices: readonly InstallTargetChoice[],
+): InstallTargetChoice[] {
+  return choices.map((choice) =>
+    action === 'install' &&
+    choice.target === 'kimi-code' &&
+    choice.unavailableReason === 'already installed'
+      ? {
+          ...choice,
+          available: true,
+          unavailableReason: undefined,
+          label: `${choice.label} (global hook installed)`,
+        }
+      : choice,
+  );
+}
+
+function resolveKimiInstallMethod(
+  options: RunInstallCommandOptions,
+  homeDir: string,
+): Promise<KimiInstallMethod | null> {
+  if (options.selectKimiInstallMethod) return options.selectKimiInstallMethod();
+  // A non-interactive session cannot answer a prompt, so the flag keeps installing the
+  // global hook there instead of hanging a script or CI pipeline.
+  if (!canPromptInstallTargets(options.input, options.output)) {
+    return Promise.resolve('global-hook');
+  }
+  return promptKimiInstallMethod({
+    input: options.input,
+    output: options.output,
+    globalHookInstalled:
+      detectKimiCodeHook({ homeDir, cwd: process.cwd() }).status === 'configured',
+  });
+}
+
 /** Runs one target's action and returns its report, printed by the caller once any spinner stops. */
 async function runSingleInstallTarget(
   action: InstallAction,
@@ -810,6 +885,17 @@ export async function runInstallCommand(
     // Host CLIs can install slowly (network fetches, marketplace refreshes), so each target
     // runs behind the same spinner the interactive selector uses, then prints its report.
     await runInstallTargetsInOrder(targets, async (target) => {
+      if (target === 'kimi-code' && action === 'install') {
+        const method = await resolveKimiInstallMethod(options, homeDir);
+        if (method === null) {
+          output.write('Cancelled: Kimi Code integration was not installed.\n');
+          return;
+        }
+        if (method === 'plugin') {
+          output.write(`${formatKimiPluginInstructions(homeDir)}\n`);
+          return;
+        }
+      }
       const message = await awaitWithSpinner(runSingleInstallTarget(action, target, homeDir), {
         loadingMessage: `${action === 'install' ? 'Installing' : 'Uninstalling'} ${getIntegrationInstallLabel(target)} integration…`,
         output,

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Readable, Writable } from 'node:stream';
-import { promptInstallTargets } from '@/cli/install/prompt';
+import { promptInstallTargets, promptKimiInstallMethod } from '@/cli/install/prompt';
 import { runAntigravityCliHook } from '@/integrations/antigravity-cli/hook';
 import { runClaudeCodeHook as runClaudeCodeHookAdapter } from '@/integrations/claude-code/hook';
 import { runCopilotCliHook } from '@/integrations/copilot-cli/hook';
@@ -81,13 +81,11 @@ const INSTALL_PROMPT_KEYS = {
 } as const satisfies Record<string, readonly [string, Record<string, unknown>]>;
 
 /**
- * Starts the install selection prompt on fake TTY streams. `press` feeds keys in order, and
- * `result` resolves with the prompt outcome once a key ends it.
+ * Starts a prompt on fake TTY streams. `press` feeds keys in order, and `result` resolves
+ * with the prompt outcome once a key ends it.
  */
-export function startInstallPrompt(
-  action: InstallAction,
-  choices: readonly InstallTargetChoice[],
-  options: { onInterrupt?: () => void } = {},
+function startPrompt<T>(
+  run: (streams: ReturnType<typeof createInstallPromptStreams>) => Promise<T>,
 ) {
   const streams = createInstallPromptStreams();
   return {
@@ -96,12 +94,35 @@ export function startInstallPrompt(
     press: (...keys: readonly (keyof typeof INSTALL_PROMPT_KEYS)[]) => {
       for (const key of keys) streams.input.emit('keypress', ...INSTALL_PROMPT_KEYS[key]);
     },
-    result: promptInstallTargets(action, choices, {
+    result: run(streams),
+  };
+}
+
+export function startInstallPrompt(
+  action: InstallAction,
+  choices: readonly InstallTargetChoice[],
+  options: { onInterrupt?: () => void } = {},
+) {
+  return startPrompt((streams) =>
+    promptInstallTargets(action, choices, {
       input: streams.input,
       output: streams.output,
       ...options,
     }),
-  };
+  );
+}
+
+/** Starts the Kimi install method prompt on fake TTY streams, mirroring startInstallPrompt. */
+export function startKimiMethodPrompt(
+  options: { onInterrupt?: () => void; globalHookInstalled?: boolean } = {},
+) {
+  return startPrompt((streams) =>
+    promptKimiInstallMethod({
+      input: streams.input,
+      output: streams.output,
+      ...options,
+    }),
+  );
 }
 
 process.on('exit', () => {

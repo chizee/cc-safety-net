@@ -484,14 +484,21 @@ describe('interactive install dispatch', () => {
   test('disables configured integrations before prompting to install', async () => {
     await withTempDir('safety-net-install-configured-', async (homeDir) => {
       const result = await runInstallDispatchProbe(homeDir, {
-        configuredTargets: ['kimi-code'],
+        configuredTargets: ['cursor', 'kimi-code'],
         selectedTargets: null,
       });
 
-      expect(result.choices.find((choice) => choice.target === 'kimi-code')).toEqual({
-        target: 'kimi-code',
+      expect(result.choices.find((choice) => choice.target === 'cursor')).toEqual({
+        target: 'cursor',
         available: false,
         unavailableReason: 'already installed',
+      });
+      // Kimi Code is the exception: its configured row stays selectable because the method
+      // prompt is the only path to the native-plugin instructions.
+      expect(result.choices.find((choice) => choice.target === 'kimi-code')).toEqual({
+        target: 'kimi-code',
+        available: true,
+        unavailableReason: undefined,
       });
     });
   });
