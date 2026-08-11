@@ -15,6 +15,7 @@ import { readRecord } from '@/integrations/detect/context';
 import { atomicWriteFile } from '@/integrations/install/atomic-write';
 import type { InstallResult } from '@/integrations/install/types';
 import { getPackageVersion } from '@/integrations/system-info';
+import { getUserPolicyPath, normalizeGuiPolicy } from '@/policy/store';
 
 const AMP_ARTIFACT_RELATIVE = join('amp', 'cc-safety-net.ts');
 const AMP_PLUGIN_FILE = 'cc-safety-net.ts';
@@ -185,22 +186,41 @@ function removeMaskingLocalPlugin(homeDir: string): void {
   rmSync(local);
 }
 
+/**
+ * The user's policy, as one appended assignment the plugin reads on an Orb — a remote machine
+ * whose home holds no policy file. Normalizing and re-stringifying is the injection barrier:
+ * raw file bytes never reach the emitted code. An absent, empty, or non-object policy file
+ * publishes nothing, so such an Orb behaves like any machine without a policy file.
+ * Deliberately not covered: audit retention (reads the real file and keeps its default here),
+ * user rulebooks, and project-scope policy; a policy edit ships on the next install or update.
+ */
+function embeddedPolicyStamp(): string {
+  const path = getUserPolicyPath();
+  if (!existsSync(path)) return '';
+  const parsed = parseJsonOrUndefined(readFileSync(path, 'utf-8'));
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return '';
+  return `;globalThis.__CC_SAFETY_NET_EMBEDDED_POLICY__ = ${JSON.stringify(normalizeGuiPolicy(parsed))};\n`;
+}
+
 export function installAmp(
   homeDir: string,
   artifactPath: string = resolveAmpArtifactPath(),
   run: AmpRunner = runAmpCommand,
 ): InstallResult {
-  const artifact = readFileSync(artifactPath);
+  const content = Buffer.concat([
+    readFileSync(artifactPath),
+    Buffer.from(embeddedPolicyStamp(), 'utf-8'),
+  ]);
   const cloneRef = requirePersonalPluginsRef(run);
 
   return withAmpCheckout(run, (checkout) => {
     const path = `${cloneRef}/${AMP_PLUGIN_FILE}`;
-    if (readManagedPluginFile(checkout, 'overwrite')?.equals(artifact)) {
+    if (readManagedPluginFile(checkout, 'overwrite')?.equals(content)) {
       removeMaskingLocalPlugin(homeDir);
       return { path, alreadyInstalled: true };
     }
 
-    atomicWriteFile(join(checkout, AMP_PLUGIN_FILE), artifact);
+    atomicWriteFile(join(checkout, AMP_PLUGIN_FILE), content);
     const pushed = commitAndPush(
       run,
       checkout,

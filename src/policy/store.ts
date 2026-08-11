@@ -378,7 +378,16 @@ function readPolicyConfig(path: string): {
   fallback?: PolicyFallback;
 } {
   const empty = createEmptyPolicy();
-  if (!existsSync(path)) return { policy: empty, errors: [] };
+  if (!existsSync(path)) {
+    // A machine with no policy file of its own — an Amp Orb — reads the snapshot that
+    // `install --amp` stamped onto the published plugin artifact, normalized here exactly
+    // like file contents would be, so home-relative paths resolve against this machine.
+    // No diagnostics are computed for it: the snapshot is not an editable file the user can
+    // fix here, so a malformed one degrades to protective defaults instead of reporting.
+    const embedded = (globalThis as Record<string, unknown>).__CC_SAFETY_NET_EMBEDDED_POLICY__;
+    if (!isRecord(embedded)) return { policy: empty, errors: [] };
+    return { policy: normalizePolicyConfig(normalizeGuiPolicy(embedded)), errors: [] };
+  }
 
   try {
     const content = readFileSync(path, 'utf-8');

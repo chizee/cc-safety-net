@@ -19,6 +19,8 @@ import { buildAmpArtifactHeader } from '@/integrations/amp/artifact';
 import { getAmpPluginPath, installAmp, uninstallAmp } from '@/integrations/amp/install';
 import type { AmpRunner } from '@/integrations/amp/run';
 import { getPackageVersion } from '@/integrations/system-info';
+import { normalizeGuiPolicy } from '@/policy/store';
+import { withEnv } from '../../helpers.ts';
 import { makeTempHome } from '../hook-helpers.ts';
 
 const CLONE_REF = 'jliew/-/plugins';
@@ -121,6 +123,30 @@ function writeLocalPlugin(homeDir: string, content: string): string {
   mkdirSync(join(localPath, '..'), { recursive: true });
   writeFileSync(localPath, content);
   return localPath;
+}
+
+/**
+ * Installs with the user policy file at `<homeDir>/.cc-safety-net/policy.json`.
+ * CC_SAFETY_NET_HOME redirects the policy lookup and HOME redirects the home-relative path
+ * repair that normalization performs, so no case here reads the developer's real home.
+ */
+function installWithUserPolicy(
+  homeDir: string,
+  artifactPath: string,
+  run: AmpRunner,
+  policyJson?: string,
+) {
+  const safetyNetHome = join(homeDir, '.cc-safety-net');
+  mkdirSync(safetyNetHome, { recursive: true });
+  if (policyJson !== undefined) writeFileSync(join(safetyNetHome, 'policy.json'), policyJson);
+  return withEnv({ CC_SAFETY_NET_HOME: safetyNetHome, HOME: homeDir }, () =>
+    installAmp(homeDir, artifactPath, run),
+  );
+}
+
+/** The published bytes past the packaged artifact: the policy stamp, or '' when unstamped. */
+function stampedSuffix(staged: string | undefined, artifactPath: string): string {
+  return String(staged).slice(readFileSync(artifactPath, 'utf-8').length);
 }
 
 describe('Amp personal install', () => {
@@ -369,6 +395,96 @@ describe('Amp personal install', () => {
 
       uninstallAmp(homeDir, makeAmpStub().run);
       expect(lstatSync(localPath).isSymbolicLink()).toBe(true);
+    });
+  });
+});
+
+describe('Amp personal install policy snapshot', () => {
+  const POLICY_JSON = JSON.stringify({
+    version: 1,
+    safety: { level: 'strict', overrides: {} },
+    destructive_command_protection: {
+      enabled: true,
+      overrides: { 'git.reset-hard': 'off', 'bogus.rule': 'off' },
+      allow_paths: [],
+    },
+    smuggled: '";process.exit(1);//',
+  });
+
+  test('appends the normalized policy snapshot to the published artifact', () => {
+    withTempHome('safety-net-amp-policy', (homeDir) => {
+      const artifactPath = writeArtifactFixture(homeDir);
+      const stub = makeAmpStub();
+
+      installWithUserPolicy(homeDir, artifactPath, stub.run, POLICY_JSON);
+
+      const stamp = stampedSuffix(stub.state.staged, artifactPath);
+      expect(stamp).toBe(
+        `;globalThis.__CC_SAFETY_NET_EMBEDDED_POLICY__ = ${JSON.stringify(
+          normalizeGuiPolicy(JSON.parse(POLICY_JSON)),
+        )};\n`,
+      );
+      // Normalization, not the raw file bytes, is what reaches the emitted code.
+      expect(stamp).not.toContain('smuggled');
+      expect(stamp).not.toContain('bogus.rule');
+      expect(stamp).toContain('"level":"strict"');
+    });
+  });
+
+  test.each([
+    ['no policy file', undefined],
+    ['an empty policy file', '  \n'],
+    ['an unparseable policy file', '{ not json'],
+    ['a policy file that is not a JSON object', '"paranoid"'],
+  ])('publishes the bare artifact with %s', (_label, policyJson) => {
+    withTempHome('safety-net-amp-policy', (homeDir) => {
+      const artifactPath = writeArtifactFixture(homeDir);
+      const stub = makeAmpStub();
+
+      installWithUserPolicy(homeDir, artifactPath, stub.run, policyJson);
+
+      expect(stub.state.staged).toBe(readFileSync(artifactPath, 'utf-8'));
+    });
+  });
+
+  /** Publishes with POLICY_JSON, then reinstalls over a checkout already holding those bytes. */
+  function reinstallOverPublished(homeDir: string, policyJson: string) {
+    const artifactPath = writeArtifactFixture(homeDir);
+    const first = makeAmpStub();
+    installWithUserPolicy(homeDir, artifactPath, first.run, POLICY_JSON);
+
+    const second = makeAmpStub({
+      seedCheckout: (checkout) =>
+        writeFileSync(join(checkout, 'cc-safety-net.ts'), String(first.state.staged)),
+    });
+    return {
+      artifactPath,
+      stub: second,
+      result: installWithUserPolicy(homeDir, artifactPath, second.run, policyJson),
+    };
+  }
+
+  test('reports already installed when the checkout already holds the stamped artifact', () => {
+    withTempHome('safety-net-amp-policy', (homeDir) => {
+      const reinstall = reinstallOverPublished(homeDir, POLICY_JSON);
+
+      expect(reinstall.result.alreadyInstalled).toBe(true);
+      expect(gitCalls(reinstall.stub.calls)).toEqual([]);
+    });
+  });
+
+  test('republishes after the user edits the policy file', () => {
+    withTempHome('safety-net-amp-policy', (homeDir) => {
+      const reinstall = reinstallOverPublished(
+        homeDir,
+        JSON.stringify({ version: 1, safety: { level: 'paranoid', overrides: {} } }),
+      );
+
+      expect(reinstall.result.alreadyInstalled).toBe(false);
+      expect(gitCalls(reinstall.stub.calls)).toContain('git push origin HEAD');
+      expect(stampedSuffix(reinstall.stub.state.staged, reinstall.artifactPath)).toContain(
+        '"level":"paranoid"',
+      );
     });
   });
 });
