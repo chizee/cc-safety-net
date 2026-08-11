@@ -638,12 +638,12 @@ describe('interactive install dispatch', () => {
     const ordered = orderInstallTargets(['pi', 'codex', 'gemini-cli']);
     const calls: InstallTarget[] = [];
 
-    expect(() =>
-      runInstallTargetsInOrder(ordered, (target) => {
+    await expect(
+      runInstallTargetsInOrder(ordered, async (target) => {
         calls.push(target);
         if (target === 'gemini-cli') throw new Error('gemini failed');
       }),
-    ).toThrow('gemini failed');
+    ).rejects.toThrow('gemini failed');
     expect(calls).toEqual(['codex', 'gemini-cli']);
   });
 });

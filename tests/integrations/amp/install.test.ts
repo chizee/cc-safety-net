@@ -109,10 +109,10 @@ function gitCalls(calls: readonly string[]): string[] {
   return calls.filter((call) => call.startsWith('git '));
 }
 
-function withTempHome<T>(name: string, run: (homeDir: string) => T): T {
+async function withTempHome<T>(name: string, run: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = makeTempHome(name);
   try {
-    return run(homeDir);
+    return await run(homeDir);
   } finally {
     rmSync(homeDir, { recursive: true, force: true });
   }
@@ -150,12 +150,12 @@ function stampedSuffix(staged: string | undefined, artifactPath: string): string
 }
 
 describe('Amp personal install', () => {
-  test('pushes the packaged artifact to the personal plugins repository', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('pushes the packaged artifact to the personal plugins repository', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub();
 
-      const result = installAmp(homeDir, artifactPath, stub.run);
+      const result = await installAmp(homeDir, artifactPath, stub.run);
 
       expect(result.alreadyInstalled).toBe(false);
       expect(result.path).toBe(`${CLONE_REF}/cc-safety-net.ts`);
@@ -172,12 +172,12 @@ describe('Amp personal install', () => {
     });
   });
 
-  test('reports already installed and pushes nothing when the bytes match', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('reports already installed and pushes nothing when the bytes match', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeCurrentCheckoutStub(artifactPath);
 
-      const result = installAmp(homeDir, artifactPath, stub.run);
+      const result = await installAmp(homeDir, artifactPath, stub.run);
 
       expect(result.alreadyInstalled).toBe(true);
       expect(result.path).toBe(`${CLONE_REF}/cc-safety-net.ts`);
@@ -185,8 +185,8 @@ describe('Amp personal install', () => {
     });
   });
 
-  test('replaces an outdated managed artifact in the checkout', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('replaces an outdated managed artifact in the checkout', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({
         seedCheckout: (checkout) =>
@@ -196,22 +196,22 @@ describe('Amp personal install', () => {
           ),
       });
 
-      const result = installAmp(homeDir, artifactPath, stub.run);
+      const result = await installAmp(homeDir, artifactPath, stub.run);
 
       expect(result.alreadyInstalled).toBe(false);
       expect(stub.state.staged).toBe(readFileSync(artifactPath, 'utf-8'));
     });
   });
 
-  test('refuses an unmanaged file in the personal plugins repository', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('refuses an unmanaged file in the personal plugins repository', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({
         seedCheckout: (checkout) =>
           writeFileSync(join(checkout, 'cc-safety-net.ts'), 'export default 1;\n'),
       });
 
-      expect(() => installAmp(homeDir, artifactPath, stub.run)).toThrow(
+      await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
         'Refusing to overwrite unmanaged file',
       );
       expect(gitCalls(stub.calls)).toEqual([]);
@@ -219,8 +219,8 @@ describe('Amp personal install', () => {
     });
   });
 
-  test('reports already installed when staging renormalizes the checkout back to HEAD', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('reports already installed when staging renormalizes the checkout back to HEAD', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({
         // core.autocrlf smudges the committed LF plugin to CRLF, so the bytes differ even
@@ -233,7 +233,7 @@ describe('Amp personal install', () => {
         stageLeavesTreeClean: true,
       });
 
-      const result = installAmp(homeDir, artifactPath, stub.run);
+      const result = await installAmp(homeDir, artifactPath, stub.run);
 
       expect(result.alreadyInstalled).toBe(true);
       expect(gitCalls(stub.calls)).toEqual(['git add cc-safety-net.ts', 'git status --porcelain']);
@@ -246,57 +246,61 @@ describe('Amp personal install', () => {
       (checkout: string, target: string) => symlinkSync(target, join(checkout, 'cc-safety-net.ts')),
     ],
     ['a directory', (checkout: string) => mkdirSync(join(checkout, 'cc-safety-net.ts'))],
-  ])('refuses %s at the plugin path in the personal plugins repository', (_label, seed) => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  ])('refuses %s at the plugin path in the personal plugins repository', async (_label, seed) => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({ seedCheckout: (checkout) => seed(checkout, artifactPath) });
 
-      expect(() => installAmp(homeDir, artifactPath, stub.run)).toThrow('not a regular file');
+      await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
+        'not a regular file',
+      );
       expect(gitCalls(stub.calls)).toEqual([]);
     });
   });
 
-  test('fails with an actionable message when the amp CLI is missing', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('fails with an actionable message when the amp CLI is missing', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({
         repositories: { status: null, errorCode: 'ENOENT', stderr: 'spawn amp ENOENT' },
       });
 
-      expect(() => installAmp(homeDir, artifactPath, stub.run)).toThrow('Amp CLI not found');
+      await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
+        'Amp CLI not found',
+      );
       expect(stub.calls).toEqual(['amp plugins repositories --json']);
     });
   });
 
-  test('does not blame a missing CLI when the amp command times out', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('does not blame a missing CLI when the amp command times out', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({
         repositories: { status: null, errorCode: 'ETIMEDOUT', stderr: 'spawnSync amp ETIMEDOUT' },
       });
 
-      expect(() => installAmp(homeDir, artifactPath, stub.run)).toThrow(
+      await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
         /did not finish \(ETIMEDOUT\)/,
       );
     });
   });
 
-  test('fails on the preflight step when amp plugins repositories exits non-zero', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('fails on the preflight step when amp plugins repositories exits non-zero', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({
         repositories: { status: 1, stdout: '', stderr: 'not signed in' },
       });
 
-      expect(() => installAmp(homeDir, artifactPath, stub.run)).toThrow(
+      await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
         /amp plugins repositories --json/,
       );
       expect(stub.calls).toEqual(['amp plugins repositories --json']);
     });
   });
 
-  test('fails when no writable personal plugins repository exists', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('fails when no writable personal plugins repository exists', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({
         repositories: {
@@ -306,46 +310,50 @@ describe('Amp personal install', () => {
         },
       });
 
-      expect(() => installAmp(homeDir, artifactPath, stub.run)).toThrow(
+      await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
         /Personal Plugins repository/,
       );
       expect(stub.calls).toEqual(['amp plugins repositories --json']);
     });
   });
 
-  test('fails with the actionable message when the repositories output is not JSON', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('fails with the actionable message when the repositories output is not JSON', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({ repositories: { stdout: 'not json' } });
 
-      expect(() => installAmp(homeDir, artifactPath, stub.run)).toThrow(
+      await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
         /Personal Plugins repository/,
       );
       expect(stub.calls).toEqual(['amp plugins repositories --json']);
     });
   });
 
-  test('reports the failed step and removes the checkout when the push fails', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('reports the failed step and removes the checkout when the push fails', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({ failCommand: 'git push' });
 
-      expect(() => installAmp(homeDir, artifactPath, stub.run)).toThrow(/git push origin HEAD/);
+      await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
+        /git push origin HEAD/,
+      );
       expect(existsSync(String(stub.state.checkout))).toBe(false);
     });
   });
 
-  test('reports the failed step when the clone fails', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('reports the failed step when the clone fails', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({ failCommand: 'amp clone' });
 
-      expect(() => installAmp(homeDir, artifactPath, stub.run)).toThrow(/amp clone user-plugins/);
+      await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
+        /amp clone user-plugins/,
+      );
     });
   });
 
-  test('removes a leftover managed local plugin that would mask the personal one', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('removes a leftover managed local plugin that would mask the personal one', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const localPath = writeLocalPlugin(
         homeDir,
@@ -353,47 +361,47 @@ describe('Amp personal install', () => {
       );
       const stub = makeAmpStub();
 
-      installAmp(homeDir, artifactPath, stub.run);
+      await installAmp(homeDir, artifactPath, stub.run);
 
       expect(existsSync(localPath)).toBe(false);
     });
   });
 
-  test('removes the masking local plugin even when the personal copy is current', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('removes the masking local plugin even when the personal copy is current', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const localPath = writeLocalPlugin(homeDir, readFileSync(artifactPath, 'utf-8'));
       const stub = makeCurrentCheckoutStub(artifactPath);
 
-      const result = installAmp(homeDir, artifactPath, stub.run);
+      const result = await installAmp(homeDir, artifactPath, stub.run);
 
       expect(result.alreadyInstalled).toBe(true);
       expect(existsSync(localPath)).toBe(false);
     });
   });
 
-  test('keeps an unmanaged local file at the system plugin path', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('keeps an unmanaged local file at the system plugin path', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const localPath = writeLocalPlugin(homeDir, 'export default 1;\n');
 
-      installAmp(homeDir, artifactPath, makeAmpStub().run);
+      await installAmp(homeDir, artifactPath, makeAmpStub().run);
 
       expect(readFileSync(localPath, 'utf-8')).toBe('export default 1;\n');
     });
   });
 
-  test('keeps a symlink at the system plugin path even when it points at managed content', () => {
-    withTempHome('safety-net-amp-personal', (homeDir) => {
+  test('keeps a symlink at the system plugin path even when it points at managed content', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const localPath = getAmpPluginPath(homeDir);
       mkdirSync(join(localPath, '..'), { recursive: true });
       symlinkSync(artifactPath, localPath);
 
-      installAmp(homeDir, artifactPath, makeAmpStub().run);
+      await installAmp(homeDir, artifactPath, makeAmpStub().run);
       expect(lstatSync(localPath).isSymbolicLink()).toBe(true);
 
-      uninstallAmp(homeDir, makeAmpStub().run);
+      await uninstallAmp(homeDir, makeAmpStub().run);
       expect(lstatSync(localPath).isSymbolicLink()).toBe(true);
     });
   });
@@ -411,12 +419,12 @@ describe('Amp personal install policy snapshot', () => {
     smuggled: '";process.exit(1);//',
   });
 
-  test('appends the normalized policy snapshot to the published artifact', () => {
-    withTempHome('safety-net-amp-policy', (homeDir) => {
+  test('appends the normalized policy snapshot to the published artifact', async () => {
+    await withTempHome('safety-net-amp-policy', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub();
 
-      installWithUserPolicy(homeDir, artifactPath, stub.run, POLICY_JSON);
+      await installWithUserPolicy(homeDir, artifactPath, stub.run, POLICY_JSON);
 
       const stamp = stampedSuffix(stub.state.staged, artifactPath);
       expect(stamp).toBe(
@@ -436,22 +444,22 @@ describe('Amp personal install policy snapshot', () => {
     ['an empty policy file', '  \n'],
     ['an unparseable policy file', '{ not json'],
     ['a policy file that is not a JSON object', '"paranoid"'],
-  ])('publishes the bare artifact with %s', (_label, policyJson) => {
-    withTempHome('safety-net-amp-policy', (homeDir) => {
+  ])('publishes the bare artifact with %s', async (_label, policyJson) => {
+    await withTempHome('safety-net-amp-policy', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub();
 
-      installWithUserPolicy(homeDir, artifactPath, stub.run, policyJson);
+      await installWithUserPolicy(homeDir, artifactPath, stub.run, policyJson);
 
       expect(stub.state.staged).toBe(readFileSync(artifactPath, 'utf-8'));
     });
   });
 
   /** Publishes with POLICY_JSON, then reinstalls over a checkout already holding those bytes. */
-  function reinstallOverPublished(homeDir: string, policyJson: string) {
+  async function reinstallOverPublished(homeDir: string, policyJson: string) {
     const artifactPath = writeArtifactFixture(homeDir);
     const first = makeAmpStub();
-    installWithUserPolicy(homeDir, artifactPath, first.run, POLICY_JSON);
+    await installWithUserPolicy(homeDir, artifactPath, first.run, POLICY_JSON);
 
     const second = makeAmpStub({
       seedCheckout: (checkout) =>
@@ -460,22 +468,22 @@ describe('Amp personal install policy snapshot', () => {
     return {
       artifactPath,
       stub: second,
-      result: installWithUserPolicy(homeDir, artifactPath, second.run, policyJson),
+      result: await installWithUserPolicy(homeDir, artifactPath, second.run, policyJson),
     };
   }
 
-  test('reports already installed when the checkout already holds the stamped artifact', () => {
-    withTempHome('safety-net-amp-policy', (homeDir) => {
-      const reinstall = reinstallOverPublished(homeDir, POLICY_JSON);
+  test('reports already installed when the checkout already holds the stamped artifact', async () => {
+    await withTempHome('safety-net-amp-policy', async (homeDir) => {
+      const reinstall = await reinstallOverPublished(homeDir, POLICY_JSON);
 
       expect(reinstall.result.alreadyInstalled).toBe(true);
       expect(gitCalls(reinstall.stub.calls)).toEqual([]);
     });
   });
 
-  test('republishes after the user edits the policy file', () => {
-    withTempHome('safety-net-amp-policy', (homeDir) => {
-      const reinstall = reinstallOverPublished(
+  test('republishes after the user edits the policy file', async () => {
+    await withTempHome('safety-net-amp-policy', async (homeDir) => {
+      const reinstall = await reinstallOverPublished(
         homeDir,
         JSON.stringify({ version: 1, safety: { level: 'paranoid', overrides: {} } }),
       );
@@ -490,8 +498,8 @@ describe('Amp personal install policy snapshot', () => {
 });
 
 describe('Amp personal uninstall', () => {
-  test('removes, commits and pushes the managed file', () => {
-    withTempHome('safety-net-amp-personal-uninstall', (homeDir) => {
+  test('removes, commits and pushes the managed file', async () => {
+    await withTempHome('safety-net-amp-personal-uninstall', async (homeDir) => {
       const stub = makeAmpStub({
         seedCheckout: (checkout) =>
           writeFileSync(
@@ -500,7 +508,7 @@ describe('Amp personal uninstall', () => {
           ),
       });
 
-      const result = uninstallAmp(homeDir, stub.run);
+      const result = await uninstallAmp(homeDir, stub.run);
 
       expect(result.alreadyInstalled).toBe(true);
       expect(result.path).toBe(`${CLONE_REF}/cc-safety-net.ts`);
@@ -514,40 +522,42 @@ describe('Amp personal uninstall', () => {
     });
   });
 
-  test('reports not installed when the personal repository has no plugin', () => {
-    withTempHome('safety-net-amp-personal-uninstall', (homeDir) => {
+  test('reports not installed when the personal repository has no plugin', async () => {
+    await withTempHome('safety-net-amp-personal-uninstall', async (homeDir) => {
       const stub = makeAmpStub();
 
-      const result = uninstallAmp(homeDir, stub.run);
+      const result = await uninstallAmp(homeDir, stub.run);
 
       expect(result.alreadyInstalled).toBe(false);
       expect(gitCalls(stub.calls)).toEqual([]);
     });
   });
 
-  test('refuses to remove an unmanaged file from the personal repository', () => {
-    withTempHome('safety-net-amp-personal-uninstall', (homeDir) => {
+  test('refuses to remove an unmanaged file from the personal repository', async () => {
+    await withTempHome('safety-net-amp-personal-uninstall', async (homeDir) => {
       const stub = makeAmpStub({
         seedCheckout: (checkout) =>
           writeFileSync(join(checkout, 'cc-safety-net.ts'), 'export default 1;\n'),
       });
 
-      expect(() => uninstallAmp(homeDir, stub.run)).toThrow('Refusing to remove unmanaged file');
+      await expect(uninstallAmp(homeDir, stub.run)).rejects.toThrow(
+        'Refusing to remove unmanaged file',
+      );
       expect(gitCalls(stub.calls)).toEqual([]);
     });
   });
 
-  test('also removes the managed local plugin and keeps an unmanaged one', () => {
-    withTempHome('safety-net-amp-personal-uninstall', (homeDir) => {
+  test('also removes the managed local plugin and keeps an unmanaged one', async () => {
+    await withTempHome('safety-net-amp-personal-uninstall', async (homeDir) => {
       const managed = writeLocalPlugin(
         homeDir,
         `${buildAmpArtifactHeader('1.0.0')}export default 0;\n`,
       );
-      uninstallAmp(homeDir, makeAmpStub().run);
+      await uninstallAmp(homeDir, makeAmpStub().run);
       expect(existsSync(managed)).toBe(false);
 
       writeLocalPlugin(homeDir, 'export default 1;\n');
-      uninstallAmp(homeDir, makeAmpStub().run);
+      await uninstallAmp(homeDir, makeAmpStub().run);
       expect(readFileSync(managed, 'utf-8')).toBe('export default 1;\n');
     });
   });

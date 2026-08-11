@@ -79,8 +79,12 @@ function isManagedAmpArtifact(content: Buffer): boolean {
   );
 }
 
-function runAmpStep(run: AmpRunner, command: readonly [string, ...string[]], cwd?: string): void {
-  const result = run(command, cwd);
+async function runAmpStep(
+  run: AmpRunner,
+  command: readonly [string, ...string[]],
+  cwd?: string,
+): Promise<void> {
+  const result = await run(command, cwd);
   if (result.status === 0) return;
   throw new Error(
     [
@@ -93,8 +97,8 @@ function runAmpStep(run: AmpRunner, command: readonly [string, ...string[]], cwd
 }
 
 /** The clone reference of the account's writable Personal Plugins repository. */
-function requirePersonalPluginsRef(run: AmpRunner): string {
-  const result = run(['amp', 'plugins', 'repositories', '--json']);
+async function requirePersonalPluginsRef(run: AmpRunner): Promise<string> {
+  const result = await run(['amp', 'plugins', 'repositories', '--json']);
   if (result.status === null)
     throw new Error(
       `${
@@ -129,11 +133,14 @@ function requirePersonalPluginsRef(run: AmpRunner): string {
  * A fresh clone per run, removed afterwards: the checkout is disposable state, so `finally`
  * only cleans it up and never hides why a step failed.
  */
-function withAmpCheckout<T>(run: AmpRunner, body: (checkout: string) => T): T {
+async function withAmpCheckout<T>(
+  run: AmpRunner,
+  body: (checkout: string) => Promise<T>,
+): Promise<T> {
   const checkout = mkdtempSync(join(tmpdir(), 'cc-safety-net-amp-'));
   try {
-    runAmpStep(run, ['amp', 'clone', 'user-plugins', checkout]);
-    return body(checkout);
+    await runAmpStep(run, ['amp', 'clone', 'user-plugins', checkout]);
+    return await body(checkout);
   } finally {
     rmSync(checkout, { recursive: true, force: true });
   }
@@ -157,23 +164,23 @@ function readManagedPluginFile(checkout: string, action: 'overwrite' | 'remove')
 }
 
 /** False when staging left nothing to commit, so the repository is already up to date. */
-function commitAndPush(
+async function commitAndPush(
   run: AmpRunner,
   checkout: string,
   stage: readonly [string, ...string[]],
   message: string,
-): boolean {
-  runAmpStep(run, stage, checkout);
+): Promise<boolean> {
+  await runAmpStep(run, stage, checkout);
   // Under core.autocrlf the clone smudges the committed LF plugin to CRLF, so the artifact
   // differs byte-for-byte while `git add` renormalizes the index straight back to HEAD; a
   // commit would then fail with "nothing to commit" on every rerun.
-  const staged = run(['git', 'status', '--porcelain'], checkout);
+  const staged = await run(['git', 'status', '--porcelain'], checkout);
   if (staged.status === 0 && staged.stdout.trim() === '') return false;
   // A machine-generated commit in a throwaway checkout: the user's global signing config
   // would otherwise stop the install on a signing prompt or a missing key.
-  runAmpStep(run, ['git', '-c', 'commit.gpgsign=false', 'commit', '-m', message], checkout);
+  await runAmpStep(run, ['git', '-c', 'commit.gpgsign=false', 'commit', '-m', message], checkout);
   // The personal plugins repository can still be unborn, which a bare `git push` cannot handle.
-  runAmpStep(run, ['git', 'push', 'origin', 'HEAD'], checkout);
+  await runAmpStep(run, ['git', 'push', 'origin', 'HEAD'], checkout);
   return true;
 }
 
@@ -202,18 +209,18 @@ function embeddedPolicyStamp(): string {
   return `;globalThis.__CC_SAFETY_NET_EMBEDDED_POLICY__ = ${JSON.stringify(normalizeGuiPolicy(parsed))};\n`;
 }
 
-export function installAmp(
+export async function installAmp(
   homeDir: string,
   artifactPath: string = resolveAmpArtifactPath(),
   run: AmpRunner = runAmpCommand,
-): InstallResult {
+): Promise<InstallResult> {
   const content = Buffer.concat([
     readFileSync(artifactPath),
     Buffer.from(embeddedPolicyStamp(), 'utf-8'),
   ]);
-  const cloneRef = requirePersonalPluginsRef(run);
+  const cloneRef = await requirePersonalPluginsRef(run);
 
-  return withAmpCheckout(run, (checkout) => {
+  return withAmpCheckout(run, async (checkout) => {
     const path = `${cloneRef}/${AMP_PLUGIN_FILE}`;
     if (readManagedPluginFile(checkout, 'overwrite')?.equals(content)) {
       removeMaskingLocalPlugin(homeDir);
@@ -221,7 +228,7 @@ export function installAmp(
     }
 
     atomicWriteFile(join(checkout, AMP_PLUGIN_FILE), content);
-    const pushed = commitAndPush(
+    const pushed = await commitAndPush(
       run,
       checkout,
       ['git', 'add', AMP_PLUGIN_FILE],
@@ -232,17 +239,20 @@ export function installAmp(
   });
 }
 
-export function uninstallAmp(homeDir: string, run: AmpRunner = runAmpCommand): InstallResult {
-  const cloneRef = requirePersonalPluginsRef(run);
+export async function uninstallAmp(
+  homeDir: string,
+  run: AmpRunner = runAmpCommand,
+): Promise<InstallResult> {
+  const cloneRef = await requirePersonalPluginsRef(run);
 
-  return withAmpCheckout(run, (checkout) => {
+  return withAmpCheckout(run, async (checkout) => {
     const path = `${cloneRef}/${AMP_PLUGIN_FILE}`;
     if (!readManagedPluginFile(checkout, 'remove')) {
       removeMaskingLocalPlugin(homeDir);
       return { path, alreadyInstalled: false };
     }
 
-    commitAndPush(
+    await commitAndPush(
       run,
       checkout,
       ['git', 'rm', AMP_PLUGIN_FILE],

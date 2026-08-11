@@ -162,9 +162,9 @@ function readOpenClawPluginStatus(inspectOutput: string): string | undefined {
  * trace (`OPENCLAW_PLUGIN_LIFECYCLE_TRACE=1`) and any warning to stderr, so merged output would
  * read as an unparseable report and fail an install that in fact succeeded.
  */
-export function verifyOpenClawPluginRuntime(): void {
+export async function verifyOpenClawPluginRuntime(): Promise<void> {
   const status = readOpenClawPluginStatus(
-    runNativeCommand(
+    await runNativeCommand(
       ['openclaw', 'plugins', 'inspect', OPENCLAW_PLUGIN_ID, '--runtime', '--json'],
       {
         stdoutOnly: true,

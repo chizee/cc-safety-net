@@ -24,12 +24,13 @@ function wait(milliseconds: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function waitForReady(ready: Promise<unknown>, options: StartupBannerOptions) {
+/** Resolves `ready`, rendering the loading spinner on a TTY while it stays pending. */
+export async function awaitWithSpinner<T>(
+  ready: Promise<T>,
+  options: StartupBannerOptions = {},
+): Promise<T> {
   const output = options.output ?? process.stdout;
-  if (!output.isTTY) {
-    await ready;
-    return;
-  }
+  if (!output.isTTY) return ready;
 
   const sleep = options.sleep ?? wait;
   let settled = false;
@@ -47,7 +48,7 @@ async function waitForReady(ready: Promise<unknown>, options: StartupBannerOptio
     trackedReady.then(() => true),
     sleep(SPINNER_DELAY).then(() => false),
   ]);
-  if (readyBeforeSpinner) return;
+  if (readyBeforeSpinner) return trackedReady;
 
   output.write(HIDE_CURSOR);
   try {
@@ -57,7 +58,7 @@ async function waitForReady(ready: Promise<unknown>, options: StartupBannerOptio
       );
       await Promise.race([trackedReady, sleep(SPINNER_INTERVAL)]);
     }
-    await trackedReady;
+    return await trackedReady;
   } finally {
     output.write(`${CLEAR_LINE}${SHOW_CURSOR}`);
   }
@@ -71,6 +72,6 @@ export async function resolveAfterOptionalBanner<T>(
 ) {
   const work = startWork();
   if (showBanner) await printBanner();
-  if (showBanner && work.ready) await waitForReady(work.ready, options);
+  if (showBanner && work.ready) await awaitWithSpinner(work.ready, options);
   return work.finish();
 }

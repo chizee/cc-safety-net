@@ -12,7 +12,7 @@ import { runAmpCommand } from '@/integrations/amp/run';
 import { withEnv } from '../../helpers';
 
 describe('runAmpCommand', () => {
-  test('runs a Windows cmd shim through COMSPEC', () => {
+  test('runs a Windows cmd shim through COMSPEC', async () => {
     if (process.platform === 'win32') return;
 
     const tmpDir = mkdtempSync(join(tmpdir(), 'amp-windows-cmd-'));
@@ -22,7 +22,7 @@ describe('runAmpCommand', () => {
       writeFileSync(comspecPath, '#!/bin/sh\nprintf "%s" "$3"\n');
       chmodSync(comspecPath, 0o755);
 
-      const result = withEnv(
+      const result = await withEnv(
         {
           COMSPEC: comspecPath,
           PATH: tmpDir,
@@ -40,8 +40,8 @@ describe('runAmpCommand', () => {
     }
   });
 
-  test('reports a missing command as a spawn failure', () => {
-    const result = runAmpCommand(['cc-safety-net-absent-command']);
+  test('reports a missing command as a spawn failure', async () => {
+    const result = await runAmpCommand(['cc-safety-net-absent-command']);
 
     expect(result.status).toBeNull();
     expect(result.errorCode).toBe('ENOENT');

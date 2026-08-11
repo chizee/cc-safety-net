@@ -12,6 +12,7 @@ import {
   writeClaudePluginRecords,
   writeFakeCommands,
 } from '../../integrations/install/install-test-helpers';
+import { createLolcatOutput, stripAnsi } from '../lolcat-test-helpers';
 
 const PROBED_CLIS = [
   'agy',
@@ -126,6 +127,25 @@ describe('install settings rewrites', () => {
 
     expect(JSON.parse(result.text).enabledPlugins['cc-safety-net@cc-marketplace']).toBe(true);
     expect(result.stdout).toContain('Enabled cc-safety-net@cc-marketplace plugin');
+  });
+});
+
+describe('flagged install loading state', () => {
+  test('renders a spinner while a slow flagged install runs, then its message', async () => {
+    const homeDir = makeTempHome('safety-net-install-spinner');
+    const path = makeFakeBin(homeDir, { pi: 'sleep 0.3' });
+    const { chunks, output } = createLolcatOutput();
+
+    const exitCode = await withEnv({ HOME: homeDir, PATH: path }, () =>
+      runInstallCommand('install', ['--pi'], {
+        output: output as unknown as NodeJS.WriteStream,
+      }),
+    );
+
+    expect(exitCode).toBe(0);
+    const text = stripAnsi(chunks.join(''));
+    expect(text).toContain('⠋ Installing Pi integration…');
+    expect(text).toContain('Installed Pi integration');
   });
 });
 
