@@ -73,6 +73,7 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
 
   const system = await getSystemInfo();
   const hooks = detectAllHooks(cwd, {
+    ampPluginListOutput: system.ampPluginListOutput,
     codexPluginListOutput: system.codexPluginListOutput,
     copilotCliVersion: system.copilotCliVersion,
   });

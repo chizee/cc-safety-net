@@ -1,69 +1,43 @@
 /**
  * Amp Code hook detection.
+ *
+ * `amp plugins list` has no `--json` mode, so its text is parsed. A personal-scope plugin is
+ * rendered as `✓ <name> (User Plugins) <status>`; the local system-scope line prints a path
+ * instead and is not what install writes anymore. The output carries no version, so drift is
+ * not reported here — `cc-safety-net update` pushes the current artifact regardless.
  */
 
-import { lstatSync, readFileSync } from 'node:fs';
-import { AMP_MANAGED_HEADER } from '@/integrations/amp/artifact';
-import { getAmpPluginPath } from '@/integrations/amp/install';
+import { stripVTControlCharacters } from 'node:util';
 import type { DetectContext, HookDetection } from '@/integrations/detect/context';
-import { getPackageVersion } from '@/integrations/system-info';
 
-function _ampArtifactVersion(content: string): string | undefined {
-  return /^\/\/ version:\s*(.+)$/m.exec(content)?.[1]?.trim();
-}
+const AMP_PLUGIN_LIST_CONFIG_PATH = 'amp plugins list';
+const AMP_USER_PLUGIN_LINE = /^\s*[✓✗]\s+cc-safety-net(?:\.ts)?\s+\(User Plugins\)\s+(\S+)\s*$/;
 
 export function detect(context: DetectContext): HookDetection {
-  const configPath = getAmpPluginPath(context.homeDir);
+  if (!context.ampPluginListOutput) return { platform: 'amp', status: 'n/a' };
 
-  const info = (() => {
-    try {
-      return lstatSync(configPath);
-    } catch {
-      return undefined;
-    }
-  })();
-  if (!info) return { platform: 'amp', status: 'n/a', configPath };
+  const status = stripVTControlCharacters(context.ampPluginListOutput)
+    .split('\n')
+    .map((line) => AMP_USER_PLUGIN_LINE.exec(line)?.[1])
+    .find((match): match is string => match !== undefined);
+  if (!status) return { platform: 'amp', status: 'n/a' };
 
-  if (info.isSymbolicLink() || !info.isFile()) {
+  if (status !== 'active') {
     return {
       platform: 'amp',
-      status: 'n/a',
-      configPath,
+      status: 'disabled',
+      method: AMP_PLUGIN_LIST_CONFIG_PATH,
+      configPath: AMP_PLUGIN_LIST_CONFIG_PATH,
       errors: [
-        `${configPath} is a symlink or not a regular file; move or remove it before installing`,
+        `Amp personal plugin cc-safety-net is ${status}; run "plugins: reload" in Amp or reinstall with install --amp`,
       ],
     };
   }
 
-  let content: string;
-  try {
-    content = readFileSync(configPath, 'utf-8');
-  } catch (e) {
-    return {
-      platform: 'amp',
-      status: 'n/a',
-      configPath,
-      errors: [`Failed to read ${configPath}: ${e instanceof Error ? e.message : String(e)}`],
-    };
-  }
-
-  if (!content.startsWith(AMP_MANAGED_HEADER)) {
-    return {
-      platform: 'amp',
-      status: 'n/a',
-      configPath,
-      errors: [`Unmanaged file occupies ${configPath}; move or remove it before installing`],
-    };
-  }
-
-  const outdated = _ampArtifactVersion(content) !== getPackageVersion();
   return {
     platform: 'amp',
     status: 'configured',
-    method: 'plugin file',
-    configPath,
-    errors: outdated
-      ? ['Installed Amp plugin is outdated; run install --amp to update']
-      : undefined,
+    method: AMP_PLUGIN_LIST_CONFIG_PATH,
+    configPath: AMP_PLUGIN_LIST_CONFIG_PATH,
   };
 }

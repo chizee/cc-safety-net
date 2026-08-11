@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { Writable } from 'node:stream';
 import { runInstallCommand } from '@/cli/install';
+import { AMP_MANAGED_HEADER } from '@/integrations/amp/artifact';
 import type { InstallTargetChoice } from '@/integrations/install/choices';
 import type { InstallTarget } from '@/integrations/install/targets';
 import { withEnv } from '../../helpers';
@@ -162,5 +163,85 @@ describe('interactive uninstall detection', () => {
 
     expect(uninstallChoice('copilot-cli')?.available).toBe(true);
     expect(uninstallChoice('copilot-cli')?.unavailableReason).toBeUndefined();
+  });
+});
+
+/**
+ * `install --amp` writes into the account's hosted Personal Plugins repository, so the CLI is
+ * driven against a fake `amp` and `git` on PATH: no network and no real repository.
+ */
+function makeAmpFakeBin(homeDir: string, seedCheckout: boolean) {
+  return makeFakeBin(homeDir, {
+    amp: [
+      'case "$1 $2" in',
+      `  "plugins repositories") printf '%s\\n' '[{"scope":"user","exists":true,"viewerCanWrite":true,"cloneRef":"tester/-/plugins"}]' ;;`,
+      seedCheckout
+        ? `  "clone user-plugins") printf '%s\\n' '${AMP_MANAGED_HEADER}' > "$3/cc-safety-net.ts" ;;`
+        : '  "clone user-plugins") : ;;',
+      'esac',
+    ].join('\n'),
+    git: [
+      'printf \'%s\\n\' "$*" >> "$HOME/git.log"',
+      'case "$1 $2" in',
+      // An empty porcelain status means "nothing staged", which skips the commit and push.
+      '  "status --porcelain") printf \'%s\\n\' "M  cc-safety-net.ts" ;;',
+      'esac',
+    ].join('\n'),
+  });
+}
+
+/**
+ * A PATH holding nothing but a `bun` symlink, so the CLI under test starts while no real `amp`
+ * can ever be resolved — the missing-CLI path must not reach the account's hosted repository.
+ */
+function makeBunOnlyPath(homeDir: string) {
+  const binDir = join(homeDir, 'runtime-bin');
+  mkdirSync(binDir, { recursive: true });
+  symlinkSync(process.execPath, join(binDir, 'bun'));
+  return binDir;
+}
+
+describe('Amp personal-scope install command', () => {
+  test('routes install --amp to the personal plugins repository', async () => {
+    const homeDir = makeTempHome('safety-net-amp-install-cli');
+    const path = makeAmpFakeBin(homeDir, false);
+    const maskingPlugin = join(homeDir, '.config', 'amp', 'plugins', 'cc-safety-net.ts');
+    mkdirSync(join(maskingPlugin, '..'), { recursive: true });
+    writeFileSync(maskingPlugin, `${AMP_MANAGED_HEADER}\nexport default 0;\n`);
+
+    const result = await runCli(['install', '--amp'], '', { HOME: homeDir, PATH: path });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      'Installed Amp Code plugin at tester/-/plugins/cc-safety-net.ts',
+    );
+    expect(result.stdout).toContain('including Orb threads');
+    expect(readFileSync(join(homeDir, 'git.log'), 'utf-8')).toContain('push origin HEAD');
+    expect(existsSync(maskingPlugin)).toBe(false);
+  });
+
+  test('routes uninstall --amp to the personal plugins repository', async () => {
+    const homeDir = makeTempHome('safety-net-amp-uninstall-cli');
+    const path = makeAmpFakeBin(homeDir, true);
+
+    const result = await runCli(['uninstall', '--amp'], '', { HOME: homeDir, PATH: path });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      'Uninstalled Amp Code plugin from tester/-/plugins/cc-safety-net.ts',
+    );
+    expect(readFileSync(join(homeDir, 'git.log'), 'utf-8')).toContain('rm cc-safety-net.ts');
+  });
+
+  test('fails with an actionable message when the amp CLI is missing', async () => {
+    const homeDir = makeTempHome('safety-net-amp-missing-cli');
+
+    const result = await runCli(['install', '--amp'], '', {
+      HOME: homeDir,
+      PATH: makeBunOnlyPath(homeDir),
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('Amp CLI not found');
   });
 });

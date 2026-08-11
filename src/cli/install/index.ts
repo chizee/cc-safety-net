@@ -373,7 +373,10 @@ function parseInstallTarget(args: readonly string[], action: InstallAction): Ins
 // `gemini extensions list`, `copilot plugin list` and the Pi extension probe all write into the
 // user's real config directories, and this runs on every bare install/uninstall in a TTY.
 async function detectInstallHookState(homeDir = getHomeDir()) {
-  const [codexPluginListOutput, copilotCliVersion] = await Promise.all([
+  const [ampPluginListOutput, codexPluginListOutput, copilotCliVersion] = await Promise.all([
+    // Amp's managed plugin lives in the account's hosted personal repository, so only this
+    // command can see it; like Codex's it can outlast the default 5s version timeout.
+    defaultVersionFetcher(['amp', 'plugins', 'list'], 30_000),
     // A cold `codex plugin list` refreshes marketplace checkouts over the network and can
     // outlast the default 5s version timeout, which would silently drop Codex from detection.
     defaultVersionFetcher(['codex', 'plugin', 'list'], 30_000),
@@ -384,6 +387,7 @@ async function detectInstallHookState(homeDir = getHomeDir()) {
     codexPluginListOutput,
     hooks: detectAllHooks(process.cwd(), {
       homeDir,
+      ampPluginListOutput,
       codexPluginListOutput,
       copilotCliVersion,
     }),
@@ -534,7 +538,8 @@ const MANAGED_ARTIFACT_INSTALLS: Record<
   amp: {
     install: installAmp,
     uninstall: uninstallAmp,
-    restartNote: 'Restart Amp or run "plugins: reload" to apply the change.',
+    restartNote:
+      'Amp personal plugins apply to every Amp session, including Orb threads. Restart Amp or run "plugins: reload" to apply the change.',
   },
   'hermes-agent': {
     install: installHermesAgent,

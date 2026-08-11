@@ -17,12 +17,15 @@ export interface HookDetection {
 }
 
 /**
- * Every integration is detected from the files its runtime writes, except Codex, whose
- * `codex plugin list` output the caller passes in because that command touches nothing.
+ * Every integration is detected from the files its runtime writes, except Codex and Amp, whose
+ * `codex plugin list` / `amp plugins list` output the caller passes in because those commands
+ * touch nothing. Amp's managed plugin lives in the account's hosted personal repository, so
+ * only that command can see it.
  */
 export interface DetectContext {
   homeDir: string;
   cwd: string;
+  ampPluginListOutput?: string | null;
   codexPluginListOutput?: string | null;
   copilotCliVersion?: string | null;
 }

@@ -7,6 +7,7 @@ import { makeTempHome, runCli } from '../../integrations/hook-helpers';
 import {
   makeLoggedFakeCommandHome,
   writeClaudePluginRecords,
+  writeFakeCommands,
 } from '../../integrations/install/install-test-helpers';
 
 function writeCursorHook(homeDir: string) {
@@ -343,20 +344,41 @@ fi
     }
   });
 
-  test('updates a stale managed Amp plugin', async () => {
+  test('updates the Amp plugin in the personal plugins repository', async () => {
     const homeDir = makeTempHome('safety-net-update-amp');
-    const pluginPath = join(homeDir, '.config', 'amp', 'plugins', 'cc-safety-net.ts');
-    mkdirSync(join(pluginPath, '..'), { recursive: true });
-    writeFileSync(pluginPath, `${AMP_MANAGED_HEADER}\n// stale artifact\n`);
+    // A leftover managed system-scope plugin masks the personal one, so update clears it.
+    const maskingPath = join(homeDir, '.config', 'amp', 'plugins', 'cc-safety-net.ts');
+    mkdirSync(join(maskingPath, '..'), { recursive: true });
+    writeFileSync(maskingPath, `${AMP_MANAGED_HEADER}\n// stale artifact\n`);
+    const binDir = writeFakeCommands(homeDir, {
+      // Personal-scope plugin line, repositories preflight, and a clone that leaves the
+      // throwaway checkout empty. No network and no real Amp repository is involved.
+      amp: [
+        'case "$1 $2" in',
+        '  "plugins list") printf \'\\342\\234\\223 cc-safety-net (User Plugins) active\\n\' ;;',
+        '  "plugins repositories") printf \'[{"scope":"user","exists":true,"viewerCanWrite":true,"cloneRef":"tester/-/plugins"}]\\n\' ;;',
+        'esac',
+      ].join('\n'),
+      // Only `git status --porcelain` needs a real answer: an empty one means "nothing staged".
+      git: [
+        'case "$1 $2" in',
+        '  "status --porcelain") printf \'%s\\n\' "M  cc-safety-net.ts" ;;',
+        'esac',
+      ].join('\n'),
+    });
 
     try {
       const result = await runCli(['update'], '', {
         HOME: homeDir,
-        PATH: dirname(process.execPath),
+        PATH: [binDir, dirname(process.execPath), '/usr/bin', '/bin'].join(delimiter),
       });
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain(`Updated Amp Code plugin at ${pluginPath}`);
+      expect(result.stdout).toContain(
+        'Updated Amp Code plugin at tester/-/plugins/cc-safety-net.ts',
+      );
+      expect(result.stdout).toContain('including Orb threads');
+      expect(existsSync(maskingPath)).toBe(false);
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
