@@ -35,11 +35,13 @@ describe('runNativeCommand failures', () => {
   });
 
   test('kills a stalled command at the timeout and reports it as a failure', async () => {
-    const command = ['sh', '-c', 'sleep 2'] as const;
+    const message = await capturedFailureMessage(
+      runNativeCommand([process.execPath, '-e', 'setTimeout(() => {}, 1e9)'] as const, {
+        timeoutMs: 50,
+      }),
+    );
 
-    const message = await capturedFailureMessage(runNativeCommand(command, { timeoutMs: 50 }));
-
-    expect(message).toContain('Failed to run sh -c sleep 2.');
+    expect(message).toContain(`Failed to run ${process.execPath} -e setTimeout(() => {}, 1e9).`);
     expect(message).toContain('Timed out after 50ms');
   });
 });

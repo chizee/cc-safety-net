@@ -83,13 +83,18 @@ function createReleaseRepository(root: string) {
 function prepareVersion(repo: string, version: string) {
   const pkg = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'));
   const plugin = JSON.parse(readFileSync(join(repo, '.claude-plugin', 'plugin.json'), 'utf8'));
-  const kimi = JSON.parse(readFileSync(join(repo, 'kimi.plugin.json'), 'utf8'));
   writeFileSync(join(repo, 'package.json'), JSON.stringify({ ...pkg, version }));
   writeFileSync(
     join(repo, '.claude-plugin', 'plugin.json'),
     JSON.stringify({ ...plugin, version }),
   );
-  writeFileSync(join(repo, 'kimi.plugin.json'), JSON.stringify({ ...kimi, version }));
+  writeFileSync(
+    join(repo, 'kimi.plugin.json'),
+    JSON.stringify({
+      ...JSON.parse(readFileSync(join(repo, 'kimi.plugin.json'), 'utf8')),
+      version,
+    }),
+  );
 }
 
 async function runTransaction(repo: string, version: string, dryRun = false, npmCommit?: string) {

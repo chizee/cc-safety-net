@@ -81,11 +81,10 @@ export async function runReleaseTransaction(options: {
   const workingPluginVersion = manifestVersion(
     resolve(options.cwd, '.claude-plugin', 'plugin.json'),
   );
-  const workingKimiVersion = manifestVersion(resolve(options.cwd, 'kimi.plugin.json'));
   if (
     workingPackageVersion !== version ||
     workingPluginVersion !== version ||
-    workingKimiVersion !== version
+    manifestVersion(resolve(options.cwd, 'kimi.plugin.json')) !== version
   ) {
     throw new Error(`Prepared manifests must all contain ${version}`);
   }
