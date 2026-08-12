@@ -396,25 +396,29 @@ describe('Amp personal install', () => {
     });
   });
 
-  test('keeps an unmanaged local file at the system plugin path', async () => {
+  test('keeps an unmanaged local file at the system plugin path but fails the install', async () => {
     await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const localPath = writeLocalPlugin(homeDir, 'export default 1;\n');
 
-      await installAmp(homeDir, artifactPath, makeAmpStub().run);
+      await expect(installAmp(homeDir, artifactPath, makeAmpStub().run)).rejects.toThrow(
+        'masks the personal plugin',
+      );
 
       expect(readFileSync(localPath, 'utf-8')).toBe('export default 1;\n');
     });
   });
 
-  test('keeps a symlink at the system plugin path even when it points at managed content', async () => {
+  test('keeps a symlink at the system plugin path but fails the install', async () => {
     await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const localPath = getAmpPluginPath(homeDir);
       mkdirSync(join(localPath, '..'), { recursive: true });
       symlinkSync(artifactPath, localPath);
 
-      await installAmp(homeDir, artifactPath, makeAmpStub().run);
+      await expect(installAmp(homeDir, artifactPath, makeAmpStub().run)).rejects.toThrow(
+        'masks the personal plugin',
+      );
       expect(lstatSync(localPath).isSymbolicLink()).toBe(true);
 
       await uninstallAmp(homeDir, makeAmpStub().run);

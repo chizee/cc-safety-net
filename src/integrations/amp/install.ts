@@ -180,13 +180,24 @@ async function commitAndPush(
   return true;
 }
 
-/** A managed local plugin masks the personal one, so it goes once the personal copy is in place. */
-function removeMaskingLocalPlugin(homeDir: string): void {
+/**
+ * A managed local plugin masks the personal one, so it goes once the personal copy is in place.
+ * An unmanaged file, symlink, or other non-regular entry is preserved, but the install fails:
+ * success would hide that the local entry keeps masking the published hook. Uninstall keeps the
+ * silent skip — with the personal copy removed there is nothing left to mask.
+ */
+function removeMaskingLocalPlugin(homeDir: string, onUnmanaged: 'fail' | 'keep'): void {
   const local = getAmpPluginPath(homeDir);
   const info = lstatOrUndefined(local);
-  if (!info || info.isSymbolicLink() || !info.isFile()) return;
-  if (!isManagedAmpArtifact(readFileSync(local))) return;
-  rmSync(local);
+  if (!info) return;
+  if (!info.isSymbolicLink() && info.isFile() && isManagedAmpArtifact(readFileSync(local))) {
+    rmSync(local);
+    return;
+  }
+  if (onUnmanaged === 'keep') return;
+  throw new Error(
+    `Local Amp plugin ${local} is not a managed copy and masks the personal plugin. Remove it and rerun install --amp.`,
+  );
 }
 
 /**
@@ -219,7 +230,7 @@ export async function installAmp(
   return withAmpCheckout(run, async (checkout) => {
     const path = `${cloneRef}/${AMP_PLUGIN_FILE}`;
     if (readManagedPluginFile(checkout, 'overwrite')?.equals(content)) {
-      removeMaskingLocalPlugin(homeDir);
+      removeMaskingLocalPlugin(homeDir, 'fail');
       return { path, alreadyInstalled: true };
     }
 
@@ -230,7 +241,7 @@ export async function installAmp(
       ['git', 'add', AMP_PLUGIN_FILE],
       `chore: update cc-safety-net plugin to v${getPackageVersion()}`,
     );
-    removeMaskingLocalPlugin(homeDir);
+    removeMaskingLocalPlugin(homeDir, 'fail');
     return { path, alreadyInstalled: !pushed };
   });
 }
@@ -244,7 +255,7 @@ export async function uninstallAmp(
   return withAmpCheckout(run, async (checkout) => {
     const path = `${cloneRef}/${AMP_PLUGIN_FILE}`;
     if (!readManagedPluginFile(checkout, 'remove')) {
-      removeMaskingLocalPlugin(homeDir);
+      removeMaskingLocalPlugin(homeDir, 'keep');
       return { path, alreadyInstalled: false };
     }
 
@@ -254,7 +265,7 @@ export async function uninstallAmp(
       ['git', 'rm', AMP_PLUGIN_FILE],
       `chore: remove cc-safety-net plugin v${getPackageVersion()}`,
     );
-    removeMaskingLocalPlugin(homeDir);
+    removeMaskingLocalPlugin(homeDir, 'keep');
     return { path, alreadyInstalled: true };
   });
 }
