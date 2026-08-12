@@ -379,13 +379,6 @@ describe('Hermes Agent plugin artifact', () => {
       expect(run.payload?.cwd).not.toBe(run.cwd);
     });
 
-    // Hermes' own first-command behaviour: no record yet, so the command runs in the process cwd.
-    test('falls back to the process directory when the session has no cwd record', () => {
-      const run = runPluginCallback('allow', 'terminal', { command: 'ls' });
-
-      expect(run.payload?.cwd).toBe(run.cwd);
-    });
-
     // A Hermes refactor that moves the accessor leaves us unable to tell which directory the
     // command runs in, which is an analysis-context failure like any other.
     test('blocks when the Hermes session cwd accessor cannot be imported', () => {
@@ -413,7 +406,10 @@ describe('Hermes Agent plugin artifact', () => {
       expect(isRunning(run.grandchildPid)).toBe(false);
     });
 
-    test('registers pre_tool_call and sends the payload the adapter expects', () => {
+    // Hermes' own first-command behaviour: no record yet, so the command runs in the process cwd.
+    // A repository-local node_modules/.bin/cc-safety-net would otherwise win the `npx` lookup
+    // from Hermes' own working directory and stand in for the analyzer.
+    test('registers the hook and sends the payload from the correct directories', () => {
       const run = runPluginCallback('allow', 'terminal', { command: 'ls' });
 
       expect(run.hookName).toBe('pre_tool_call');
@@ -424,13 +420,6 @@ describe('Hermes Agent plugin artifact', () => {
         session_id: 'sess-1',
         cwd: run.cwd,
       });
-    });
-
-    // A repository-local node_modules/.bin/cc-safety-net would otherwise win the `npx` lookup
-    // from Hermes' own working directory and stand in for the analyzer.
-    test('spawns the analyzer from the user home while still reporting the Hermes cwd', () => {
-      const run = runPluginCallback('allow', 'terminal', { command: 'ls' });
-
       expect(run.spawnCwd).toBe(process.env.HOME);
       expect(run.spawnCwd).not.toBe(run.cwd);
       expect(run.payload?.cwd).toBe(run.cwd);

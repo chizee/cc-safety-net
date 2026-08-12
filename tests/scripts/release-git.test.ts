@@ -7,6 +7,7 @@ import {
   assertRemoteMain,
   pushReleaseAtomically,
 } from '../../scripts/release-git';
+import { runReleaseTransaction } from '../../scripts/release-transaction';
 import { withTempDir } from '../helpers';
 
 function git(cwd: string, ...args: string[]) {
@@ -64,9 +65,17 @@ function createRepository(root: string) {
   const remote = join(root, 'remote.git');
   const repo = join(root, 'repo');
   git(root, 'clone', '--bare', '--local', getRepositorySeed(), remote);
-  git(root, 'clone', '--local', remote, repo);
-  git(repo, 'config', 'user.name', 'Release Test');
-  git(repo, 'config', 'user.email', 'release@example.com');
+  git(
+    root,
+    'clone',
+    '-c',
+    'user.name=Release Test',
+    '-c',
+    'user.email=release@example.com',
+    '--local',
+    remote,
+    repo,
+  );
   return { remote, repo };
 }
 
@@ -97,11 +106,10 @@ function prepareVersion(repo: string, version: string) {
   );
 }
 
-async function runTransaction(repo: string, version: string, dryRun = false, npmCommit?: string) {
+async function runTransactionCli(repo: string, version: string, dryRun = false) {
   const registry = Bun.serve({
     port: 0,
-    fetch: () =>
-      npmCommit ? Response.json({ gitHead: npmCommit }) : new Response('missing', { status: 404 }),
+    fetch: () => new Response('missing', { status: 404 }),
   });
   try {
     const child = Bun.spawn(
@@ -126,6 +134,25 @@ async function runTransaction(repo: string, version: string, dryRun = false, npm
     ]);
     if (exitCode !== 0) throw new Error(stderr);
     return stdout;
+  } finally {
+    registry.stop(true);
+  }
+}
+
+async function runTransaction(repo: string, version: string, dryRun = false, npmCommit?: string) {
+  const registry = Bun.serve({
+    port: 0,
+    fetch: () =>
+      npmCommit ? Response.json({ gitHead: npmCommit }) : new Response('missing', { status: 404 }),
+  });
+  try {
+    return await runReleaseTransaction({
+      cwd: repo,
+      version,
+      expectedBase: git(repo, 'rev-parse', 'HEAD'),
+      registryUrl: registry.url.href,
+      dryRun,
+    });
   } finally {
     registry.stop(true);
   }
@@ -168,7 +195,6 @@ describe('release git transaction', () => {
       const { remote, repo } = createRepository(root);
       createReleaseCommit(repo);
 
-      await assertRemoteMain(repo);
       await pushReleaseAtomically(repo, 'v2.0.0');
 
       expect(git(root, '--git-dir', remote, 'rev-parse', 'main')).toBe(
@@ -181,9 +207,16 @@ describe('release git transaction', () => {
     await withTempDir('cc-safety-net-release-', async (root) => {
       const { remote, repo } = createRepository(root);
       const other = join(root, 'other');
-      git(root, 'clone', remote, other);
-      git(other, 'config', 'user.name', 'Other');
-      git(other, 'config', 'user.email', 'other@example.com');
+      git(
+        root,
+        'clone',
+        '-c',
+        'user.name=Other',
+        '-c',
+        'user.email=other@example.com',
+        remote,
+        other,
+      );
       writeFileSync(join(other, 'other.txt'), 'advanced\n');
       git(other, 'add', 'other.txt');
       git(other, 'commit', '-m', 'advance');
@@ -217,18 +250,18 @@ describe('release git transaction', () => {
       const { remote, repo } = createReleaseRepository(root);
       prepareVersion(repo, '2.0.0');
 
-      expect(await runTransaction(repo, '2.0.0')).toContain('"kind":"prepared"');
+      expect(await runTransactionCli(repo, '2.0.0')).toContain('"kind":"prepared"');
       expect(git(root, '--git-dir', remote, 'rev-parse', 'main')).toBe(
         git(root, '--git-dir', remote, 'rev-parse', 'v2.0.0'),
       );
-      expect(await runTransaction(repo, '2.0.0')).toContain('"kind":"resume"');
+      expect(await runTransactionCli(repo, '2.0.0')).toContain('"kind":"resume"');
     });
   });
 
   test('the production CLI dry-run executes the same checks without mutation', async () => {
     await withTempDir('cc-safety-net-release-', async (root) => {
       await withPreparedRelease(root, async ({ remote, repo, before }) => {
-        expect(await runTransaction(repo, '2.0.0', true)).toContain('"kind":"prepare"');
+        expect(await runTransactionCli(repo, '2.0.0', true)).toContain('"kind":"prepare"');
         expectRemoteUnchanged(root, remote, before);
       });
     });
@@ -265,9 +298,16 @@ describe('release git transaction', () => {
       await withPreparedRelease(root, async ({ remote, repo }) => {
         const before = git(repo, 'rev-parse', 'HEAD');
         const other = join(root, 'other-cli');
-        git(root, 'clone', remote, other);
-        git(other, 'config', 'user.name', 'Other');
-        git(other, 'config', 'user.email', 'other@example.com');
+        git(
+          root,
+          'clone',
+          '-c',
+          'user.name=Other',
+          '-c',
+          'user.email=other@example.com',
+          remote,
+          other,
+        );
         writeFileSync(join(other, 'advanced.txt'), 'advanced\n');
         git(other, 'add', 'advanced.txt');
         git(other, 'commit', '-m', 'advance remote');
