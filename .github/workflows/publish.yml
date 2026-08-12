@@ -107,6 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -155,6 +156,9 @@ jobs:
           test "$(jq '.missing | length' release-plan.json)" = "0"
           if [ "$(jq -r .finalizeDraft release-plan.json)" = "true" ]; then
             gh release edit "$TAG" --draft=false
+            # GITHUB_TOKEN events do not start workflows, so the release event
+            # from the edit above is silent; dispatch the notify workflow directly.
+            gh workflow run notify-landing-page-release.yml --field tag="$TAG"
           fi
           release_state > release.json
           bun run scripts/release-assets.ts --state release.json --expected SHA256SUMS --expected "$TARBALL" > release-plan.json
