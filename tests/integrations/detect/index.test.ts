@@ -3,16 +3,13 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildAmpArtifactHeader } from '@/integrations/amp/artifact';
-import { getAmpPluginPath } from '@/integrations/amp/install';
 import { hasClaudeInstalledPlugin } from '@/integrations/claude-code/detect';
 import { detectAllHooks } from '@/integrations/detect';
 import type { HookStatus } from '@/integrations/doctor-types';
 import { stripJsonComments } from '@/integrations/jsonc';
-import { getPackageVersion } from '@/integrations/system-info';
 import { withEnv } from '../../helpers.ts';
 
 function expectHookState(
@@ -418,72 +415,34 @@ describe('detectAllHooks', () => {
     });
   });
 
-  function _writeAmpPlugin(homeDir: string, content: string): string {
-    const configPath = getAmpPluginPath(homeDir);
-    mkdirSync(join(configPath, '..'), { recursive: true });
-    writeFileSync(configPath, content);
-    return configPath;
-  }
-
-  test('Amp: n/a when the plugin file is missing', () => {
+  test('Amp: n/a when the amp plugin list is unavailable', () => {
     withHookFixture('amp', ({ homeDir, projectDir }) => {
-      const amp = findHook('amp', homeDir, projectDir);
+      const amp = findHook('amp', homeDir, projectDir, { ampPluginListOutput: null });
 
       expectHookState(amp, 'n/a');
       expect(amp?.inspectionStatus).toBe('not-applicable');
-      expect(amp?.configPath).toBe(getAmpPluginPath(homeDir));
     });
   });
 
-  test('Amp: configured with no drift for the current managed artifact', () => {
+  test('Amp: configured from the personal plugins repository', () => {
     withHookFixture('amp', ({ homeDir, projectDir }) => {
-      const configPath = _writeAmpPlugin(
-        homeDir,
-        `${buildAmpArtifactHeader(getPackageVersion())}export default function () {}\n`,
-      );
-      const amp = findHook('amp', homeDir, projectDir);
+      const amp = findHook('amp', homeDir, projectDir, {
+        ampPluginListOutput: '\u2713 cc-safety-net (User Plugins) active\n  events: tool.call',
+      });
 
       expectHookState(amp, 'configured');
-      expect(amp?.method).toBe('plugin file');
-      expect(amp?.configPath).toBe(configPath);
+      expect(amp?.method).toBe('amp plugins list');
       expect(amp?.errors).toBeUndefined();
     });
   });
 
-  test('Amp: configured with a drift note for an outdated managed artifact', () => {
+  test('Amp: n/a when the plugin is active outside the personal plugins scope', () => {
     withHookFixture('amp', ({ homeDir, projectDir }) => {
-      _writeAmpPlugin(homeDir, `${buildAmpArtifactHeader('0.0.1')}export default function () {}\n`);
-      const amp = findHook('amp', homeDir, projectDir);
-
-      expectHookState(amp, 'configured');
-      expect(amp?.errors?.some((error) => error.includes('outdated'))).toBe(true);
-    });
-  });
-
-  test('Amp: error for an unmarked file at the plugin path', () => {
-    withHookFixture('amp', ({ homeDir, projectDir }) => {
-      const configPath = _writeAmpPlugin(homeDir, 'export default 1;\n');
-      const amp = findHook('amp', homeDir, projectDir);
+      const amp = findHook('amp', homeDir, projectDir, {
+        ampPluginListOutput: '\u2713 cc-safety-net (Workspace Plugins) active\n  events: tool.call',
+      });
 
       expectHookState(amp, 'n/a');
-      expect(amp?.inspectionStatus).toBe('failed');
-      expect(amp?.configPath).toBe(configPath);
-      expect(amp?.errors?.some((error) => error.includes('Unmanaged file'))).toBe(true);
-    });
-  });
-
-  test('Amp: error when the plugin path is a symlink', () => {
-    withHookFixture('amp', ({ homeDir, projectDir }) => {
-      const configPath = getAmpPluginPath(homeDir);
-      mkdirSync(join(configPath, '..'), { recursive: true });
-      const target = join(homeDir, 'real-plugin.ts');
-      writeFileSync(target, `${buildAmpArtifactHeader('1.0.0')}export default function () {}\n`);
-      symlinkSync(target, configPath);
-      const amp = findHook('amp', homeDir, projectDir);
-
-      expectHookState(amp, 'n/a');
-      expect(amp?.inspectionStatus).toBe('failed');
-      expect(amp?.errors?.some((error) => error.includes('symlink'))).toBe(true);
     });
   });
 

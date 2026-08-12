@@ -8,6 +8,7 @@ import { assertReleaseVersion, classifyReleaseState } from './release-state';
 const RELEASE_PATHS = [
   'package.json',
   '.claude-plugin/plugin.json',
+  'kimi.plugin.json',
   'assets/cc-safety-net.schema.json',
   'dist',
 ] as const;
@@ -80,8 +81,12 @@ export async function runReleaseTransaction(options: {
   const workingPluginVersion = manifestVersion(
     resolve(options.cwd, '.claude-plugin', 'plugin.json'),
   );
-  if (workingPackageVersion !== version || workingPluginVersion !== version) {
-    throw new Error(`Prepared manifests must both contain ${version}`);
+  if (
+    workingPackageVersion !== version ||
+    workingPluginVersion !== version ||
+    manifestVersion(resolve(options.cwd, 'kimi.plugin.json')) !== version
+  ) {
+    throw new Error(`Prepared manifests must all contain ${version}`);
   }
   const changedPaths = changedReleasePaths(options.cwd);
   const unexpectedPaths = changedPaths.filter((path) => !isReleasePath(path));
@@ -108,6 +113,7 @@ export async function runReleaseTransaction(options: {
     requestedVersion: version,
     packageVersion: committedManifestVersion(options.cwd, 'package.json'),
     pluginVersion: committedManifestVersion(options.cwd, '.claude-plugin/plugin.json'),
+    kimiVersion: committedManifestVersion(options.cwd, 'kimi.plugin.json'),
     headCommit,
     tagCommit,
     npmCommit,

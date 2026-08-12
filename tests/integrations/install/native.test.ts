@@ -1,20 +1,21 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync } from 'node:fs';
+import { chmodSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runNativeCommand, runNativeCommands } from '../../../src/integrations/install/native';
+import { withEnv, withTempDir } from '../../helpers';
 import { makeTempHome } from '../hook-helpers';
 
+function capturedFailureMessage(promise: Promise<string>): Promise<string> {
+  return promise.then(
+    () => '',
+    (error: Error) => error.message,
+  );
+}
+
 describe('runNativeCommand failures', () => {
-  test('surfaces the spawn failure reason when the binary is missing', () => {
+  test('surfaces the spawn failure reason when the binary is missing', async () => {
     const command = ['cc-safety-net-no-such-binary-xyz', '--version'] as const;
-    const message = (() => {
-      try {
-        runNativeCommand(command);
-        return '';
-      } catch (error) {
-        return (error as Error).message;
-      }
-    })();
+    const message = await capturedFailureMessage(runNativeCommand(command));
 
     const lines = message.split('\n');
 
@@ -23,35 +24,66 @@ describe('runNativeCommand failures', () => {
     expect(lines[1]).toContain('cc-safety-net-no-such-binary-xyz');
   });
 
-  test('reports the exit code, stdout and stderr on a nonzero exit', () => {
+  test('reports the exit code, stdout and stderr on a nonzero exit', async () => {
     const command = ['sh', '-c', 'echo out; echo err >&2; exit 3'] as const;
 
-    const message = (() => {
-      try {
-        runNativeCommand(command);
-        return '';
-      } catch (error) {
-        return (error as Error).message;
-      }
-    })();
+    const message = await capturedFailureMessage(runNativeCommand(command));
 
     expect(message).toBe(
       'Failed to run sh -c echo out; echo err >&2; exit 3 (exit 3).\nout\n\nerr',
     );
   });
+
+  test('kills a stalled command at the timeout and reports it as a failure', async () => {
+    const message = await capturedFailureMessage(
+      runNativeCommand([process.execPath, '-e', 'setTimeout(() => {}, 1e9)'] as const, {
+        timeoutMs: 50,
+      }),
+    );
+
+    expect(message).toContain(`Failed to run ${process.execPath} -e setTimeout(() => {}, 1e9).`);
+    expect(message).toContain('Timed out after 50ms');
+  });
+});
+
+describe('runNativeCommand on Windows', () => {
+  test.skipIf(process.platform === 'win32')(
+    'runs a PATH-installed cmd shim through COMSPEC',
+    async () => {
+      await withTempDir('safety-net-native-windows-cmd-', async (tmpDir) => {
+        const comspecPath = join(tmpDir, 'cmd');
+        writeFileSync(join(tmpDir, 'fake.CMD'), '');
+        writeFileSync(comspecPath, '#!/bin/sh\nprintf "%s" "$3"\n');
+        chmodSync(comspecPath, 0o755);
+
+        const output = await withEnv(
+          {
+            COMSPEC: comspecPath,
+            PATH: tmpDir,
+            PATHEXT: '.CMD',
+            _CC_SAFETY_NET_TEST_SPAWN_PLATFORM: 'win32',
+          },
+          () => runNativeCommand(['fake', 'arg with space'] as const),
+        );
+
+        expect(output).toContain(join(tmpDir, 'fake.CMD'));
+        expect(output).toContain('"arg with space"');
+      });
+    },
+  );
 });
 
 describe('runNativeCommands sequencing', () => {
-  test('aborts at the first failing command and propagates its error', () => {
+  test('aborts at the first failing command and propagates its error', async () => {
     const dir = makeTempHome('safety-net-native-commands');
 
-    expect(() =>
+    await expect(
       runNativeCommands([
         ['sh', '-c', `touch ${join(dir, 'first')}`],
         ['sh', '-c', 'exit 4'],
         ['sh', '-c', `touch ${join(dir, 'third')}`],
       ]),
-    ).toThrow(/exit 4/);
+    ).rejects.toThrow(/exit 4/);
 
     expect(existsSync(join(dir, 'first'))).toBe(true);
     expect(existsSync(join(dir, 'third'))).toBe(false);

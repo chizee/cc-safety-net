@@ -161,21 +161,53 @@ export function renderInstallSelection(
   ].join('\n');
 }
 
-export function canPromptInstallTargets(
-  input: NodeJS.ReadStream = process.stdin,
-  output: NodeJS.WriteStream = process.stdout,
-): boolean {
-  return Boolean(input.isTTY && output.isTTY && typeof input.setRawMode === 'function');
+export type KimiInstallMethod = 'global-hook' | 'plugin';
+
+const KIMI_METHODS: readonly KimiInstallMethod[] = ['global-hook', 'plugin'];
+
+function renderKimiMethodSelection(
+  cursor: number,
+  globalHookInstalled: boolean,
+  options: { color?: boolean } = {},
+): string {
+  const formatFocus = options.color !== false ? colors.bold : (value: string) => value;
+  const rows = [
+    `Global hook — ${
+      globalHookInstalled
+        ? 'already installed; selecting it reports the current state'
+        : 'write the hook into ~/.kimi-code/config.toml now'
+    }`,
+    'Native Kimi plugin — print the steps to run inside Kimi Code',
+  ];
+
+  return [
+    '',
+    'Install the Kimi Code integration as:',
+    '',
+    ...rows.map((row, index) => {
+      const focused = index === cursor;
+      const rowBody = `${focused ? CHECKBOX_ON : CHECKBOX_OFF} ${row}`;
+      return `${focused ? CURSOR_ON : CURSOR_OFF} ${focused ? formatFocus(rowBody) : rowBody}`;
+    }),
+    '',
+    'Enter: confirm  Up/Down: move  q/Esc: cancel',
+  ].join('\n');
 }
 
-export function promptInstallTargets(
-  action: InstallAction,
-  choices: readonly InstallTargetChoice[],
-  options: InstallPromptOptions = {},
-): Promise<InstallTarget[] | null | 'update'> {
-  const input = options.input ?? process.stdin;
-  const output = options.output ?? process.stdout;
-  let state = createInstallSelectionState(choices);
+type PromptFrameControls<T> = {
+  finish: (value: T) => void;
+  draw: () => void;
+};
+
+/** Runs a raw-mode keypress prompt that owns frame redraws and terminal state restoration. */
+function promptFramedSelection<T>(config: {
+  input: NodeJS.ReadStream;
+  output: NodeJS.WriteStream;
+  render: () => string;
+  onKey: (inputValue: string, key: KeyPress, controls: PromptFrameControls<T>) => void;
+}): Promise<T> {
+  const input = config.input;
+  const output = config.output;
 
   readline.emitKeypressEvents(input);
   const wasRaw = input.isRaw === true;
@@ -193,28 +225,79 @@ export function promptInstallTargets(
 
   const draw = () => {
     clearFrame();
-    const frame = renderInstallSelection(action, choices, state);
+    const frame = config.render();
     output.write(`${frame}\n`);
     renderedLines = frame.split('\n').length;
   };
 
   return new Promise((resolve) => {
-    const cleanup = () => {
+    const finish = (value: T) => {
       input.off('keypress', onKeyPress);
       input.setRawMode(wasRaw);
       input.pause();
       clearFrame();
-    };
-
-    const finish = (targets: InstallTarget[] | null | 'update') => {
-      cleanup();
-      if (targets !== 'update' && targets && targets.length > 0) {
-        output.write(`${activeVerb(action)} selected integrations...\n`);
-      }
-      resolve(targets);
+      resolve(value);
     };
 
     function onKeyPress(inputValue: string, key: KeyPress) {
+      config.onKey(inputValue, key, { finish, draw });
+    }
+
+    input.on('keypress', onKeyPress);
+    draw();
+  });
+}
+
+/** Asks which Kimi Code install method to use; resolves null when the user cancels. */
+export function promptKimiInstallMethod(
+  options: InstallPromptOptions & { globalHookInstalled?: boolean } = {},
+): Promise<KimiInstallMethod | null> {
+  let cursor = 0;
+
+  return promptFramedSelection<KimiInstallMethod | null>({
+    input: options.input ?? process.stdin,
+    output: options.output ?? process.stdout,
+    render: () => renderKimiMethodSelection(cursor, options.globalHookInstalled === true),
+    onKey: (inputValue, key, controls) => {
+      if (key.ctrl && key.name === 'c') {
+        // Ctrl-C keeps the signal convention, matching the target picker: restore first, then raise.
+        controls.finish(null);
+        (options.onInterrupt ?? (() => process.kill(process.pid, 'SIGINT')))();
+        return;
+      }
+      if (key.name === 'escape' || inputValue === 'q') return controls.finish(null);
+      if (key.name === 'return' || key.name === 'enter') {
+        return controls.finish(KIMI_METHODS[cursor] as KimiInstallMethod);
+      }
+      if (key.name === 'up' || key.name === 'down' || inputValue === 'k' || inputValue === 'j') {
+        // With two rows, any move flips the cursor, so up from the top wraps to the bottom.
+        cursor = (cursor + 1) % KIMI_METHODS.length;
+        controls.draw();
+      }
+    },
+  });
+}
+
+export function canPromptInstallTargets(
+  input: NodeJS.ReadStream = process.stdin,
+  output: NodeJS.WriteStream = process.stdout,
+): boolean {
+  return Boolean(input.isTTY && output.isTTY && typeof input.setRawMode === 'function');
+}
+
+export function promptInstallTargets(
+  action: InstallAction,
+  choices: readonly InstallTargetChoice[],
+  options: InstallPromptOptions = {},
+): Promise<InstallTarget[] | null | 'update'> {
+  const output = options.output ?? process.stdout;
+  let state = createInstallSelectionState(choices);
+
+  return promptFramedSelection<InstallTarget[] | null | 'update'>({
+    input: options.input ?? process.stdin,
+    output,
+    render: () => renderInstallSelection(action, choices, state),
+    onKey: (inputValue, key, controls) => {
       const mappedKey = mapKeyPress(action, inputValue, key);
       if (!mappedKey) return;
 
@@ -223,35 +306,26 @@ export function promptInstallTargets(
 
       if (next.done === 'interrupt') {
         // Ctrl-C keeps the signal convention, matching the startup banner: restore first, then raise.
-        finish(null);
+        controls.finish(null);
         (options.onInterrupt ?? (() => process.kill(process.pid, 'SIGINT')))();
         return;
       }
 
-      if (next.done === 'abort') {
-        finish(null);
-        return;
-      }
-
-      if (next.done === 'update') {
-        finish('update');
-        return;
-      }
+      if (next.done === 'abort') return controls.finish(null);
+      if (next.done === 'update') return controls.finish('update');
 
       if (next.done === 'confirm') {
         if (state.selected.length === 0) {
           output.write('\x07');
-          draw();
+          controls.draw();
           return;
         }
-        finish([...state.selected]);
+        controls.finish([...state.selected]);
+        output.write(`${activeVerb(action)} selected integrations...\n`);
         return;
       }
 
-      draw();
-    }
-
-    input.on('keypress', onKeyPress);
-    draw();
+      controls.draw();
+    },
   });
 }

@@ -286,6 +286,43 @@ describe('install target availability', () => {
     });
   });
 
+  async function withFakeWindowsCmdShimPath<T>(prefix: string, fn: () => T | Promise<T>) {
+    return await withTempDir(prefix, async (dir) => {
+      const comspecPath = join(dir, 'cmd');
+      writeFileSync(join(dir, 'codex.CMD'), '');
+      writeFileSync(comspecPath, '#!/bin/sh\nexit 0\n');
+      chmodSync(comspecPath, 0o755);
+
+      return withEnv(
+        {
+          COMSPEC: comspecPath,
+          PATH: dir,
+          PATHEXT: '.CMD',
+          _CC_SAFETY_NET_TEST_SPAWN_PLATFORM: 'win32',
+        },
+        fn,
+      );
+    });
+  }
+
+  test.skipIf(process.platform === 'win32')(
+    'probes Windows cmd shims through COMSPEC',
+    async () => {
+      await withFakeWindowsCmdShimPath('safety-net-install-windows-probe-', () => {
+        expectAvailableTargets(buildInstallTargetChoices(), ['codex']);
+      });
+    },
+  );
+
+  test.skipIf(process.platform === 'win32')(
+    'probes Windows cmd shims through COMSPEC when probing asynchronously',
+    async () => {
+      await withFakeWindowsCmdShimPath('safety-net-install-windows-async-probe-', async () => {
+        expectAvailableTargets(await buildInstallTargetChoicesAsync(), ['codex']);
+      });
+    },
+  );
+
   test('applies configured state after async CLI probing', async () => {
     const choices = applyInstallTargetState(
       await buildInstallTargetChoices(
@@ -484,14 +521,21 @@ describe('interactive install dispatch', () => {
   test('disables configured integrations before prompting to install', async () => {
     await withTempDir('safety-net-install-configured-', async (homeDir) => {
       const result = await runInstallDispatchProbe(homeDir, {
-        configuredTargets: ['kimi-code'],
+        configuredTargets: ['cursor', 'kimi-code'],
         selectedTargets: null,
       });
 
-      expect(result.choices.find((choice) => choice.target === 'kimi-code')).toEqual({
-        target: 'kimi-code',
+      expect(result.choices.find((choice) => choice.target === 'cursor')).toEqual({
+        target: 'cursor',
         available: false,
         unavailableReason: 'already installed',
+      });
+      // Kimi Code is the exception: its configured row stays selectable because the method
+      // prompt is the only path to the native-plugin instructions.
+      expect(result.choices.find((choice) => choice.target === 'kimi-code')).toEqual({
+        target: 'kimi-code',
+        available: true,
+        unavailableReason: undefined,
       });
     });
   });
@@ -638,12 +682,12 @@ describe('interactive install dispatch', () => {
     const ordered = orderInstallTargets(['pi', 'codex', 'gemini-cli']);
     const calls: InstallTarget[] = [];
 
-    expect(() =>
-      runInstallTargetsInOrder(ordered, (target) => {
+    await expect(
+      runInstallTargetsInOrder(ordered, async (target) => {
         calls.push(target);
         if (target === 'gemini-cli') throw new Error('gemini failed');
       }),
-    ).toThrow('gemini failed');
+    ).rejects.toThrow('gemini failed');
     expect(calls).toEqual(['codex', 'gemini-cli']);
   });
 });

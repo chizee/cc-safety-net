@@ -1,4 +1,5 @@
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { getSpawnCommand } from '@/integrations/system-info';
 
 export type NativeCommand = readonly [string, ...string[]];
 
@@ -15,37 +16,75 @@ function formatCommandFailure(command: NativeCommand, status: number | null, out
     .join('\n');
 }
 
+/** Accumulates a spawned child's decoded stdout and stderr; read them once the child closes. */
+export function captureOutputStreams(child: {
+  stdout: NodeJS.ReadableStream;
+  stderr: NodeJS.ReadableStream;
+}) {
+  const captured = { stdout: '', stderr: '' };
+  child.stdout.setEncoding('utf-8');
+  child.stderr.setEncoding('utf-8');
+  child.stdout.on('data', (chunk: string) => {
+    captured.stdout += chunk;
+  });
+  child.stderr.on('data', (chunk: string) => {
+    captured.stderr += chunk;
+  });
+  return captured;
+}
+
 /**
  * Run a command, returning stdout and stderr merged so a caller showing human output sees all of
  * it. `stdoutOnly` narrows the success value to stdout for callers that parse it: a tool writing
  * its machine-readable report to stdout keeps it parseable however much trace or warning text
  * lands on stderr. Failures always report both streams.
+ *
+ * Asynchronous so a loading spinner keeps animating while a slow host CLI runs.
  */
 export function runNativeCommand(
   command: NativeCommand,
-  options?: { stdoutOnly: boolean },
-): string {
-  const result = spawnSync(command[0], command.slice(1), {
-    encoding: 'utf-8',
-    stdio: 'pipe',
+  options?: { stdoutOnly?: boolean; timeoutMs?: number },
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const spawnCommand = getSpawnCommand([...command], process.env);
+    const child = spawn(spawnCommand.cmd, spawnCommand.args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const captured = captureOutputStreams(child);
+    const merged = () => [captured.stdout, captured.stderr].filter(Boolean).join('\n');
+    const timeoutMs = options?.timeoutMs ?? 120_000;
+    // A stalled host CLI must not hang the install forever.
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(
+        new Error(
+          formatCommandFailure(
+            command,
+            null,
+            `Timed out after ${timeoutMs}ms.\n${merged()}`.trim(),
+          ),
+        ),
+      );
+    }, timeoutMs);
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(
+        new Error(formatCommandFailure(command, null, `${error.message}\n${merged()}`.trim())),
+      );
+    });
+    child.on('close', (status) => {
+      clearTimeout(timer);
+      if (status !== 0) {
+        reject(new Error(formatCommandFailure(command, status, merged())));
+        return;
+      }
+      resolve(options?.stdoutOnly ? captured.stdout : merged());
+    });
   });
-  const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
-
-  if (result.error) {
-    throw new Error(
-      formatCommandFailure(command, null, `${result.error.message}\n${output}`.trim()),
-    );
-  }
-  if (result.status !== 0) {
-    throw new Error(formatCommandFailure(command, result.status, output));
-  }
-  return options?.stdoutOnly ? result.stdout : output;
 }
 
-export function runNativeCommands(commands: readonly NativeCommand[]): void {
-  commands.forEach((command) => {
-    runNativeCommand(command);
-  });
+export async function runNativeCommands(commands: readonly NativeCommand[]): Promise<void> {
+  for (const command of commands) await runNativeCommand(command);
 }
 
 /**
@@ -53,12 +92,12 @@ export function runNativeCommands(commands: readonly NativeCommand[]): void {
  * plugin removed by a marketplace rename migration): a failure is reported, never thrown, so it
  * cannot fail the install that precedes it.
  */
-export function runNativeCleanupCommands(commands: readonly NativeCommand[]): void {
-  commands.forEach((command) => {
+export async function runNativeCleanupCommands(commands: readonly NativeCommand[]): Promise<void> {
+  for (const command of commands) {
     try {
-      runNativeCommand(command);
+      await runNativeCommand(command);
     } catch (error) {
       console.warn(error instanceof Error ? error.message : String(error));
     }
-  });
+  }
 }

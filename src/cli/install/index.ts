@@ -3,8 +3,14 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseCommandArgs } from '@/cli/args';
 import { printInstallBanner } from '@/cli/install/banner';
-import { canPromptInstallTargets, promptInstallTargets } from '@/cli/install/prompt';
-import { resolveAfterOptionalBanner } from '@/cli/startup/banner';
+import {
+  canPromptInstallTargets,
+  type KimiInstallMethod,
+  promptInstallTargets,
+  promptKimiInstallMethod,
+} from '@/cli/install/prompt';
+import { awaitWithSpinner, resolveAfterOptionalBanner } from '@/cli/startup/banner';
+import { colors } from '@/cli/utils/colors';
 import { installAmp, uninstallAmp } from '@/integrations/amp/install';
 import {
   installAntigravityCli,
@@ -59,6 +65,7 @@ import {
 } from '@/integrations/install/targets';
 import type { InstallResult } from '@/integrations/install/types';
 import { stripJsonComments } from '@/integrations/jsonc';
+import { detect as detectKimiCodeHook } from '@/integrations/kimi-code/detect';
 import { installKimiCode, uninstallKimiCode } from '@/integrations/kimi-code/install';
 import { OPENCLAW_PLUGIN_ID } from '@/integrations/openclaw/artifact';
 import {
@@ -91,11 +98,14 @@ export type RunInstallCommandOptions = {
     action: InstallAction,
     choices: readonly InstallTargetChoice[],
   ) => Promise<InstallTargetSelection>;
+  selectKimiInstallMethod?: () => Promise<KimiInstallMethod | null>;
   runUpdate?: () => Promise<number>;
 };
 
 type NativeInstallDefinition = {
-  installCommands: readonly NativeCommand[] | ((homeDir: string) => NativeInstallPlan);
+  installCommands:
+    | readonly NativeCommand[]
+    | ((homeDir: string) => NativeInstallPlan | Promise<NativeInstallPlan>);
   uninstallCommands?: readonly NativeCommand[];
   beforeInstall?: (homeDir: string) => void;
   postInstallMessage?: string;
@@ -171,8 +181,8 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
     ],
   },
   codex: {
-    installCommands: () => {
-      const pluginList = runNativeCommand(['codex', 'plugin', 'list']);
+    installCommands: async () => {
+      const pluginList = await runNativeCommand(['codex', 'plugin', 'list']);
       const update = hasCodexReplacementPlugin(pluginList);
       return {
         commands: [
@@ -197,8 +207,8 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
       'Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it.',
   },
   'copilot-cli': {
-    installCommands: () => {
-      const pluginList = runNativeCommand(['copilot', 'plugin', 'list']);
+    installCommands: async () => {
+      const pluginList = await runNativeCommand(['copilot', 'plugin', 'list']);
       const cleanupCommands = [
         ...(hasCopilotLegacyPlugin(pluginList)
           ? ([['copilot', 'plugin', 'uninstall', 'copilot-safety-net']] as const)
@@ -221,7 +231,9 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
         commands: [
           // A registered marketplace holds a catalog checkout that goes stale (e.g. from before
           // the plugin rename) and would fail the install without a refresh.
-          hasCopilotMarketplace(runNativeCommand(['copilot', 'plugin', 'marketplace', 'list']))
+          hasCopilotMarketplace(
+            await runNativeCommand(['copilot', 'plugin', 'marketplace', 'list']),
+          )
             ? (['copilot', 'plugin', 'marketplace', 'update', 'cc-marketplace'] as const)
             : (['copilot', 'plugin', 'marketplace', 'add', 'kenryu42/cc-marketplace'] as const),
           ['copilot', 'plugin', 'install', COPILOT_PLUGIN_ID],
@@ -305,7 +317,7 @@ function parseJsonSettings(
   }
 }
 
-function enableCopilotPlugin(homeDir: string): void {
+function enableCopilotPlugin(homeDir: string): string | undefined {
   const settingsPath = join(_getCopilotConfigHome(homeDir), 'settings.json');
   if (!existsSync(settingsPath)) return;
 
@@ -325,10 +337,10 @@ function enableCopilotPlugin(homeDir: string): void {
     settingsPath,
     flipped !== raw ? flipped : `${JSON.stringify(settings, null, 2)}\n`,
   );
-  console.log(`Enabled ${COPILOT_PLUGIN_ID} plugin in ${settingsPath}`);
+  return `Enabled ${COPILOT_PLUGIN_ID} plugin in ${settingsPath}`;
 }
 
-function removePiExtensionsFilter(homeDir: string): void {
+function removePiExtensionsFilter(homeDir: string): string | undefined {
   const settingsPath = getPiSettingsPath(homeDir);
   if (!existsSync(settingsPath)) return;
 
@@ -347,7 +359,7 @@ function removePiExtensionsFilter(homeDir: string): void {
 
   delete entry.extensions;
   atomicWriteFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
-  console.log(`Enabled npm:cc-safety-net extensions in ${settingsPath}`);
+  return `Enabled npm:cc-safety-net extensions in ${settingsPath}`;
 }
 
 function parseInstallTarget(args: readonly string[], action: InstallAction): InstallTarget {
@@ -373,7 +385,10 @@ function parseInstallTarget(args: readonly string[], action: InstallAction): Ins
 // `gemini extensions list`, `copilot plugin list` and the Pi extension probe all write into the
 // user's real config directories, and this runs on every bare install/uninstall in a TTY.
 async function detectInstallHookState(homeDir = getHomeDir()) {
-  const [codexPluginListOutput, copilotCliVersion] = await Promise.all([
+  const [ampPluginListOutput, codexPluginListOutput, copilotCliVersion] = await Promise.all([
+    // Amp's managed plugin lives in the account's hosted personal repository, so only this
+    // command can see it; like Codex's it can outlast the default 5s version timeout.
+    defaultVersionFetcher(['amp', 'plugins', 'list'], 30_000),
     // A cold `codex plugin list` refreshes marketplace checkouts over the network and can
     // outlast the default 5s version timeout, which would silently drop Codex from detection.
     defaultVersionFetcher(['codex', 'plugin', 'list'], 30_000),
@@ -384,6 +399,7 @@ async function detectInstallHookState(homeDir = getHomeDir()) {
     codexPluginListOutput,
     hooks: detectAllHooks(process.cwd(), {
       homeDir,
+      ampPluginListOutput,
       codexPluginListOutput,
       copilotCliVersion,
     }),
@@ -442,8 +458,8 @@ function startResolveInstallTargets(
         configuredTargets,
       });
       const selected = options.selectTargets
-        ? await options.selectTargets(action, targetChoices)
-        : await promptInstallTargets(action, targetChoices, {
+        ? await options.selectTargets(action, allowKimiMethodChoice(action, targetChoices))
+        : await promptInstallTargets(action, allowKimiMethodChoice(action, targetChoices), {
             input: options.input,
             output: options.output,
           });
@@ -455,41 +471,43 @@ function startResolveInstallTargets(
   };
 }
 
-function installNativeTarget(target: NativeInstallTarget, homeDir: string, updating = false): void {
+async function installNativeTarget(
+  target: NativeInstallTarget,
+  homeDir: string,
+  updating = false,
+): Promise<string> {
   const definition = NATIVE_INSTALLS[target];
   definition.beforeInstall?.(homeDir);
   const plan =
     typeof definition.installCommands === 'function'
-      ? definition.installCommands(homeDir)
+      ? await definition.installCommands(homeDir)
       : { commands: definition.installCommands };
-  runNativeCommands(plan.commands);
-  runNativeCleanupCommands(plan.cleanupCommands ?? []);
-  console.log(
-    [
-      `${plan.update || updating ? 'Updated' : 'Installed'} ${getIntegrationInstallLabel(target)} integration`,
-      definition.postInstallMessage,
-    ]
-      .filter(Boolean)
-      .join('\n'),
-  );
+  await runNativeCommands(plan.commands);
+  await runNativeCleanupCommands(plan.cleanupCommands ?? []);
+  return [
+    `${plan.update || updating ? 'Updated' : 'Installed'} ${getIntegrationInstallLabel(target)} integration`,
+    definition.postInstallMessage,
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
-function uninstallNativeTarget(target: Exclude<NativeInstallTarget, 'opencode'>): void {
+async function uninstallNativeTarget(
+  target: Exclude<NativeInstallTarget, 'opencode'>,
+): Promise<string> {
   const definition = NATIVE_INSTALLS[target];
   if (!definition.uninstallCommands)
     throw new Error(`${getIntegrationInstallLabel(target)} uninstall is not supported`);
 
-  runNativeCommands(definition.uninstallCommands);
-  console.log(`Uninstalled ${getIntegrationInstallLabel(target)} integration`);
+  await runNativeCommands(definition.uninstallCommands);
+  return `Uninstalled ${getIntegrationInstallLabel(target)} integration`;
 }
 
-function uninstallOpenCodeTarget(homeDir: string): void {
+function uninstallOpenCodeTarget(homeDir: string): string {
   const result = uninstallOpenCode(homeDir);
-  console.log(
-    result.alreadyInstalled
-      ? `Uninstalled OpenCode plugin from ${result.path}`
-      : `OpenCode plugin not installed in ${result.path}`,
-  );
+  return result.alreadyInstalled
+    ? `Uninstalled OpenCode plugin from ${result.path}`
+    : `OpenCode plugin not installed in ${result.path}`;
 }
 
 const CONFIG_INSTALLS = {
@@ -503,47 +521,46 @@ function runConfigInstallTarget(
   target: ConfigInstallTarget,
   homeDir: string,
   updating = false,
-): void {
+): string {
   if (action === 'install') clearNpxSafetyNetCache(homeDir);
   const result = CONFIG_INSTALLS[target][action](homeDir);
   const name = getIntegrationInstallLabel(target);
   const pastTense = action !== 'install' ? 'Uninstalled' : updating ? 'Updated' : 'Installed';
 
-  console.log(
-    action === 'install' && result.alreadyInstalled
-      ? updating
-        ? `${name} hook up to date in ${result.path}`
-        : `${name} hook already installed in ${result.path}`
-      : action === 'uninstall' && !result.alreadyInstalled
-        ? `${name} hook not installed in ${result.path}`
-        : `${pastTense} ${name} hook ${action === 'install' ? 'in' : 'from'} ${result.path}`,
-  );
+  return action === 'install' && result.alreadyInstalled
+    ? updating
+      ? `${name} hook up to date in ${result.path}`
+      : `${name} hook already installed in ${result.path}`
+    : action === 'uninstall' && !result.alreadyInstalled
+      ? `${name} hook not installed in ${result.path}`
+      : `${pastTense} ${name} hook ${action === 'install' ? 'in' : 'from'} ${result.path}`;
 }
 
 const MANAGED_ARTIFACT_INSTALLS: Record<
   ManagedArtifactTarget,
   {
-    install: (homeDir: string) => InstallResult;
-    uninstall: (homeDir: string) => InstallResult;
+    install: (homeDir: string) => InstallResult | Promise<InstallResult>;
+    uninstall: (homeDir: string) => InstallResult | Promise<InstallResult>;
     /** Returns whether it changed host state, which an unchanged artifact alone cannot tell. */
-    afterInstall?: (homeDir: string) => boolean;
-    beforeUninstall?: (homeDir: string) => void;
+    afterInstall?: (homeDir: string) => Promise<boolean>;
+    beforeUninstall?: (homeDir: string) => Promise<void>;
     restartNote: string;
   }
 > = {
   amp: {
     install: installAmp,
     uninstall: uninstallAmp,
-    restartNote: 'Restart Amp or run "plugins: reload" to apply the change.',
+    restartNote:
+      'Amp personal plugins apply to every Amp session, including Orb threads. Restart Amp or run "plugins: reload" to apply the change.',
   },
   'hermes-agent': {
     install: installHermesAgent,
     uninstall: uninstallHermesAgent,
     // Hermes loads a user plugin only when config.yaml lists it, so the artifact alone is inert —
     // and enabling a plugin the user had switched off is a change even when nothing was written.
-    afterInstall: (homeDir) => {
+    afterInstall: async (homeDir) => {
       const wasEnabled = isHermesAgentPluginEnabled(homeDir);
-      runNativeCommand([
+      await runNativeCommand([
         'hermes',
         'plugins',
         'enable',
@@ -555,12 +572,12 @@ const MANAGED_ARTIFACT_INSTALLS: Record<
     // Left enabled, the config entry would auto-load any future plugin of the same name. Hermes
     // only resolves a plugin that is still on disk, so this runs before the files are removed —
     // and its failure is reported rather than thrown, so it can never keep them.
-    beforeUninstall: (homeDir) => {
+    beforeUninstall: async (homeDir) => {
       // `plugins disable` edits the user's config, so an uninstall that is going to refuse the
       // files must refuse before it runs, not after.
       readOwnedHermesAgentFiles(homeDir);
       try {
-        runNativeCommand(['hermes', 'plugins', 'disable', HERMES_AGENT_PLUGIN_NAME]);
+        await runNativeCommand(['hermes', 'plugins', 'disable', HERMES_AGENT_PLUGIN_NAME]);
       } catch (error) {
         console.warn(
           `${error instanceof Error ? error.message : String(error)}\nRemoving the plugin files anyway; ${HERMES_AGENT_PLUGIN_NAME} may still be listed in the Hermes config.`,
@@ -571,16 +588,17 @@ const MANAGED_ARTIFACT_INSTALLS: Record<
   },
 };
 
-function runManagedArtifactInstallTarget(
+async function runManagedArtifactInstallTarget(
   action: InstallAction,
   target: ManagedArtifactTarget,
   homeDir: string,
   updating = false,
-): void {
+): Promise<string> {
   const definition = MANAGED_ARTIFACT_INSTALLS[target];
-  if (action === 'uninstall') definition.beforeUninstall?.(homeDir);
-  const result = action === 'install' ? definition.install(homeDir) : definition.uninstall(homeDir);
-  const changedHostState = action === 'install' && definition.afterInstall?.(homeDir);
+  if (action === 'uninstall') await definition.beforeUninstall?.(homeDir);
+  const result =
+    action === 'install' ? await definition.install(homeDir) : await definition.uninstall(homeDir);
+  const changedHostState = action === 'install' && (await definition.afterInstall?.(homeDir));
   const name = getIntegrationInstallLabel(target);
   const noChange =
     !changedHostState &&
@@ -593,7 +611,7 @@ function runManagedArtifactInstallTarget(
       : `${name} plugin not installed at ${result.path}`
     : `${pastTense} ${name} plugin ${action === 'install' ? 'at' : 'from'} ${result.path}`;
 
-  console.log([message, noChange ? undefined : definition.restartNote].filter(Boolean).join('\n'));
+  return [message, noChange ? undefined : definition.restartNote].filter(Boolean).join('\n');
 }
 
 const INSTALL_OPERATIONS = {
@@ -618,10 +636,10 @@ const INSTALL_OPERATIONS = {
     uninstall: () => uninstallNativeTarget('codex'),
   },
   'copilot-cli': {
-    install: (homeDir: string, updating?: boolean) => {
-      installNativeTarget('copilot-cli', homeDir, updating);
-      enableCopilotPlugin(homeDir);
-    },
+    install: async (homeDir: string, updating?: boolean) =>
+      [await installNativeTarget('copilot-cli', homeDir, updating), enableCopilotPlugin(homeDir)]
+        .filter(Boolean)
+        .join('\n'),
     uninstall: () => uninstallNativeTarget('copilot-cli'),
   },
   cursor: {
@@ -639,7 +657,7 @@ const INSTALL_OPERATIONS = {
       // The managed plugin shells out to `npx cc-safety-net`, so a stale npx cache would
       // keep running the previous version after an update.
       clearNpxSafetyNetCache(homeDir);
-      runManagedArtifactInstallTarget('install', 'hermes-agent', homeDir, updating);
+      return runManagedArtifactInstallTarget('install', 'hermes-agent', homeDir, updating);
     },
     uninstall: (homeDir: string) =>
       runManagedArtifactInstallTarget('uninstall', 'hermes-agent', homeDir),
@@ -650,14 +668,15 @@ const INSTALL_OPERATIONS = {
     uninstall: (homeDir: string) => runConfigInstallTarget('uninstall', 'kimi-code', homeDir),
   },
   openclaw: {
-    install: (homeDir: string, updating?: boolean) => {
-      installNativeTarget('openclaw', homeDir, updating);
-      verifyOpenClawPluginRuntime();
+    install: async (homeDir: string, updating?: boolean) => {
+      const message = await installNativeTarget('openclaw', homeDir, updating);
+      await verifyOpenClawPluginRuntime();
+      return message;
     },
     uninstall: (homeDir: string) => {
       // `plugins uninstall --force` deletes the extension directory outright.
       assertOpenClawPluginDirIsOurs(homeDir);
-      uninstallNativeTarget('openclaw');
+      return uninstallNativeTarget('openclaw');
     },
   },
   opencode: {
@@ -666,24 +685,92 @@ const INSTALL_OPERATIONS = {
     uninstall: (homeDir: string) => uninstallOpenCodeTarget(homeDir),
   },
   pi: {
-    install: (homeDir: string, updating?: boolean) => {
-      installNativeTarget('pi', homeDir, updating);
-      removePiExtensionsFilter(homeDir);
-    },
+    install: async (homeDir: string, updating?: boolean) =>
+      [await installNativeTarget('pi', homeDir, updating), removePiExtensionsFilter(homeDir)]
+        .filter(Boolean)
+        .join('\n'),
     uninstall: () => uninstallNativeTarget('pi'),
   },
 } satisfies Record<
   InstallTarget,
-  Record<InstallAction, (homeDir: string, updating?: boolean) => void>
+  Record<InstallAction, (homeDir: string, updating?: boolean) => string | Promise<string>>
 >;
 
-function runSingleInstallTarget(
+const KIMI_PLUGIN_INSTRUCTIONS = [
+  'Install CC Safety Net as a native Kimi Code plugin:',
+  '',
+  '  1. Start Kimi Code and run: /plugins install https://github.com/kenryu42/cc-safety-net',
+  '     Confirm the trust prompt; it defaults to cancel.',
+  '  2. Run /reload, or start a new session.',
+  '',
+  'Note: Kimi Code hooks are fail-open. When the hook process cannot start, crashes, or times',
+  'out, Kimi Code allows the tool call.',
+].join('\n');
+
+function formatKimiPluginInstructions(homeDir: string): string {
+  if (detectKimiCodeHook({ homeDir, cwd: process.cwd() }).status !== 'configured') {
+    return KIMI_PLUGIN_INSTRUCTIONS;
+  }
+  // Uninstall comes after the plugin works, never before: a gap with neither hook active is
+  // unsafe, while a brief overlap only duplicates the denial message.
+  return [
+    KIMI_PLUGIN_INSTRUCTIONS,
+    '',
+    colors.red(
+      [
+        'CAUTION: the global Kimi Code hook is installed and will run alongside the plugin.',
+        'After the plugin is active, remove it with: cc-safety-net uninstall --kimi-code',
+      ].join('\n'),
+    ),
+  ].join('\n');
+}
+
+// A configured Kimi Code row stays selectable on install: unlike every other target, selecting
+// it opens the method prompt, which is the only path to the native-plugin instructions.
+function allowKimiMethodChoice(
+  action: InstallAction,
+  choices: readonly InstallTargetChoice[],
+): InstallTargetChoice[] {
+  return choices.map((choice) =>
+    action === 'install' &&
+    choice.target === 'kimi-code' &&
+    choice.unavailableReason === 'already installed'
+      ? {
+          ...choice,
+          available: true,
+          unavailableReason: undefined,
+          label: `${choice.label} (global hook installed)`,
+        }
+      : choice,
+  );
+}
+
+function resolveKimiInstallMethod(
+  options: RunInstallCommandOptions,
+  homeDir: string,
+): Promise<KimiInstallMethod | null> {
+  if (options.selectKimiInstallMethod) return options.selectKimiInstallMethod();
+  // A non-interactive session cannot answer a prompt, so the flag keeps installing the
+  // global hook there instead of hanging a script or CI pipeline.
+  if (!canPromptInstallTargets(options.input, options.output)) {
+    return Promise.resolve('global-hook');
+  }
+  return promptKimiInstallMethod({
+    input: options.input,
+    output: options.output,
+    globalHookInstalled:
+      detectKimiCodeHook({ homeDir, cwd: process.cwd() }).status === 'configured',
+  });
+}
+
+/** Runs one target's action and returns its report, printed by the caller once any spinner stops. */
+async function runSingleInstallTarget(
   action: InstallAction,
   target: InstallTarget,
   homeDir: string,
   updating = false,
-): void {
-  INSTALL_OPERATIONS[target][action](homeDir, updating);
+): Promise<string> {
+  return INSTALL_OPERATIONS[target][action](homeDir, updating);
 }
 
 function parseUpdateArgs(args: readonly string[]): void {
@@ -734,19 +821,19 @@ async function updateInstalledIntegrations(): Promise<number> {
   );
 
   // The targets are independent, so one failure must not keep the rest from updating.
-  const failed = targets.filter((target) => {
+  const failed: InstallTarget[] = [];
+  for (const target of targets) {
     if (NATIVE_UPDATE_TARGETS.has(target) && !available.get(target)) {
       console.log(`${getIntegrationInstallLabel(target)} not found; skipped`);
-      return false;
+      continue;
     }
     try {
-      runSingleInstallTarget('install', target, homeDir, true);
-      return false;
+      console.log(await runSingleInstallTarget('install', target, homeDir, true));
     } catch (error) {
       console.error(formatInstallError(error));
-      return true;
+      failed.push(target);
     }
-  });
+  }
   return failed.length > 0 ? 1 : 0;
 }
 
@@ -794,7 +881,27 @@ export async function runInstallCommand(
     }
 
     const homeDir = getHomeDir();
-    runInstallTargetsInOrder(targets, (target) => runSingleInstallTarget(action, target, homeDir));
+    const output = options.output ?? process.stdout;
+    // Host CLIs can install slowly (network fetches, marketplace refreshes), so each target
+    // runs behind the same spinner the interactive selector uses, then prints its report.
+    await runInstallTargetsInOrder(targets, async (target) => {
+      if (target === 'kimi-code' && action === 'install') {
+        const method = await resolveKimiInstallMethod(options, homeDir);
+        if (method === null) {
+          output.write('Cancelled: Kimi Code integration was not installed.\n');
+          return;
+        }
+        if (method === 'plugin') {
+          output.write(`${formatKimiPluginInstructions(homeDir)}\n`);
+          return;
+        }
+      }
+      const message = await awaitWithSpinner(runSingleInstallTarget(action, target, homeDir), {
+        loadingMessage: `${action === 'install' ? 'Installing' : 'Uninstalling'} ${getIntegrationInstallLabel(target)} integration…`,
+        output,
+      });
+      output.write(`${message}\n`);
+    });
 
     return 0;
   } catch (e) {

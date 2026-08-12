@@ -1,14 +1,32 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+/**
+ * Amp install, in personal scope: the managed plugin lives in the user's hosted Amp Personal
+ * Plugins repository, so it also applies to Orb threads. `amp plugins add` can only target
+ * system or workspace scope, so the transport is a throwaway clone of that repository plus a
+ * commit and a push; every subprocess goes through the injected runner.
+ */
+
+import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AMP_MANAGED_HEADER } from '@/integrations/amp/artifact';
+import { type AmpRunner, runAmpCommand } from '@/integrations/amp/run';
+import { readRecord } from '@/integrations/detect/context';
 import { atomicWriteFile } from '@/integrations/install/atomic-write';
 import type { InstallResult } from '@/integrations/install/types';
+import { getPackageVersion } from '@/integrations/system-info';
+import { getUserPolicyPath, normalizeGuiPolicy } from '@/policy/store';
 
 const AMP_ARTIFACT_RELATIVE = join('amp', 'cc-safety-net.ts');
+const AMP_PLUGIN_FILE = 'cc-safety-net.ts';
 
+/**
+ * Local system-scope plugin path. Nothing installs here anymore; a leftover file masks the
+ * personal plugin, so install and uninstall clean it up when it is one of ours.
+ * @internal
+ */
 export function getAmpPluginPath(homeDir: string): string {
-  return join(homeDir, '.config', 'amp', 'plugins', 'cc-safety-net.ts');
+  return join(homeDir, '.config', 'amp', 'plugins', AMP_PLUGIN_FILE);
 }
 
 /**
@@ -46,6 +64,14 @@ function lstatOrUndefined(path: string) {
   }
 }
 
+function parseJsonOrUndefined(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
 function isManagedAmpArtifact(content: Buffer): boolean {
   return (
     content.subarray(0, Buffer.byteLength(AMP_MANAGED_HEADER)).toString('utf-8') ===
@@ -53,44 +79,209 @@ function isManagedAmpArtifact(content: Buffer): boolean {
   );
 }
 
-export function installAmp(
-  homeDir: string,
-  artifactPath: string = resolveAmpArtifactPath(),
-): InstallResult {
-  const artifact = readFileSync(artifactPath);
-  const dest = getAmpPluginPath(homeDir);
-  const info = lstatOrUndefined(dest);
-
-  if (!info) {
-    mkdirSync(dirname(dest), { recursive: true });
-    atomicWriteFile(dest, artifact);
-    return { path: dest, alreadyInstalled: false };
-  }
-  if (info.isSymbolicLink() || !info.isFile())
-    throw new Error(
-      `Refusing to overwrite ${dest}: not a regular file. Move or remove it and rerun install --amp.`,
-    );
-
-  const current = readFileSync(dest);
-  if (current.equals(artifact)) return { path: dest, alreadyInstalled: true };
-  if (isManagedAmpArtifact(current)) {
-    atomicWriteFile(dest, artifact);
-    return { path: dest, alreadyInstalled: false };
-  }
+async function runAmpStep(run: AmpRunner, command: readonly [string, ...string[]], cwd?: string) {
+  const result = await run(command, cwd);
+  if (result.status === 0) return result;
   throw new Error(
-    `Refusing to overwrite unmanaged file at ${dest}. Move or remove it and rerun install --amp.`,
+    [
+      `Failed to run ${command.join(' ')}${result.status === null ? '' : ` (exit ${result.status})`}.`,
+      [result.stdout, result.stderr].filter(Boolean).join('\n').trim(),
+    ]
+      .filter(Boolean)
+      .join('\n'),
   );
 }
 
-export function uninstallAmp(homeDir: string): InstallResult {
-  const dest = getAmpPluginPath(homeDir);
-  const info = lstatOrUndefined(dest);
-  if (!info) return { path: dest, alreadyInstalled: false };
-  if (info.isSymbolicLink() || !info.isFile())
-    throw new Error(`Refusing to remove ${dest}: not a regular file. Move or remove it manually.`);
-  if (!isManagedAmpArtifact(readFileSync(dest)))
-    throw new Error(`Refusing to remove unmanaged file at ${dest}. Move or remove it manually.`);
+/** The clone reference of the account's writable Personal Plugins repository. */
+async function requirePersonalPluginsRef(run: AmpRunner): Promise<string> {
+  const result = await run(['amp', 'plugins', 'repositories', '--json']);
+  if (result.status === null)
+    throw new Error(
+      `${
+        result.errorCode === 'ENOENT'
+          ? 'Amp CLI not found. Install the amp CLI, sign in with "amp login", and rerun install --amp.'
+          : `amp plugins repositories --json did not finish (${result.errorCode ?? 'terminated'}). Check that the amp CLI responds and rerun install --amp.`
+      }\n${result.stderr}`.trim(),
+    );
+  if (result.status !== 0)
+    throw new Error(
+      `Failed to run amp plugins repositories --json (exit ${result.status}). Sign in with "amp login" and rerun install --amp.\n${[result.stdout, result.stderr].filter(Boolean).join('\n')}`.trim(),
+    );
 
-  rmSync(dest);
-  return { path: dest, alreadyInstalled: true };
+  const parsed = parseJsonOrUndefined(result.stdout);
+  const cloneRef = (Array.isArray(parsed) ? parsed : [])
+    .filter(
+      (entry) =>
+        readRecord(entry, 'scope') === 'user' &&
+        readRecord(entry, 'exists') === true &&
+        readRecord(entry, 'viewerCanWrite') === true,
+    )
+    .map((entry) => readRecord(entry, 'cloneRef'))
+    .find((ref): ref is string => typeof ref === 'string' && ref.length > 0);
+  if (!cloneRef)
+    throw new Error(
+      'Your Amp account has no writable Personal Plugins repository. Sign in with "amp login", open Amp once to create it, and rerun install --amp.',
+    );
+  return cloneRef;
+}
+
+/**
+ * A fresh clone per run, removed afterwards: the checkout is disposable state, so `finally`
+ * only cleans it up and never hides why a step failed.
+ */
+async function withAmpCheckout<T>(
+  run: AmpRunner,
+  body: (checkout: string) => Promise<T>,
+): Promise<T> {
+  const checkout = mkdtempSync(join(tmpdir(), 'cc-safety-net-amp-'));
+  try {
+    await runAmpStep(run, ['amp', 'clone', 'user-plugins', checkout]);
+    return await body(checkout);
+  } finally {
+    rmSync(checkout, { recursive: true, force: true });
+  }
+}
+
+/** Current managed contents of the plugin in the checkout, or undefined when it is absent. */
+function readManagedPluginFile(checkout: string, action: 'overwrite' | 'remove') {
+  const dest = join(checkout, AMP_PLUGIN_FILE);
+  const info = lstatOrUndefined(dest);
+  if (!info) return undefined;
+  if (info.isSymbolicLink() || !info.isFile())
+    throw new Error(
+      `Refusing to ${action} ${AMP_PLUGIN_FILE} in your Amp personal plugins repository: not a regular file. Remove it there and rerun install --amp.`,
+    );
+
+  const current = readFileSync(dest);
+  if (isManagedAmpArtifact(current)) return current;
+  throw new Error(
+    `Refusing to ${action} unmanaged file ${AMP_PLUGIN_FILE} in your Amp personal plugins repository. Remove it there and rerun install --amp.`,
+  );
+}
+
+/** False when staging left nothing to commit, so the repository is already up to date. */
+async function commitAndPush(
+  run: AmpRunner,
+  checkout: string,
+  stage: readonly [string, ...string[]],
+  message: string,
+): Promise<boolean> {
+  await runAmpStep(run, stage, checkout);
+  // Under core.autocrlf the clone smudges the committed LF plugin to CRLF, so the artifact
+  // differs byte-for-byte while `git add` renormalizes the index straight back to HEAD; a
+  // commit would then fail with "nothing to commit" on every rerun.
+  const staged = await runAmpStep(run, ['git', 'status', '--porcelain'], checkout);
+  if (staged.stdout.trim() === '') return false;
+  // A machine-generated commit in a throwaway checkout: the user's global signing config
+  // would otherwise stop the install on a signing prompt or a missing key, and a machine
+  // without a global git identity would fail the commit with "Please tell me who you are".
+  await runAmpStep(
+    run,
+    [
+      'git',
+      '-c',
+      'commit.gpgsign=false',
+      '-c',
+      'user.name=cc-safety-net',
+      '-c',
+      'user.email=cc-safety-net@localhost',
+      'commit',
+      '-m',
+      message,
+    ],
+    checkout,
+  );
+  // The personal plugins repository can still be unborn, which a bare `git push` cannot handle.
+  await runAmpStep(run, ['git', 'push', 'origin', 'HEAD'], checkout);
+  return true;
+}
+
+/**
+ * A managed local plugin masks the personal one, so it goes once the personal copy is in place.
+ * An unmanaged file, symlink, or other non-regular entry is preserved, but the install fails:
+ * success would hide that the local entry keeps masking the published hook. Uninstall keeps the
+ * silent skip — with the personal copy removed there is nothing left to mask.
+ */
+function removeMaskingLocalPlugin(homeDir: string, onUnmanaged: 'fail' | 'keep'): void {
+  const local = getAmpPluginPath(homeDir);
+  const info = lstatOrUndefined(local);
+  if (!info) return;
+  if (!info.isSymbolicLink() && info.isFile() && isManagedAmpArtifact(readFileSync(local))) {
+    rmSync(local);
+    return;
+  }
+  if (onUnmanaged === 'keep') return;
+  throw new Error(
+    `Local Amp plugin ${local} is not a managed copy and masks the personal plugin. Remove it and rerun install --amp.`,
+  );
+}
+
+/**
+ * The user's policy, as one appended assignment the plugin reads on an Orb — a remote machine
+ * whose home holds no policy file. Normalizing and re-stringifying is the injection barrier:
+ * raw file bytes never reach the emitted code. An absent, empty, or non-object policy file
+ * publishes nothing, so such an Orb behaves like any machine without a policy file.
+ * Deliberately not covered: audit retention (reads the real file and keeps its default here),
+ * user rulebooks, and project-scope policy; a policy edit ships on the next install or update.
+ */
+function embeddedPolicyStamp(): string {
+  const path = getUserPolicyPath();
+  if (!existsSync(path)) return '';
+  const parsed = parseJsonOrUndefined(readFileSync(path, 'utf-8'));
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return '';
+  return `;globalThis.__CC_SAFETY_NET_EMBEDDED_POLICY__ = ${JSON.stringify(normalizeGuiPolicy(parsed))};\n`;
+}
+
+export async function installAmp(
+  homeDir: string,
+  artifactPath: string = resolveAmpArtifactPath(),
+  run: AmpRunner = runAmpCommand,
+): Promise<InstallResult> {
+  const content = Buffer.concat([
+    readFileSync(artifactPath),
+    Buffer.from(embeddedPolicyStamp(), 'utf-8'),
+  ]);
+  const cloneRef = await requirePersonalPluginsRef(run);
+
+  return withAmpCheckout(run, async (checkout) => {
+    const path = `${cloneRef}/${AMP_PLUGIN_FILE}`;
+    if (readManagedPluginFile(checkout, 'overwrite')?.equals(content)) {
+      removeMaskingLocalPlugin(homeDir, 'fail');
+      return { path, alreadyInstalled: true };
+    }
+
+    atomicWriteFile(join(checkout, AMP_PLUGIN_FILE), content);
+    const pushed = await commitAndPush(
+      run,
+      checkout,
+      ['git', 'add', AMP_PLUGIN_FILE],
+      `chore: update cc-safety-net plugin to v${getPackageVersion()}`,
+    );
+    removeMaskingLocalPlugin(homeDir, 'fail');
+    return { path, alreadyInstalled: !pushed };
+  });
+}
+
+export async function uninstallAmp(
+  homeDir: string,
+  run: AmpRunner = runAmpCommand,
+): Promise<InstallResult> {
+  const cloneRef = await requirePersonalPluginsRef(run);
+
+  return withAmpCheckout(run, async (checkout) => {
+    const path = `${cloneRef}/${AMP_PLUGIN_FILE}`;
+    if (!readManagedPluginFile(checkout, 'remove')) {
+      removeMaskingLocalPlugin(homeDir, 'keep');
+      return { path, alreadyInstalled: false };
+    }
+
+    await commitAndPush(
+      run,
+      checkout,
+      ['git', 'rm', AMP_PLUGIN_FILE],
+      `chore: remove cc-safety-net plugin v${getPackageVersion()}`,
+    );
+    removeMaskingLocalPlugin(homeDir, 'keep');
+    return { path, alreadyInstalled: true };
+  });
 }

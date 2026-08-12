@@ -29,7 +29,7 @@ export function getPackageVersion(): string {
  * Version fetcher function type.
  * Takes command args and returns the version string or null.
  */
-export type VersionFetcher = (args: string[]) => Promise<string | null>;
+export type VersionFetcher = (args: string[], timeoutMs?: number) => Promise<string | null>;
 
 function getEnvValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const direct = env[name];
@@ -69,7 +69,14 @@ function quoteWindowsCommandArg(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-function getSpawnCommand(args: string[], env: NodeJS.ProcessEnv): { cmd: string; args: string[] } {
+/**
+ * Windows-safe argv: npm-distributed CLIs exist there only as `.cmd` shims, which
+ * spawn cannot start directly, so those are run through COMSPEC.
+ */
+export function getSpawnCommand(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+): { cmd: string; args: string[] } {
   const [command, ...rest] = args;
   const platform = env[TEST_SPAWN_PLATFORM_ENV] === 'win32' ? 'win32' : process.platform;
   if (!command || platform !== 'win32') return { cmd: command ?? '', args: rest };
@@ -207,6 +214,7 @@ export async function getSystemInfo(
     piRaw,
     cursorRaw,
     ampRaw,
+    ampPluginListOutput,
     nodeRaw,
     npmRaw,
     bunRaw,
@@ -224,6 +232,9 @@ export async function getSystemInfo(
     fetcher(['pi', '--version']),
     fetcher(['cursor', '--version']),
     fetcher(['amp', '--version']),
+    // A cold `amp plugins list` starts the plugin service and fetches the hosted personal
+    // plugins, which outlasts the default version timeout the same way Codex's does.
+    fetcher(['amp', 'plugins', 'list'], 30_000),
     fetcher(['node', '--version']),
     fetcher(['npm', '--version']),
     fetcher(['bun', '--version']),
@@ -244,6 +255,7 @@ export async function getSystemInfo(
     piCliVersion: parseVersion(piRaw),
     cursorVersion: parseVersion(cursorRaw),
     ampVersion: parseVersion(ampRaw),
+    ampPluginListOutput,
     nodeVersion: parseVersion(nodeRaw),
     npmVersion: parseVersion(npmRaw),
     bunVersion: parseVersion(bunRaw),

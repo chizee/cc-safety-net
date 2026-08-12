@@ -53,6 +53,7 @@ function createReport(overrides: Partial<DoctorFacts> = {}): DoctorFacts {
       antigravityCliVersion: null,
       codexCliVersion: null,
       codexPluginListOutput: null,
+      ampPluginListOutput: null,
       geminiCliVersion: null,
       copilotCliVersion: null,
       hermesAgentVersion: null,

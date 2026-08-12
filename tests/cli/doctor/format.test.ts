@@ -34,6 +34,7 @@ function createSystemInfo(overrides: Partial<SystemInfo> = {}): SystemInfo {
     openCodeVersion: null,
     codexCliVersion: null,
     codexPluginListOutput: null,
+    ampPluginListOutput: null,
     geminiCliVersion: null,
     copilotCliVersion: null,
     hermesAgentVersion: null,

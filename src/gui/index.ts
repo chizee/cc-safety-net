@@ -531,6 +531,7 @@ export async function fetchIntegrations(
 function detectHooksFromSystemInfo(systemInfo: SystemInfo, homeDir?: string) {
   return detectAllHooks(process.cwd(), {
     homeDir,
+    ampPluginListOutput: systemInfo.ampPluginListOutput,
     codexPluginListOutput: systemInfo.codexPluginListOutput,
     copilotCliVersion: systemInfo.copilotCliVersion,
   });

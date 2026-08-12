@@ -21,6 +21,21 @@ export function verifyRepositoryPlugin(): void {
   if (command !== 'node "${CLAUDE_PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --coding-cli') {
     throw new Error('Claude plugin hook target drifted');
   }
+  const kimi = JSON.parse(readFileSync('kimi.plugin.json', 'utf8')) as {
+    version: string;
+    hooks: Array<{ event: string; matcher: string; command: string; timeout: number }>;
+  };
+  if (pkg.version !== kimi.version) throw new Error('Package and Kimi plugin versions disagree');
+  const kimiHook = kimi.hooks[0];
+  if (
+    kimi.hooks.length !== 1 ||
+    kimiHook?.event !== 'PreToolUse' ||
+    kimiHook.matcher !== 'Bash' ||
+    kimiHook.command !== 'node ./dist/bin/cc-safety-net.js hook --kimi-code' ||
+    kimiHook.timeout !== 30
+  ) {
+    throw new Error('Kimi plugin hook target drifted');
+  }
   accessSync('dist/bin/cc-safety-net.js', constants.X_OK);
   accessSync('dist/index.js', constants.R_OK);
   if ((statSync('dist/bin/cc-safety-net.js').mode & 0o111) === 0) {
@@ -30,6 +45,7 @@ export function verifyRepositoryPlugin(): void {
   run(['git', 'ls-files', '--error-unmatch', 'assets/cc-safety-net.schema.json']);
   run(['git', 'ls-files', '--error-unmatch', '.claude-plugin/plugin.json']);
   run(['git', 'ls-files', '--error-unmatch', 'hooks/hooks.json']);
+  run(['git', 'ls-files', '--error-unmatch', 'kimi.plugin.json']);
   console.log(`Verified repository plugin v${pkg.version}`);
 }
 

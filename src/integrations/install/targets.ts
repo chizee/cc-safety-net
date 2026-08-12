@@ -27,9 +27,9 @@ export function orderInstallTargets(targets: readonly InstallTarget[]): InstallT
   );
 }
 
-export function runInstallTargetsInOrder(
+export async function runInstallTargetsInOrder(
   targets: readonly InstallTarget[],
-  runTarget: (target: InstallTarget) => void,
-): void {
-  targets.forEach(runTarget);
+  runTarget: (target: InstallTarget) => Promise<void>,
+): Promise<void> {
+  for (const target of targets) await runTarget(target);
 }

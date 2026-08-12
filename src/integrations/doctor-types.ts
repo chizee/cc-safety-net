@@ -147,6 +147,8 @@ export interface SystemInfo {
   codexCliVersion: string | null;
   /** Codex plugin list output (from `codex plugin list`) */
   codexPluginListOutput: string | null;
+  /** Amp plugin list output (from `amp plugins list`) */
+  ampPluginListOutput: string | null;
   /** Gemini CLI version (from `gemini --version`) */
   geminiCliVersion: string | null;
   /** GitHub Copilot CLI version (from `copilot --binary-version`; `copilot --version` is never

@@ -10,6 +10,7 @@ import {
   type InstallAction,
   type InstallTarget,
 } from '@/integrations/install/targets';
+import { getSpawnCommand } from '@/integrations/system-info';
 
 export type InstallTargetChoice = {
   target: InstallTarget;
@@ -33,7 +34,8 @@ export type BuildInstallTargetChoicesOptions = {
 const PROBE_TIMEOUT_MS = 5000;
 
 function defaultInstallTargetProbe(command: NativeCommand): boolean {
-  const result = spawnSync(command[0], command.slice(1), {
+  const spawnCommand = getSpawnCommand([...command], process.env);
+  const result = spawnSync(spawnCommand.cmd, spawnCommand.args, {
     env: process.env,
     stdio: 'ignore',
     timeout: PROBE_TIMEOUT_MS,
@@ -44,7 +46,8 @@ function defaultInstallTargetProbe(command: NativeCommand): boolean {
 
 export function probeInstallTarget(command: NativeCommand): Promise<boolean> {
   return new Promise((resolve) => {
-    const proc = spawn(command[0], command.slice(1), {
+    const spawnCommand = getSpawnCommand([...command], process.env);
+    const proc = spawn(spawnCommand.cmd, spawnCommand.args, {
       env: process.env,
       stdio: 'ignore',
     });
