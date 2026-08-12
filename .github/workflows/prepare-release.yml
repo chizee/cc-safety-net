@@ -88,6 +88,9 @@ jobs:
         run: |
           BASE=$(cat "$RUNNER_TEMP/prepared-release.base")
           bun run scripts/prepare-release-files.ts --version "$VERSION"
+          # Lint the exact bytes that will be committed and tagged: the publish workflow
+          # runs check:ci on the tag, so unformatted prepared files must fail here first.
+          bun run lint:ci
           bun run build
           bun run verify:repository-plugin
           bun run verify:package
