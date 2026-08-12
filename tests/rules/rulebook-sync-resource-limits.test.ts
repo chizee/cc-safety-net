@@ -155,7 +155,8 @@ describe('rulebook sync source fanout limits', () => {
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
-  });
+    // Two full syncs over 64 real sources exceed the 5s default on slow CI runners.
+  }, 20_000);
 
   test('applies the same source preflight to user scope', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'rule-sync-global-source-limit-'));
