@@ -173,8 +173,24 @@ async function commitAndPush(
   const staged = await runAmpStep(run, ['git', 'status', '--porcelain'], checkout);
   if (staged.stdout.trim() === '') return false;
   // A machine-generated commit in a throwaway checkout: the user's global signing config
-  // would otherwise stop the install on a signing prompt or a missing key.
-  await runAmpStep(run, ['git', '-c', 'commit.gpgsign=false', 'commit', '-m', message], checkout);
+  // would otherwise stop the install on a signing prompt or a missing key, and a machine
+  // without a global git identity would fail the commit with "Please tell me who you are".
+  await runAmpStep(
+    run,
+    [
+      'git',
+      '-c',
+      'commit.gpgsign=false',
+      '-c',
+      'user.name=cc-safety-net',
+      '-c',
+      'user.email=cc-safety-net@localhost',
+      'commit',
+      '-m',
+      message,
+    ],
+    checkout,
+  );
   // The personal plugins repository can still be unborn, which a bare `git push` cannot handle.
   await runAmpStep(run, ['git', 'push', 'origin', 'HEAD'], checkout);
   return true;

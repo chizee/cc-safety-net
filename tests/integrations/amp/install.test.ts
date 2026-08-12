@@ -169,7 +169,7 @@ describe('Amp personal install', () => {
       expect(gitCalls(stub.calls)).toEqual([
         'git add cc-safety-net.ts',
         'git status --porcelain',
-        `git -c commit.gpgsign=false commit -m chore: update cc-safety-net plugin to v${getPackageVersion()}`,
+        `git -c commit.gpgsign=false -c user.name=cc-safety-net -c user.email=cc-safety-net@localhost commit -m chore: update cc-safety-net plugin to v${getPackageVersion()}`,
         'git push origin HEAD',
       ]);
       expect(existsSync(String(stub.state.checkout))).toBe(false);
@@ -535,7 +535,7 @@ describe('Amp personal uninstall', () => {
       expect(gitCalls(stub.calls)).toEqual([
         'git rm cc-safety-net.ts',
         'git status --porcelain',
-        `git -c commit.gpgsign=false commit -m chore: remove cc-safety-net plugin v${getPackageVersion()}`,
+        `git -c commit.gpgsign=false -c user.name=cc-safety-net -c user.email=cc-safety-net@localhost commit -m chore: remove cc-safety-net plugin v${getPackageVersion()}`,
         'git push origin HEAD',
       ]);
       expect(existsSync(String(stub.state.checkout))).toBe(false);
