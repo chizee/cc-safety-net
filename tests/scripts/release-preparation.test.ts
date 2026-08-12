@@ -28,4 +28,23 @@ describe('release file preparation', () => {
       );
     });
   });
+
+  test('changes only the version and keeps the committed formatting', async () => {
+    await withTempDir('cc-safety-net-prepare-', (directory) => {
+      mkdirSync(join(directory, '.claude-plugin'));
+      // Biome collapses short arrays onto one line; a reserialized manifest would expand
+      // them and the release commit would then fail biome ci on the tag.
+      const formatted =
+        '{\n  "name": "fixture",\n  "version": "1.0.0",\n  "keywords": ["kimi-code", "security"]\n}\n';
+      writeFileSync(join(directory, 'package.json'), formatted);
+      writeFileSync(join(directory, '.claude-plugin', 'plugin.json'), formatted);
+      writeFileSync(join(directory, 'kimi.plugin.json'), formatted);
+
+      updateReleaseManifests(directory, '2.0.0');
+
+      expect(readFileSync(join(directory, 'kimi.plugin.json'), 'utf8')).toBe(
+        formatted.replace('"version": "1.0.0"', '"version": "2.0.0"'),
+      );
+    });
+  });
 });

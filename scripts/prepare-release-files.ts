@@ -8,8 +8,14 @@ export function updateReleaseManifests(cwd: string, requestedVersion: string): v
   const version = assertReleaseVersion(requestedVersion);
   for (const relativePath of ['package.json', '.claude-plugin/plugin.json', 'kimi.plugin.json']) {
     const path = resolve(cwd, relativePath);
-    const manifest = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
-    writeFileSync(path, `${JSON.stringify({ ...manifest, version }, null, 2)}\n`);
+    // Reserializing would fight the committed formatting (JSON.stringify expands arrays that
+    // biome collapses, so the release commit fails biome ci on the tag); only the version
+    // value changes. A failed replacement leaves the old version, which the release
+    // transaction rejects before any git mutation.
+    writeFileSync(
+      path,
+      readFileSync(path, 'utf8').replace(/("version"\s*:\s*")[^"]+(")/, `$1${version}$2`),
+    );
   }
 }
 
