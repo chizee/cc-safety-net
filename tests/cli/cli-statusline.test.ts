@@ -48,8 +48,10 @@ async function runStatuslineWithStdin(stdin: string, env: Record<string, string>
     stderr: 'pipe',
     env: { ...process.env, ...env },
   });
-  proc.stdin.write(stdin);
-  proc.stdin.end();
+  // The bounded reader destroys its stdin at the cap, so flushing an oversized
+  // payload can fail with EPIPE — the expected outcome, not a harness error.
+  await Promise.resolve(proc.stdin.write(stdin)).catch(() => {});
+  await Promise.resolve(proc.stdin.end()).catch(() => {});
   const output = await new Response(proc.stdout).text();
   return { output: output.trim(), exitCode: await proc.exited };
 }
