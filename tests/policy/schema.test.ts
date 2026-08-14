@@ -97,6 +97,12 @@ describe('configuration schemas', () => {
     ]);
   });
 
+  test('rejects a whitespace-only rulebook source at its array position', () => {
+    expect(getRulesConfigDiagnostics({ version: 1, rules: ['   '] })).toEqual([
+      'rules[0]: must be a non-empty rulebook source string',
+    ]);
+  });
+
   test('discovers valid sources independently from unrelated config errors', () => {
     expect(
       validateRulesConfig({

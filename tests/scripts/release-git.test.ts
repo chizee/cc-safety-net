@@ -163,6 +163,11 @@ function expectRemoteUnchanged(root: string, remote: string, before: string) {
   expect(() => git(root, '--git-dir', remote, 'rev-parse', 'v2.0.0')).toThrow();
 }
 
+function expectRemoteRelease(root: string, remote: string, released: string) {
+  expect(git(root, '--git-dir', remote, 'rev-parse', 'main')).toBe(released);
+  expect(git(root, '--git-dir', remote, 'rev-parse', 'v2.0.0')).toBe(released);
+}
+
 async function withPreparedRelease(
   root: string,
   callback: (fixture: { remote: string; repo: string; before: string }) => Promise<void>,
@@ -240,8 +245,7 @@ describe('release git transaction', () => {
       git(repo, 'commit', '-am', 'different target');
       git(repo, 'tag', '--force', 'v2.0.0');
       await expect(pushReleaseAtomically(repo, 'v2.0.0')).rejects.toThrow();
-      expect(git(root, '--git-dir', remote, 'rev-parse', 'main')).toBe(released);
-      expect(git(root, '--git-dir', remote, 'rev-parse', 'v2.0.0')).toBe(released);
+      expectRemoteRelease(root, remote, released);
     });
   });
 
@@ -290,6 +294,39 @@ describe('release git transaction', () => {
         ).rejects.toThrow('npm version already exists');
         expectRemoteUnchanged(root, remote, before);
       });
+    });
+  });
+
+  test('rejects unrelated worktree changes before release mutation', async () => {
+    await withTempDir('cc-safety-net-release-', async (root) => {
+      await withPreparedRelease(root, async ({ remote, repo, before }) => {
+        writeFileSync(join(repo, 'notes.txt'), 'not part of the release\n');
+
+        await expect(runTransaction(repo, '2.0.0')).rejects.toThrow(
+          'Unexpected release changes: notes.txt',
+        );
+        expectRemoteUnchanged(root, remote, before);
+        expect(git(repo, 'status', '--short')).toContain('?? notes.txt');
+      });
+    });
+  });
+
+  test('requires a clean worktree when resuming an immutable release', async () => {
+    await withTempDir('cc-safety-net-release-', async (root) => {
+      const { remote, repo } = createReleaseRepository(root);
+      prepareVersion(repo, '2.0.0');
+      await runTransaction(repo, '2.0.0');
+      const released = git(repo, 'rev-parse', 'HEAD');
+      writeFileSync(
+        join(repo, 'package.json'),
+        `${JSON.stringify(JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8')), null, 2)}\n`,
+      );
+
+      await expect(runTransaction(repo, '2.0.0')).rejects.toThrow(
+        'A resumed release must have a clean worktree',
+      );
+      expect(git(repo, 'rev-parse', 'HEAD')).toBe(released);
+      expectRemoteRelease(root, remote, released);
     });
   });
 

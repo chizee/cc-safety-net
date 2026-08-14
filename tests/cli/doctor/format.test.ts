@@ -777,6 +777,22 @@ describe('formatSummary', () => {
 });
 
 describe('formatFindingsSection', () => {
+  test.each([
+    ['warning', '[WARNING] test.warning'],
+    ['info', '[INFO] test.info'],
+  ] as const)('labels %s findings', (severity, expected) => {
+    const output = formatFindingsSection([
+      {
+        checkId: `test.${severity}`,
+        severity,
+        title: `${severity} title`,
+        detail: `${severity} detail`,
+      },
+    ]);
+
+    expect(output).toContain(expected);
+  });
+
   test('formats the same typed fields exposed by JSON', () => {
     const output = formatFindingsSection([
       {

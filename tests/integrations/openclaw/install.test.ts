@@ -25,7 +25,11 @@ import {
 } from '@/integrations/openclaw/artifact';
 import { detect, modifiedFileErrors } from '@/integrations/openclaw/detect';
 import openClawPluginEntry from '@/integrations/openclaw/index';
-import { getOpenClawPluginDir, resolveOpenClawArtifactDir } from '@/integrations/openclaw/install';
+import {
+  assertOpenClawPluginDirIsOurs,
+  getOpenClawPluginDir,
+  resolveOpenClawArtifactDir,
+} from '@/integrations/openclaw/install';
 import { getPackageVersion } from '@/integrations/system-info';
 import { withEnv, withTempDir } from '../../helpers';
 import { runCli } from '../hook-helpers';
@@ -202,6 +206,25 @@ describe('OpenClaw plugin artifact', () => {
 });
 
 describe('OpenClaw native install commands', () => {
+  test('accepts an empty plugin directory left by a native uninstall', () =>
+    withHome((homeDir) => {
+      mkdirSync(getOpenClawPluginDir(homeDir), { recursive: true });
+
+      expect(() => assertOpenClawPluginDirIsOurs(homeDir)).not.toThrow();
+    }));
+
+  test('refuses an incomplete plugin directory without a managed runtime entry', () =>
+    withHome((homeDir) => {
+      const dir = getOpenClawPluginDir(homeDir);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, MANIFEST_FILE), '{}\n');
+      writeFileSync(join(dir, PACKAGE_FILE), '{}\n');
+
+      expect(() => assertOpenClawPluginDirIsOurs(homeDir)).toThrow(`Refusing to modify ${dir}`);
+      expect(readFileSync(join(dir, MANIFEST_FILE), 'utf-8')).toBe('{}\n');
+      expect(readFileSync(join(dir, PACKAGE_FILE), 'utf-8')).toBe('{}\n');
+    }));
+
   test('drives the real CLI with the packaged directory and reports Gateway restart guidance', () =>
     withHome(async (homeDir) => {
       const result = await runOpenClawCli(homeDir, ['install', '--openclaw']);
