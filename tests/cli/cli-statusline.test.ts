@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { hermeticSafetyNetHome, runCCSafetyNetCli } from '../helpers.ts';
+import { Readable } from 'node:stream';
+import { printStatusline } from '@/cli/statusline';
+import {
+  captureConsoleOutput,
+  hermeticSafetyNetHome,
+  runCCSafetyNetCli,
+  withEnv,
+} from '../helpers.ts';
 
 const hermeticHome = hermeticSafetyNetHome('cc-safety-net-statusline-home-');
 
@@ -23,8 +30,14 @@ function clearEnv(): void {
 }
 
 async function runStatusline(env: Record<string, string>) {
-  const result = await runCCSafetyNetCli(['statusline', '--claude-code'], env);
-  return { output: result.output.trim(), exitCode: result.exitCode };
+  const result = await withEnv(env, () =>
+    captureConsoleOutput(() => printStatusline(Readable.from([]))),
+  );
+  return {
+    output: result.stdout.join('\n').trim(),
+    stderr: result.stderr.join('\n'),
+    exitCode: 0,
+  };
 }
 
 async function runStatuslineWithStdin(stdin: string, env: Record<string, string>) {
@@ -304,7 +317,7 @@ describe('statusline enabled/disabled detection', () => {
     const settingsPath = join(tempDir, 'settings.json');
     await writeFile(settingsPath, '{ invalid json }');
 
-    const result = await runCCSafetyNetCli(['statusline', '--claude-code'], {
+    const result = await runStatusline({
       CLAUDE_SETTINGS_PATH: settingsPath,
       CC_SAFETY_NET_DEBUG: '1',
     });

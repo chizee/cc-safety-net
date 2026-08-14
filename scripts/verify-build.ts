@@ -23,6 +23,7 @@ const BUILD_ENTRY_ARTIFACTS = [
   'dist/index.d.ts',
   'dist/index.js',
   'dist/pi/index.js',
+  'dist/vendor/zod.cjs',
 ] as const;
 
 function isBuildChunkArtifact(path: string): boolean {

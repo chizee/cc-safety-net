@@ -407,10 +407,12 @@ function readPolicyConfig(path: string): {
         fallback: isRecord(parsed) ? 'salvaged' : 'defaults',
       };
     return { policy, errors: [] };
-  } catch {
+  } catch (error) {
+    // Only a parse failure means malformed JSON; every other failure names itself.
+    const message = error instanceof Error ? error.message : String(error);
     return {
       policy: empty,
-      errors: [`${path}: Invalid JSON`],
+      errors: [`${path}: ${error instanceof SyntaxError ? 'Invalid JSON' : message}`],
       fallback: 'defaults',
     };
   }

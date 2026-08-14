@@ -70,6 +70,7 @@ async function probeInstallChoices(
 
   const exitCode = await withEnv({ HOME: homeDir, PATH: path }, () =>
     runInstallCommand(action, [], {
+      fetchVersion: async () => null,
       output: new Writable({
         write(_chunk, _encoding, callback) {
           callback();

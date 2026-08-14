@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
+import { runUpdateCommand } from '@/cli/install';
 import { AMP_MANAGED_HEADER } from '@/integrations/amp/artifact';
 import { getCursorHooksPath } from '@/integrations/cursor/install';
+import { captureConsoleOutput, withEnv } from '../../helpers';
 import { makeTempHome, runCli } from '../../integrations/hook-helpers';
 import {
   makeLoggedFakeCommandHome,
@@ -50,12 +52,7 @@ function normalizedCommandLog(logPath: string): string[] {
 
 async function expectUpdateFindsNothing(homeDir: string, cwd?: string) {
   try {
-    const result = await runCli(
-      ['update'],
-      '',
-      { HOME: homeDir, PATH: dirname(process.execPath) },
-      cwd,
-    );
+    const result = await runUpdate({ homeDir, path: dirname(process.execPath), cwd });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
@@ -66,12 +63,34 @@ async function expectUpdateFindsNothing(homeDir: string, cwd?: string) {
   }
 }
 
-function runUpdate(options: { homeDir: string; path: string; logPath?: string }) {
-  return runCli(['update'], '', {
-    HOME: options.homeDir,
-    PATH: options.path,
-    ...(options.logPath ? { CC_SAFETY_NET_TEST_COMMAND_LOG: options.logPath } : {}),
-  });
+let directUpdateQueue = Promise.resolve();
+
+function runUpdate(options: { homeDir: string; path: string; logPath?: string; cwd?: string }) {
+  const execute = async () => {
+    const originalCwd = process.cwd();
+    try {
+      if (options.cwd) process.chdir(options.cwd);
+      const { result, stdout, stderr } = await captureConsoleOutput(() =>
+        withEnv(
+          {
+            HOME: options.homeDir,
+            PATH: options.path,
+            ...(options.logPath ? { CC_SAFETY_NET_TEST_COMMAND_LOG: options.logPath } : {}),
+          },
+          () => runUpdateCommand([]),
+        ),
+      );
+      return { exitCode: result, stdout: stdout.join('\n'), stderr: stderr.join('\n') };
+    } finally {
+      process.chdir(originalCwd);
+    }
+  };
+  const result = directUpdateQueue.then(execute);
+  directUpdateQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
 }
 
 async function expectCodexLegacyMigration(fake: ReturnType<typeof makeFakeBinHome>) {
@@ -88,6 +107,7 @@ async function expectCodexLegacyMigration(fake: ReturnType<typeof makeFakeBinHom
       'codex plugin remove safety-net@cc-marketplace',
     ]);
     expect(result.stdout).toContain('Updated Codex integration');
+    expect(result.stderr).toBe('');
   } finally {
     rmSync(fake.homeDir, { recursive: true, force: true });
   }
@@ -369,9 +389,9 @@ fi
     });
 
     try {
-      const result = await runCli(['update'], '', {
-        HOME: homeDir,
-        PATH: [binDir, dirname(process.execPath), '/usr/bin', '/bin'].join(delimiter),
+      const result = await runUpdate({
+        homeDir,
+        path: [binDir, dirname(process.execPath), '/usr/bin', '/bin'].join(delimiter),
       });
 
       expect(result.exitCode).toBe(0);

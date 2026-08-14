@@ -75,7 +75,7 @@ import {
 } from '@/integrations/openclaw/install';
 import { clearOpenCodeCache, uninstallOpenCode } from '@/integrations/opencode/install';
 import { getPiSettingsPath, isPiSafetyNetPackageSource } from '@/integrations/pi/detect';
-import { defaultVersionFetcher } from '@/integrations/system-info';
+import { defaultVersionFetcher, type VersionFetcher } from '@/integrations/system-info';
 
 type ConfigInstallTarget = Extract<InstallTarget, 'antigravity-cli' | 'kimi-code' | 'cursor'>;
 // Integrations whose install writes a managed artifact directly instead of driving a host CLI.
@@ -94,6 +94,7 @@ export type RunInstallCommandOptions = {
   output?: NodeJS.WriteStream;
   probeTargets?: InstallTargetProbe;
   detectConfiguredTargets?: () => Promise<readonly InstallTarget[]>;
+  fetchVersion?: VersionFetcher;
   selectTargets?: (
     action: InstallAction,
     choices: readonly InstallTargetChoice[],
@@ -384,15 +385,18 @@ function parseInstallTarget(args: readonly string[], action: InstallAction): Ins
 // Only probes that leave the inspected runtime untouched run here: `claude plugin list`,
 // `gemini extensions list`, `copilot plugin list` and the Pi extension probe all write into the
 // user's real config directories, and this runs on every bare install/uninstall in a TTY.
-async function detectInstallHookState(homeDir = getHomeDir()) {
+async function detectInstallHookState(
+  homeDir = getHomeDir(),
+  fetchVersion = defaultVersionFetcher,
+) {
   const [ampPluginListOutput, codexPluginListOutput, copilotCliVersion] = await Promise.all([
     // Amp's managed plugin lives in the account's hosted personal repository, so only this
     // command can see it; like Codex's it can outlast the default 5s version timeout.
-    defaultVersionFetcher(['amp', 'plugins', 'list'], 30_000),
+    fetchVersion(['amp', 'plugins', 'list'], 30_000),
     // A cold `codex plugin list` refreshes marketplace checkouts over the network and can
     // outlast the default 5s version timeout, which would silently drop Codex from detection.
-    defaultVersionFetcher(['codex', 'plugin', 'list'], 30_000),
-    defaultVersionFetcher(['copilot', '--binary-version']),
+    fetchVersion(['codex', 'plugin', 'list'], 30_000),
+    fetchVersion(['copilot', '--binary-version']),
   ]);
 
   return {
@@ -406,8 +410,11 @@ async function detectInstallHookState(homeDir = getHomeDir()) {
   };
 }
 
-async function detectConfiguredInstallTargets(action: InstallAction): Promise<InstallTarget[]> {
-  const state = await detectInstallHookState();
+async function detectConfiguredInstallTargets(
+  action: InstallAction,
+  fetchVersion = defaultVersionFetcher,
+): Promise<InstallTarget[]> {
+  const state = await detectInstallHookState(getHomeDir(), fetchVersion);
   return (
     state.hooks
       // Uninstall also keeps a runtime whose state could not be read: hiding it would make the
@@ -443,7 +450,8 @@ function startResolveInstallTargets(
   }
 
   const detectConfiguredTargets =
-    options.detectConfiguredTargets ?? (() => detectConfiguredInstallTargets(action));
+    options.detectConfiguredTargets ??
+    (() => detectConfiguredInstallTargets(action, options.fetchVersion));
   const ready = Promise.all([
     buildInstallTargetChoicesAsync(options.probeTargets),
     detectConfiguredTargets(),
@@ -778,8 +786,11 @@ function parseUpdateArgs(args: readonly string[]): void {
   if (error) throw new Error(error);
 }
 
-async function detectUpdateTargets(homeDir: string): Promise<InstallTarget[]> {
-  const state = await detectInstallHookState(homeDir);
+async function detectUpdateTargets(
+  homeDir: string,
+  fetchVersion = defaultVersionFetcher,
+): Promise<InstallTarget[]> {
+  const state = await detectInstallHookState(homeDir, fetchVersion);
   const copilotPluginsDir = join(_getCopilotConfigHome(homeDir), 'installed-plugins');
   return orderInstallTargets([
     // `detected` (not `configured`) so installed-but-disabled integrations update too.
@@ -801,9 +812,9 @@ async function detectUpdateTargets(homeDir: string): Promise<InstallTarget[]> {
   ]);
 }
 
-async function updateInstalledIntegrations(): Promise<number> {
+async function updateInstalledIntegrations(fetchVersion = defaultVersionFetcher): Promise<number> {
   const homeDir = getHomeDir();
-  const targets = await detectUpdateTargets(homeDir);
+  const targets = await detectUpdateTargets(homeDir, fetchVersion);
   if (targets.length === 0) {
     console.log('No installed integrations found. Run `cc-safety-net install` to set one up.');
     return 0;
@@ -837,10 +848,13 @@ async function updateInstalledIntegrations(): Promise<number> {
   return failed.length > 0 ? 1 : 0;
 }
 
-export function runUpdateCommand(args: readonly string[]): Promise<number> {
+export function runUpdateCommand(
+  args: readonly string[],
+  fetchVersion = defaultVersionFetcher,
+): Promise<number> {
   return Promise.resolve()
     .then(() => parseUpdateArgs(args))
-    .then(updateInstalledIntegrations)
+    .then(() => updateInstalledIntegrations(fetchVersion))
     .catch((error: unknown) => {
       console.error(formatInstallError(error));
       return 1;
