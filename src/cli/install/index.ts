@@ -882,7 +882,12 @@ async function updateInstalledIntegrations(options: UpdateCommandOptions): Promi
   // below would race each other's removals; updating clears it once here instead. A clear
   // failure fails only the cache-dependent targets, leaving the rest to update.
   const npxCacheFailure = detected.targets.some((target) => NPX_CACHE_TARGETS.has(target))
-    ? clearNpxCacheForUpdate(homeDir)
+    ? await Promise.resolve()
+        .then(() => {
+          clearNpxSafetyNetCache(homeDir);
+          return null;
+        })
+        .catch((error: unknown) => formatInstallError(error))
     : null;
 
   // The targets drive different host CLIs and are independent, so they run together and one
@@ -920,16 +925,6 @@ async function updateInstalledIntegrations(options: UpdateCommandOptions): Promi
     report.failed ? console.error(report.message) : output.write(`${report.message}\n`);
   });
   return reports.some((report) => report.failed) ? 1 : 0;
-}
-
-// try/catch turns the clear failure into a report so only the cache-dependent targets fail.
-function clearNpxCacheForUpdate(homeDir: string): string | null {
-  try {
-    clearNpxSafetyNetCache(homeDir);
-    return null;
-  } catch (error) {
-    return formatInstallError(error);
-  }
 }
 
 export function runUpdateCommand(
