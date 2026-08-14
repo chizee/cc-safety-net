@@ -23,9 +23,10 @@ const PACKAGE_ROOT_FILES = [
   'package/package.json',
 ] as const;
 // The standalone Amp and OpenClaw plugins each bundle their own trimmed zod
-// copy, so the tarball is materially larger than the pure-Node bundles alone.
-// Current size is ~468 KB; the cap leaves ~44 KB of headroom.
-const MAX_TARBALL_BYTES = 512_000;
+// copy, and dist/vendor/zod.cjs ships a third for the repository-checkout
+// channels, so the tarball is materially larger than the pure-Node bundles
+// alone. Current size is ~490 KB; the cap leaves ~57 KB of headroom.
+const MAX_TARBALL_BYTES = 560_000;
 
 interface PackResult {
   filename: string;
