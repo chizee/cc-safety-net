@@ -173,6 +173,18 @@ describe('runtime config loading', () => {
     return snapshot.state === 'degraded' ? snapshot.reason : '';
   }
 
+  test('uses protective defaults for an empty user policy file', () => {
+    writeUserPolicyRaw('  \n');
+
+    const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
+    const snapshot = loadPolicySnapshot({ cwd: tempDir, userConfigDir: userRulesDir });
+
+    expect(config.destructiveCommandProtectionEnabled).toBe(true);
+    expect(config.secretProtection?.enabled).toBe(true);
+    expect(snapshot.state).toBe('degraded');
+    expect(snapshot.state === 'degraded' ? snapshot.reason : '').toContain('Config file is empty');
+  });
+
   test('user policy safety overrides affect command analysis without env flags', () => {
     writeUserPolicy({
       version: 1,

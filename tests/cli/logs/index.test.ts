@@ -124,6 +124,26 @@ function hasTerminalControlBytes(value: string): boolean {
 }
 
 describe('runLogsCommand', () => {
+  test('reports unavailable audit storage without using a real log directory', async () => {
+    await withEnv({ CC_SAFETY_NET_AUDIT_HOME: undefined, NODE_ENV: 'test' }, async () => {
+      const human = await captureLogsCommand([]);
+      const json = await captureLogsCommand(['--json']);
+      const id = await captureLogsCommand(['--id', 'ffffffffffffffff']);
+
+      expect(human).toEqual({
+        exitCode: 0,
+        stdout: 'No audit log entries found.',
+        stderr: '',
+      });
+      expect(json).toEqual({ exitCode: 0, stdout: '[]', stderr: '' });
+      expect(id).toEqual({
+        exitCode: 0,
+        stdout: 'No retained audit log entry found for id ffffffffffffffff.',
+        stderr: '',
+      });
+    });
+  });
+
   test('reads default logs from the configured audit home', async () => {
     const root = mkdtempSync(join(tmpdir(), 'safety-net-logs-command-default-'));
     const auditHome = join(root, 'audit-home');

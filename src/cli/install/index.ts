@@ -103,10 +103,20 @@ export type RunInstallCommandOptions = {
   runUpdate?: () => Promise<number>;
 };
 
+type UpdateCommandOptions = {
+  fetchVersion?: VersionFetcher;
+  input?: NodeJS.ReadStream;
+  output?: NodeJS.WriteStream;
+  showBanner?: boolean;
+};
+
 type NativeInstallDefinition = {
   installCommands:
     | readonly NativeCommand[]
-    | ((homeDir: string) => NativeInstallPlan | Promise<NativeInstallPlan>);
+    | ((
+        homeDir: string,
+        codexPluginListOutput?: string | null,
+      ) => NativeInstallPlan | Promise<NativeInstallPlan>);
   uninstallCommands?: readonly NativeCommand[];
   beforeInstall?: (homeDir: string) => void;
   postInstallMessage?: string;
@@ -127,6 +137,14 @@ const NATIVE_UPDATE_TARGETS = new Set<InstallTarget>([
   'openclaw',
   'opencode',
   'pi',
+]);
+// Targets whose install runs `npx cc-safety-net`, so a stale npx cache would keep the previous
+// version running after an update.
+const NPX_CACHE_TARGETS = new Set<InstallTarget>([
+  'antigravity-cli',
+  'cursor',
+  'hermes-agent',
+  'kimi-code',
 ]);
 
 // Codex matchers are line-anchored because the legacy row's source URL also contains
@@ -182,8 +200,11 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
     ],
   },
   codex: {
-    installCommands: async () => {
-      const pluginList = await runNativeCommand(['codex', 'plugin', 'list']);
+    // `update` already paid for a `codex plugin list` during detection, so it hands the output
+    // over instead of refreshing the marketplace checkouts a second time.
+    installCommands: async (_homeDir, codexPluginListOutput) => {
+      const pluginList =
+        codexPluginListOutput ?? (await runNativeCommand(['codex', 'plugin', 'list']));
       const update = hasCodexReplacementPlugin(pluginList);
       return {
         commands: [
@@ -483,12 +504,13 @@ async function installNativeTarget(
   target: NativeInstallTarget,
   homeDir: string,
   updating = false,
+  codexPluginListOutput?: string | null,
 ): Promise<string> {
   const definition = NATIVE_INSTALLS[target];
   definition.beforeInstall?.(homeDir);
   const plan =
     typeof definition.installCommands === 'function'
-      ? await definition.installCommands(homeDir)
+      ? await definition.installCommands(homeDir, codexPluginListOutput)
       : { commands: definition.installCommands };
   await runNativeCommands(plan.commands);
   await runNativeCleanupCommands(plan.cleanupCommands ?? []);
@@ -530,7 +552,8 @@ function runConfigInstallTarget(
   homeDir: string,
   updating = false,
 ): string {
-  if (action === 'install') clearNpxSafetyNetCache(homeDir);
+  // Updating clears the cache once up front instead, so its parallel targets cannot race.
+  if (action === 'install' && !updating) clearNpxSafetyNetCache(homeDir);
   const result = CONFIG_INSTALLS[target][action](homeDir);
   const name = getIntegrationInstallLabel(target);
   const pastTense = action !== 'install' ? 'Uninstalled' : updating ? 'Updated' : 'Installed';
@@ -639,8 +662,8 @@ const INSTALL_OPERATIONS = {
     uninstall: () => uninstallNativeTarget('claude-code'),
   },
   codex: {
-    install: (homeDir: string, updating?: boolean) =>
-      installNativeTarget('codex', homeDir, updating),
+    install: (homeDir: string, updating?: boolean, codexPluginListOutput?: string | null) =>
+      installNativeTarget('codex', homeDir, updating, codexPluginListOutput),
     uninstall: () => uninstallNativeTarget('codex'),
   },
   'copilot-cli': {
@@ -663,8 +686,9 @@ const INSTALL_OPERATIONS = {
   'hermes-agent': {
     install: (homeDir: string, updating?: boolean) => {
       // The managed plugin shells out to `npx cc-safety-net`, so a stale npx cache would
-      // keep running the previous version after an update.
-      clearNpxSafetyNetCache(homeDir);
+      // keep running the previous version. Updating clears it once up front instead, so its
+      // parallel targets cannot race.
+      if (!updating) clearNpxSafetyNetCache(homeDir);
       return runManagedArtifactInstallTarget('install', 'hermes-agent', homeDir, updating);
     },
     uninstall: (homeDir: string) =>
@@ -701,7 +725,14 @@ const INSTALL_OPERATIONS = {
   },
 } satisfies Record<
   InstallTarget,
-  Record<InstallAction, (homeDir: string, updating?: boolean) => string | Promise<string>>
+  Record<
+    InstallAction,
+    (
+      homeDir: string,
+      updating?: boolean,
+      codexPluginListOutput?: string | null,
+    ) => string | Promise<string>
+  >
 >;
 
 const KIMI_PLUGIN_INSTRUCTIONS = [
@@ -777,8 +808,9 @@ async function runSingleInstallTarget(
   target: InstallTarget,
   homeDir: string,
   updating = false,
+  codexPluginListOutput?: string | null,
 ): Promise<string> {
-  return INSTALL_OPERATIONS[target][action](homeDir, updating);
+  return INSTALL_OPERATIONS[target][action](homeDir, updating, codexPluginListOutput);
 }
 
 function parseUpdateArgs(args: readonly string[]): void {
@@ -786,13 +818,10 @@ function parseUpdateArgs(args: readonly string[]): void {
   if (error) throw new Error(error);
 }
 
-async function detectUpdateTargets(
-  homeDir: string,
-  fetchVersion = defaultVersionFetcher,
-): Promise<InstallTarget[]> {
+async function detectUpdateTargets(homeDir: string, fetchVersion = defaultVersionFetcher) {
   const state = await detectInstallHookState(homeDir, fetchVersion);
   const copilotPluginsDir = join(_getCopilotConfigHome(homeDir), 'installed-plugins');
-  return orderInstallTargets([
+  const targets = orderInstallTargets([
     // `detected` (not `configured`) so installed-but-disabled integrations update too.
     // Copilot is decided by its plugin checkouts on disk instead: its 'disabled' status
     // also fires on a bare disableAllHooks kill-switch with nothing installed, and
@@ -810,51 +839,101 @@ async function detectUpdateTargets(
       : []),
     ...(hasCodexLegacyPlugin(state.codexPluginListOutput) ? (['codex'] as const) : []),
   ]);
+  return { targets, codexPluginListOutput: state.codexPluginListOutput };
 }
 
-async function updateInstalledIntegrations(fetchVersion = defaultVersionFetcher): Promise<number> {
+async function updateInstalledIntegrations(options: UpdateCommandOptions): Promise<number> {
   const homeDir = getHomeDir();
-  const targets = await detectUpdateTargets(homeDir, fetchVersion);
-  if (targets.length === 0) {
-    console.log('No installed integrations found. Run `cc-safety-net install` to set one up.');
+  const output = options.output ?? process.stdout;
+  // Detection queries every host CLI, so it starts before the banner animation and the
+  // spinner covers whatever latency is left once the animation ends.
+  const prepared = detectUpdateTargets(homeDir, options.fetchVersion ?? defaultVersionFetcher).then(
+    async (detection) => {
+      const targetSet = new Set(detection.targets);
+      return {
+        targets: detection.targets,
+        codexPluginListOutput: detection.codexPluginListOutput,
+        available: new Map(
+          await Promise.all(
+            INSTALL_TARGETS.filter(
+              (target) => targetSet.has(target.target) && NATIVE_UPDATE_TARGETS.has(target.target),
+            ).map(
+              async (target) =>
+                [target.target, await probeInstallTarget(target.probeCommand)] as const,
+            ),
+          ),
+        ),
+      };
+    },
+  );
+  const detected = await resolveAfterOptionalBanner(
+    options.showBanner ?? true,
+    () => ({ ready: prepared, finish: () => prepared }),
+    () => printInstallBanner({ input: options.input ?? process.stdin, output }),
+    { loadingMessage: 'Checking installed integrations…', output },
+  );
+
+  if (detected.targets.length === 0) {
+    output.write('No installed integrations found. Run `cc-safety-net install` to set one up.\n');
     return 0;
   }
 
-  const targetSet = new Set(targets);
-  const available = new Map(
-    await Promise.all(
-      INSTALL_TARGETS.filter(
-        (target) => targetSet.has(target.target) && NATIVE_UPDATE_TARGETS.has(target.target),
-      ).map(
-        async (target) => [target.target, await probeInstallTarget(target.probeCommand)] as const,
-      ),
-    ),
-  );
+  // Clearing the cache scans and removes entries under one directory, so the parallel targets
+  // below would race each other's removals; updating clears it once here instead. A clear
+  // failure fails only the cache-dependent targets, leaving the rest to update.
+  const npxCacheFailure = detected.targets.some((target) => NPX_CACHE_TARGETS.has(target))
+    ? await Promise.resolve()
+        .then(() => {
+          clearNpxSafetyNetCache(homeDir);
+          return null;
+        })
+        .catch((error: unknown) => formatInstallError(error))
+    : null;
 
-  // The targets are independent, so one failure must not keep the rest from updating.
-  const failed: InstallTarget[] = [];
-  for (const target of targets) {
-    if (NATIVE_UPDATE_TARGETS.has(target) && !available.get(target)) {
-      console.log(`${getIntegrationInstallLabel(target)} not found; skipped`);
-      continue;
-    }
-    try {
-      console.log(await runSingleInstallTarget('install', target, homeDir, true));
-    } catch (error) {
-      console.error(formatInstallError(error));
-      failed.push(target);
-    }
-  }
-  return failed.length > 0 ? 1 : 0;
+  // The targets drive different host CLIs and are independent, so they run together and one
+  // failure cannot keep the rest from updating. Every promise settles into a report, so
+  // Promise.all never rejects; the spinner owns the terminal line, so nothing prints until
+  // all of them are done.
+  const reports = await awaitWithSpinner(
+    Promise.all(
+      detected.targets.map((target) => {
+        if (NATIVE_UPDATE_TARGETS.has(target) && !detected.available.get(target))
+          return Promise.resolve({
+            message: `${getIntegrationInstallLabel(target)} not found; skipped`,
+            failed: false,
+          });
+        if (npxCacheFailure !== null && NPX_CACHE_TARGETS.has(target))
+          return Promise.resolve({ message: npxCacheFailure, failed: true });
+        return runSingleInstallTarget(
+          'install',
+          target,
+          homeDir,
+          true,
+          detected.codexPluginListOutput,
+        ).then(
+          (message) => ({ message, failed: false }),
+          (error: unknown) => ({ message: formatInstallError(error), failed: true }),
+        );
+      }),
+    ),
+    {
+      loadingMessage: `Updating ${detected.targets.length} integration${detected.targets.length === 1 ? '' : 's'}…`,
+      output,
+    },
+  );
+  reports.forEach((report) => {
+    report.failed ? console.error(report.message) : output.write(`${report.message}\n`);
+  });
+  return reports.some((report) => report.failed) ? 1 : 0;
 }
 
 export function runUpdateCommand(
   args: readonly string[],
-  fetchVersion = defaultVersionFetcher,
+  options: UpdateCommandOptions = {},
 ): Promise<number> {
   return Promise.resolve()
     .then(() => parseUpdateArgs(args))
-    .then(() => updateInstalledIntegrations(fetchVersion))
+    .then(() => updateInstalledIntegrations(options))
     .catch((error: unknown) => {
       console.error(formatInstallError(error));
       return 1;
@@ -891,7 +970,17 @@ export async function runInstallCommand(
       return 0;
     }
     if (targets === 'update') {
-      return (options.runUpdate ?? (() => runUpdateCommand([])))();
+      // The banner already played for the selector, so the update must not print a second one.
+      return (
+        options.runUpdate ??
+        (() =>
+          runUpdateCommand([], {
+            fetchVersion: options.fetchVersion,
+            input: options.input,
+            output: options.output,
+            showBanner: false,
+          }))
+      )();
     }
 
     const homeDir = getHomeDir();
