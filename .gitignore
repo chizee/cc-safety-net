@@ -12,6 +12,7 @@ coverage
 .codex
 .playwright
 .playwright-cli
+.factory
 codex-security-scans
 
 # --- Node.js ---
