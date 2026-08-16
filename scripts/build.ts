@@ -74,7 +74,7 @@ console.log(
   `  dist/pi/index.js           ${(statSync('dist/pi/index.js').size / 1024).toFixed(2)} KB`,
 );
 console.log(
-  `  dist/amp/cc-safety-net.ts  ${(statSync('dist/amp/cc-safety-net.ts').size / 1024).toFixed(2)} KB`,
+  `  dist/amp/cc-safety-net/index.ts  ${(statSync('dist/amp/cc-safety-net/index.ts').size / 1024).toFixed(2)} KB`,
 );
 console.log(
   `  dist/openclaw/cc-safety-net/index.js  ${(statSync('dist/openclaw/cc-safety-net/index.js').size / 1024).toFixed(2)} KB`,

@@ -1,6 +1,6 @@
 /**
  * Ownership marker prepended to the built Amp plugin artifact
- * (dist/amp/cc-safety-net.ts). The installer and doctor detect a CC Safety Net
+ * (dist/amp/cc-safety-net/index.ts). The installer and doctor detect a CC Safety Net
  * managed plugin by this exact first line; the build stamps it via
  * buildAmpArtifactHeader.
  */

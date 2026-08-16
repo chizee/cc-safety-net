@@ -5,7 +5,15 @@
  * commit and a push; every subprocess goes through the injected runner.
  */
 
-import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,8 +25,10 @@ import type { InstallResult } from '@/integrations/install/types';
 import { getPackageVersion } from '@/integrations/system-info';
 import { getUserPolicyPath, normalizeGuiPolicy } from '@/policy/store';
 
-const AMP_ARTIFACT_RELATIVE = join('amp', 'cc-safety-net.ts');
-const AMP_PLUGIN_FILE = 'cc-safety-net.ts';
+const AMP_PLUGIN_DIRECTORY = 'cc-safety-net';
+const AMP_PLUGIN_ENTRY = join(AMP_PLUGIN_DIRECTORY, 'index.ts');
+const AMP_LEGACY_PLUGIN_FILE = 'cc-safety-net.ts';
+const AMP_ARTIFACT_RELATIVE = join('amp', AMP_PLUGIN_ENTRY);
 
 /**
  * Local system-scope plugin path. Nothing installs here anymore; a leftover file masks the
@@ -26,7 +36,7 @@ const AMP_PLUGIN_FILE = 'cc-safety-net.ts';
  * @internal
  */
 export function getAmpPluginPath(homeDir: string): string {
-  return join(homeDir, '.config', 'amp', 'plugins', AMP_PLUGIN_FILE);
+  return join(homeDir, '.config', 'amp', 'plugins', AMP_LEGACY_PLUGIN_FILE);
 }
 
 /**
@@ -142,21 +152,40 @@ async function withAmpCheckout<T>(
   }
 }
 
-/** Current managed contents of the plugin in the checkout, or undefined when it is absent. */
-function readManagedPluginFile(checkout: string, action: 'overwrite' | 'remove') {
-  const dest = join(checkout, AMP_PLUGIN_FILE);
+function readManagedPluginFile(
+  checkout: string,
+  relativePath: string,
+  action: 'overwrite' | 'remove',
+) {
+  const dest = join(checkout, relativePath);
   const info = lstatOrUndefined(dest);
   if (!info) return undefined;
   if (info.isSymbolicLink() || !info.isFile())
     throw new Error(
-      `Refusing to ${action} ${AMP_PLUGIN_FILE} in your Amp personal plugins repository: not a regular file. Remove it there and rerun install --amp.`,
+      `Refusing to ${action} ${relativePath} in your Amp personal plugins repository: not a regular file. Remove it there and rerun install --amp.`,
     );
 
   const current = readFileSync(dest);
   if (isManagedAmpArtifact(current)) return current;
   throw new Error(
-    `Refusing to ${action} unmanaged file ${AMP_PLUGIN_FILE} in your Amp personal plugins repository. Remove it there and rerun install --amp.`,
+    `Refusing to ${action} unmanaged file ${relativePath} in your Amp personal plugins repository. Remove it there and rerun install --amp.`,
   );
+}
+
+/** Current managed directory-plugin entry, or undefined when the directory is absent. */
+function readManagedPluginDirectory(checkout: string, action: 'overwrite' | 'remove') {
+  const directory = join(checkout, AMP_PLUGIN_DIRECTORY);
+  const info = lstatOrUndefined(directory);
+  if (!info) return undefined;
+  if (info.isSymbolicLink() || !info.isDirectory())
+    throw new Error(
+      `Refusing to ${action} ${AMP_PLUGIN_DIRECTORY} in your Amp personal plugins repository: not a regular directory. Remove it there and rerun install --amp.`,
+    );
+  if (readdirSync(directory).some((entry) => entry !== 'index.ts'))
+    throw new Error(
+      `Refusing to ${action} unmanaged files in ${AMP_PLUGIN_DIRECTORY} in your Amp personal plugins repository. Remove them there and rerun install --amp.`,
+    );
+  return readManagedPluginFile(checkout, AMP_PLUGIN_ENTRY, action);
 }
 
 /** False when staging left nothing to commit, so the repository is already up to date. */
@@ -244,17 +273,28 @@ export async function installAmp(
   const cloneRef = await requirePersonalPluginsRef(run);
 
   return withAmpCheckout(run, async (checkout) => {
-    const path = `${cloneRef}/${AMP_PLUGIN_FILE}`;
-    if (readManagedPluginFile(checkout, 'overwrite')?.equals(content)) {
+    const path = `${cloneRef}/${AMP_PLUGIN_DIRECTORY}`;
+    const current = readManagedPluginDirectory(checkout, 'overwrite');
+    const legacy = readManagedPluginFile(checkout, AMP_LEGACY_PLUGIN_FILE, 'overwrite');
+    if (current?.equals(content) && !legacy) {
       removeMaskingLocalPlugin(homeDir, 'fail');
       return { path, alreadyInstalled: true };
     }
 
-    atomicWriteFile(join(checkout, AMP_PLUGIN_FILE), content);
+    mkdirSync(join(checkout, AMP_PLUGIN_DIRECTORY), { recursive: true });
+    atomicWriteFile(join(checkout, AMP_PLUGIN_ENTRY), content);
+    if (legacy) rmSync(join(checkout, AMP_LEGACY_PLUGIN_FILE));
     const pushed = await commitAndPush(
       run,
       checkout,
-      ['git', 'add', AMP_PLUGIN_FILE],
+      [
+        'git',
+        'add',
+        '--all',
+        '--',
+        AMP_PLUGIN_DIRECTORY,
+        ...(legacy ? [AMP_LEGACY_PLUGIN_FILE] : []),
+      ],
       `chore: update cc-safety-net plugin to v${getPackageVersion()}`,
     );
     removeMaskingLocalPlugin(homeDir, 'fail');
@@ -269,8 +309,10 @@ export async function uninstallAmp(
   const cloneRef = await requirePersonalPluginsRef(run);
 
   return withAmpCheckout(run, async (checkout) => {
-    const path = `${cloneRef}/${AMP_PLUGIN_FILE}`;
-    if (!readManagedPluginFile(checkout, 'remove')) {
+    const path = `${cloneRef}/${AMP_PLUGIN_DIRECTORY}`;
+    const current = readManagedPluginDirectory(checkout, 'remove');
+    const legacy = readManagedPluginFile(checkout, AMP_LEGACY_PLUGIN_FILE, 'remove');
+    if (!current && !legacy) {
       removeMaskingLocalPlugin(homeDir, 'keep');
       return { path, alreadyInstalled: false };
     }
@@ -278,7 +320,14 @@ export async function uninstallAmp(
     await commitAndPush(
       run,
       checkout,
-      ['git', 'rm', AMP_PLUGIN_FILE],
+      [
+        'git',
+        'rm',
+        '-r',
+        '--',
+        ...(current ? [AMP_PLUGIN_DIRECTORY] : []),
+        ...(legacy ? [AMP_LEGACY_PLUGIN_FILE] : []),
+      ],
       `chore: remove cc-safety-net plugin v${getPackageVersion()}`,
     );
     removeMaskingLocalPlugin(homeDir, 'keep');

@@ -152,11 +152,11 @@ export async function buildRuntimeBundles(outdir: string) {
 }
 
 /**
- * Build the standalone Amp plugin artifact separately from the split Node
- * bundles: target Bun, no code splitting, and every runtime dependency
- * (including zod) bundled so the emitted file has no chunk or package imports.
- * The managed-file header is prepended so the installer and doctor can detect
- * and update it.
+ * Build the standalone Amp plugin artifact separately from the split Node bundles. The
+ * `cc-safety-net/index.ts` directory layout is significant: Amp materializes global directory
+ * plugins as a plugin tree, whereas a root file is base64-encoded into one process environment
+ * entry and exceeds Linux's per-entry limit. Every runtime dependency remains bundled so the
+ * directory still contains one self-contained file.
  */
 export async function buildAmpBundle(outdir: string) {
   const result = await Bun.build({
@@ -172,7 +172,7 @@ export async function buildAmpBundle(outdir: string) {
   if (!result.success) return result;
   const artifact = result.outputs[0];
   if (!artifact) throw new Error('Amp bundle produced no output');
-  const destination = join(outdir, 'amp', 'cc-safety-net.ts');
+  const destination = join(outdir, 'amp', 'cc-safety-net', 'index.ts');
   mkdirSync(dirname(destination), { recursive: true });
   await Bun.write(destination, buildAmpArtifactHeader(pkg.version) + (await artifact.text()));
   return result;

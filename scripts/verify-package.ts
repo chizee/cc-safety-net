@@ -122,7 +122,7 @@ export async function verifyPackage(): Promise<void> {
       'dist/index.js',
       'dist/bin/cc-safety-net.js',
       'dist/pi/index.js',
-      'dist/amp/cc-safety-net.ts',
+      'dist/amp/cc-safety-net/index.ts',
     ]) {
       if (readFileSync(join(packageRoot, bundle), 'utf8').includes('_operation')) {
         throw new Error(`Packed ${bundle} exposes the internal rule synchronization operation`);
@@ -133,7 +133,7 @@ export async function verifyPackage(): Promise<void> {
       cli,
       pi: join(packageRoot, 'dist', 'pi', 'index.js'),
       openCode: join(packageRoot, 'dist', 'index.js'),
-      amp: join(packageRoot, 'dist', 'amp', 'cc-safety-net.ts'),
+      amp: join(packageRoot, 'dist', 'amp', 'cc-safety-net', 'index.ts'),
       env: packageVerificationEnv,
     });
     const overLimitRulebook = join(

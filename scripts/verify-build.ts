@@ -10,7 +10,7 @@ import {
   OPENCLAW_PLUGIN_MANIFEST_FILE,
 } from '../src/integrations/openclaw/artifact';
 
-const AMP_ARTIFACT = 'dist/amp/cc-safety-net.ts';
+const AMP_ARTIFACT = 'dist/amp/cc-safety-net/index.ts';
 const OPENCLAW_PLUGIN_DIR = `dist/openclaw/${OPENCLAW_PLUGIN_ID}`;
 const OPENCLAW_ARTIFACT = `${OPENCLAW_PLUGIN_DIR}/${OPENCLAW_PLUGIN_ENTRY_FILE}`;
 

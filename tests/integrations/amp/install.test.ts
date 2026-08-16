@@ -24,6 +24,9 @@ import { withEnv } from '../../helpers.ts';
 import { makeTempHome } from '../hook-helpers.ts';
 
 const CLONE_REF = 'jliew/-/plugins';
+const PLUGIN_DIRECTORY = 'cc-safety-net';
+const PLUGIN_ENTRY = join(PLUGIN_DIRECTORY, 'index.ts');
+const LEGACY_PLUGIN_FILE = 'cc-safety-net.ts';
 const REPOSITORIES_JSON = JSON.stringify(
   [
     {
@@ -42,6 +45,11 @@ function writeArtifactFixture(dir: string): string {
   const artifactPath = join(dir, 'artifact.ts');
   writeFileSync(artifactPath, `${buildAmpArtifactHeader('9.9.9')}export default function () {}\n`);
   return artifactPath;
+}
+
+function writeCheckoutPlugin(checkout: string, content: string | Buffer): void {
+  mkdirSync(join(checkout, PLUGIN_DIRECTORY), { recursive: true });
+  writeFileSync(join(checkout, PLUGIN_ENTRY), content);
 }
 
 type StubOptions = {
@@ -77,7 +85,7 @@ function makeAmpStub(options: StubOptions = {}) {
       return { status: 1, stdout: '', stderr: `${command[0]}: boom` };
     }
     if (line === 'git status --porcelain') {
-      return { status: 0, stdout: state.dirty ? 'M  cc-safety-net.ts\n' : '', stderr: '' };
+      return { status: 0, stdout: state.dirty ? 'M  cc-safety-net/index.ts\n' : '', stderr: '' };
     }
     if (command[1] === 'clone') {
       state.checkout = command[3];
@@ -85,7 +93,7 @@ function makeAmpStub(options: StubOptions = {}) {
       return { status: 0, stdout: '', stderr: '' };
     }
     if (line.startsWith('git add') && cwd) {
-      const staged = join(cwd, 'cc-safety-net.ts');
+      const staged = join(cwd, PLUGIN_ENTRY);
       state.staged = existsSync(staged) ? readFileSync(staged, 'utf-8') : undefined;
     }
     if (line.startsWith('git add') || line.startsWith('git rm')) {
@@ -100,8 +108,7 @@ function makeAmpStub(options: StubOptions = {}) {
 /** Stub whose checkout already holds the exact bytes of the packaged artifact. */
 function makeCurrentCheckoutStub(artifactPath: string) {
   return makeAmpStub({
-    seedCheckout: (checkout) =>
-      writeFileSync(join(checkout, 'cc-safety-net.ts'), readFileSync(artifactPath)),
+    seedCheckout: (checkout) => writeCheckoutPlugin(checkout, readFileSync(artifactPath)),
   });
 }
 
@@ -162,12 +169,12 @@ describe('Amp personal install', () => {
       const result = await installAmp(homeDir, artifactPath, stub.run);
 
       expect(result.alreadyInstalled).toBe(false);
-      expect(result.path).toBe(`${CLONE_REF}/cc-safety-net.ts`);
+      expect(result.path).toBe(`${CLONE_REF}/cc-safety-net`);
       expect(stub.calls[0]).toBe('amp plugins repositories --json');
       expect(stub.calls[1]).toBe(`amp clone user-plugins ${stub.state.checkout}`);
       expect(stub.state.staged).toBe(readFileSync(artifactPath, 'utf-8'));
       expect(gitCalls(stub.calls)).toEqual([
-        'git add cc-safety-net.ts',
+        'git add --all -- cc-safety-net',
         'git status --porcelain',
         `git -c commit.gpgsign=false -c user.name=cc-safety-net -c user.email=cc-safety-net@localhost commit -m chore: update cc-safety-net plugin to v${getPackageVersion()}`,
         'git push origin HEAD',
@@ -184,7 +191,7 @@ describe('Amp personal install', () => {
       const result = await installAmp(homeDir, artifactPath, stub.run);
 
       expect(result.alreadyInstalled).toBe(true);
-      expect(result.path).toBe(`${CLONE_REF}/cc-safety-net.ts`);
+      expect(result.path).toBe(`${CLONE_REF}/cc-safety-net`);
       expect(gitCalls(stub.calls)).toEqual([]);
     });
   });
@@ -194,8 +201,21 @@ describe('Amp personal install', () => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({
         seedCheckout: (checkout) =>
+          writeCheckoutPlugin(checkout, `${buildAmpArtifactHeader('0.0.1')}export default 0;\n`),
+      });
+
+      expect((await installAmp(homeDir, artifactPath, stub.run)).alreadyInstalled).toBe(false);
+      expect(stub.state.staged).toBe(readFileSync(artifactPath, 'utf-8'));
+    });
+  });
+
+  test('migrates the managed legacy root file to a directory plugin', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
+      const artifactPath = writeArtifactFixture(homeDir);
+      const stub = makeAmpStub({
+        seedCheckout: (checkout) =>
           writeFileSync(
-            join(checkout, 'cc-safety-net.ts'),
+            join(checkout, LEGACY_PLUGIN_FILE),
             `${buildAmpArtifactHeader('0.0.1')}export default 0;\n`,
           ),
       });
@@ -204,6 +224,22 @@ describe('Amp personal install', () => {
 
       expect(result.alreadyInstalled).toBe(false);
       expect(stub.state.staged).toBe(readFileSync(artifactPath, 'utf-8'));
+      expect(gitCalls(stub.calls)).toContain('git add --all -- cc-safety-net cc-safety-net.ts');
+    });
+  });
+
+  test('refuses an unmanaged legacy root file', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
+      const artifactPath = writeArtifactFixture(homeDir);
+      const stub = makeAmpStub({
+        seedCheckout: (checkout) =>
+          writeFileSync(join(checkout, LEGACY_PLUGIN_FILE), 'export default 1;\n'),
+      });
+
+      await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
+        'Refusing to overwrite unmanaged file cc-safety-net.ts',
+      );
+      expect(gitCalls(stub.calls)).toEqual([]);
     });
   });
 
@@ -211,8 +247,7 @@ describe('Amp personal install', () => {
     await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({
-        seedCheckout: (checkout) =>
-          writeFileSync(join(checkout, 'cc-safety-net.ts'), 'export default 1;\n'),
+        seedCheckout: (checkout) => writeCheckoutPlugin(checkout, 'export default 1;\n'),
       });
 
       await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
@@ -230,8 +265,8 @@ describe('Amp personal install', () => {
         // core.autocrlf smudges the committed LF plugin to CRLF, so the bytes differ even
         // though `git add` renormalizes the index straight back to HEAD.
         seedCheckout: (checkout) =>
-          writeFileSync(
-            join(checkout, 'cc-safety-net.ts'),
+          writeCheckoutPlugin(
+            checkout,
             readFileSync(artifactPath, 'utf-8').replaceAll('\n', '\r\n'),
           ),
         stageLeavesTreeClean: true,
@@ -240,23 +275,29 @@ describe('Amp personal install', () => {
       const result = await installAmp(homeDir, artifactPath, stub.run);
 
       expect(result.alreadyInstalled).toBe(true);
-      expect(gitCalls(stub.calls)).toEqual(['git add cc-safety-net.ts', 'git status --porcelain']);
+      expect(gitCalls(stub.calls)).toEqual([
+        'git add --all -- cc-safety-net',
+        'git status --porcelain',
+      ]);
     });
   });
 
   test.each([
     [
       'a symlink',
-      (checkout: string, target: string) => symlinkSync(target, join(checkout, 'cc-safety-net.ts')),
+      (checkout: string, target: string) => symlinkSync(target, join(checkout, PLUGIN_DIRECTORY)),
     ],
-    ['a directory', (checkout: string) => mkdirSync(join(checkout, 'cc-safety-net.ts'))],
+    [
+      'a non-directory',
+      (checkout: string) => writeFileSync(join(checkout, PLUGIN_DIRECTORY), 'not a directory'),
+    ],
   ])('refuses %s at the plugin path in the personal plugins repository', async (_label, seed) => {
     await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({ seedCheckout: (checkout) => seed(checkout, artifactPath) });
 
       await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
-        'not a regular file',
+        'not a regular directory',
       );
       expect(gitCalls(stub.calls)).toEqual([]);
     });
@@ -353,7 +394,10 @@ describe('Amp personal install', () => {
       await expect(installAmp(homeDir, artifactPath, stub.run)).rejects.toThrow(
         'Failed to run git status --porcelain (exit 1).',
       );
-      expect(gitCalls(stub.calls)).toEqual(['git add cc-safety-net.ts', 'git status --porcelain']);
+      expect(gitCalls(stub.calls)).toEqual([
+        'git add --all -- cc-safety-net',
+        'git status --porcelain',
+      ]);
     });
   });
 
@@ -482,8 +526,7 @@ describe('Amp personal install policy snapshot', () => {
     await installWithUserPolicy(homeDir, artifactPath, first.run, POLICY_JSON);
 
     const second = makeAmpStub({
-      seedCheckout: (checkout) =>
-        writeFileSync(join(checkout, 'cc-safety-net.ts'), String(first.state.staged)),
+      seedCheckout: (checkout) => writeCheckoutPlugin(checkout, String(first.state.staged)),
     });
     return {
       artifactPath,
@@ -522,18 +565,15 @@ describe('Amp personal uninstall', () => {
     await withTempHome('safety-net-amp-personal-uninstall', async (homeDir) => {
       const stub = makeAmpStub({
         seedCheckout: (checkout) =>
-          writeFileSync(
-            join(checkout, 'cc-safety-net.ts'),
-            `${buildAmpArtifactHeader('1.0.0')}export default 0;\n`,
-          ),
+          writeCheckoutPlugin(checkout, `${buildAmpArtifactHeader('1.0.0')}export default 0;\n`),
       });
 
       const result = await uninstallAmp(homeDir, stub.run);
 
       expect(result.alreadyInstalled).toBe(true);
-      expect(result.path).toBe(`${CLONE_REF}/cc-safety-net.ts`);
+      expect(result.path).toBe(`${CLONE_REF}/cc-safety-net`);
       expect(gitCalls(stub.calls)).toEqual([
-        'git rm cc-safety-net.ts',
+        'git rm -r -- cc-safety-net',
         'git status --porcelain',
         `git -c commit.gpgsign=false -c user.name=cc-safety-net -c user.email=cc-safety-net@localhost commit -m chore: remove cc-safety-net plugin v${getPackageVersion()}`,
         'git push origin HEAD',
@@ -556,8 +596,7 @@ describe('Amp personal uninstall', () => {
   test('refuses to remove an unmanaged file from the personal repository', async () => {
     await withTempHome('safety-net-amp-personal-uninstall', async (homeDir) => {
       const stub = makeAmpStub({
-        seedCheckout: (checkout) =>
-          writeFileSync(join(checkout, 'cc-safety-net.ts'), 'export default 1;\n'),
+        seedCheckout: (checkout) => writeCheckoutPlugin(checkout, 'export default 1;\n'),
       });
 
       await expect(uninstallAmp(homeDir, stub.run)).rejects.toThrow(

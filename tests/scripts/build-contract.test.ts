@@ -27,7 +27,7 @@ function writeBuildFixture(directory: string) {
   mkdirSync(join(directory, 'dist', 'bin'), { recursive: true });
   mkdirSync(join(directory, 'dist', 'chunks'), { recursive: true });
   mkdirSync(join(directory, 'dist', 'pi'), { recursive: true });
-  mkdirSync(join(directory, 'dist', 'amp'), { recursive: true });
+  mkdirSync(join(directory, 'dist', 'amp', 'cc-safety-net'), { recursive: true });
   mkdirSync(join(directory, 'dist', 'openclaw', 'cc-safety-net'), { recursive: true });
   mkdirSync(join(directory, 'dist', 'vendor'), { recursive: true });
   writeFileSync(
@@ -41,7 +41,7 @@ function writeBuildFixture(directory: string) {
   writeFileSync(join(directory, 'dist', 'pi', 'index.js'), 'export {};\n');
   writeFileSync(join(directory, 'dist', 'vendor', 'zod.cjs'), 'module.exports = {};\n');
   writeFileSync(
-    join(directory, 'dist', 'amp', 'cc-safety-net.ts'),
+    join(directory, 'dist', 'amp', 'cc-safety-net', 'index.ts'),
     `${buildAmpArtifactHeader(pkg.version)}export {};\n`,
   );
   writeFileSync(
@@ -57,7 +57,8 @@ describe('generated artifact contract', () => {
   test('builds the managed Amp artifact from the current source', async () => {
     await withTempDir('cc-safety-net-build-amp-source-', async (directory) => {
       const result = await buildAmpBundle(join(directory, 'dist'));
-      const artifact = readFileSync(join(directory, 'dist', 'amp', 'cc-safety-net.ts'), 'utf8');
+      const path = join(directory, 'dist', 'amp', 'cc-safety-net', 'index.ts');
+      const artifact = readFileSync(path, 'utf8');
 
       expect(result.success).toBeTrue();
       expect(artifact.startsWith(buildAmpArtifactHeader(pkg.version))).toBeTrue();
@@ -177,7 +178,7 @@ describe('generated artifact contract', () => {
     expect(files).toContain('dist/index.d.ts');
     expect(files).toContain('dist/index.js');
     expect(files).toContain('dist/pi/index.js');
-    expect(files).toContain('dist/amp/cc-safety-net.ts');
+    expect(files).toContain('dist/amp/cc-safety-net/index.ts');
     expect(files).toContain('dist/openclaw/cc-safety-net/index.js');
     expect(files).toContain('dist/openclaw/cc-safety-net/openclaw.plugin.json');
     expect(files).toContain('dist/openclaw/cc-safety-net/package.json');
@@ -198,11 +199,10 @@ describe('generated artifact contract', () => {
   });
 
   test('ships a self-contained Amp artifact with the managed header and package version', () => {
-    const artifact = readFileSync('dist/amp/cc-safety-net.ts', 'utf8');
+    const artifact = readFileSync('dist/amp/cc-safety-net/index.ts', 'utf8');
     expect(() => verifyManagedArtifact('Amp', AMP_MANAGED_HEADER, artifact)).not.toThrow();
     expect(artifact.startsWith(AMP_MANAGED_HEADER)).toBeTrue();
     expect(artifact).toContain(`// version: ${pkg.version}`);
-    // zod is bundled in, not left as a runtime require, and nothing imports it.
     expect(artifact).toContain('ZodError');
     expect(unbundledRuntimeImports(artifact)).toEqual([]);
   });
@@ -243,7 +243,7 @@ describe('generated artifact contract', () => {
       const originalCwd = process.cwd();
       process.chdir(directory);
       try {
-        writeFileSync('dist/amp/cc-safety-net.ts', 'export {};\n');
+        writeFileSync('dist/amp/cc-safety-net/index.ts', 'export {};\n');
         await expect(verifyBuildArtifacts()).rejects.toThrow('managed-file header');
       } finally {
         process.chdir(originalCwd);
