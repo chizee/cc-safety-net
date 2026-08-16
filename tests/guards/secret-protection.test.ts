@@ -1562,24 +1562,27 @@ describe('secret protection home-anchored credential locations', () => {
 
   test('does not block home-only config paths outside ~ (avoids repo false positives)', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
+    const otherHome = join(tmpdir(), 'secret-protection-other-home');
 
-    for (const target of [
-      '/home/user/.aws/config',
-      '/home/user/.kube/config',
-      '/home/user/.docker/config.json',
-      '/home/user/.config/gh/hosts.yml',
-      '/home/user/.config/gcloud',
-      '/home/user/.config/gcloud/application_default_credentials.json',
-      'tests/fixtures/.ssh/config',
-      '.aws/README.md',
-      'infra/.kube/config',
-      'infra/.kube/config.bak',
-      'docs/.docker/config.json',
-      'docs/.docker/config.json.old',
-      'deploy/.config/gh/hosts.yml',
-    ]) {
-      expect(findSensitivePathTarget([target], cwd), target).toBeNull();
-    }
+    withEnv({ HOME: join(tmpdir(), 'secret-protection-home') }, () => {
+      for (const target of [
+        join(otherHome, '.aws', 'config'),
+        join(otherHome, '.kube', 'config'),
+        join(otherHome, '.docker', 'config.json'),
+        join(otherHome, '.config', 'gh', 'hosts.yml'),
+        join(otherHome, '.config', 'gcloud'),
+        join(otherHome, '.config', 'gcloud', 'application_default_credentials.json'),
+        'tests/fixtures/.ssh/config',
+        '.aws/README.md',
+        'infra/.kube/config',
+        'infra/.kube/config.bak',
+        'docs/.docker/config.json',
+        'docs/.docker/config.json.old',
+        'deploy/.config/gh/hosts.yml',
+      ]) {
+        expect(findSensitivePathTarget([target], cwd), target).toBeNull();
+      }
+    });
   });
 });
 
