@@ -367,7 +367,9 @@ describe('Amp personal-scope install command', () => {
     expect(result.stdout).toContain(
       'Uninstalled Amp Code plugin from tester/-/plugins/cc-safety-net',
     );
-    expect(readFileSync(join(homeDir, 'git.log'), 'utf-8')).toContain('rm -r -- cc-safety-net');
+    expect(readFileSync(join(homeDir, 'git.log'), 'utf-8')).toContain(
+      'rm -- cc-safety-net/index.ts',
+    );
   });
 
   test('fails with an actionable message when the amp CLI is missing', async () => {

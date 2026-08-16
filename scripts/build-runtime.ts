@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { BunPlugin } from 'bun';
 import pkg from '../package.json';
-import { buildAmpArtifactHeader } from '../src/integrations/amp/artifact';
+import { AMP_PLUGIN_ENTRY, buildAmpArtifactHeader } from '../src/integrations/amp/artifact';
 import {
   buildOpenClawArtifactHeader,
   buildOpenClawPluginManifests,
@@ -172,7 +172,7 @@ export async function buildAmpBundle(outdir: string) {
   if (!result.success) return result;
   const artifact = result.outputs[0];
   if (!artifact) throw new Error('Amp bundle produced no output');
-  const destination = join(outdir, 'amp', 'cc-safety-net', 'index.ts');
+  const destination = join(outdir, 'amp', AMP_PLUGIN_ENTRY);
   mkdirSync(dirname(destination), { recursive: true });
   await Bun.write(destination, buildAmpArtifactHeader(pkg.version) + (await artifact.text()));
   return result;

@@ -27,6 +27,8 @@ const CLONE_REF = 'jliew/-/plugins';
 const PLUGIN_DIRECTORY = 'cc-safety-net';
 const PLUGIN_ENTRY = join(PLUGIN_DIRECTORY, 'index.ts');
 const LEGACY_PLUGIN_FILE = 'cc-safety-net.ts';
+/** A file the user keeps beside our entry; install and uninstall must never touch it. */
+const EXTRA_FILE = 'README.md';
 const REPOSITORIES_JSON = JSON.stringify(
   [
     {
@@ -65,7 +67,14 @@ type StubOptions = {
 
 function makeAmpStub(options: StubOptions = {}) {
   const calls: string[] = [];
-  const state: { checkout?: string; staged?: string; dirty?: boolean } = {};
+  // The checkout is removed once the run finishes, so on-disk facts are captured at staging time.
+  const state: {
+    checkout?: string;
+    staged?: string;
+    dirty?: boolean;
+    legacyAtStage?: boolean;
+    extraAtStage?: boolean;
+  } = {};
   const run: AmpRunner = (command, cwd) => {
     const line = command.join(' ');
     calls.push(line);
@@ -95,6 +104,10 @@ function makeAmpStub(options: StubOptions = {}) {
     if (line.startsWith('git add') && cwd) {
       const staged = join(cwd, PLUGIN_ENTRY);
       state.staged = existsSync(staged) ? readFileSync(staged, 'utf-8') : undefined;
+    }
+    if ((line.startsWith('git add') || line.startsWith('git rm')) && cwd) {
+      state.legacyAtStage = existsSync(join(cwd, LEGACY_PLUGIN_FILE));
+      state.extraAtStage = existsSync(join(cwd, PLUGIN_DIRECTORY, EXTRA_FILE));
     }
     if (line.startsWith('git add') || line.startsWith('git rm')) {
       state.dirty = !options.stageLeavesTreeClean;
@@ -136,6 +149,29 @@ function writeLocalPlugin(homeDir: string, content: string): string {
   return localPath;
 }
 
+/** The shipped directory layout, hand-copied into the local system-scope plugins folder. */
+function writeLocalDirectoryPlugin(homeDir: string, content: string, extra?: string): string {
+  const localDir = join(homeDir, '.config', 'amp', 'plugins', PLUGIN_DIRECTORY);
+  mkdirSync(localDir, { recursive: true });
+  writeFileSync(join(localDir, 'index.ts'), content);
+  if (extra !== undefined) writeFileSync(join(localDir, EXTRA_FILE), extra);
+  return localDir;
+}
+
+/** Bytes of a managed plugin that is ours but out of date. */
+const MANAGED_PLUGIN = `${buildAmpArtifactHeader('1.0.0')}export default 0;\n`;
+
+/** Populates the fake checkout with the entries the hosted repository would hold. */
+function seedCheckout(entries: { plugin?: string; extra?: string; legacy?: string }) {
+  return (checkout: string) => {
+    if (entries.plugin !== undefined) writeCheckoutPlugin(checkout, entries.plugin);
+    if (entries.extra !== undefined)
+      writeFileSync(join(checkout, PLUGIN_DIRECTORY, EXTRA_FILE), entries.extra);
+    if (entries.legacy !== undefined)
+      writeFileSync(join(checkout, LEGACY_PLUGIN_FILE), entries.legacy);
+  };
+}
+
 /**
  * Installs with the user policy file at `<homeDir>/.cc-safety-net/policy.json`.
  * CC_SAFETY_NET_HOME redirects the policy lookup and HOME redirects the home-relative path
@@ -174,7 +210,7 @@ describe('Amp personal install', () => {
       expect(stub.calls[1]).toBe(`amp clone user-plugins ${stub.state.checkout}`);
       expect(stub.state.staged).toBe(readFileSync(artifactPath, 'utf-8'));
       expect(gitCalls(stub.calls)).toEqual([
-        'git add --all -- cc-safety-net',
+        'git add -- cc-safety-net/index.ts',
         'git status --porcelain',
         `git -c commit.gpgsign=false -c user.name=cc-safety-net -c user.email=cc-safety-net@localhost commit -m chore: update cc-safety-net plugin to v${getPackageVersion()}`,
         'git push origin HEAD',
@@ -213,18 +249,33 @@ describe('Amp personal install', () => {
     await withTempHome('safety-net-amp-personal', async (homeDir) => {
       const artifactPath = writeArtifactFixture(homeDir);
       const stub = makeAmpStub({
-        seedCheckout: (checkout) =>
-          writeFileSync(
-            join(checkout, LEGACY_PLUGIN_FILE),
-            `${buildAmpArtifactHeader('0.0.1')}export default 0;\n`,
-          ),
+        seedCheckout: seedCheckout({
+          legacy: `${buildAmpArtifactHeader('0.0.1')}export default 0;\n`,
+        }),
       });
 
       const result = await installAmp(homeDir, artifactPath, stub.run);
 
       expect(result.alreadyInstalled).toBe(false);
       expect(stub.state.staged).toBe(readFileSync(artifactPath, 'utf-8'));
-      expect(gitCalls(stub.calls)).toContain('git add --all -- cc-safety-net cc-safety-net.ts');
+      // The migration only completes if the root file is really gone before it is staged.
+      expect(stub.state.legacyAtStage).toBe(false);
+      expect(gitCalls(stub.calls)).toContain('git add -- cc-safety-net/index.ts cc-safety-net.ts');
+    });
+  });
+
+  test('installs beside an unmanaged file the user keeps in the plugin directory', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
+      const artifactPath = writeArtifactFixture(homeDir);
+      const stub = makeAmpStub({
+        seedCheckout: seedCheckout({ plugin: MANAGED_PLUGIN, extra: '# notes\n' }),
+      });
+
+      const result = await installAmp(homeDir, artifactPath, stub.run);
+
+      expect(result.alreadyInstalled).toBe(false);
+      expect(stub.state.extraAtStage).toBe(true);
+      expect(gitCalls(stub.calls)).toContain('git add -- cc-safety-net/index.ts');
     });
   });
 
@@ -276,7 +327,7 @@ describe('Amp personal install', () => {
 
       expect(result.alreadyInstalled).toBe(true);
       expect(gitCalls(stub.calls)).toEqual([
-        'git add --all -- cc-safety-net',
+        'git add -- cc-safety-net/index.ts',
         'git status --porcelain',
       ]);
     });
@@ -395,7 +446,7 @@ describe('Amp personal install', () => {
         'Failed to run git status --porcelain (exit 1).',
       );
       expect(gitCalls(stub.calls)).toEqual([
-        'git add --all -- cc-safety-net',
+        'git add -- cc-safety-net/index.ts',
         'git status --porcelain',
       ]);
     });
@@ -467,6 +518,38 @@ describe('Amp personal install', () => {
 
       await uninstallAmp(homeDir, makeAmpStub().run);
       expect(lstatSync(localPath).isSymbolicLink()).toBe(true);
+    });
+  });
+
+  test('removes a leftover managed local directory plugin', async () => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
+      const artifactPath = writeArtifactFixture(homeDir);
+      const localDir = writeLocalDirectoryPlugin(
+        homeDir,
+        `${buildAmpArtifactHeader('0.0.1')}export default 0;\n`,
+      );
+
+      await installAmp(homeDir, artifactPath, makeAmpStub().run);
+
+      expect(existsSync(localDir)).toBe(false);
+    });
+  });
+
+  test.each([
+    ['an unmanaged entry', 'export default 1;\n', undefined],
+    ['a file of the user beside our entry', `${buildAmpArtifactHeader('0.0.1')}\n`, '# notes\n'],
+  ])('keeps a local directory plugin holding %s but fails the install', async (_label, content, extra) => {
+    await withTempHome('safety-net-amp-personal', async (homeDir) => {
+      const artifactPath = writeArtifactFixture(homeDir);
+      const localDir = writeLocalDirectoryPlugin(homeDir, content, extra);
+
+      await expect(installAmp(homeDir, artifactPath, makeAmpStub().run)).rejects.toThrow(
+        'masks the personal plugin',
+      );
+      expect(readFileSync(join(localDir, 'index.ts'), 'utf-8')).toBe(content);
+
+      await uninstallAmp(homeDir, makeAmpStub().run);
+      expect(readFileSync(join(localDir, 'index.ts'), 'utf-8')).toBe(content);
     });
   });
 });
@@ -564,8 +647,7 @@ describe('Amp personal uninstall', () => {
   test('removes, commits and pushes the managed file', async () => {
     await withTempHome('safety-net-amp-personal-uninstall', async (homeDir) => {
       const stub = makeAmpStub({
-        seedCheckout: (checkout) =>
-          writeCheckoutPlugin(checkout, `${buildAmpArtifactHeader('1.0.0')}export default 0;\n`),
+        seedCheckout: (checkout) => writeCheckoutPlugin(checkout, MANAGED_PLUGIN),
       });
 
       const result = await uninstallAmp(homeDir, stub.run);
@@ -573,7 +655,7 @@ describe('Amp personal uninstall', () => {
       expect(result.alreadyInstalled).toBe(true);
       expect(result.path).toBe(`${CLONE_REF}/cc-safety-net`);
       expect(gitCalls(stub.calls)).toEqual([
-        'git rm -r -- cc-safety-net',
+        'git rm -- cc-safety-net/index.ts',
         'git status --porcelain',
         `git -c commit.gpgsign=false -c user.name=cc-safety-net -c user.email=cc-safety-net@localhost commit -m chore: remove cc-safety-net plugin v${getPackageVersion()}`,
         'git push origin HEAD',
@@ -600,18 +682,69 @@ describe('Amp personal uninstall', () => {
       });
 
       await expect(uninstallAmp(homeDir, stub.run)).rejects.toThrow(
-        'Refusing to remove unmanaged file',
+        'Refusing to remove unmanaged file cc-safety-net/index.ts in your Amp personal plugins repository. Remove it there and rerun uninstall --amp.',
       );
       expect(gitCalls(stub.calls)).toEqual([]);
     });
   });
 
+  test('removes only our entry from a plugin directory holding a file of the user', async () => {
+    await withTempHome('safety-net-amp-personal-uninstall', async (homeDir) => {
+      const stub = makeAmpStub({
+        seedCheckout: seedCheckout({ plugin: MANAGED_PLUGIN, extra: '# notes\n' }),
+      });
+
+      const result = await uninstallAmp(homeDir, stub.run);
+
+      expect(result.alreadyInstalled).toBe(true);
+      expect(stub.state.extraAtStage).toBe(true);
+      expect(gitCalls(stub.calls)).toContain('git rm -- cc-safety-net/index.ts');
+    });
+  });
+
+  test('uninstalls the directory plugin and leaves an unmanaged legacy root file alone', async () => {
+    await withTempHome('safety-net-amp-personal-uninstall', async (homeDir) => {
+      const stub = makeAmpStub({
+        seedCheckout: seedCheckout({ plugin: MANAGED_PLUGIN, legacy: 'export default 1;\n' }),
+      });
+
+      const result = await uninstallAmp(homeDir, stub.run);
+
+      expect(result.alreadyInstalled).toBe(true);
+      expect(result.path).toBe(`${CLONE_REF}/cc-safety-net`);
+      expect(stub.state.legacyAtStage).toBe(true);
+      expect(gitCalls(stub.calls)).toContain('git rm -- cc-safety-net/index.ts');
+    });
+  });
+
+  test('removes a managed legacy root file when no directory plugin exists', async () => {
+    await withTempHome('safety-net-amp-personal-uninstall', async (homeDir) => {
+      const stub = makeAmpStub({ seedCheckout: seedCheckout({ legacy: MANAGED_PLUGIN }) });
+
+      const result = await uninstallAmp(homeDir, stub.run);
+
+      expect(result.alreadyInstalled).toBe(true);
+      expect(result.path).toBe(`${CLONE_REF}/cc-safety-net.ts`);
+      expect(gitCalls(stub.calls)).toContain('git rm -- cc-safety-net.ts');
+    });
+  });
+
+  test('removes both the directory plugin and a managed legacy root file', async () => {
+    await withTempHome('safety-net-amp-personal-uninstall', async (homeDir) => {
+      const stub = makeAmpStub({
+        seedCheckout: seedCheckout({ plugin: MANAGED_PLUGIN, legacy: MANAGED_PLUGIN }),
+      });
+
+      const result = await uninstallAmp(homeDir, stub.run);
+
+      expect(result.path).toBe(`${CLONE_REF}/cc-safety-net`);
+      expect(gitCalls(stub.calls)).toContain('git rm -- cc-safety-net/index.ts cc-safety-net.ts');
+    });
+  });
+
   test('also removes the managed local plugin and keeps an unmanaged one', async () => {
     await withTempHome('safety-net-amp-personal-uninstall', async (homeDir) => {
-      const managed = writeLocalPlugin(
-        homeDir,
-        `${buildAmpArtifactHeader('1.0.0')}export default 0;\n`,
-      );
+      const managed = writeLocalPlugin(homeDir, MANAGED_PLUGIN);
       await uninstallAmp(homeDir, makeAmpStub().run);
       expect(existsSync(managed)).toBe(false);
 
