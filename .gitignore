@@ -5,6 +5,7 @@
 .safety-net.json
 .opencode
 .gemini
+.factory
 artifacts
 .cc-safetynet-rules
 .cc-safety-net
