@@ -221,6 +221,7 @@ type SecretProtectionPolicy = {
   readonly enabled?: boolean;
   readonly disabledRules?: ReadonlySet<string> | readonly string[];
   readonly denyPaths: readonly string[];
+  readonly allowPaths?: readonly string[];
 };
 
 type SecretInspectionOptions = {
@@ -256,6 +257,17 @@ function findSensitivePolicyPathTarget(
     if (activeDefaultTargets && !activeDefaultTargets.has(target)) continue;
     const ruleId = isSensitivePath(target, cwd, config, budget);
     if (ruleId) {
+      // A configured allow entry vouches for paths the user manages themselves
+      // (a repo's .env.test, a fixtures directory). It suppresses the pattern
+      // tiers only: an explicit deny already returned above, and the coding-CLI
+      // tier stays exempt so no allow entry can expose the agent's own
+      // credentials or configuration.
+      if (
+        !ruleId.startsWith('secret.cli.') &&
+        matchesAllowedPath(target, cwd, config?.allowPaths ?? [], configCwd, budget)
+      ) {
+        continue;
+      }
       return { target, ruleId };
     }
   }
@@ -1685,6 +1697,28 @@ function matchesPolicyPath(
     isSameOrChildPath(
       normalized,
       comparable(normalizeAbsoluteCandidatePath(path, configCwd, budget)),
+    ),
+  );
+}
+
+// Allow entries are literal and use exactly the deny-path semantics:
+// same-or-child of a fully normalized root, symlinks resolved on both sides.
+// Validation rejects glob entries, so an entry that still contains `*` or `?`
+// simply never equals a real normalized path.
+function matchesAllowedPath(
+  target: string,
+  cwd: string,
+  allowPaths: readonly string[],
+  configCwd: string,
+  budget: PathCanonicalizationBudget,
+): boolean {
+  if (allowPaths.length === 0) return false;
+  const normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd, budget));
+  if (!normalized) return false;
+  return allowPaths.some((entry) =>
+    isSameOrChildPath(
+      normalized,
+      comparable(normalizeAbsoluteCandidatePath(entry, configCwd, budget)),
     ),
   );
 }
