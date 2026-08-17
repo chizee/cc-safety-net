@@ -16,9 +16,9 @@
 [![Cursor](https://img.shields.io/badge/Cursor-000000)](https://ccsafetynet.com/docs/installation#cursor-installation)
 [![Gemini CLI](https://img.shields.io/badge/Gemini%20CLI-678AE3)](https://ccsafetynet.com/docs/installation#gemini-cli-installation)
 [![GitHub Copilot CLI](https://img.shields.io/badge/GitHub%20Copilot%20CLI-4EA5C9)](https://ccsafetynet.com/docs/installation#github-copilot-cli-installation)
-[![Hermes Agent](https://img.shields.io/badge/Hermes%20Agent-2D3E50)](#hermes-agent-and-openclaw)
+[![Hermes Agent](https://img.shields.io/badge/Hermes%20Agent-2D3E50)](https://ccsafetynet.com/docs/installation#hermes-agent-installation)
 [![Kimi Code](https://img.shields.io/badge/Kimi%20Code-5587FF)](https://ccsafetynet.com/docs/installation#kimi-code-installation)
-[![OpenClaw](https://img.shields.io/badge/OpenClaw-B4532A)](#hermes-agent-and-openclaw)
+[![OpenClaw](https://img.shields.io/badge/OpenClaw-B4532A)](https://ccsafetynet.com/docs/installation#openclaw-installation)
 [![OpenCode](https://img.shields.io/badge/OpenCode-black)](https://ccsafetynet.com/docs/installation#opencode-installation)
 [![Pi](https://img.shields.io/badge/Pi%20Coding-22262E)](https://ccsafetynet.com/docs/installation#pi-installation)
 [![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
@@ -84,83 +84,7 @@ npm install -g cc-safety-net
 ccsn doctor
 ```
 
-CC Safety Net works across twelve coding agent CLIs — **Claude Code, Antigravity CLI, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, Pi, Cursor, Amp Code, Hermes Agent, and OpenClaw** — on **Windows, macOS, and Linux** (the Hermes Agent and OpenClaw integrations are macOS and Linux only; see [Hermes Agent and OpenClaw](#hermes-agent-and-openclaw)). Per-agent instructions, the target flags for scripted non-interactive installs, post-install steps, and per-agent caveats are on [Installation](https://ccsafetynet.com/docs/installation); how each integration hooks its agent is on [Integration Architecture](https://ccsafetynet.com/docs/guides/integration-architecture).
-
-## Hermes Agent and OpenClaw
-
-These two integrations are newer than the docs site, so their setup steps and coverage
-boundaries live here.
-
-```bash
-# Hermes Agent — installs a managed Python plugin, then restart Hermes
-npx -y cc-safety-net@latest install --hermes-agent
-npx -y cc-safety-net@latest uninstall --hermes-agent
-
-# OpenClaw — installs a bundled plugin through OpenClaw's own CLI, then restart the Gateway
-npx -y cc-safety-net@latest install --openclaw
-npx -y cc-safety-net@latest uninstall --openclaw
-```
-
-Run `npx cc-safety-net doctor` after either install: it is the only surface that reports a plugin
-that is present but not enabled, not ours, or out of date. It reads disk and config only and never
-asks a running host whether the plugin loaded, so a stopped OpenClaw Gateway is not reported as a
-failure — the OpenClaw install verifies the load itself.
-
-**Hermes Agent.** Install writes a managed plugin to `$HERMES_HOME/plugins/cc-safety-net/`
-(`~/.hermes` when `HERMES_HOME` is unset) and then
-runs `hermes plugins enable cc-safety-net --no-allow-tool-override`. It is an ordinary Hermes user
-plugin: it runs inside the Hermes process with the trust Hermes grants user plugins, and it is
-inert until Hermes is restarted. On every `pre_tool_call` it shells out to
-`npx -y cc-safety-net hook --hermes-agent` with a 30-second timeout, and blocks the call itself
-whenever that analysis cannot complete — missing `npx`, spawn failure, timeout, unreadable output,
-or a Hermes session directory it cannot read.
-Protected tools are `terminal`, `read_file`, `write_file`, and `patch`; calls to any other Hermes
-tool are not forwarded and get no decision. Uninstall runs `hermes plugins disable cc-safety-net`
-first — Hermes only resolves a plugin that is still on disk — and then removes the managed files,
-so the config entry goes with them; a failing or missing `hermes` is reported as a warning and the
-files are removed anyway.
-
-**OpenClaw.** Install runs `openclaw plugins install <bundled plugin dir> --force` followed by
-`openclaw plugins enable cc-safety-net`, then verifies the plugin actually loaded. **Restart the
-OpenClaw Gateway afterwards, and if `plugins.allow` is set in `openclaw.json` it must also list
-`cc-safety-net`** — until both are true the plugin never runs and nothing is blocked. The plugin
-registers `before_tool_call` for the canonical `exec` tool only and returns a plain allow or
-block; it never rewrites tool parameters. It resolves the agent workspace as the policy and
-execution directory, and denies a call whose `workdir` resolves outside that workspace or whose
-agent or workspace context cannot be established. Live end-to-end tests (`bun run test:e2e:live`,
-run before a release) drive the real `openclaw` binary against a throwaway state directory: our
-CLI installs the plugin, the host reports it loaded with the hook registered, and a real Gateway
-agent turn puts a real `exec` call through it — a harmless command runs, `git reset --hard` is
-blocked before it can touch the workspace.
-
-**What is not covered.**
-
-- **Hermes bang-shell.** A `!command` you type yourself does not raise `pre_tool_call`; it goes
-  straight to Hermes' own command guard. CC Safety Net sees model-generated tool calls only, not
-  every subprocess Hermes starts.
-- **Hermes shell hooks fail open.** Hermes' `hooks:` dispatcher allows the tool call when a hook
-  cannot start, times out, or returns unparseable output. That is why the shipped integration is
-  the Python plugin, which blocks on its own failures, and why `hooks:` is a diagnostic path only.
-  One case stays outside our reach either way: if Hermes never loads the plugin, nothing blocks
-  and only `doctor` will say so.
-- **OpenClaw execution hosts.** `exec` calls with no `host`, `host: "auto"`, or `host: "gateway"`
-  are analysed as local Gateway calls. Explicit `host: "sandbox"` and `host: "node"` are blocked
-  as unsupported, because no test proves a correct path mapping for them. When a sandbox runtime
-  is active, an `auto` call runs in the sandbox filesystem while paths are still analysed against
-  the Gateway workspace — command rules are unaffected, path rules can be evaluated against the
-  wrong filesystem. The same applies when a call carries no `host` and your configured
-  `tools.exec.host` default is `node` or `sandbox`: the call is still analysed as a local Gateway
-  call.
-- **OpenClaw Codex-native relay.** Untested, and therefore unclaimed. The live end-to-end tests
-  drive OpenClaw's own agent runtime, so they say nothing about a Codex-native shell, patch, or
-  MCP call.
-- **OpenClaw file tools.** `apply_patch` and OpenClaw's read/write/edit tools are not protected;
-  only `exec` is.
-- **Windows.** Both integrations assume the POSIX layout. Relocated state is handled the way the
-  hosts resolve it — `HERMES_HOME` for Hermes, then `OPENCLAW_STATE_DIR` and the directory of
-  `OPENCLAW_CONFIG_PATH` for OpenClaw, falling back to `~/.hermes` and `~/.openclaw`. The Windows
-  defaults are not: install and detection target the POSIX path there, so Hermes writes to the
-  wrong directory and OpenClaw's own CLI installs correctly while `doctor` misreports the state.
+CC Safety Net works across twelve coding agent CLIs — **Claude Code, Antigravity CLI, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, Pi, Cursor, Amp Code, Hermes Agent, and OpenClaw** — on **Windows, macOS, and Linux** (the Hermes Agent and OpenClaw integrations are macOS and Linux only). Per-agent instructions, the target flags for scripted non-interactive installs, post-install steps, and per-agent caveats are on [Installation](https://ccsafetynet.com/docs/installation); how each integration hooks its agent is on [Integration Architecture](https://ccsafetynet.com/docs/guides/integration-architecture).
 
 ## What it does
 
@@ -226,7 +150,7 @@ npx -y cc-safety-net@latest update
 ```
 
 > [!WARNING]
-> If you previously defined custom rules in a legacy inline config (`.safety-net.json` or `~/.cc-safety-net/config.json`), those files are **no longer loaded at runtime** and **their rules are not enforcing anything**. Nothing is blocked, so you will not notice this from normal use — the commands those rules used to block now run. Run `npx -y cc-safety-net rule migrate` to convert them to the rulebook layout, then `npx -y cc-safety-net doctor` to confirm the runtime is `ready`. See the [migration guide](https://ccsafetynet.com/docs/configuration/custom-rules#migration-from-legacy-config).
+> If you previously defined custom rules in a legacy inline config (`.safety-net.json` or `~/.cc-safety-net/config.json`), those files are **no longer loaded at runtime** and **their rules are not enforcing anything**. Nothing is blocked, so you will not notice this from normal use — the commands those rules used to block now run. Run `npx -y cc-safety-net rule migrate` to convert them to the rulebook layout, then `npx -y cc-safety-net doctor` to confirm the runtime is `ready`. See the [migration guide](https://ccsafetynet.com/docs/configuration/custom-rules#migrate-legacy-configuration).
 
 ## Full documentation
 
