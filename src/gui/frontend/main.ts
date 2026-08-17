@@ -1949,6 +1949,10 @@ const restoreDraft = () => {
     sessionStorage.removeItem('cc-safety-net-draft');
     return;
   }
+  // The shape check only proves the top-level sections exist, so a draft saved
+  // before allow_paths was introduced restores without the field and the path
+  // list render below would read undefined.length.
+  parsed.secret_protection.allow_paths ??= [];
   draftPolicy = parsed;
   // render() builds the two master-toggle checkboxes from state.policy and the
   // sub-renders below do not rebuild them, so sync them from the restored draft.
