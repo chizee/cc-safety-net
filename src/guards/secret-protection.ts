@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { isAbsolute, resolve, win32 } from 'node:path';
+import { isAbsolute, posix, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AWK_INTERPRETERS, extractAwkSystemCommands } from '@/analyzer/awk';
 import {
@@ -1765,7 +1765,12 @@ function normalizeUnresolvedHomePath(
   const { home, normalized } = prepareCandidatePath(target, budget);
   if (!normalized || !home) return '';
   const expanded = expandHomePath(normalized, home);
-  const absolute = isAbsolute(expanded) ? expanded : normalizePathText(resolve(cwd, expanded));
+  // Lexically collapsed (never through the filesystem): a `..` before the
+  // credential directory would otherwise hide it from the literal comparison,
+  // and a `..` after it would drag ordinary siblings into the rule.
+  const absolute = posix.normalize(
+    isAbsolute(expanded) ? expanded : normalizePathText(resolve(cwd, expanded)),
+  );
   // The home root itself may be reached through a symlinked ancestor (on macOS
   // /var is a link to /private/var), so an absolute candidate is tested against
   // both the canonical and the literal home root before being given up on.

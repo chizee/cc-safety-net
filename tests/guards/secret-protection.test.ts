@@ -2556,6 +2556,20 @@ describe('secret protection home rules survive a symlinked credential directory'
     }
   });
 
+  test('dot segments cannot route around the un-resolved comparison', () => {
+    const home = homeWithSymlinkedCredentials();
+    try {
+      withEnv({ HOME: home }, () => {
+        // `..` before the credential directory must not hide it from the rule.
+        expect(findSensitivePathTarget(['~/projects/../.ssh/config'], home)).not.toBeNull();
+        // `..` after the credential directory must not drag ordinary files into it.
+        expect(findSensitivePathTarget(['~/.ssh/../notes/todo.md'], home)).toBeNull();
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test('an unrelated symlinked directory is still not sensitive', () => {
     const home = mkdtempSync(join(tmpdir(), 'secret-protection-unrelated-'));
     try {
