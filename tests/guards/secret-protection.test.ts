@@ -2781,6 +2781,26 @@ describe('secret protection allow paths', () => {
     }
   });
 
+  test('a symlinked default guard configuration keeps its refusal', () => {
+    const home = mkdtempSync(join(tmpdir(), 'secret-protection-allow-guard-link-'));
+    const vault = mkdtempSync(join(tmpdir(), 'secret-protection-guard-vault-'));
+    try {
+      mkdirSync(join(vault, 'ccsn'), { recursive: true });
+      symlinkSync(join(vault, 'ccsn'), join(home, '.cc-safety-net'), 'dir');
+      withEnv({ HOME: home, CC_SAFETY_NET_HOME: '' }, () => {
+        // Candidate normalization follows the link to the vault, so the guard
+        // root must follow it too, or a vault-covering entry slips past it.
+        const config = { disabledRules: new Set<string>(), denyPaths: [], allowPaths: [vault] };
+        expect(
+          findSensitivePathTarget(['~/.cc-safety-net/credentials'], home, config)?.ruleId,
+        ).toBe('secret.basename.credentials');
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(vault, { recursive: true, force: true });
+    }
+  });
+
   test('a CC_SAFETY_NET_HOME override moves the guard-configuration refusal with it', () => {
     const home = mkdtempSync(join(tmpdir(), 'secret-protection-allow-guard-home-'));
     const guardParent = mkdtempSync(join(tmpdir(), 'secret-protection-guard-parent-'));

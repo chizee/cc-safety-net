@@ -1725,17 +1725,22 @@ function matchesAllowedPath(
   const normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd, budget));
   if (!normalized) return false;
   const homeValue = process.env.HOME ?? homedir();
-  const home = homeValue
-    ? comparable(normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget)))
+  const resolvedHome = homeValue
+    ? normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget))
     : '';
+  const home = comparable(resolvedHome);
   const guardHomeValue = process.env.CC_SAFETY_NET_HOME;
-  const guardRoot = guardHomeValue
-    ? comparable(
-        normalizePathText(
-          resolveExistingPath(resolve(guardHomeValue), processPathResolver, budget),
-        ),
-      )
-    : home && `${home}/.cc-safety-net`;
+  // Both roots go through the filesystem: a dotfile-managed ~/.cc-safety-net
+  // symlink would otherwise leave the lexical default root pointing away from
+  // where candidate normalization already followed the link.
+  const guardRoot = comparable(
+    guardHomeValue
+      ? normalizePathText(resolveExistingPath(resolve(guardHomeValue), processPathResolver, budget))
+      : resolvedHome &&
+          normalizePathText(
+            resolveExistingPath(`${resolvedHome}/.cc-safety-net`, processPathResolver, budget),
+          ),
+  );
   // No target under the guard's own configuration is ever exemptible. The
   // save-time validator rejects literal entries in there, but it cannot see
   // relative entries, env expansion, a CC_SAFETY_NET_HOME override, or an
