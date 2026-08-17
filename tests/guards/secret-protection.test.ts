@@ -344,7 +344,7 @@ describe('secret protection path matching', () => {
   });
 
   test.skipIf(process.platform !== 'win32')(
-    'normalizes Windows-style separators, including relative ones',
+    '[windows] normalizes Windows-style separators, including relative ones',
     () => {
       const cwd = join(tmpdir(), 'secret-protection-project');
 

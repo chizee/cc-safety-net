@@ -260,7 +260,7 @@ describe('built CLI protection contract', () => {
       'remote-url',
       'curl -sL https://raw.githubusercontent.com/o/r/main/.env.test',
     ],
-  ] as const)('Coding CLI allows %s without auditing it', async (_name, slug, command) => {
+  ] as const)('Coding CLI allows %s and records only the allow decision', async (_name, slug, command) => {
     await withWorkspace(async ({ cwd, home }) => {
       const sessionId = `claude-allows-${slug}`;
       await expectAllowedAction(cwd, home, sessionId, (action) =>
