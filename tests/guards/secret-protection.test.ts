@@ -2622,6 +2622,10 @@ describe('secret protection exempts every documented explain invocation', () => 
       `npx -y some-other-tool explain ~/.ssh/id_rsa`,
       `bun run src/cli/cc-safety-net.ts explain 'git status' && cat .env`,
       `bun run src/cli/cc-safety-net.ts run ~/.ssh/id_rsa`,
+      // A runner target is trusted by its exact documented name, never by its
+      // final path segment: npx resolves these to a different package or file.
+      `npx -y @evil/cc-safety-net explain ~/.ssh/id_rsa`,
+      `bunx ./vendor/cc-safety-net explain ~/.ssh/id_rsa`,
     ]) {
       expect(findSensitiveTargetInCommand(command, cwd), command).not.toBeNull();
     }
@@ -2696,6 +2700,40 @@ describe('secret protection allow paths', () => {
         expect(findSensitivePathTarget(['~/.claude/.credentials.json'], home, config)?.ruleId).toBe(
           'secret.cli.claude-code',
         );
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('an entry that only resolves to home through env expansion never vouches for home', () => {
+    const home = mkdtempSync(join(tmpdir(), 'secret-protection-allow-env-escape-'));
+    try {
+      withEnv({ HOME: home, CC_SAFETY_NET_HOME: join(home, '.cc-safety-net') }, () => {
+        // Validation rejects literal home-covering entries, but this one is
+        // non-absolute at save time and expands to home only at match time.
+        const config = {
+          disabledRules: new Set<string>(),
+          denyPaths: [],
+          allowPaths: ['$CC_SAFETY_NET_HOME/..'],
+        };
+        expect(findSensitivePathTarget(['~/.ssh/id_rsa'], home, config)?.ruleId).toBe(
+          'secret.home.ssh',
+        );
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('a relative entry that resolves to home is refused at match time', () => {
+    const home = mkdtempSync(join(tmpdir(), 'secret-protection-allow-relative-escape-'));
+    try {
+      withEnv({ HOME: home }, () => {
+        const config = { disabledRules: new Set<string>(), denyPaths: [], allowPaths: ['..'] };
+        expect(
+          findSensitivePathTarget(['~/.ssh/id_rsa'], join(home, 'project'), config)?.ruleId,
+        ).toBe('secret.home.ssh');
       });
     } finally {
       rmSync(home, { recursive: true, force: true });

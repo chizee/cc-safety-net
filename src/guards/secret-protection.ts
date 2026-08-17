@@ -511,8 +511,10 @@ function safetyNetExplainPrefixLength(command: string, tokens: readonly string[]
     // part of a documented form. Only that flag is skipped: any other option
     // changes what the runner resolves and keeps the arguments inspected.
     const skip = tokens[0] === '-y' || tokens[0] === '--yes' ? 1 : 0;
-    return CC_SAFETY_NET_BIN_NAMES.has(basename(tokens[skip] ?? '')) &&
-      tokens[skip + 1] === 'explain'
+    // Exact names only: the runner resolves its target by the token as written,
+    // so `@scope/cc-safety-net` or a path ending in the bin name is a DIFFERENT
+    // program that must keep its arguments inspected.
+    return CC_SAFETY_NET_BIN_NAMES.has(tokens[skip] ?? '') && tokens[skip + 1] === 'explain'
       ? skip + 1
       : null;
   }
@@ -1715,12 +1717,22 @@ function matchesAllowedPath(
   if (allowPaths.length === 0) return false;
   const normalized = comparable(normalizeAbsoluteCandidatePath(target, cwd, budget));
   if (!normalized) return false;
-  return allowPaths.some((entry) =>
-    isSameOrChildPath(
-      normalized,
-      comparable(normalizeAbsoluteCandidatePath(entry, configCwd, budget)),
-    ),
-  );
+  const homeValue = process.env.HOME ?? homedir();
+  const home = homeValue
+    ? comparable(normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget)))
+    : '';
+  return allowPaths.some((entry) => {
+    const root = comparable(normalizeAbsoluteCandidatePath(entry, configCwd, budget));
+    if (!root) return false;
+    // Validation rejects literal entries that cover home, but an entry can
+    // still RESOLVE there at match time (env expansion, relative segments
+    // against the config cwd), and such a root would exempt every secret
+    // under home. Refuse it here, where the resolved root is finally known.
+    if (home && (home === root || home.startsWith(root.endsWith('/') ? root : `${root}/`))) {
+      return false;
+    }
+    return isSameOrChildPath(normalized, root);
+  });
 }
 
 function isSkippablePathForBroadSignatures(comparablePath: string): boolean {
