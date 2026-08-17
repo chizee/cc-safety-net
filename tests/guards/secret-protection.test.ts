@@ -2604,6 +2604,9 @@ describe('secret protection exempts every documented explain invocation', () => 
       `bun run dist/bin/cc-safety-net.js explain --json 'cat ~/.ssh/id_rsa'`,
       `bunx cc-safety-net explain 'cat ~/.ssh/id_rsa'`,
       `npx cc-safety-net explain 'cat ~/.ssh/id_rsa'`,
+      // The install docs print the -y form, so it must not block on its argument.
+      `npx -y cc-safety-net explain 'cat ~/.ssh/id_rsa'`,
+      `bunx --yes cc-safety-net explain 'cat ~/.ssh/id_rsa'`,
     ]) {
       expect(findSensitiveTargetInCommand(command, cwd), command).toBeNull();
     }
@@ -2616,6 +2619,7 @@ describe('secret protection exempts every documented explain invocation', () => 
       `bun run src/cli/other.ts explain ~/.ssh/id_rsa`,
       `bun run src/cli/cc-safety-net.ts hook --coding-cli ~/.ssh/id_rsa`,
       `bunx some-other-tool explain ~/.ssh/id_rsa`,
+      `npx -y some-other-tool explain ~/.ssh/id_rsa`,
       `bun run src/cli/cc-safety-net.ts explain 'git status' && cat .env`,
       `bun run src/cli/cc-safety-net.ts run ~/.ssh/id_rsa`,
     ]) {

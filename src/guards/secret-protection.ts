@@ -495,8 +495,13 @@ function safetyNetExplainPrefixLength(command: string, tokens: readonly string[]
     return tokens[0] === 'explain' ? 0 : null;
   }
   if (PACKAGE_RUNNERS.has(command)) {
-    return CC_SAFETY_NET_BIN_NAMES.has(basename(tokens[0] ?? '')) && tokens[1] === 'explain'
-      ? 1
+    // The install docs print `npx -y cc-safety-net`, so the consent flag is
+    // part of a documented form. Only that flag is skipped: any other option
+    // changes what the runner resolves and keeps the arguments inspected.
+    const skip = tokens[0] === '-y' || tokens[0] === '--yes' ? 1 : 0;
+    return CC_SAFETY_NET_BIN_NAMES.has(basename(tokens[skip] ?? '')) &&
+      tokens[skip + 1] === 'explain'
+      ? skip + 1
       : null;
   }
   if (SCRIPT_RUNTIMES.has(command)) {
