@@ -2543,6 +2543,24 @@ describe('secret protection home rules survive a symlinked credential directory'
     }
   });
 
+  test.skipIf(process.platform !== 'win32')(
+    '[windows] blocks a differently-cased absolute spelling of a symlinked ~/.ssh path',
+    () => {
+      const home = homeWithSymlinkedCredentials();
+      try {
+        withEnv({ HOME: home }, () => {
+          // Windows paths are case-insensitive: this lowercased spelling names
+          // the same file, and the un-resolved home comparison must still match.
+          expect(
+            findSensitivePathTarget([join(home, '.ssh', 'config').toLowerCase()], home),
+          ).not.toBeNull();
+        });
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  );
+
   test('a real (unlinked) home directory keeps working', () => {
     const home = mkdtempSync(join(tmpdir(), 'secret-protection-realhome-'));
     try {
@@ -2765,23 +2783,24 @@ describe('secret protection allow paths', () => {
 
   test('a CC_SAFETY_NET_HOME override moves the guard-configuration refusal with it', () => {
     const home = mkdtempSync(join(tmpdir(), 'secret-protection-allow-guard-home-'));
-    const guardHome = mkdtempSync(join(tmpdir(), 'secret-protection-custom-guard-home-'));
+    const guardParent = mkdtempSync(join(tmpdir(), 'secret-protection-guard-parent-'));
+    const guardHome = join(guardParent, 'config');
     try {
       withEnv({ HOME: home, CC_SAFETY_NET_HOME: guardHome }, () => {
-        // Outside home, so save-time validation accepts this literal entry; the
-        // effective guard root is only known from the runtime environment.
-        const config = {
-          disabledRules: new Set<string>(),
-          denyPaths: [],
-          allowPaths: [guardHome],
-        };
-        expect(
-          findSensitivePathTarget([join(guardHome, 'credentials')], home, config)?.ruleId,
-        ).toBe('secret.basename.credentials');
+        // Both entries are outside home, so save-time validation accepts them:
+        // one IS the guard root, the other is only an ANCESTOR of it. The
+        // target below the effective guard root must stay protected either way.
+        for (const entry of [guardHome, guardParent]) {
+          const config = { disabledRules: new Set<string>(), denyPaths: [], allowPaths: [entry] };
+          expect(
+            findSensitivePathTarget([join(guardHome, 'credentials')], home, config)?.ruleId,
+            entry,
+          ).toBe('secret.basename.credentials');
+        }
       });
     } finally {
       rmSync(home, { recursive: true, force: true });
-      rmSync(guardHome, { recursive: true, force: true });
+      rmSync(guardParent, { recursive: true, force: true });
     }
   });
 

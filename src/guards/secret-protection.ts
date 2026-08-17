@@ -1736,18 +1736,22 @@ function matchesAllowedPath(
         ),
       )
     : home && `${home}/.cc-safety-net`;
+  // No target under the guard's own configuration is ever exemptible. The
+  // save-time validator rejects literal entries in there, but it cannot see
+  // relative entries, env expansion, a CC_SAFETY_NET_HOME override, or an
+  // entry ABOVE a custom guard root — so the boundary is enforced on the
+  // target, where the effective guard root is finally known.
+  if (guardRoot && isSameOrChildPath(normalized, guardRoot)) return false;
   return allowPaths.some((entry) => {
     const root = comparable(normalizeAbsoluteCandidatePath(entry, configCwd, budget));
     if (!root) return false;
-    // Validation rejects literal entries that cover home or the guard's own
-    // configuration, but an entry can still RESOLVE there at match time (env
-    // expansion, relative segments against the config cwd, a CC_SAFETY_NET_HOME
-    // override the validator cannot see). Refuse such roots here, where the
-    // resolved root is finally known.
+    // Validation rejects literal entries that cover home, but an entry can
+    // still RESOLVE there at match time (env expansion, relative segments
+    // against the config cwd), and such a root would exempt every secret
+    // under home. Refuse it here, where the resolved root is finally known.
     if (home && (home === root || home.startsWith(root.endsWith('/') ? root : `${root}/`))) {
       return false;
     }
-    if (guardRoot && isSameOrChildPath(root, guardRoot)) return false;
     return isSameOrChildPath(normalized, root);
   });
 }
@@ -1843,8 +1847,12 @@ function normalizeUnresolvedHomePath(
   // /var is a link to /private/var), so an absolute candidate is tested against
   // both the canonical and the literal home root before being given up on.
   const literalHome = normalizePathText(process.env.HOME ?? homedir());
+  // Windows paths are case-insensitive and agents routinely re-case drive
+  // letters, so the roots match case-folded there; POSIX casing is
+  // identity-bearing and stays exact.
+  const fold = (value: string) => (process.platform === 'win32' ? value.toLowerCase() : value);
   const root = [home, literalHome].find(
-    (candidate) => candidate !== '' && isSameOrChildPath(absolute, candidate),
+    (candidate) => candidate !== '' && isSameOrChildPath(fold(absolute), fold(candidate)),
   );
   if (root === undefined) return '';
   const relativeHomePath = absolute.slice(root.length);
