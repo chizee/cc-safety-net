@@ -1297,7 +1297,7 @@ function isSensitivePath(
   // `.env.` or `id_rsa-` is read as a path — and the exemption lists, which
   // compare basenames exactly, cannot rescue it: the sentence fragment
   // `.env.example) and then ...` was blocked while `.env.example` is allowed.
-  const filenameShapedName =
+  const isFilenameShapedName = () =>
     isFilenameShaped(comparableName) || candidateExistsOnDisk(target, cwd, budget);
 
   // Env templates (.env.example, ...) stay readable even inside sensitive
@@ -1337,9 +1337,9 @@ function isSensitivePath(
     if (comparableName === rule.basename && isSecretRuleEnabled(rule.id, config)) return rule.id;
   }
   if (
-    filenameShapedName &&
     comparableName.startsWith(ENV_PREFIX) &&
-    isSecretRuleEnabled(SECRET_ENV_VARIANT_RULE.id, config)
+    isSecretRuleEnabled(SECRET_ENV_VARIANT_RULE.id, config) &&
+    isFilenameShapedName()
   ) {
     return SECRET_ENV_VARIANT_RULE.id;
   }
@@ -1347,13 +1347,15 @@ function isSensitivePath(
   // Catch rename-shielded variants (id_rsa.bak, id_rsa-old) without flagging
   // unrelated lookalikes (id_rsafoo, credentials.json).
   for (const rule of SECRET_VARIANT_SEPARATOR_RULES) {
-    if (
-      filenameShapedName &&
-      comparableName.length > rule.prefix.length &&
-      comparableName.startsWith(rule.prefix)
-    ) {
+    if (comparableName.length > rule.prefix.length && comparableName.startsWith(rule.prefix)) {
       const next = comparableName.slice(rule.prefix.length)[0];
-      if ((next === '-' || next === '_') && isSecretRuleEnabled(rule.id, config)) return rule.id;
+      if (
+        (next === '-' || next === '_') &&
+        isSecretRuleEnabled(rule.id, config) &&
+        isFilenameShapedName()
+      ) {
+        return rule.id;
+      }
     }
   }
   for (const rule of SECRET_VARIANT_DOT_SUFFIX_RULES) {

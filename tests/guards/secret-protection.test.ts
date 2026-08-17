@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -2798,6 +2798,32 @@ describe('secret protection allow paths', () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
       rmSync(vault, { recursive: true, force: true });
+    }
+  });
+
+  test('a canonical guard path under a symlinked home never vouches for the guard configuration', () => {
+    const real = mkdtempSync(join(tmpdir(), 'secret-protection-allow-real-home-'));
+    const linkParent = mkdtempSync(join(tmpdir(), 'secret-protection-allow-link-home-'));
+    const home = join(linkParent, 'home');
+    try {
+      symlinkSync(real, home, 'dir');
+      withEnv({ HOME: home, CC_SAFETY_NET_HOME: '' }, () => {
+        // Save-time validation compares entries against the LEXICAL
+        // ~/.cc-safety-net, so the canonical spelling behind the home symlink
+        // saves without an error. The target-side guard-root boundary resolves
+        // both sides through the filesystem and must still refuse it.
+        const config = {
+          disabledRules: new Set<string>(),
+          denyPaths: [],
+          allowPaths: [join(realpathSync(real), '.cc-safety-net')],
+        };
+        expect(
+          findSensitivePathTarget(['~/.cc-safety-net/credentials'], home, config)?.ruleId,
+        ).toBe('secret.basename.credentials');
+      });
+    } finally {
+      rmSync(linkParent, { recursive: true, force: true });
+      rmSync(real, { recursive: true, force: true });
     }
   });
 
