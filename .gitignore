@@ -1,7 +1,9 @@
 # --- Project Specific ---
 .cursor
 .claude
-.agents
+.agents/*
+!.agents/setup
+!.agents/resume
 .safety-net.json
 .opencode
 .gemini
