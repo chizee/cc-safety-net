@@ -520,7 +520,14 @@ function safetyNetExplainPrefixLength(command: string, tokens: readonly string[]
   }
   if (SCRIPT_RUNTIMES.has(command)) {
     if (isSafetyNetEntrypoint(tokens[0]) && tokens[1] === 'explain') return 1;
-    if (tokens[0] === 'run' && isSafetyNetEntrypoint(tokens[1]) && tokens[2] === 'explain')
+    // Only bun has a `run` subcommand; `node run ...` executes a local script
+    // named `run`, so its arguments must keep being inspected.
+    if (
+      command === 'bun' &&
+      tokens[0] === 'run' &&
+      isSafetyNetEntrypoint(tokens[1]) &&
+      tokens[2] === 'explain'
+    )
       return 2;
   }
   return null;
@@ -1721,16 +1728,26 @@ function matchesAllowedPath(
   const home = homeValue
     ? comparable(normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget)))
     : '';
+  const guardHomeValue = process.env.CC_SAFETY_NET_HOME;
+  const guardRoot = guardHomeValue
+    ? comparable(
+        normalizePathText(
+          resolveExistingPath(resolve(guardHomeValue), processPathResolver, budget),
+        ),
+      )
+    : home && `${home}/.cc-safety-net`;
   return allowPaths.some((entry) => {
     const root = comparable(normalizeAbsoluteCandidatePath(entry, configCwd, budget));
     if (!root) return false;
-    // Validation rejects literal entries that cover home, but an entry can
-    // still RESOLVE there at match time (env expansion, relative segments
-    // against the config cwd), and such a root would exempt every secret
-    // under home. Refuse it here, where the resolved root is finally known.
+    // Validation rejects literal entries that cover home or the guard's own
+    // configuration, but an entry can still RESOLVE there at match time (env
+    // expansion, relative segments against the config cwd, a CC_SAFETY_NET_HOME
+    // override the validator cannot see). Refuse such roots here, where the
+    // resolved root is finally known.
     if (home && (home === root || home.startsWith(root.endsWith('/') ? root : `${root}/`))) {
       return false;
     }
+    if (guardRoot && isSameOrChildPath(root, guardRoot)) return false;
     return isSameOrChildPath(normalized, root);
   });
 }
