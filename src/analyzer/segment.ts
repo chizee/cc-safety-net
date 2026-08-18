@@ -107,9 +107,7 @@ export function analyzeSegment(
     trace?.recordSegment({
       type: 'env-strip',
       input: texts(commandWords),
-      envVars: Object.fromEntries(
-        [...leading.envAssignments.keys()].map((key) => [key, '<redacted>' as const]),
-      ),
+      envVars: [...leading.envAssignments.keys()],
       output: texts(leading.words),
     });
   }
@@ -168,8 +166,7 @@ export function analyzeSegment(
   if (dynamicCommandMatch) {
     trace?.recordSegment({
       type: 'rule-check',
-      ruleModule: 'analyze/segment.ts',
-      ruleFunction: 'analyzeDynamicCommandStructure',
+      rule: 'analyzer/segment.ts:analyzeDynamicCommandStructure',
       matched: true,
       reason: dynamicCommandMatch.reason,
     });
@@ -336,8 +333,7 @@ export function analyzeSegment(
     if (awkReason) {
       trace?.recordSegment({
         type: 'rule-check',
-        ruleModule: 'awk',
-        ruleFunction: 'analyzeAwkSystemCalls',
+        rule: 'awk:analyzeAwkSystemCallMatch',
         matched: true,
         reason: awkReason.reason,
       });
@@ -435,8 +431,7 @@ export function analyzeSegment(
   if (filteredDeviceMatch) {
     trace?.recordSegment({
       type: 'rule-check',
-      ruleModule: 'analyze/device.ts',
-      ruleFunction: 'analyzeDeviceCommand',
+      rule: 'analyzer/device.ts:analyzeDeviceCommandMatch',
       matched: true,
       reason: filteredDeviceMatch.reason,
     });
@@ -620,18 +615,17 @@ function recordCommandAnalyzerTrace(
   match: DestructiveCommandRuleMatch | null,
   relaxation: ReturnType<typeof analyzeGitDetailed>['relaxation'],
 ): void {
-  const details = {
-    git: ['git', 'analyzeGit'],
-    rm: ['analyze/rm.ts', 'analyzeRm'],
-    find: ['analyze/find.ts', 'analyzeFind'],
-    xargs: ['analyze/xargs.ts', 'analyzeXargs'],
-    parallel: ['analyze/parallel.ts', 'analyzeParallel'],
+  const rule = {
+    git: 'git:analyzeGitMatch',
+    rm: 'analyzer/rm.ts:analyzeRmMatch',
+    find: 'analyzer/find.ts:analyzeFindMatch',
+    xargs: 'analyzer/xargs.ts:analyzeXargs',
+    parallel: 'analyzer/parallel.ts:analyzeParallel',
   }[context.head];
-  if (!details) return;
+  if (!rule) return;
   context.options.trace?.recordSegment({
     type: 'rule-check',
-    ruleModule: details[0] ?? '',
-    ruleFunction: details[1] ?? '',
+    rule,
     matched: !!match || !!relaxation,
     reason: match?.reason ?? relaxation?.originalReason,
   });

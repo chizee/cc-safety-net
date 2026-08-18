@@ -6,7 +6,6 @@ import { textCommandWords } from '@/analyzer/command-words';
 import {
   type AnalyzeRmOptions,
   analyzeRmMatch as analyzeRmMatchWithEnvironment,
-  analyzeRm as analyzeRmWithEnvironment,
 } from '@/analyzer/rm';
 import type { CommandWord } from '@/ir/command';
 import { TEST_ENVIRONMENT, testEnvironment } from '../helpers/environment.ts';
@@ -24,19 +23,15 @@ import {
 type RmTestOptions = Omit<AnalyzeRmOptions, 'environment' | 'protectedGitMetadata'> &
   Partial<AnalyzeRmOptions>;
 
-const analyzeRm = (tokens: string[], options: RmTestOptions = {}) =>
-  analyzeRmWithEnvironment(tokens, {
-    environment: TEST_ENVIRONMENT,
-    protectedGitMetadata: null,
-    ...options,
-  });
-
 const analyzeRmMatch = (words: readonly CommandWord[], options: RmTestOptions = {}) =>
   analyzeRmMatchWithEnvironment(words, {
     environment: TEST_ENVIRONMENT,
     protectedGitMetadata: null,
     ...options,
   });
+
+const analyzeRm = (tokens: string[], options: RmTestOptions = {}) =>
+  analyzeRmMatch(textCommandWords(tokens), options)?.reason ?? null;
 
 describe('rm -rf blocked', () => {
   test('rm -rf blocked', () => {

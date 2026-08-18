@@ -141,11 +141,7 @@ export interface PolicyPreview {
   counts: {
     enabled: number;
     disabled: number;
-    explicitOn: number;
-    explicitOff: number;
     effectiveCustomizations: number;
-    inheritedRequiresStrict: number;
-    inheritedRequiresParanoid: number;
   };
 }
 
@@ -237,7 +233,6 @@ export function createPolicyPreview(policy: GuiPolicy): PolicyPreview {
   // Catastrophic rules are always enforced and not user-configurable, so they are surfaced
   // separately in the GUI and excluded from the configurable active/disabled tallies.
   const configurableValues = values.filter((state) => state.source !== 'catastrophic');
-  const overrides = Object.values(policy.destructive_command_protection.overrides);
   return {
     selectedPreset: policy.safety.level,
     effectiveLevel: modes.effectiveLevel,
@@ -246,20 +241,7 @@ export function createPolicyPreview(policy: GuiPolicy): PolicyPreview {
     counts: {
       enabled: configurableValues.filter((state) => state.enabled).length,
       disabled: configurableValues.filter((state) => !state.enabled).length,
-      explicitOn: overrides.filter((value) => value === 'on').length,
-      explicitOff: overrides.filter((value) => value === 'off').length,
       effectiveCustomizations: values.filter((state) => state.changesInherited).length,
-      inheritedRequiresStrict: values.filter(
-        (state) =>
-          !state.enabled && !state.override && state.activationCapability === 'fail_closed',
-      ).length,
-      inheritedRequiresParanoid: values.filter(
-        (state) =>
-          !state.enabled &&
-          !state.override &&
-          (state.activationCapability === 'paranoid_rm' ||
-            state.activationCapability === 'paranoid_interpreters'),
-      ).length,
     },
   };
 }
@@ -284,8 +266,8 @@ export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig
     safety: user.policy.safety,
     worktreeMode: user.policy.worktreeMode,
     destructiveCommandProtectionEnabled: user.policy.destructiveCommandProtectionEnabled,
-    destructiveCommandRuleOverrides: { ...user.policy.destructiveCommandRuleOverrides },
-    destructiveCommandAllowPaths: [...user.policy.destructiveCommandAllowPaths],
+    destructiveCommandRuleOverrides: user.policy.destructiveCommandRuleOverrides,
+    destructiveCommandAllowPaths: user.policy.destructiveCommandAllowPaths,
     secretProtection: user.policy.secretProtection,
     errors: user.errors,
     ...(user.fallback ? { fallback: user.fallback } : {}),
@@ -463,24 +445,33 @@ function normalizePolicyConfig(config: GuiPolicy): PartialPolicy {
     safety: normalizeSafety(config.safety),
     worktreeMode: config.workflow.worktree_mode,
     destructiveCommandProtectionEnabled: config.destructive_command_protection.enabled,
-    destructiveCommandRuleOverrides: { ...config.destructive_command_protection.overrides },
-    destructiveCommandAllowPaths: [...config.destructive_command_protection.allow_paths],
+    destructiveCommandRuleOverrides: config.destructive_command_protection.overrides,
+    destructiveCommandAllowPaths: config.destructive_command_protection.allow_paths,
     secretProtection: {
       enabled: config.secret_protection.enabled,
       disabledRules: resolveSecretDisabledRules(config.secret_protection.overrides),
-      denyPaths: [...config.secret_protection.deny_paths],
-      allowPaths: [...config.secret_protection.allow_paths],
+      denyPaths: config.secret_protection.deny_paths,
+      allowPaths: config.secret_protection.allow_paths,
     },
   };
 }
 
+// Undefined override keys are stripped rather than stored, so a policy that sets none
+// projects to `{ level }` instead of a record of undefined capabilities.
 export function normalizeSafety(safety: GuiPolicy['safety']): PolicySafety {
+  const overrides = {
+    ...(safety.overrides.fail_closed !== undefined
+      ? { failClosed: safety.overrides.fail_closed }
+      : {}),
+    ...(safety.overrides.paranoid_rm !== undefined
+      ? { paranoidRm: safety.overrides.paranoid_rm }
+      : {}),
+    ...(safety.overrides.paranoid_interpreters !== undefined
+      ? { paranoidInterpreters: safety.overrides.paranoid_interpreters }
+      : {}),
+  };
   return {
     level: safety.level,
-    overrides: {
-      failClosed: safety.overrides.fail_closed,
-      paranoidRm: safety.overrides.paranoid_rm,
-      paranoidInterpreters: safety.overrides.paranoid_interpreters,
-    },
+    ...(Object.keys(overrides).length > 0 ? { overrides } : {}),
   };
 }

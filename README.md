@@ -183,10 +183,10 @@ All details live on the docs site at **[ccsafetynet.com/docs](https://ccsafetyne
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
 
-Generated distribution ownership is intentionally narrow. Only `dist/index.js`,
-`dist/index.d.ts`, `dist/bin/cc-safety-net.js`, and `dist/pi/index.js` are tracked. Run
-`bun run verify:build`, `bun run verify:package`, and `bun run verify:repository-plugin` when
-changing packaging, integrations, or release automation.
+The generated distribution is committed: all 11 files under `dist/` are tracked — the library
+bundle and its type declarations, the CLI entrypoint, the shared chunks, the vendored Zod copy,
+and the Pi, Amp and OpenClaw adapter files. Run `bun run verify:package` and
+`bun run verify:repository-plugin` when changing packaging, integrations, or release automation.
 
 ## License
 

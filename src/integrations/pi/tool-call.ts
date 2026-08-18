@@ -40,14 +40,7 @@ type PiToolCallEvent = {
   input?: Record<string, unknown>;
 };
 
-type PiCommandToolAdapter = {
-  commandField: string;
-  shell: CommandToolKind;
-};
-
-const PI_COMMAND_TOOL_ADAPTERS = new Map<string, PiCommandToolAdapter>([
-  ['bash', { commandField: 'command', shell: 'posix' }],
-]);
+const PI_COMMAND_TOOL_ADAPTERS = new Map<string, CommandToolKind>([['bash', 'posix']]);
 
 type MalformedPiToolCall = {
   malformed: true;
@@ -133,12 +126,12 @@ function getPiToolCall(
       : undefined;
   if (!validContextCwd) return malformedPiToolCall(ctx, toolCall.toolName);
 
-  const adapter = PI_COMMAND_TOOL_ADAPTERS.get(toolCall.toolName);
+  const shell = PI_COMMAND_TOOL_ADAPTERS.get(toolCall.toolName);
   if (!toolCall.input || typeof toolCall.input !== 'object') {
-    return adapter ? malformedPiToolCall(ctx, toolCall.toolName) : undefined;
+    return shell ? malformedPiToolCall(ctx, toolCall.toolName) : undefined;
   }
 
-  if (!adapter) {
+  if (!shell) {
     return createToolInvocation(
       toolCall.toolName,
       toolCall.input,
@@ -148,7 +141,7 @@ function getPiToolCall(
     );
   }
 
-  const command = toolCall.input[adapter.commandField];
+  const command = toolCall.input.command;
   if (typeof command !== 'string' || command.trim() === '') {
     return malformedPiToolCall(ctx, toolCall.toolName);
   }
@@ -156,7 +149,7 @@ function getPiToolCall(
   return createToolInvocation(
     toolCall.toolName,
     toolCall.input,
-    { kind: 'command', shell: adapter.shell },
+    { kind: 'command', shell },
     { configCwd: ctx.cwd, executionCwd: ctx.cwd },
     command,
   );

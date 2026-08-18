@@ -69,12 +69,6 @@ const STANDARD_MODES = {
       sources: [] as string[],
     },
   },
-  sources: {
-    failClosed: [] as string[],
-    paranoidRm: [] as string[],
-    paranoidInterpreters: [] as string[],
-    worktreeMode: [] as string[],
-  },
 };
 
 export function runIntegrationSelfTest(): SelfTestSummary {

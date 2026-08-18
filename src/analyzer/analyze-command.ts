@@ -705,8 +705,7 @@ function analyzeCommandView(
     );
     options.trace?.recordSegment({
       type: 'rule-check',
-      ruleModule: 'analyze/powershell/remove-item.ts',
-      ruleFunction: 'analyzePowerShellCommandViewMatch',
+      rule: 'analyzer/powershell/remove-item.ts:analyzePowerShellCommandViewMatch',
       matched: !!match,
       reason: match?.reason,
     });

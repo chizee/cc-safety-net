@@ -122,6 +122,23 @@ export function matchesGitLongOption(token: string, option: string): boolean {
   );
 }
 
+/** The git subcommands `analyzeGitRule` dispatches on, for callers that gate before dispatching. */
+export const GIT_RULE_SUBCOMMANDS = new Set([
+  'branch',
+  'checkout',
+  'clean',
+  'merge',
+  'push',
+  'rebase',
+  'reflog',
+  'reset',
+  'restore',
+  'stash',
+  'switch',
+  'tag',
+  'worktree',
+]);
+
 export function analyzeGitRule(tokens: readonly string[]): GitRuleMatch | null {
   const { subcommand, rest } = extractGitSubcommandAndRest(tokens);
 

@@ -16,7 +16,7 @@ import {
   installAntigravityCli,
   uninstallAntigravityCli,
 } from '@/integrations/antigravity-cli/install';
-import { getIntegrationInstallLabel } from '@/integrations/catalog';
+import { getIntegrationDisplayName } from '@/integrations/catalog';
 import { detectClaudeCode, hasClaudeInstalledPlugin } from '@/integrations/claude-code/detect';
 import { _getCopilotConfigHome } from '@/integrations/copilot-cli/detect';
 import {
@@ -519,7 +519,7 @@ async function installNativeTarget(
   await runNativeCommands(plan.commands);
   await runNativeCleanupCommands(plan.cleanupCommands ?? []);
   return [
-    `${plan.update || updating ? 'Updated' : 'Installed'} ${getIntegrationInstallLabel(target)} integration`,
+    `${plan.update || updating ? 'Updated' : 'Installed'} ${getIntegrationDisplayName(target)} integration`,
     definition.postInstallMessage,
   ]
     .filter(Boolean)
@@ -531,10 +531,10 @@ async function uninstallNativeTarget(
 ): Promise<string> {
   const definition = NATIVE_INSTALLS[target];
   if (!definition.uninstallCommands)
-    throw new Error(`${getIntegrationInstallLabel(target)} uninstall is not supported`);
+    throw new Error(`${getIntegrationDisplayName(target)} uninstall is not supported`);
 
   await runNativeCommands(definition.uninstallCommands);
-  return `Uninstalled ${getIntegrationInstallLabel(target)} integration`;
+  return `Uninstalled ${getIntegrationDisplayName(target)} integration`;
 }
 
 function uninstallOpenCodeTarget(homeDir: string): string {
@@ -559,7 +559,7 @@ function runConfigInstallTarget(
   // Updating clears the cache once up front instead, so its parallel targets cannot race.
   if (action === 'install' && !updating) clearNpxSafetyNetCache(homeDir);
   const result = CONFIG_INSTALLS[target][action](homeDir);
-  const name = getIntegrationInstallLabel(target);
+  const name = getIntegrationDisplayName(target);
   const pastTense = action !== 'install' ? 'Uninstalled' : updating ? 'Updated' : 'Installed';
 
   return action === 'install' && result.alreadyInstalled
@@ -634,7 +634,7 @@ async function runManagedArtifactInstallTarget(
   const result =
     action === 'install' ? await definition.install(homeDir) : await definition.uninstall(homeDir);
   const changedHostState = action === 'install' && (await definition.afterInstall?.(homeDir));
-  const name = getIntegrationInstallLabel(target);
+  const name = getIntegrationDisplayName(target);
   const noChange =
     !changedHostState &&
     ((action === 'install' && result.alreadyInstalled) ||
@@ -906,7 +906,7 @@ async function updateInstalledIntegrations(options: UpdateCommandOptions): Promi
       detected.targets.map((target) => {
         if (NATIVE_UPDATE_TARGETS.has(target) && !detected.available.get(target))
           return Promise.resolve({
-            message: `${getIntegrationInstallLabel(target)} not found; skipped`,
+            message: `${getIntegrationDisplayName(target)} not found; skipped`,
             failed: false,
           });
         if (npxCacheFailure !== null && NPX_CACHE_TARGETS.has(target))
@@ -1007,7 +1007,7 @@ export async function runInstallCommand(
         }
       }
       const message = await awaitWithSpinner(runSingleInstallTarget(action, target, homeDir), {
-        loadingMessage: `${action === 'install' ? 'Installing' : 'Uninstalling'} ${getIntegrationInstallLabel(target)} integration…`,
+        loadingMessage: `${action === 'install' ? 'Installing' : 'Uninstalling'} ${getIntegrationDisplayName(target)} integration…`,
         output,
       });
       output.write(`${message}\n`);

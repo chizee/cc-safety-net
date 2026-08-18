@@ -377,12 +377,12 @@ function extractToolPathTargets(
     const command = getCommandSyntaxFact(facts, 'input-candidate');
     return command ? extractCommandPathTargets(command.shell, facts.store, options) : [];
   }
-  if (facts.invocation.route.kind !== 'unknown') return facts.paths.map((path) => path.raw);
+  if (facts.invocation.route.kind !== 'unknown') return [...facts.paths];
 
   const command = getCommandSyntaxFact(facts, 'input-candidate');
   return [
     ...(command ? extractCommandPathTargets(command.shell, facts.store, options) : []),
-    ...facts.paths.map((path) => path.raw),
+    ...facts.paths,
   ];
 }
 

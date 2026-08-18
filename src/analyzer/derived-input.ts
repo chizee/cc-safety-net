@@ -6,6 +6,7 @@ import {
 } from '@/analyzer/command-words';
 import { getFindPrimaryArity, isFindExecPrimary } from '@/analyzer/find';
 import { analyzeGitMatch } from '@/analyzer/git';
+import { GIT_RULE_SUBCOMMANDS } from '@/analyzer/git/rules';
 import { GIT_GLOBAL_OPTS_WITH_VALUE } from '@/analyzer/git/worktree';
 import {
   extractParallelChildStart,
@@ -32,22 +33,6 @@ const REASON_DYNAMIC_EXECUTABLE =
   'dynamic command name contains shell substitution output and cannot be verified safely. Use a literal executable name.';
 const REASON_DYNAMIC_STRUCTURE =
   'shell substitution output can change guarded command structure and cannot be verified safely. Use literal subcommands and options.';
-const STRUCTURAL_GIT_SUBCOMMANDS = new Set([
-  'branch',
-  'checkout',
-  'clean',
-  'merge',
-  'push',
-  'rebase',
-  'reflog',
-  'reset',
-  'restore',
-  'stash',
-  'switch',
-  'tag',
-  'worktree',
-]);
-
 /** Whether any part of the word is substitution output, so its text is unknown. */
 function hasCommandSubstitutionPart(word: CommandWord | undefined): boolean {
   return word?.parts.some((part) => part.provenance === 'command-substitution') ?? false;
@@ -115,7 +100,7 @@ function analyzeDynamicStructure(
     if (
       destructiveCommandRuleIsEnabled(policy, 'shell.dynamic-structure', strict) &&
       subcommand &&
-      STRUCTURAL_GIT_SUBCOMMANDS.has(subcommand) &&
+      GIT_RULE_SUBCOMMANDS.has(subcommand) &&
       dynamicIndexes.some(
         (index) => index > subcommandIndex && (dataBoundary === -1 || index < dataBoundary),
       )

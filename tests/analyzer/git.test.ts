@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { analyzeGit, getGitWorktreeRelaxation } from '@/analyzer/git';
+import { textCommandWords } from '@/analyzer/command-words';
+import { analyzeGitMatch, getGitWorktreeRelaxation } from '@/analyzer/git';
 import { testEnvironment } from '../helpers/environment.ts';
 import {
   runGit,
@@ -18,6 +19,9 @@ import {
   withEnv,
   withReadonlyLinkedWorktreeFixture,
 } from '../helpers.ts';
+
+const analyzeGit = (tokens: readonly string[], options: Parameters<typeof analyzeGitMatch>[1]) =>
+  analyzeGitMatch(textCommandWords(tokens), options)?.reason ?? null;
 
 const gitResetHard = ['git', 'reset', '--hard'].join(' ');
 const gitResetHardReason = ['git reset', '--hard'].join(' ');

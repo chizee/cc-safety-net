@@ -25,7 +25,6 @@
     "build": "bun run clean && bun run scripts/build.ts",
     "build:types": "tsc --project tsconfig.build.json --emitDeclarationOnly --declaration",
     "build:schema": "bun run scripts/build-schema.ts",
-    "verify:build": "bun run scripts/verify-deterministic-build.ts",
     "verify:package": "bun run scripts/verify-package.ts",
     "verify:repository-plugin": "bun run scripts/verify-repository-plugin.ts",
     "verify:coverage": "bun run scripts/verify-coverage.ts",
