@@ -9,18 +9,6 @@
 [![CI](https://github.com/kenryu42/cc-safety-net/actions/workflows/ci.yml/badge.svg)](https://github.com/kenryu42/cc-safety-net/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/github/kenryu42/cc-safety-net/branch/main/graph/badge.svg?token=C9QTION6ZF)](https://codecov.io/github/kenryu42/cc-safety-net)
 [![Version](https://img.shields.io/github/v/tag/kenryu42/cc-safety-net?label=version&color=blue)](https://github.com/kenryu42/cc-safety-net)
-[![Amp Code](https://img.shields.io/badge/Amp%20Code-467C51)](https://ccsafetynet.com/docs/installation#amp-code-installation)
-[![Antigravity CLI](https://img.shields.io/badge/Antigravity%20CLI-8AA1F8)](https://ccsafetynet.com/docs/installation#antigravity-cli-installation)
-[![Claude Code](https://img.shields.io/badge/Claude%20Code-D27656)](https://ccsafetynet.com/docs/installation#claude-code-installation)
-[![Codex](https://img.shields.io/badge/Codex-white)](https://ccsafetynet.com/docs/installation#codex-installation)
-[![Cursor](https://img.shields.io/badge/Cursor-000000)](https://ccsafetynet.com/docs/installation#cursor-installation)
-[![Gemini CLI](https://img.shields.io/badge/Gemini%20CLI-678AE3)](https://ccsafetynet.com/docs/installation#gemini-cli-installation)
-[![GitHub Copilot CLI](https://img.shields.io/badge/GitHub%20Copilot%20CLI-4EA5C9)](https://ccsafetynet.com/docs/installation#github-copilot-cli-installation)
-[![Hermes Agent](https://img.shields.io/badge/Hermes%20Agent-2D3E50)](https://ccsafetynet.com/docs/installation#hermes-agent-installation)
-[![Kimi Code](https://img.shields.io/badge/Kimi%20Code-5587FF)](https://ccsafetynet.com/docs/installation#kimi-code-installation)
-[![OpenClaw](https://img.shields.io/badge/OpenClaw-B4532A)](https://ccsafetynet.com/docs/installation#openclaw-installation)
-[![OpenCode](https://img.shields.io/badge/OpenCode-black)](https://ccsafetynet.com/docs/installation#opencode-installation)
-[![Pi](https://img.shields.io/badge/Pi%20Coding-22262E)](https://ccsafetynet.com/docs/installation#pi-installation)
 [![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
 
 <div align="center">
@@ -86,7 +74,30 @@ npm install -g cc-safety-net
 ccsn doctor
 ```
 
-CC Safety Net works across twelve coding agent CLIs — **Claude Code, Antigravity CLI, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, Pi, Cursor, Amp Code, Hermes Agent, and OpenClaw** — on **Windows, macOS, and Linux** (the Hermes Agent and OpenClaw integrations are macOS and Linux only). Per-agent instructions, the target flags for scripted non-interactive installs, post-install steps, and per-agent caveats are on [Installation](https://ccsafetynet.com/docs/installation); how each integration hooks its agent is on [Integration Architecture](https://ccsafetynet.com/docs/guides/integration-architecture).
+## Supported coding CLIs
+
+CC Safety Net works across all coding agent CLIs on **Windows, macOS, and Linux**.
+
+<table align="center">
+  <tr>
+    <td align="center"><a href="https://ccsafetynet.com/docs/installation#amp-code-installation"><picture><source media="(prefers-color-scheme: dark)" srcset="./.github/assets/amp-dark.svg"><img alt="Amp Code" src="./.github/assets/amp-light.svg" height="32"></picture><br>Amp Code</a></td>
+    <td align="center"><a href="https://ccsafetynet.com/docs/installation#antigravity-cli-installation"><img alt="Antigravity CLI" src="./.github/assets/antigravity-cli.png" height="32"><br>Antigravity CLI</a></td>
+    <td align="center"><a href="https://ccsafetynet.com/docs/installation#claude-code-installation"><img alt="Claude Code" src="./.github/assets/claude-code.svg" height="32"><br>Claude Code</a></td>
+    <td align="center"><a href="https://ccsafetynet.com/docs/installation#codex-installation"><img alt="Codex" src="./.github/assets/codex.svg" height="32"><br>Codex</a></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://ccsafetynet.com/docs/installation#cursor-installation"><picture><source media="(prefers-color-scheme: dark)" srcset="./.github/assets/cursor-dark.svg"><img alt="Cursor" src="./.github/assets/cursor-light.svg" height="32"></picture><br>Cursor</a></td>
+    <td align="center"><a href="https://ccsafetynet.com/docs/installation#gemini-cli-installation"><img alt="Gemini CLI" src="./.github/assets/gemini-cli.svg" height="32"><br>Gemini CLI</a></td>
+    <td align="center"><a href="https://ccsafetynet.com/docs/installation#github-copilot-cli-installation"><picture><source media="(prefers-color-scheme: dark)" srcset="./.github/assets/copilot-cli-dark.svg"><img alt="GitHub Copilot CLI" src="./.github/assets/copilot-cli-light.svg" height="32"></picture><br>GitHub Copilot CLI</a></td>
+    <td align="center"><a href="https://ccsafetynet.com/docs/installation#hermes-agent-installation"><img alt="Hermes Agent" src="./.github/assets/hermes.png" height="32"><br>Hermes Agent</a></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://ccsafetynet.com/docs/installation#kimi-code-installation"><img alt="Kimi Code" src="./.github/assets/kimi-cli.png" height="32"><br>Kimi Code</a></td>
+    <td align="center"><a href="https://ccsafetynet.com/docs/installation#openclaw-installation"><img alt="OpenClaw" src="./.github/assets/openclaw.png" height="32"><br>OpenClaw</a></td>
+    <td align="center"><a href="https://ccsafetynet.com/docs/installation#opencode-installation"><picture><source media="(prefers-color-scheme: dark)" srcset="./.github/assets/opencode-dark.svg"><img alt="OpenCode" src="./.github/assets/opencode-light.svg" height="32"></picture><br>OpenCode</a></td>
+    <td align="center"><a href="https://ccsafetynet.com/docs/installation#pi-installation"><picture><source media="(prefers-color-scheme: dark)" srcset="./.github/assets/pi-dark.svg"><img alt="Pi" src="./.github/assets/pi-light.svg" height="32"></picture><br>Pi</a></td>
+  </tr>
+</table>
 
 ## What it does
 
