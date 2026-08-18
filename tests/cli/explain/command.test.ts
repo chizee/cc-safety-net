@@ -532,7 +532,7 @@ describe('explainCommand rm with home directory', () => {
         const ruleStep = allSteps.find(
           (s) =>
             s.type === 'rule-check' &&
-            s.rule === 'policy-protection:findPolicyConfigMutationTarget',
+            s.rule === 'policy-protection:findPolicyConfigMutationTargetInSemanticFacts',
         );
         expect(ruleStep).toBeDefined();
       });
@@ -1297,7 +1297,7 @@ describe('explainCommand pre-analysis protection stages', () => {
     expect(result.segment).toBe('.env');
     expect(result.trace.segments[0]?.steps[0]).toMatchObject({
       type: 'rule-check',
-      rule: 'secret-protection:findSensitiveTarget',
+      rule: 'secret-protection:findSensitiveTargetInSemanticFacts',
       matched: true,
     });
   });

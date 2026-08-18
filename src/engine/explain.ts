@@ -225,7 +225,7 @@ function findPreAnalysisBlock(command: string, options: AnalyzeInput) {
       reason: REASON_POLICY_CONFIG_PROTECTION,
       target: policyTarget.target,
       ruleId: 'policy-protection',
-      rule: 'policy-protection:findPolicyConfigMutationTarget',
+      rule: 'policy-protection:findPolicyConfigMutationTargetInSemanticFacts',
     };
   const gitMetadataTarget = findGitMetadataMutationTargetInSemanticFacts(
     facts,
@@ -236,7 +236,7 @@ function findPreAnalysisBlock(command: string, options: AnalyzeInput) {
       reason: REASON_GIT_METADATA_PROTECTION,
       target: gitMetadataTarget.target,
       ruleId: 'git-metadata-protection',
-      rule: 'git-metadata-protection:findGitMetadataMutationTarget',
+      rule: 'git-metadata-protection:findGitMetadataMutationTargetInSemanticFacts',
     };
   const policy = options.policySnapshot.policy;
   const secretTarget =
@@ -250,7 +250,7 @@ function findPreAnalysisBlock(command: string, options: AnalyzeInput) {
       reason: REASON_SECRET_PROTECTION,
       target: secretTarget.target,
       ruleId: secretTarget.ruleId,
-      rule: 'secret-protection:findSensitiveTarget',
+      rule: 'secret-protection:findSensitiveTargetInSemanticFacts',
     };
   return null;
 }

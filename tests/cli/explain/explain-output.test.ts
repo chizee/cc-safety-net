@@ -72,7 +72,7 @@ describe('explain output', () => {
               steps: [
                 {
                   type: 'rule-check',
-                  rule: 'policy-protection:findPolicyConfigMutationTarget',
+                  rule: 'policy-protection:findPolicyConfigMutationTargetInSemanticFacts',
                   matched: true,
                   reason: REASON_POLICY_CONFIG_PROTECTION,
                 },
