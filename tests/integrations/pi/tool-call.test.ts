@@ -99,6 +99,27 @@ describe('Pi tool_call event', () => {
     expect(result?.reason).not.toContain(marker);
   });
 
+  test('inspects the Pi find tool pattern and treats find as read-only', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-find-'));
+    try {
+      mkdirSync(join(dir, '.git', 'hooks'), { recursive: true });
+      writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+      writeFileSync(join(dir, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\n');
+      const secretResult = handlePiToolCall(toolCall('find', { pattern: '.env' }), piContext(dir));
+
+      expect(secretResult?.reason).toContain('Access to a sensitive path is not allowed.');
+      expect(secretResult?.reason).toContain('Rule: secret.basename.env');
+      expect(
+        handlePiToolCall(
+          toolCall('find', { pattern: '*.ts', path: '.git/hooks/pre-commit' }),
+          piContext(dir),
+        ),
+      ).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('allows non-sensitive Pi read tool path inputs', () => {
     expect(
       handlePiToolCall(toolCall('read', { path: 'README.md' }), piContext(process.cwd())),

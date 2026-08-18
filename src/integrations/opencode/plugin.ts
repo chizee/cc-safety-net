@@ -113,9 +113,13 @@ export function createCCSafetyNetPlugin(
 /** @internal */
 export function resolveOpenCodeShellRoute(
   configuredShell: unknown,
+  platform = process.platform,
+  environmentShell = process.env.SHELL,
 ): invocationDomain.CommandToolKind {
-  if (typeof configuredShell !== 'string') return 'auto';
-  const executable = configuredShell
+  if (typeof configuredShell !== 'string' && platform === 'win32') return 'powershell';
+  const candidate = typeof configuredShell === 'string' ? configuredShell : environmentShell;
+  if (typeof candidate !== 'string') return 'auto';
+  const executable = candidate
     .trim()
     .split(/[\\/]/)
     .at(-1)

@@ -174,8 +174,17 @@ describe('OpenCode plugin', () => {
     for (const shell of ['bash', '/bin/dash', '/usr/local/bin/ksh', '/bin/sh', '/bin/zsh']) {
       expect(resolveOpenCodeShellRoute(shell)).toBe('posix');
     }
-    for (const shell of [undefined, 'cmd', 'cmd.exe', 'fish', '/bin/custom-shell', 42]) {
+    for (const shell of ['cmd', 'cmd.exe', 'fish', '/bin/custom-shell']) {
       expect(resolveOpenCodeShellRoute(shell)).toBe('auto');
+    }
+    for (const shell of [undefined, 42]) {
+      expect(resolveOpenCodeShellRoute(shell, 'win32')).toBe('powershell');
+      expect(resolveOpenCodeShellRoute(shell, 'darwin', '/bin/zsh')).toBe('posix');
+      expect(resolveOpenCodeShellRoute(shell, 'linux', 'pwsh')).toBe('powershell');
+      expect(resolveOpenCodeShellRoute(shell, 'linux', 'fish')).toBe('auto');
+      withEnv({ SHELL: undefined }, () => {
+        expect(resolveOpenCodeShellRoute(shell, 'linux')).toBe('auto');
+      });
     }
   });
 
@@ -231,8 +240,8 @@ describe('OpenCode plugin', () => {
     ).resolves.toBeUndefined();
   });
 
-  test('uses auto routing for missing, cmd, and unknown shell configuration', async () => {
-    for (const shell of [undefined, 'cmd.exe', '/bin/custom-shell']) {
+  test('uses auto routing for cmd and unknown shell configuration', async () => {
+    for (const shell of ['cmd.exe', '/bin/custom-shell']) {
       const plugin = await loadToolPlugin(process.cwd(), undefined, shell);
 
       await expectBashBlock(

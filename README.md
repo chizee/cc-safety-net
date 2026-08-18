@@ -152,6 +152,8 @@ Details: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · 
 
 CC Safety Net denies a tool call before it runs; it does not enforce filesystem permissions, inspect network egress, or contain a process. Two v2 bounds worth knowing up front: the policy and sensitive-path command extractors remain primarily POSIX-oriented, so native PowerShell path expressions such as `Get-Content $HOME\.ssh\id_rsa` can evade static path extraction; and policy-file protection is a best-effort exact-path guard, not command emulation. Use operating-system permissions, a sandbox, or equivalent runtime enforcement when complete protection is required.
 
+One integration-specific bound: Codex's unified exec path, the default on macOS and Linux, sends a hook payload when a command starts a session but none for `write_stdin`. Text the model types into an already-running interactive session is therefore never inspected and never audited — only the command that opened the session is. The host emits no event for that call, so no adapter change can close it.
+
 The full residual-risk registry lives in [SECURITY.md](SECURITY.md); the practical consequences are on [Known Limitations](https://ccsafetynet.com/docs/guides/known-limitations).
 
 ## Upgrading from an older version
