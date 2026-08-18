@@ -19,8 +19,11 @@ import { ENV_FLAGS, envTruthy, shouldRecordAllowedCommands } from '@/policy/env'
 const OPENCLAW_EXEC_TOOL = 'exec';
 
 /**
- * `exec.host` values whose execution filesystem is the local Gateway host, the only host whose
- * paths the agent workspace describes. `sandbox`, `node`, and unknown values run somewhere else.
+ * `exec.host` values analyzed against the local Gateway host, the only host whose paths the agent
+ * workspace describes. `gateway` is proven local; `auto` is accepted because an absent host is the
+ * default shape on an install without a sandbox, though a sandbox-configured host resolves `auto`
+ * to the sandbox instead (residual documented in SECURITY.md). `sandbox`, `node`, and unknown
+ * values run somewhere else.
  */
 const PROVEN_EXEC_HOSTS = new Set(['auto', 'gateway']);
 

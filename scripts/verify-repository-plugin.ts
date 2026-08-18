@@ -23,14 +23,14 @@ export function verifyRepositoryPlugin(): void {
   }
   const kimi = JSON.parse(readFileSync('kimi.plugin.json', 'utf8')) as {
     version: string;
-    hooks: Array<{ event: string; matcher: string; command: string; timeout: number }>;
+    hooks: Array<{ event: string; matcher?: string; command: string; timeout: number }>;
   };
   if (pkg.version !== kimi.version) throw new Error('Package and Kimi plugin versions disagree');
   const kimiHook = kimi.hooks[0];
   if (
     kimi.hooks.length !== 1 ||
     kimiHook?.event !== 'PreToolUse' ||
-    kimiHook.matcher !== 'Bash' ||
+    kimiHook.matcher !== undefined ||
     kimiHook.command !== 'node ./dist/bin/cc-safety-net.js hook --kimi-code' ||
     kimiHook.timeout !== 30
   ) {

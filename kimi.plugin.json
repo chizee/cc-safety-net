@@ -19,7 +19,6 @@
   "hooks": [
     {
       "event": "PreToolUse",
-      "matcher": "Bash",
       "command": "node ./dist/bin/cc-safety-net.js hook --kimi-code",
       "timeout": 30
     }

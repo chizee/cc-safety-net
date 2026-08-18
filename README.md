@@ -76,7 +76,7 @@ ccsn doctor
 
 ## Supported coding CLIs
 
-CC Safety Net works across all coding agent CLIs on **Windows, macOS, and Linux**.
+CC Safety Net works across all coding agent CLIs on **Windows, macOS, and Linux**. Windows is covered by automated tests for the analyzer and a subset of integrations; for the remaining hosts it is best-effort and untested, and Amp's own manual documents macOS, Linux, and WSL rather than native Windows.
 
 <table align="center">
   <tr>
