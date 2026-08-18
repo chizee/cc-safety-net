@@ -883,6 +883,36 @@ describe('detectAllHooks', () => {
     });
   });
 
+  test('GitHub Copilot CLI: configured from global settings.json inline hooks', () => {
+    withHookFixture('copilot', ({ homeDir, projectDir }) => {
+      _expectCopilotConfig(
+        homeDir,
+        projectDir,
+        '1.0.35',
+        'configured',
+        join(homeDir, '.copilot', 'settings.json'),
+        _writeCopilotInlineConfig,
+      );
+    });
+  });
+
+  test('GitHub Copilot CLI: reports both global settings.json and config.json inline hooks', () => {
+    withHookFixture('copilot', ({ homeDir, projectDir }) => {
+      const configDir = join(homeDir, '.copilot');
+      _writeCopilotInlineConfig(join(configDir, 'settings.json'));
+      _writeCopilotInlineConfig(join(configDir, 'config.json'));
+      const copilot = findHook('copilot-cli', homeDir, projectDir, {
+        copilotCliVersion: '1.0.35',
+      });
+
+      expectHookState(copilot, 'configured');
+      expect(copilot?.configPaths).toEqual([
+        join(configDir, 'settings.json'),
+        join(configDir, 'config.json'),
+      ]);
+    });
+  });
+
   test('GitHub Copilot CLI: configured from repository settings.json inline hooks', () => {
     withHookFixture('copilot', ({ homeDir, projectDir }) => {
       const configDir = join(projectDir, '.github', 'copilot');
@@ -906,6 +936,66 @@ describe('detectAllHooks', () => {
 
       expectHookState(copilot, 'configured');
       expectHookConfigPaths(copilot, join(configDir, 'settings.local.json'));
+    });
+  });
+
+  test('GitHub Copilot CLI: configured from repository .claude/settings.json inline hooks', () => {
+    withHookFixture('copilot', ({ homeDir, projectDir }) => {
+      const configDir = join(projectDir, '.claude');
+      _writeCopilotInlineConfig(join(configDir, 'settings.json'));
+      const copilot = findHook('copilot-cli', homeDir, projectDir, {
+        copilotCliVersion: '1.0.35',
+      });
+
+      expectHookState(copilot, 'configured');
+      expectHookConfigPaths(copilot, join(configDir, 'settings.json'));
+    });
+  });
+
+  test('GitHub Copilot CLI: configured from repository .claude/settings.local.json inline hooks', () => {
+    withHookFixture('copilot', ({ homeDir, projectDir }) => {
+      const configDir = join(projectDir, '.claude');
+      _writeCopilotInlineConfig(join(configDir, 'settings.local.json'));
+      const copilot = findHook('copilot-cli', homeDir, projectDir, {
+        copilotCliVersion: '1.0.35',
+      });
+
+      expectHookState(copilot, 'configured');
+      expectHookConfigPaths(copilot, join(configDir, 'settings.local.json'));
+    });
+  });
+
+  test('GitHub Copilot CLI: native repository settings outrank cross-tool .claude settings', () => {
+    withHookFixture('copilot', ({ homeDir, projectDir }) => {
+      const nativeDir = join(projectDir, '.github', 'copilot');
+      const claudeDir = join(projectDir, '.claude');
+      _writeCopilotInlineConfig(join(nativeDir, 'settings.json'));
+      _writeCopilotInlineConfig(join(claudeDir, 'settings.local.json'));
+      _writeCopilotInlineConfig(join(claudeDir, 'settings.json'));
+      const copilot = findHook('copilot-cli', homeDir, projectDir, {
+        copilotCliVersion: '1.0.35',
+      });
+
+      expectHookState(copilot, 'configured');
+      expect(copilot?.configPaths).toEqual([
+        join(nativeDir, 'settings.json'),
+        join(claudeDir, 'settings.local.json'),
+        join(claudeDir, 'settings.json'),
+      ]);
+    });
+  });
+
+  test('GitHub Copilot CLI: ignores a Claude Code hook in repository .claude/settings.json', () => {
+    withHookFixture('copilot', ({ homeDir, projectDir }) => {
+      _writeCopilotInlineConfig(
+        join(projectDir, '.claude', 'settings.json'),
+        'npx -y cc-safety-net hook --claude-code',
+      );
+      const copilot = findHook('copilot-cli', homeDir, projectDir, {
+        copilotCliVersion: '1.0.35',
+      });
+
+      expectHookState(copilot, 'n/a');
     });
   });
 
@@ -1116,19 +1206,14 @@ describe('detectAllHooks', () => {
     });
   });
 
-  test('Codex: disabled when repository URL line is not installed and enabled', () => {
+  test('Codex: disabled when repository URL line is installed but not enabled', () => {
     withHookFixture('codex', ({ homeDir, projectDir }) => {
       const installedDisabled = findHook('codex', homeDir, projectDir, {
         codexPluginListOutput:
-          'cc-safety-net https://github.com/kenryu42/cc-safety-net.git installed, disabled',
-      });
-      const missingEnabled = findHook('codex', homeDir, projectDir, {
-        codexPluginListOutput:
-          'cc-safety-net https://github.com/kenryu42/cc-safety-net.git installed',
+          'cc-safety-net  installed, disabled  0.1.0  https://github.com/kenryu42/cc-safety-net.git',
       });
 
       expectHookState(installedDisabled, 'disabled');
-      expectHookState(missingEnabled, 'disabled');
       expect(
         installedDisabled?.errors?.some((error) =>
           error.includes('must contain installed, enabled'),
@@ -1137,6 +1222,23 @@ describe('detectAllHooks', () => {
       expect(installedDisabled?.method).toBe('codex plugin list');
       expect(installedDisabled?.configPath).toBe('codex plugin list');
       expect(installedDisabled).not.toHaveProperty('selfTest');
+    });
+  });
+
+  test('Codex: n/a when repository URL line is a not installed marketplace row', () => {
+    withHookFixture('codex', ({ homeDir, projectDir }) => {
+      const notInstalled = findHook('codex', homeDir, projectDir, {
+        codexPluginListOutput:
+          'cc-safety-net  not installed         https://github.com/kenryu42/cc-safety-net.git',
+      });
+      const missingEnabled = findHook('codex', homeDir, projectDir, {
+        codexPluginListOutput:
+          'cc-safety-net https://github.com/kenryu42/cc-safety-net.git installed',
+      });
+
+      expectHookState(notInstalled, 'n/a');
+      expectHookState(missingEnabled, 'n/a');
+      expect(notInstalled).not.toHaveProperty('selfTest');
     });
   });
 
