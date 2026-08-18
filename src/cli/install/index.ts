@@ -73,7 +73,11 @@ import {
   getOpenClawInstallCommands,
   verifyOpenClawPluginRuntime,
 } from '@/integrations/openclaw/install';
-import { clearOpenCodeCache, uninstallOpenCode } from '@/integrations/opencode/install';
+import {
+  clearOpenCodeCache,
+  uninstallOpenCode,
+  verifyOpenCodePluginRuntime,
+} from '@/integrations/opencode/install';
 import { getPiSettingsPath, isPiSafetyNetPackageSource } from '@/integrations/pi/detect';
 import { defaultVersionFetcher, type VersionFetcher } from '@/integrations/system-info';
 
@@ -712,8 +716,11 @@ const INSTALL_OPERATIONS = {
     },
   },
   opencode: {
-    install: (homeDir: string, updating?: boolean) =>
-      installNativeTarget('opencode', homeDir, updating),
+    install: async (homeDir: string, updating?: boolean) => {
+      const message = await installNativeTarget('opencode', homeDir, updating);
+      await verifyOpenCodePluginRuntime(homeDir);
+      return message;
+    },
     uninstall: (homeDir: string) => uninstallOpenCodeTarget(homeDir),
   },
   pi: {

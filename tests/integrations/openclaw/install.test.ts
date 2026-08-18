@@ -554,16 +554,23 @@ describe('OpenClaw detection', () => {
     }));
 
   // OpenClaw reads these two before falling back to ~/.openclaw, so a relocated install is
-  // protected while doctor reports the default directory as empty.
+  // protected while doctor reports the default directory as empty. Both go through
+  // `resolveUserPath`, which expands a leading `~` against the resolved home, so the tilde forms
+  // have to land on the same directory the gateway loads the plugin from.
   test.each([
     ['OPENCLAW_STATE_DIR', (stateDir: string) => ({ OPENCLAW_STATE_DIR: stateDir })],
     [
       'OPENCLAW_CONFIG_PATH',
       (stateDir: string) => ({ OPENCLAW_CONFIG_PATH: join(stateDir, 'openclaw.json') }),
     ],
+    ['a tilde-prefixed OPENCLAW_STATE_DIR', () => ({ OPENCLAW_STATE_DIR: '~/oc-state' })],
+    [
+      'a tilde-prefixed OPENCLAW_CONFIG_PATH',
+      () => ({ OPENCLAW_CONFIG_PATH: '~/oc-state/openclaw.json' }),
+    ],
   ] as const)('finds the plugin installed under %s', (_name, env) =>
     withHome((homeDir) => {
-      const stateDir = join(homeDir, 'relocated');
+      const stateDir = join(homeDir, 'oc-state');
       const dir = installOpenClawFixtureIn(join(stateDir, 'extensions', OPENCLAW_PLUGIN_ID));
       writeFileSync(
         join(stateDir, 'openclaw.json'),

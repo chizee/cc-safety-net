@@ -35,6 +35,7 @@ type OpenClawToolContext = {
 type OpenClawBeforeToolCallEvent = {
   toolName?: unknown;
   params?: unknown;
+  toolKind?: unknown;
 };
 
 /** OpenClaw treats a missing result as "no decision" and never rewrites params on our behalf. */
@@ -123,6 +124,10 @@ function getOpenClawToolCall(
   }
   // Only `exec` has a proven parameter and execution-directory mapping.
   if (toolName !== OPENCLAW_EXEC_TOOL) return undefined;
+  // OpenClaw stamps `toolKind` on tools that intentionally share a name — Code Mode's JavaScript
+  // `exec` mirrors its code into `command` — and omits it entirely on the plain shell tool. Only
+  // the untagged tool has a proven parameter mapping, so a tagged event gets no decision.
+  if ((event as OpenClawBeforeToolCallEvent).toolKind !== undefined) return undefined;
 
   const params = (event as OpenClawBeforeToolCallEvent).params;
   if (!params || typeof params !== 'object' || Array.isArray(params)) {

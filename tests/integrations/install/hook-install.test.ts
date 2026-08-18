@@ -870,6 +870,7 @@ fi
       ['opencode plugin -g -f cc-safety-net@latest'],
       'Installed OpenCode integration',
       {
+        isolatedBin: true,
         setup: (fake) => {
           const cachePath = join(
             fake.homeDir,
@@ -880,11 +881,30 @@ fi
           );
           mkdirSync(cachePath, { recursive: true });
           writeFileSync(join(cachePath, 'stale.txt'), 'stale');
+          // `opencode plugin` reifies the package into the cache, and the install now refuses to
+          // report success without it, so the fake has to leave the same layout behind.
+          const packageDir = join(cachePath, 'node_modules', 'cc-safety-net');
+          writeFileSync(
+            join(fake.homeDir, 'bin', 'opencode'),
+            `#!/usr/bin/env sh
+printf '%s\\n' "$0 $*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
+mkdir -p '${packageDir}'
+printf '%s' '{"main":"index.js"}' > '${packageDir}/package.json'
+printf '%s' 'export const CCSafetyNetPlugin = () => {};' > '${packageDir}/index.js'
+`,
+          );
         },
         assert: (fake) => {
           expect(
             existsSync(
-              join(fake.homeDir, '.cache', 'opencode', 'packages', 'cc-safety-net@latest'),
+              join(
+                fake.homeDir,
+                '.cache',
+                'opencode',
+                'packages',
+                'cc-safety-net@latest',
+                'stale.txt',
+              ),
             ),
           ).toBe(false);
         },

@@ -180,7 +180,9 @@ describe('detectAllHooks', () => {
       );
       mkdirSync(join(homeDir, '.gemini', 'extensions', 'gemini-safety-net'), { recursive: true });
 
-      const hooks = detectAllHooks(projectDir, { homeDir });
+      const hooks = withEnv({ XDG_CONFIG_HOME: undefined }, () =>
+        detectAllHooks(projectDir, { homeDir }),
+      );
 
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
       expectHookState(claude, 'configured');
@@ -449,7 +451,9 @@ describe('detectAllHooks', () => {
   test('reports parse errors for invalid hook configs', () => {
     withHookFixture('hooks', ({ homeDir, projectDir }) => {
       _writeConfigFile(join(homeDir, '.config', 'opencode', 'opencode.json'), '{ invalid json }');
-      const hooks = detectAllHooks(projectDir, { homeDir });
+      const hooks = withEnv({ XDG_CONFIG_HOME: undefined }, () =>
+        detectAllHooks(projectDir, { homeDir }),
+      );
 
       const claude = hooks.find((hook) => hook.platform === 'claude-code');
       expectHookState(claude, 'n/a');
@@ -476,11 +480,28 @@ describe('detectAllHooks', () => {
         "plugin": ["cc-safety-net"]
       }`,
       );
-      const opencode = findHook('opencode', homeDir, projectDir);
+      const opencode = withEnv({ XDG_CONFIG_HOME: undefined }, () =>
+        findHook('opencode', homeDir, projectDir),
+      );
 
       expectHookState(opencode, 'configured');
       expect(opencode?.method).toBe('plugin array');
       expect(opencode?.errors?.some((e) => e.includes('Failed to parse'))).toBe(true);
+    });
+  });
+
+  test('OpenCode: finds the config under XDG_CONFIG_HOME', () => {
+    withHookFixture('hooks', ({ homeDir, projectDir }) => {
+      const xdgConfigHome = join(homeDir, 'xdg-config');
+      const configPath = join(xdgConfigHome, 'opencode', 'opencode.json');
+      _writeConfigFile(configPath, JSON.stringify({ plugin: ['cc-safety-net@latest'] }));
+
+      const opencode = withEnv({ XDG_CONFIG_HOME: xdgConfigHome }, () =>
+        findHook('opencode', homeDir, projectDir),
+      );
+
+      expectHookState(opencode, 'configured');
+      expect(opencode?.configPath).toBe(configPath);
     });
   });
 

@@ -188,13 +188,13 @@ describe('OpenCode plugin', () => {
     }
   });
 
-  test('normalizes documented Windows workdir forms and rejects unsupported roots', () => {
+  test('normalizes documented Windows workdir forms and passes through other paths', () => {
     expect(normalizeOpenCodeWindowsWorkdir('/c/work')).toBe('C:/work');
     expect(normalizeOpenCodeWindowsWorkdir('/C:/work')).toBe('C:/work');
     expect(normalizeOpenCodeWindowsWorkdir('/cygdrive/d/work')).toBe('D:/work');
     expect(normalizeOpenCodeWindowsWorkdir('/mnt/e/work')).toBe('E:/work');
     expect(normalizeOpenCodeWindowsWorkdir('nested/work')).toBe('nested/work');
-    expect(normalizeOpenCodeWindowsWorkdir('/usr/local/work')).toBeNull();
+    expect(normalizeOpenCodeWindowsWorkdir('/usr/local/work')).toBe('/usr/local/work');
   });
 
   test('uses the final shell value after later config mutations', async () => {
