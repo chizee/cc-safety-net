@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createPiToolCallHandler, handlePiToolCall } from '@/integrations/pi/tool-call';
@@ -29,6 +29,26 @@ describe('Pi tool_call event', () => {
       })(bashToolCall('git status'), piContext(cwd)),
     ).toBeUndefined();
     expect(calls).toEqual([{ command: 'git status', cwd, shell: 'posix' }]);
+  });
+
+  test('analyzes from the validated canonical cwd when the context cwd is a symlink', () => {
+    const calls: AnalyzeCall[] = [];
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-symlink-cwd-'));
+    try {
+      const real = join(dir, 'real');
+      mkdirSync(real);
+      const link = join(dir, 'link');
+      symlinkSync(real, link);
+
+      expect(
+        createPiToolCallHandler({
+          guardDependencies: { analyzeCommand: captureAnalyzeCalls(calls) },
+        })(bashToolCall('git status'), piContext(link)),
+      ).toBeUndefined();
+      expect(calls).toEqual([{ command: 'git status', cwd: realpathSync(real), shell: 'posix' }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('blocks dangerous bash commands', () => {

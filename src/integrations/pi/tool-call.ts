@@ -136,7 +136,7 @@ function getPiToolCall(
       toolCall.toolName,
       toolCall.input,
       { kind: getNonCommandToolInputKind(toolCall.toolName) },
-      { configCwd: ctx.cwd, executionCwd: ctx.cwd },
+      { configCwd: validContextCwd, executionCwd: validContextCwd },
       null,
     );
   }
@@ -150,7 +150,7 @@ function getPiToolCall(
     toolCall.toolName,
     toolCall.input,
     { kind: 'command', shell },
-    { configCwd: ctx.cwd, executionCwd: ctx.cwd },
+    { configCwd: validContextCwd, executionCwd: validContextCwd },
     command,
   );
 }
