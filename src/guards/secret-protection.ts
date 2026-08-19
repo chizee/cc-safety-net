@@ -364,6 +364,7 @@ function isMetadataOnlyCommand(facts: SemanticFacts): boolean {
   if (stripped.length === 0) return false;
   const command = basename(stripped[0] ?? '').toLowerCase();
   const args = stripped.slice(1);
+  if (command === 'ls' || command === 'stat') return true;
   if (command === 'test') return args.length === 2 && (args[0] === '-e' || args[0] === '-f');
   if (command !== 'find') return false;
   return !args.some((arg) => FIND_NON_METADATA_ACTIONS.has(arg));

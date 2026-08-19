@@ -541,7 +541,12 @@ describe('secret protection command target extraction', () => {
   test('allows metadata-only discovery in standard mode and blocks it in strict mode', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
-    for (const command of ['test -f ~/.ssh/id_rsa', 'find ~/.ssh -type f']) {
+    for (const command of [
+      'test -f ~/.ssh/id_rsa',
+      'find ~/.ssh -type f',
+      'ls -la ~/.ssh',
+      'stat .env',
+    ]) {
       expectAllowedOnlyInStandardMode(command, cwd);
     }
   });
