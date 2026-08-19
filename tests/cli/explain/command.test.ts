@@ -113,7 +113,7 @@ function expectParallelRuleStep(command: string) {
   const result = explainCommand(command);
   expect(result.result).toBe('blocked');
   return getTraceSteps(result).find(
-    (s) => s.type === 'rule-check' && s.ruleModule === 'analyze/parallel.ts',
+    (s) => s.type === 'rule-check' && s.rule === 'analyzer/parallel.ts:analyzeParallel',
   );
 }
 
@@ -296,7 +296,7 @@ describe('explainCommand edge cases', () => {
     expect(result.reason).toContain('git reset --hard');
     expect(
       getTraceSteps(result).some(
-        (s) => s.type === 'rule-check' && s.ruleModule === 'awk' && s.matched,
+        (s) => s.type === 'rule-check' && s.rule === 'awk:analyzeAwkSystemCallMatch' && s.matched,
       ),
     ).toBe(true);
   });
@@ -322,7 +322,7 @@ describe('explainCommand edge cases', () => {
     expect(result.result).toBe('blocked');
     const allSteps = getTraceSteps(result);
     const ruleStep = allSteps.find(
-      (s) => s.type === 'rule-check' && s.ruleModule === 'analyze/rm.ts',
+      (s) => s.type === 'rule-check' && s.rule === 'analyzer/rm.ts:analyzeRmMatch',
     );
     expect(ruleStep).toBeDefined();
   });
@@ -333,7 +333,9 @@ describe('explainCommand edge cases', () => {
     expect(result.reason).toContain('Remove-Item -Recurse -Force');
     const allSteps = getTraceSteps(result);
     const ruleStep = allSteps.find(
-      (s) => s.type === 'rule-check' && s.ruleModule === 'analyze/powershell/remove-item.ts',
+      (s) =>
+        s.type === 'rule-check' &&
+        s.rule === 'analyzer/powershell/remove-item.ts:analyzePowerShellCommandViewMatch',
     );
     expect(ruleStep).toBeDefined();
     if (ruleStep?.type === 'rule-check') {
@@ -347,7 +349,7 @@ describe('explainCommand edge cases', () => {
     expect(result.result).toBe('blocked');
     const allSteps = getTraceSteps(result);
     const ruleStep = allSteps.find(
-      (s) => s.type === 'rule-check' && s.ruleModule === 'analyze/find.ts',
+      (s) => s.type === 'rule-check' && s.rule === 'analyzer/find.ts:analyzeFindMatch',
     );
     expect(ruleStep).toBeDefined();
   });
@@ -530,8 +532,7 @@ describe('explainCommand rm with home directory', () => {
         const ruleStep = allSteps.find(
           (s) =>
             s.type === 'rule-check' &&
-            s.ruleModule === 'policy-protection' &&
-            s.ruleFunction === 'findPolicyConfigMutationTarget',
+            s.rule === 'policy-protection:findPolicyConfigMutationTargetInSemanticFacts',
         );
         expect(ruleStep).toBeDefined();
       });
@@ -553,10 +554,7 @@ describe('explainCommand rm with home directory', () => {
         expect(result.result).toBe('allowed');
         const allSteps = getTraceSteps(result);
         const analyzeRmStep = allSteps.find(
-          (s) =>
-            s.type === 'rule-check' &&
-            s.ruleModule === 'analyze/rm.ts' &&
-            s.ruleFunction === 'analyzeRm',
+          (s) => s.type === 'rule-check' && s.rule === 'analyzer/rm.ts:analyzeRmMatch',
         );
         expect(analyzeRmStep).toBeDefined();
       });
@@ -1299,8 +1297,7 @@ describe('explainCommand pre-analysis protection stages', () => {
     expect(result.segment).toBe('.env');
     expect(result.trace.segments[0]?.steps[0]).toMatchObject({
       type: 'rule-check',
-      ruleModule: 'secret-protection',
-      ruleFunction: 'findSensitiveTarget',
+      rule: 'secret-protection:findSensitiveTargetInSemanticFacts',
       matched: true,
     });
   });

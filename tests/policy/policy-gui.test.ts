@@ -283,7 +283,7 @@ describe('policy GUI helpers', () => {
     }
     expect(
       DESTRUCTIVE_COMMAND_RULE_METADATA.filter((entry) => !entry.activationCapability),
-    ).toHaveLength(50);
+    ).toHaveLength(51);
     expect(
       DESTRUCTIVE_COMMAND_RULE_METADATA.filter(
         (entry) => entry.activationCapability === 'fail_closed',

@@ -52,12 +52,6 @@ export function testModes(level: PolicySafetyLevel = 'standard') {
       paranoid_rm: { enabled: paranoid, source: 'preset' as const, sources: [] },
       paranoid_interpreters: { enabled: paranoid, source: 'preset' as const, sources: [] },
     },
-    sources: {
-      failClosed: [],
-      paranoidRm: [],
-      paranoidInterpreters: [],
-      worktreeMode: [],
-    },
   };
 }
 

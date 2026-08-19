@@ -484,21 +484,6 @@ export async function starRepo(
   };
 }
 
-const VERSION_FIELDS = {
-  amp: 'ampVersion',
-  'antigravity-cli': 'antigravityCliVersion',
-  'claude-code': 'claudeCodeVersion',
-  codex: 'codexCliVersion',
-  'copilot-cli': 'copilotCliVersion',
-  cursor: 'cursorVersion',
-  'gemini-cli': 'geminiCliVersion',
-  'hermes-agent': 'hermesAgentVersion',
-  'kimi-code': 'kimiCodeVersion',
-  openclaw: 'openClawVersion',
-  opencode: 'openCodeVersion',
-  pi: 'piCliVersion',
-} as const satisfies Record<InstallTarget, keyof SystemInfo>;
-
 /** @internal */
 export async function fetchIntegrations(
   probe: { fetcher?: VersionFetcher; homeDir?: string } = {},
@@ -511,7 +496,7 @@ export async function fetchIntegrations(
       return {
         target: meta.id,
         label: getIntegrationDisplayName(meta.id),
-        version: systemInfo[VERSION_FIELDS[meta.id]],
+        version: systemInfo.versions[meta.id] ?? null,
         status: hook?.configured
           ? 'active'
           : hook?.detected
@@ -534,7 +519,7 @@ function detectHooksFromSystemInfo(systemInfo: SystemInfo, homeDir?: string) {
     homeDir,
     ampPluginListOutput: systemInfo.ampPluginListOutput,
     codexPluginListOutput: systemInfo.codexPluginListOutput,
-    copilotCliVersion: systemInfo.copilotCliVersion,
+    copilotCliVersion: systemInfo.versions['copilot-cli'],
   });
 }
 
@@ -590,7 +575,10 @@ export function runIntegration(
       const exitCode = await runInstallCommand(action, [], {
         selectTargets: async () => [target],
         output: new Writable({
-          write(_chunk, _encoding, callback) {
+          // The install report goes to `output`, not the console, so the status box would
+          // render empty unless these chunks land in the same capture.
+          write(chunk, _encoding, callback) {
+            lines.push(String(chunk).replace(/\n$/, ''));
             callback();
           },
         }) as unknown as NodeJS.WriteStream,

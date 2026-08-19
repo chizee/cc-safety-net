@@ -36,7 +36,7 @@ We learned the [hard way](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/cla
 - **Rebuilt evaluation engine** — canonical command IR, deeply immutable policy snapshots, and an ordered guard pipeline with intrinsic decision tracing behind `explain`.
 - **Secret protection** — built-in rules block content access to SSH keys, `.env` files, cloud credentials, and coding-CLI credential stores, across shell commands and file tools alike.
 - **Always-on catastrophic protections** — recursive deletion of root or home, Git metadata mutation (`.git` control plane, hooks, worktrees, submodules), and mutation of the user policy file are blocked in every mode, regardless of overrides.
-- **Safety presets** — `standard`/`strict`/`paranoid` levels with per-rule overrides, trusted delete allow-paths, and env vars that can only raise protection.
+- **Safety presets** — `standard`/`strict`/`paranoid` levels with per-rule overrides, trusted delete allow-paths, and safety-level and capability env vars that can only raise protection — the one deliberate exception is `CC_SAFETY_NET_WORKTREE`, which allows local git discards in linked worktrees.
 - **Policy GUI** — `cc-safety-net gui` serves a local, token-authenticated editor with live preset preview.
 - **Universal installer** — interactive `install`/`uninstall` across all twelve supported agent CLIs, with an `update` command for installed integrations.
 - **Command-decision audit trail** — allowed and blocked command decisions recorded by default to local per-project JSONL with secret redaction, retained for 30 days by default, browsable via `cc-safety-net logs`.
@@ -76,7 +76,7 @@ ccsn doctor
 
 ## Supported coding CLIs
 
-CC Safety Net works across all coding agent CLIs on **Windows, macOS, and Linux**.
+CC Safety Net works across all coding agent CLIs on **Windows, macOS, and Linux**. Windows is covered by automated tests for the analyzer and a subset of integrations; for the remaining hosts it is best-effort and untested, and Amp's own manual documents macOS, Linux, and WSL rather than native Windows.
 
 <table align="center">
   <tr>
@@ -127,7 +127,7 @@ Set a session safety preset with `CC_SAFETY_NET_LEVEL=standard|strict|paranoid`:
 | Strict | Standard, plus blocks dynamic or unparseable commands the analyzer cannot verify safely and metadata-only discovery of built-in sensitive paths. Occasional false positives on advanced shell. |
 | Paranoid | Strict, plus blocks `rm -rf` inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos. |
 
-Presets supply inherited defaults; `policy.json` stores only your explicit deviations — per-rule overrides, allow paths, deny paths, worktree mode, and audit retention. Environment variables can only raise protection, never lower it. The full contract is on [Modes](https://ccsafetynet.com/docs/configuration/modes), [Policy](https://ccsafetynet.com/docs/configuration/policy), and [Environment](https://ccsafetynet.com/docs/configuration/environment), or edit everything visually with the [local GUI](https://ccsafetynet.com/docs/guides/dashboard).
+Presets supply inherited defaults; `policy.json` stores only your explicit deviations — per-rule overrides, allow paths, deny paths, worktree mode, and audit retention. Safety-level and capability environment variables can only raise protection, never lower it; the one deliberate relaxation is `CC_SAFETY_NET_WORKTREE`, which enables worktree mode to allow local git discards in linked worktrees. The full contract is on [Modes](https://ccsafetynet.com/docs/configuration/modes), [Policy](https://ccsafetynet.com/docs/configuration/policy), and [Environment](https://ccsafetynet.com/docs/configuration/environment), or edit everything visually with the [local GUI](https://ccsafetynet.com/docs/guides/dashboard).
 
 ## Diagnostics and tracing
 
@@ -151,6 +151,8 @@ Details: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · 
 ## Limitations
 
 CC Safety Net denies a tool call before it runs; it does not enforce filesystem permissions, inspect network egress, or contain a process. Two v2 bounds worth knowing up front: the policy and sensitive-path command extractors remain primarily POSIX-oriented, so native PowerShell path expressions such as `Get-Content $HOME\.ssh\id_rsa` can evade static path extraction; and policy-file protection is a best-effort exact-path guard, not command emulation. Use operating-system permissions, a sandbox, or equivalent runtime enforcement when complete protection is required.
+
+One integration-specific bound: Codex's unified exec path, the default on macOS and Linux, sends a hook payload when a command starts a session but none for `write_stdin`. Text the model types into an already-running interactive session is therefore never inspected and never audited — only the command that opened the session is. The host emits no event for that call, so no adapter change can close it.
 
 The full residual-risk registry lives in [SECURITY.md](SECURITY.md); the practical consequences are on [Known Limitations](https://ccsafetynet.com/docs/guides/known-limitations).
 
@@ -181,10 +183,10 @@ All details live on the docs site at **[ccsafetynet.com/docs](https://ccsafetyne
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
 
-Generated distribution ownership is intentionally narrow. Only `dist/index.js`,
-`dist/index.d.ts`, `dist/bin/cc-safety-net.js`, and `dist/pi/index.js` are tracked. Run
-`bun run verify:build`, `bun run verify:package`, and `bun run verify:repository-plugin` when
-changing packaging, integrations, or release automation.
+The generated distribution is committed: all 11 files under `dist/` are tracked — the library
+bundle and its type declarations, the CLI entrypoint, the shared chunks, the vendored Zod copy,
+and the Pi, Amp and OpenClaw adapter files. Run `bun run verify:package` and
+`bun run verify:repository-plugin` when changing packaging, integrations, or release automation.
 
 ## License
 
