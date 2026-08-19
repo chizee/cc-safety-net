@@ -97,6 +97,22 @@ describe('derived command work budget', () => {
     ).toThrow(EnvSplitStringExpansionError);
   });
 
+  test('denies an over-limit env -S split string with the expansion-limit reason', () => {
+    const splitString = (tokens: number) =>
+      `env -S '${Array.from({ length: tokens }, () => 'x').join(' ')}'`;
+    const denied = splitString(16_385);
+
+    expect(analyzeTestCommand(denied)).toEqual({
+      kind: 'deny',
+      reason:
+        'env -S split-string expansion exceeds the 16,384-token analysis limit and cannot be verified safely. Expand the command explicitly.',
+      intent: 'stop_and_explain',
+      evidence: [{ kind: 'command', command: denied, segment: denied }],
+    });
+    expect(analyzeTestCommand(splitString(16_384))).toBeNull();
+    expect(analyzeTestCommand('env -S "$CMD" git status')).toBeNull();
+  });
+
   test('accepts the exact embedded Git suffix limit and denies the first token over it', () => {
     const accepted = EXACT_REPEATED_GIT;
     const denied = OVER_LIMIT_REPEATED_GIT;
