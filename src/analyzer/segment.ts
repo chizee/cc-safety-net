@@ -161,6 +161,7 @@ export function analyzeSegment(
     dialect,
     prelude.words,
     options.environment,
+    depth === 0,
     options.strict,
     options.policy,
   );
