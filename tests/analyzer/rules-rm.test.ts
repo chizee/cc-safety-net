@@ -415,6 +415,54 @@ describe('rm -rf cwd-aware', () => {
     }
   });
 
+  test('rm -rf bare glob in home cwd blocked in standard mode', () => {
+    setup();
+    try {
+      assertBlocked(
+        'rm -rf *',
+        'targeting root or home',
+        tmpDir,
+        testEnvironment({ HOME: tmpDir }),
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('rm -rf bare glob in home cwd blocked as root or home in strict and paranoid modes', () => {
+    setup();
+    try {
+      const environment = testEnvironment({ HOME: tmpDir });
+      for (const level of ['strict', 'paranoid'] as const) {
+        expect(
+          analyzeTestCommand('rm -rf *', {
+            cwd: tmpDir,
+            environment,
+            config: { safety: { level } },
+          })?.ruleId,
+          level,
+        ).toBe('rm.recursive-force-root-or-home');
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('rm -rf bare glob outside home keeps its dynamic-target classification', () => {
+    setup();
+    const home = mkdtempSync(join(tmpdir(), 'safety-net-test-home-'));
+    try {
+      const environment = testEnvironment({ HOME: home });
+      expect(analyzeTestCommand('rm -rf *', { cwd: tmpDir, environment })).toBeNull();
+      expect(
+        analyzeTestCommand('rm -rf *', { cwd: tmpDir, environment, strict: true })?.ruleId,
+      ).toBe('rm.recursive-force-dynamic-target');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
   test('rm -rf relative path in symlinked home cwd blocked', () => {
     withSymlinkedHomeCwd('safety-net-rm-home-link-', (home, cwd) => {
       assertBlocked('rm -rf build', 'home directory', cwd, testEnvironment({ HOME: home }));

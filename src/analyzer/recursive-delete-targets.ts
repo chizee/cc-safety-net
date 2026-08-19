@@ -337,7 +337,7 @@ export function isDangerousRootOrHomeTarget(path: string, targetIsLiteral = fals
 
 function isCanonicalHomeTarget(target: string, ctx: RecursiveDeleteTargetContext): boolean {
   const trimmed = target.trim();
-  const candidate = trimmed.endsWith('/*') ? trimmed.slice(0, -2) : trimmed;
+  const candidate = trimmed === '*' ? '.' : trimmed.endsWith('/*') ? trimmed.slice(0, -2) : trimmed;
   if (!candidate) return false;
   try {
     const base = isAbsolute(candidate)
