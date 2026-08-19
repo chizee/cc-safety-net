@@ -347,6 +347,19 @@ describe('rm -rf allow paths', () => {
     ).toContain('shell variables');
   });
 
+  test('literal targets inside an allow path stay allowed in strict and paranoid mode', () => {
+    expect(
+      analyzeTestCommand('rm -rf /some/allowed/dir', { strict: true, config: policy }),
+    ).toBeNull();
+    expect(
+      analyzeTestCommand('rm -rf /some/allowed/dir', {
+        strict: true,
+        paranoidRm: true,
+        config: policy,
+      }),
+    ).toBeNull();
+  });
+
   test('allow paths bypass paranoid rm checks like trusted temp roots', () => {
     expect(
       analyzeTestCommand('rm -rf /some/allowed/dir', { paranoidRm: true, config: policy }),
@@ -905,6 +918,43 @@ describe('rm -rf cwd-aware', () => {
       const command = 'TMPDIR=/var/tmp-malicious rm -rf $TMPDIR/test-dir';
       assertAllowed(command, tmpDir);
       assertStrictBlocked(command, 'rm -rf', tmpDir);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('TMPDIR statement assignment with a word-splitting value is strict-only', () => {
+    setup();
+    try {
+      const command = 'TMPDIR="/tmp/safe /Users"; rm -rf $TMPDIR/literal';
+      assertAllowed(command, tmpDir);
+      assertStrictBlocked(command, 'rm -rf target contains shell variables', tmpDir);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('statement-assigned dynamic suffixes under literal temp roots are strict-only', () => {
+    setup();
+    try {
+      for (const command of [
+        'name=../Users; rm -rf /tmp/$name',
+        'name=../Users; rm -rf /var/tmp/$name',
+      ]) {
+        assertAllowed(command, tmpDir);
+        assertStrictBlocked(command, 'rm -rf target contains shell variables', tmpDir);
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('brace traversal under a literal temp root is blocked in both modes', () => {
+    setup();
+    try {
+      const command = 'rm -rf /tmp/{safe,../Users}';
+      assertBlocked(command, 'rm -rf outside cwd', tmpDir);
+      assertStrictBlocked(command, 'rm -rf outside cwd', tmpDir);
     } finally {
       cleanup();
     }

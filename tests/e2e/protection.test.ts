@@ -220,6 +220,29 @@ describe('built CLI protection contract', () => {
     });
   });
 
+  test('Coding CLI blocks secret metadata in paranoid mode', async () => {
+    await withWorkspace(async ({ cwd, home }) => {
+      const paranoidCommand = 'test -f "$HOME/.ssh/id_rsa"';
+      const paranoidSession = 'log-regression-secret-metadata-paranoid';
+      const paranoidResult = await runCodingCliTool(
+        'Bash',
+        { command: paranoidCommand },
+        cwd,
+        home,
+        paranoidSession,
+        () => writeFileSync(join(cwd, 'paranoid-secret-metadata-ran'), 'ran'),
+        'paranoid',
+      );
+      expect(paranoidResult.allowed).toBe(false);
+      expect(paranoidResult.reason).toContain('secret.home.ssh');
+      expectSingleAudit(home, paranoidSession, {
+        agent: 'claude-code',
+        command: paranoidCommand,
+        ruleId: 'secret.home.ssh',
+      });
+    });
+  });
+
   // Dotfile and password managers routinely make ~/.ssh a symlink. Canonicalizing
   // the candidate rewrites it to the link target, which no longer starts with
   // `~/.ssh`, so the rule that names the directory used to stop matching. Guarded

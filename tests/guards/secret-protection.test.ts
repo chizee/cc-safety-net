@@ -16,6 +16,7 @@ import {
 import type { ToolRoute } from '@/ir/invocation';
 import type { SecretProtectionConfig } from '@/ir/policy';
 import { getNonCommandToolInputKind, normalizeToolName } from '@/parser/tool-input';
+import { getCCSafetyNetEnvModes } from '@/policy/env';
 import {
   SECRET_CODING_CLI_RULES,
   SECRET_PROTECTION_RULE_IDS,
@@ -653,6 +654,25 @@ describe('secret protection command target extraction', () => {
     }
   });
 
+  test('blocks inert Node and Bun inline diagnostic data under the paranoid preset', () => {
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const strict = withEnv(
+      { CC_SAFETY_NET_LEVEL: 'paranoid' },
+      () => getCCSafetyNetEnvModes().strict,
+    );
+
+    expect(strict).toBe(true);
+    for (const command of [
+      `node -e 'const path = ".env"; console.log(path)'`,
+      `bun -e 'const paths = [".env"]; for (const path of paths) console.log(path)'`,
+    ]) {
+      expect(
+        findSensitiveTargetInCommand(command, cwd, undefined, { strict })?.ruleId,
+        command,
+      ).toBe('secret.basename.env');
+    }
+  });
+
   test('keeps recognizable Node and Bun inline sensitive access blocked in standard mode', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
@@ -724,6 +744,14 @@ describe('secret protection command target extraction', () => {
         cwd,
       ),
     ).not.toBeNull();
+    // base64url alphabet: 'YWI_Ly5lbnY=' decodes to 'ab?/.env' only when '_' is
+    // mapped back to '/'; the standard-alphabet twin below shares no token bytes.
+    expect(
+      findSensitiveTargetInCommand(
+        `node -e "const p = Buffer.from('YWI_Ly5lbnY=', 'base64').toString(); require('fs').readFileSync(p, 'utf8')"`,
+        cwd,
+      ),
+    ).toMatchObject({ ruleId: 'secret.basename.env' });
   });
 
   test('does not flag interpreters running benign code', () => {
@@ -830,6 +858,13 @@ for runtime in /Users/kenryu/.nvm/versions/node/v26.0.0/bin/node /Users/kenryu/.
         cwd,
       ),
     ).not.toBeNull();
+    // base64url alphabet: dropping the '-'/'_' mapping leaves every token above
+    // decoding fine while this one silently stops resolving to 'ab?/.env'.
+    expect(findSensitiveTargetInCommand('cat $(echo YWI_Ly5lbnY= | base64 -d)', cwd)).toMatchObject(
+      {
+        ruleId: 'secret.basename.env',
+      },
+    );
   });
 
   test('blocks legacy backtick substitutions that read sensitive operands', () => {
@@ -1531,6 +1566,21 @@ describe('secret protection distinctive basenames anywhere', () => {
     }
 
     expect(findSensitivePathTarget(['id_dsa.pub'], cwd)).toBeNull();
+  });
+
+  test('bounds basename matching on a pathological token', () => {
+    // The private-key basename rules are `^.*_(rsa|dsa|ed25519|ecdsa)$` shaped:
+    // editing one into a nested quantifier keeps every short fixture correct while
+    // the underscore run below backtracks catastrophically.
+    const cwd = join(tmpdir(), 'secret-protection-project');
+    const underscores = '_'.repeat(10000);
+
+    const started = performance.now();
+    expect(findSensitiveTargetInCommand(`cat ${underscores}x`, cwd)).toBeNull();
+    expect(findSensitiveTargetInCommand(`cat ${underscores}_rsa`, cwd)).toMatchObject({
+      ruleId: 'secret.pattern.ssh-key-basename',
+    });
+    expect(performance.now() - started).toBeLessThan(2000);
   });
 });
 

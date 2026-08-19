@@ -736,7 +736,7 @@ function analyzeCommandView(
       };
     }
     options.trace?.recordSegment({ type: 'dangerous-text', token: segment[0], matched: false });
-    return finalizeAnalyzedCommandView(
+    const deferredResult = finalizeAnalyzedCommandView(
       commandView,
       heredocReason,
       state,
@@ -744,6 +744,9 @@ function analyzeCommandView(
       literalShellInput,
       options,
     );
+    if (deferredResult) return deferredResult;
+    applyShellGitContextEnvSegment(segment, state.shellGitContextState);
+    return null;
   }
 
   const result = analyzeSegment(commandView.words, depth, {

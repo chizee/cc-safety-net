@@ -36,7 +36,7 @@ We learned the [hard way](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/cla
 - **Rebuilt evaluation engine** — canonical command IR, deeply immutable policy snapshots, and an ordered guard pipeline with intrinsic decision tracing behind `explain`.
 - **Secret protection** — built-in rules block content access to SSH keys, `.env` files, cloud credentials, and coding-CLI credential stores, across shell commands and file tools alike.
 - **Always-on catastrophic protections** — recursive deletion of root or home, Git metadata mutation (`.git` control plane, hooks, worktrees, submodules), and mutation of the user policy file are blocked in every mode, regardless of overrides.
-- **Safety presets** — `standard`/`strict`/`paranoid` levels with per-rule overrides, trusted delete allow-paths, and env vars that can only raise protection.
+- **Safety presets** — `standard`/`strict`/`paranoid` levels with per-rule overrides, trusted delete allow-paths, and safety-level and capability env vars that can only raise protection — the one deliberate exception is `CC_SAFETY_NET_WORKTREE`, which allows local git discards in linked worktrees.
 - **Policy GUI** — `cc-safety-net gui` serves a local, token-authenticated editor with live preset preview.
 - **Universal installer** — interactive `install`/`uninstall` across all twelve supported agent CLIs, with an `update` command for installed integrations.
 - **Command-decision audit trail** — allowed and blocked command decisions recorded by default to local per-project JSONL with secret redaction, retained for 30 days by default, browsable via `cc-safety-net logs`.
@@ -127,7 +127,7 @@ Set a session safety preset with `CC_SAFETY_NET_LEVEL=standard|strict|paranoid`:
 | Strict | Standard, plus blocks dynamic or unparseable commands the analyzer cannot verify safely and metadata-only discovery of built-in sensitive paths. Occasional false positives on advanced shell. |
 | Paranoid | Strict, plus blocks `rm -rf` inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos. |
 
-Presets supply inherited defaults; `policy.json` stores only your explicit deviations — per-rule overrides, allow paths, deny paths, worktree mode, and audit retention. Environment variables can only raise protection, never lower it. The full contract is on [Modes](https://ccsafetynet.com/docs/configuration/modes), [Policy](https://ccsafetynet.com/docs/configuration/policy), and [Environment](https://ccsafetynet.com/docs/configuration/environment), or edit everything visually with the [local GUI](https://ccsafetynet.com/docs/guides/dashboard).
+Presets supply inherited defaults; `policy.json` stores only your explicit deviations — per-rule overrides, allow paths, deny paths, worktree mode, and audit retention. Safety-level and capability environment variables can only raise protection, never lower it; the one deliberate relaxation is `CC_SAFETY_NET_WORKTREE`, which enables worktree mode to allow local git discards in linked worktrees. The full contract is on [Modes](https://ccsafetynet.com/docs/configuration/modes), [Policy](https://ccsafetynet.com/docs/configuration/policy), and [Environment](https://ccsafetynet.com/docs/configuration/environment), or edit everything visually with the [local GUI](https://ccsafetynet.com/docs/guides/dashboard).
 
 ## Diagnostics and tracing
 
