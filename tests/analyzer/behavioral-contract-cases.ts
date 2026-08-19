@@ -90,6 +90,18 @@ export function behavioralContractCases(paths: {
       },
     },
     {
+      name: 'blocks forced Git removal seen in a field incident',
+      command: 'git checkout --orphan test-connection && git rm -rf . --quiet',
+      options: options({ cwd: paths.cwd }),
+      expected: {
+        kind: 'block',
+        ruleId: 'git.rm-force',
+        intent: 'use_alternative',
+        reasonIncludes: 'removes tracked files from the working tree',
+        segment: 'git rm -rf . --quiet',
+      },
+    },
+    {
       name: 'allows recursive removal inside the workspace',
       command: 'rm -rf build',
       options: options({ cwd: paths.cwd }),

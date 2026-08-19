@@ -541,6 +541,38 @@ describe('git reset', () => {
   });
 });
 
+describe('git rm', () => {
+  test.each([
+    'git rm -f file.txt',
+    'git rm --force file.txt',
+    'git rm -rf .',
+    'git rm -fr .',
+    'git rm -qf file.txt',
+    'git rm --no-force --force file.txt',
+    'git rm --cached --no-cached --force file.txt',
+    'git rm --dry-run --no-dry-run --force file.txt',
+  ])('blocks forced working-tree removal: %s', (command) => {
+    assertBlocked(command, 'git rm --force');
+  });
+
+  test.each([
+    'git rm file.txt',
+    'git rm -r directory',
+    'git rm -f --cached file.txt',
+    'git rm --force --cached file.txt',
+    'git rm --no-cached --cached --force file.txt',
+    'git rm -n -f file.txt',
+    'git rm -nrf .',
+    'git rm --dry-run --force file.txt',
+    'git rm --no-dry-run --dry-run --force file.txt',
+    'git rm --force --no-force file.txt',
+    'git rm -- -f',
+    'git rm -- --force',
+  ])('allows removal that is not an effective forced working-tree write: %s', (command) => {
+    assertAllowed(command);
+  });
+});
+
 describe('git clean', () => {
   test('git clean -f blocked', () => {
     assertBlocked('git clean -f', 'git clean');

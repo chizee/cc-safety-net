@@ -847,7 +847,7 @@ describe('policy GUI server', () => {
       expect(missing.version).toBe(getPackageVersion());
       expect(missing.preview).toMatchObject({
         selectedPreset: 'standard',
-        counts: { enabled: 44 },
+        counts: { enabled: 45 },
       });
 
       mkdirSync(safetyNetHome, { recursive: true });
@@ -937,7 +937,7 @@ describe('policy GUI server', () => {
       expect(result.errors).toEqual([]);
       expect(result.preview.selectedPreset).toBe('standard');
       expect(result.preview.counts).toMatchObject({
-        enabled: 45,
+        enabled: 46,
         effectiveCustomizations: 1,
       });
       expect(result.preview.rules['shell.dynamic-executable']).toMatchObject({
