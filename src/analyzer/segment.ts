@@ -42,6 +42,7 @@ import {
   extractShellScriptOperandSource,
   extractShellStdinSource,
   extractTrapSource,
+  isVerifiableLocalGeneratorSource,
   shellSourceHasUnresolvedDynamicExecutionCarrier,
 } from '@/analyzer/shell-execution';
 import {
@@ -202,7 +203,14 @@ export function analyzeSegment(
       : normalizedHead === 'trap'
         ? extractTrapSource(words)
         : undefined;
-  if (shellBuiltinSource?.kind === 'dynamic') return dynamicShellSourceResult(trace);
+  if (
+    shellBuiltinSource?.kind === 'dynamic' &&
+    (options.strict ||
+      !options.commandView ||
+      !isVerifiableLocalGeneratorSource(options.commandView))
+  ) {
+    return dynamicShellSourceResult(trace);
+  }
   if (shellBuiltinSource?.kind === 'literal') {
     trace?.recordSegment({
       type: 'recurse',
@@ -303,15 +311,23 @@ export function analyzeSegment(
       stripped[sourceCandidateIndex] === '--' ? sourceCandidateIndex + 1 : sourceCandidateIndex;
     const source = options.commandView ? words[sourceOperandIndex] : undefined;
     if (!source) return null;
-    if (source.provenance !== 'literal') return dynamicShellSourceResult(trace);
-    return analyzeTrackedHeredocScript(
-      source.text,
-      nestedEffectiveCwd,
-      envAssignments,
-      options,
-      trace,
-      depth,
-    );
+    if (source.provenance === 'literal') {
+      return analyzeTrackedHeredocScript(
+        source.text,
+        nestedEffectiveCwd,
+        envAssignments,
+        options,
+        trace,
+        depth,
+      );
+    }
+    if (
+      options.strict ||
+      !options.commandView ||
+      !isVerifiableLocalGeneratorSource(options.commandView)
+    ) {
+      return dynamicShellSourceResult(trace);
+    }
   }
 
   if (AWK_INTERPRETERS.has(normalizedHead)) {
