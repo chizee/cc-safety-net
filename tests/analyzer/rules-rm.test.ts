@@ -461,6 +461,20 @@ describe('rm -rf cwd-aware', () => {
     }
   });
 
+  test("rm -rf quoted literal '*' in home cwd keeps home-cwd classification", () => {
+    setup();
+    try {
+      expect(
+        analyzeTestCommand("rm -rf '*'", {
+          cwd: tmpDir,
+          environment: testEnvironment({ HOME: tmpDir }),
+        })?.ruleId,
+      ).toBe('rm.recursive-force-home-cwd');
+    } finally {
+      cleanup();
+    }
+  });
+
   test('rm -rf bare glob outside home keeps its dynamic-target classification', () => {
     setup();
     const home = mkdtempSync(join(tmpdir(), 'safety-net-test-home-'));
