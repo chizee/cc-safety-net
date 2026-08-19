@@ -306,3 +306,38 @@ describe('explain CLI flag parsing', () => {
     expect(exitCode).toBe(1);
   });
 });
+
+describe('explain CLI analysis limits', () => {
+  // A self-recursive function definition exhausts the structural analysis budget. It is only
+  // ever passed as a CLI argument for analysis and is never executed by a shell.
+  const recursionBomb = 'loop() { loop; }; loop';
+
+  test('explain --json reports an analysis limit as JSON instead of a stack trace', async () => {
+    await withTempDir('safety-net-explain-limit-', async (tempDir) => {
+      const result = await runSourceCli(
+        ['explain', '--json', '--cwd', tempDir, recursionBomb],
+        { HOME: join(tempDir, 'home') },
+        tempDir,
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(JSON.parse(result.output).error).toBe('Structural command analysis limit exceeded.');
+      expect(result.stderr).not.toContain('StructuralShellSyntaxLimitError');
+      expect(result.stderr).not.toContain('\n    at ');
+    });
+  });
+
+  test('explain human output reports an analysis limit without a stack trace', async () => {
+    await withTempDir('safety-net-explain-limit-', async (tempDir) => {
+      const result = await runSourceCli(
+        ['explain', '--cwd', tempDir, recursionBomb],
+        { HOME: join(tempDir, 'home') },
+        tempDir,
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.output).toBe('');
+      expect(result.stderr).toBe('Structural command analysis limit exceeded.\n');
+    });
+  });
+});
