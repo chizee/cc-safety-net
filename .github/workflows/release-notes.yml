@@ -1,10 +1,10 @@
 name: Release Notes
 
+# Dispatched by publish.yml after a release is finalized (workflow_run
+# listeners never fire for publish because prepare-release dispatches it
+# with GITHUB_TOKEN, which suppresses downstream workflow_run events).
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: [Publish Release]
-    types: [completed]
 
 concurrency:
   group: release-notes
@@ -14,10 +14,7 @@ permissions: {}
 
 jobs:
   generate:
-    if: >-
-      github.repository == 'kenryu42/cc-safety-net' &&
-      (github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success')
+    if: github.repository == 'kenryu42/cc-safety-net'
     runs-on: ubuntu-latest
     environment: claude
     timeout-minutes: 30
