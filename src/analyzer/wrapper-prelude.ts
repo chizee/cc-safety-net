@@ -432,6 +432,27 @@ function stripCommandWords(words: readonly CommandWord[]): readonly CommandWord[
   return words.slice(i);
 }
 
+// `env -S` gives these characters quoting, expansion, escape, or comment semantics the analyzer
+// does not emulate (`#` also hides retained operands behind a shell comment on re-parse).
+const ENV_SPLIT_NON_INERT_RE = /['"\\$`{}#]/;
+
+/**
+ * Words of an `env -S` command reconstructed by splicing the whitespace-split values ahead of the
+ * retained operands. Null when a value is non-inert or the result exceeds the 64-word splice
+ * budget, so callers keep their conservative behavior.
+ */
+export function reconstructEnvSplitWords(
+  envSplitValues: readonly string[],
+  operands: readonly string[],
+): string[] | null {
+  if (envSplitValues.some((value) => ENV_SPLIT_NON_INERT_RE.test(value))) return null;
+  const words = [
+    ...envSplitValues.flatMap((value) => value.split(/\s+/).filter((word) => word.length > 0)),
+    ...operands,
+  ];
+  return words.length <= 64 ? words : null;
+}
+
 export interface EnvStrippingResult {
   tokens: string[];
   envAssignments: Map<string, string>;

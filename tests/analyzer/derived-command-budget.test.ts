@@ -77,13 +77,19 @@ describe('derived command work budget', () => {
     }
   });
 
-  test('rejects env split strings in derived command position', () => {
+  test('rejects unemulatable env split strings in derived command position', () => {
     expect(() =>
-      normalizeChildCommand(['env', '-S', 'git status'], {
+      normalizeChildCommand(['env', '-S', '$CMD status'], {
         environment: TEST_ENVIRONMENT,
         cwd: '/tmp',
       }),
     ).toThrow(DerivedCommandWorkLimitError);
+    expect(
+      normalizeChildCommand(['env', '-S', 'git status'], {
+        environment: TEST_ENVIRONMENT,
+        cwd: '/tmp',
+      }),
+    ).toMatchObject({ tokens: ['git', 'status'], head: 'git' });
   });
 
   test('normalizes direct child commands', () => {

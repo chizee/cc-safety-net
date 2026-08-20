@@ -1211,6 +1211,27 @@ describe('edge cases', () => {
       );
     });
 
+    test('embedded env -S with inert split values analyzes the spliced child command', () => {
+      expect(analyzeCommand('mytool run env -S FOO=bar server start')).toBeNull();
+      expect(analyzeCommand('foo env -S bar')).toBeNull();
+    });
+
+    test('env -S split value becoming a shell head denies the dynamic execution source', () => {
+      expect(analyzeCommand('env -S \'sh\' -c "$X"')?.reason).toContain(
+        'shell execution source cannot be verified safely',
+      );
+      expect(analyzeCommand('sh -c "env -S \'sh\' -c \\"$X\\""')?.reason).toContain(
+        'shell execution source cannot be verified safely',
+      );
+    });
+
+    test('env -S non-inert and benign shapes keep their standard-mode verdicts', () => {
+      expect(analyzeCommand('env -S "$CMD" git status')).toBeNull();
+      expect(analyzeCommand("env -S 'git status'")).toBeNull();
+      expect(analyzeCommand('env FOO=bar ls')).toBeNull();
+      expect(analyzeCommand("env -S FOO='a b' cmd")).toBeNull();
+    });
+
     test('env dash breaks option scan still blocks', () => {
       assertBlocked('env - git reset --hard', 'git reset --hard');
     });

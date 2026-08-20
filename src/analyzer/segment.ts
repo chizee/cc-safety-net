@@ -56,6 +56,7 @@ import {
   unwrapTransparentWrapper,
 } from '@/analyzer/transparent-wrappers';
 import {
+  reconstructEnvSplitWords,
   stripEnvAssignmentWords,
   stripWrappers,
   stripWrapperWords,
@@ -120,7 +121,9 @@ export function analyzeSegment(
   );
   // The `env -S` split-string language is not emulated: env splices the split words ahead of the
   // retained operands, so the reconstructed text owns the linear dangerous-text scan
-  // unconditionally, and strict mode refuses the unverified execution source outright.
+  // unconditionally, and strict mode refuses the unverified execution source outright. Standard
+  // mode splices inert values ahead of the operands and analyzes that reconstruction as the real
+  // command line; an allow still falls through to analyzing the operands on their own.
   const envSplitValues = prelude.envSplitValues ?? [];
   if (envSplitValues.length > 0) {
     const splitCommandText = [...envSplitValues, ...texts(prelude.words)].join(' ');
@@ -136,6 +139,19 @@ export function analyzeSegment(
     }
     if (options.strict) {
       return dynamicShellSourceResult(trace);
+    }
+    const spliced = reconstructEnvSplitWords(envSplitValues, texts(prelude.words));
+    if (spliced) {
+      reserveDerivedCommandTokens(options.derivedCommandWorkBudget, spliced.length);
+      const splicedResult = options.analyzeNested(spliced.join(' '), {
+        effectiveCwd: prelude.cwd === undefined ? options.effectiveCwd : prelude.cwd,
+        envAssignments: new Map([
+          ...(options.envAssignments ?? []),
+          ...leading.envAssignments,
+          ...prelude.envAssignments,
+        ]),
+      });
+      if (splicedResult) return splicedResult;
     }
   }
   // Words the prelude rewrote carry no parser facts, so the whole command analyzes as text.
