@@ -11,6 +11,7 @@ import {
 import type { ShellKind } from '@/ir/command';
 import { parseCommand } from '@/parser/command';
 import { projectShellSyntax } from '@/parser/shell/entry-projection';
+import { projectCommandViews } from '@/parser/traversal';
 import { TEST_ENVIRONMENT } from '../helpers/environment';
 import { policySnapshot, testModes } from '../helpers/policy';
 
@@ -343,7 +344,7 @@ describe('semantic facts', () => {
     expect(facts.commands[0]?.usages).toEqual(['input-candidate', 'declared-command']);
   });
 
-  test('orders nested command substitutions before their lexical parent', () => {
+  test('keeps nested command substitutions in the parsed program', () => {
     const facts = createSemanticFacts({
       toolName: 'bash',
       input: { command: 'echo $(git reset --hard); rm -rf /' },
@@ -351,10 +352,12 @@ describe('semantic facts', () => {
       command: 'echo $(git reset --hard); rm -rf /',
       context: { configCwd: '/project', executionCwd: '/project' },
     });
+    const program = facts.commands[0]?.program;
+    if (!program) throw new Error('Expected command fact');
 
     expect(
-      facts.commands[0]?.views.map((view) => view.words.map((word) => word.text).join(' ')),
-    ).toEqual(['git reset --hard', 'echo ', 'rm -rf /']);
+      projectCommandViews(program).map((view) => view.words.map((word) => word.text).join(' ')),
+    ).toEqual(['echo ', 'git reset --hard', 'rm -rf /']);
   });
 
   test('records bounded parser uncertainty', () => {
@@ -366,7 +369,7 @@ describe('semantic facts', () => {
       context: { configCwd: '/project', executionCwd: '/project' },
     });
 
-    expect(facts.commands[0]?.uncertainties.map((issue) => issue.code)).toContain('input-limit');
+    expect(facts.commands[0]?.program.issues.map((issue) => issue.code)).toContain('input-limit');
   });
 
   test('keeps patch content inert while retaining patch target provenance', () => {
@@ -540,8 +543,7 @@ describe('semantic facts', () => {
     expect(findPolicyConfigMutationTargetInSemanticFacts(facts)).toBeNull();
     expect(
       findSensitiveTargetInSemanticFacts(facts, {
-        enabled: true,
-        disabledRules: new Set(),
+        disabledRules: [],
         denyPaths: [],
       }),
     ).toBeNull();

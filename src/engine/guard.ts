@@ -15,7 +15,6 @@ import {
 } from '@/guards/policy-protection';
 import {
   findSensitiveTargetInSemanticFacts,
-  getCommandFromToolInput,
   REASON_SECRET_PROTECTION,
 } from '@/guards/secret-protection';
 import {
@@ -30,7 +29,7 @@ import { createProcessEnvironment } from '@/ir/environment';
 import type { ToolInvocation } from '@/ir/invocation';
 import type { EffectiveSafetyLevel, PolicySnapshot } from '@/ir/policy';
 import type { SemanticFacts } from '@/ir/semantic-facts';
-import { ToolInputLimitError } from '@/parser/tool-input';
+import { getCommandFromToolInput, ToolInputLimitError } from '@/parser/tool-input';
 import { getCCSafetyNetEnvModes } from '@/policy/env';
 import { loadPolicySnapshot, type PolicySnapshotOptions } from '@/policy/snapshot';
 
@@ -149,10 +148,7 @@ export function evaluateGuard(
         kind: 'deny',
         reason: REASON_POLICY_CONFIG_PROTECTION,
         intent: 'hard_stop',
-        evidence: [
-          { kind: 'command', command: displayCommand, segment: policyTarget.target },
-          { kind: 'path', target: policyTarget.target },
-        ],
+        evidence: [{ kind: 'command', command: displayCommand, segment: policyTarget.target }],
       },
     };
   }
@@ -168,10 +164,7 @@ export function evaluateGuard(
         kind: 'deny',
         reason: REASON_GIT_METADATA_PROTECTION,
         intent: 'hard_stop',
-        evidence: [
-          { kind: 'command', command: displayCommand, segment: gitMetadataTarget.target },
-          { kind: 'path', target: gitMetadataTarget.target },
-        ],
+        evidence: [{ kind: 'command', command: displayCommand, segment: gitMetadataTarget.target }],
       },
     };
   }
@@ -205,10 +198,7 @@ export function evaluateGuard(
         reason: REASON_SECRET_PROTECTION,
         intent: 'hard_stop',
         ruleId: secretTarget.ruleId,
-        evidence: [
-          { kind: 'command', command: displayCommand, segment: secretTarget.target },
-          { kind: 'path', target: secretTarget.target },
-        ],
+        evidence: [{ kind: 'command', command: displayCommand, segment: secretTarget.target }],
       },
     };
   }

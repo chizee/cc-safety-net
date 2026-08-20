@@ -1,7 +1,6 @@
 import {
   type DerivedCommandWorkBudget,
   DerivedCommandWorkLimitError,
-  EnvSplitStringExpansionError,
 } from '@/analyzer/derived-command-budget';
 import {
   isStandardCommandWrapper,
@@ -12,19 +11,14 @@ import type { EnvironmentContext, ProtectedGitMetadata } from '@/ir/analysis';
 import type { EffectivePolicy } from '@/ir/policy';
 import { getBasename } from '@/parser/shell';
 import { MAX_STRIP_ITERATIONS } from '@/rules/constants';
+import type { DestructiveCommandRulePolicy } from '@/rules/destructive-command-rules';
 
 export interface ChildCommandContext {
   /** Process state nested analysis reads instead of touching env, home or the filesystem. */
   environment: EnvironmentContext;
   cwd: string | undefined;
   envAssignments?: ReadonlyMap<string, string>;
-  policy?: Pick<
-    EffectivePolicy,
-    | 'rules'
-    | 'transparentWrappers'
-    | 'destructiveCommandProtectionEnabled'
-    | 'destructiveCommandRuleOverrides'
-  >;
+  policy?: Pick<EffectivePolicy, 'rules' | 'transparentWrappers'> & DestructiveCommandRulePolicy;
 }
 
 export interface NestedCommandAnalyzeContext extends ChildCommandContext {
@@ -89,7 +83,8 @@ function* normalizeChildCommandCandidates(
   wrappedByTransparent: boolean,
 ): Generator<NormalizedChildCommand> {
   const wrapperInfo = stripWrappersWithInfo(tokens, environment, wrapperCwd, envAssignments);
-  if (wrapperInfo.unverifiableEnvSplit) throw new EnvSplitStringExpansionError();
+  // Derived commands have no channel for a match, so an unexpanded `env -S` value fails closed.
+  if ((wrapperInfo.envSplitValues?.length ?? 0) > 0) throw new DerivedCommandWorkLimitError();
   for (const [key, value] of wrapperInfo.envAssignments) {
     envAssignments.set(key, value);
     wrapperEnvAssignments.set(key, value);

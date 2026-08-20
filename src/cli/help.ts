@@ -1,6 +1,5 @@
 import { ENV_FLAGS } from '@/engine/facade';
-import type { Command } from './commands';
-import { findCommand, getVisibleCommands } from './commands';
+import { type Command, commands, findCommand } from './commands';
 
 declare const __PKG_VERSION__: string | undefined;
 
@@ -106,10 +105,8 @@ export function printCommandHelp(command: Command, write: (text: string) => void
  * Print the main help with all commands.
  */
 export function printHelp(): void {
-  const visibleCommands = getVisibleCommands();
-
   // Calculate max usage width for alignment
-  const maxUsageWidth = getCommandSummaryWidth(visibleCommands);
+  const maxUsageWidth = getCommandSummaryWidth(commands);
 
   const lines: string[] = [];
 
@@ -121,7 +118,7 @@ export function printHelp(): void {
 
   // Commands
   lines.push('COMMANDS:');
-  for (const cmd of visibleCommands) {
+  for (const cmd of commands) {
     lines.push(formatCommandSummary(cmd, maxUsageWidth));
   }
   lines.push('');
@@ -215,7 +212,7 @@ export function showCommandHelp(
   if (!command) {
     return false;
   }
-  if (command.hidden || command.name.toLowerCase() !== commandName.toLowerCase()) {
+  if (command.name.toLowerCase() !== commandName.toLowerCase()) {
     return false;
   }
   printCommandHelp(command, write);

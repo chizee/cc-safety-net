@@ -138,7 +138,6 @@ function scanSequence(
       words: accumulator.words,
       redirections: accumulator.redirections,
       nested: accumulator.nested,
-      dynamicExecutable: accumulator.words[0]?.provenance === 'command-substitution',
       displayText:
         issues.length > 0 && nodes.length === 0 ? source.slice(start, end) : tokens.join(' '),
     } satisfies CommandView);

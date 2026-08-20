@@ -30,7 +30,7 @@ export interface PolicySafety {
 
 export interface SecretProtectionConfig {
   enabled?: boolean;
-  disabledRules?: ReadonlySet<string>;
+  disabledRules?: readonly string[];
   denyPaths: string[];
   allowPaths?: string[];
 }

@@ -373,10 +373,7 @@ describe('guard evaluation', () => {
           reason:
             'This path contains the protected policy config and you must not modify or delete it.',
           intent: 'hard_stop',
-          evidence: [
-            { kind: 'command', command: 'rm policy.json', segment: 'policy.json' },
-            { kind: 'path', target: 'policy.json' },
-          ],
+          evidence: [{ kind: 'command', command: 'rm policy.json', segment: 'policy.json' }],
         },
       });
     });
@@ -445,10 +442,7 @@ describe('guard evaluation', () => {
         reason: 'Access to a sensitive path is not allowed.',
         intent: 'hard_stop',
         ruleId: 'secret.basename.env',
-        evidence: [
-          { kind: 'command', command: 'cat .env', segment: '.env' },
-          { kind: 'path', target: '.env' },
-        ],
+        evidence: [{ kind: 'command', command: 'cat .env', segment: '.env' }],
       });
     });
   });
@@ -942,10 +936,7 @@ function expectedSecretBlock(command: string): GuardEvaluation {
       reason: 'Access to a sensitive path is not allowed.',
       intent: 'hard_stop',
       ruleId: 'secret.basename.env',
-      evidence: [
-        { kind: 'command', command, segment: '.env' },
-        { kind: 'path', target: '.env' },
-      ],
+      evidence: [{ kind: 'command', command, segment: '.env' }],
     },
   };
 }
@@ -958,10 +949,7 @@ function expectedPolicyBlock(command: string, target: string): GuardEvaluation {
       reason:
         'This path contains the protected policy config and you must not modify or delete it.',
       intent: 'hard_stop',
-      evidence: [
-        { kind: 'command', command, segment: target },
-        { kind: 'path', target },
-      ],
+      evidence: [{ kind: 'command', command, segment: target }],
     },
   };
 }

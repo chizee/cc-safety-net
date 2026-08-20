@@ -145,6 +145,17 @@ describe('xargs dynamic source analysis', () => {
   });
 
   test.each([
+    'xargs -I{} git merge {}',
+    'xargs -I{} git rebase {}',
+    'xargs -I{} git reflog --{}',
+    'xargs -I{} git rm -{} /',
+    'xargs -I{} git stash {}',
+    'xargs -I{} git worktree {}',
+  ])('blocks replacement input that can form any dispatched Git option in %s', (command) => {
+    expectDynamicSourceBlocked(command);
+  });
+
+  test.each([
     'xargs -I{} rm {} /',
     'xargs -I{} rm -r{} /',
     'xargs -I{} rm -{} /',

@@ -7,9 +7,6 @@ import type { CommandWord } from '@/ir/command';
 import { MAX_STRIP_ITERATIONS } from '@/rules/constants';
 
 const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
-const ENV_SPLIT_VARIABLE_RE = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}/;
-const MAX_ENV_SPLIT_EXPANDED_LENGTH = 131_072;
-const MAX_ENV_SPLIT_TOKENS = 16_384;
 
 export function parseEnvAssignment(token: string): { name: string; value: string } | null {
   if (!ENV_ASSIGNMENT_RE.test(token)) {
@@ -23,13 +20,14 @@ type EnvWordStrippingResult = {
   words: readonly CommandWord[];
   envAssignments: Map<string, string>;
   cwd?: string | null;
-  unverifiableEnvSplit?: boolean;
+  /** Raw `env -S` values the prelude dropped instead of expanding. */
+  envSplitValues?: readonly string[];
 };
 
 export type WrapperPreludeResult = EnvWordStrippingResult & {
   /**
-   * Whether a word the prelude produced itself survived (an `env -S` split, `command -v`).
-   * Such words carry no parser facts, so the caller analyzes the command as text only.
+   * Whether a word the prelude produced itself survived (a `command -v` rewrite). Such words
+   * carry no parser facts, so the caller analyzes the command as text only.
    */
   rewritten: boolean;
 };
@@ -76,6 +74,7 @@ export function stripWrapperWords(
   let result = words;
   const allEnvAssignments = new Map<string, string>();
   const effectiveEnvAssignments = new Map(inheritedEnvAssignments ?? []);
+  const envSplitValues: string[] = [];
   let currentCwd = cwd;
 
   for (let iteration = 0; iteration < MAX_STRIP_ITERATIONS; iteration++) {
@@ -127,15 +126,7 @@ export function stripWrapperWords(
     }
     if (head === 'env') {
       const envResult = stripEnvWords(result, currentCwd, effectiveEnvAssignments, environment);
-      if (envResult.unverifiableEnvSplit) {
-        return {
-          words: result,
-          envAssignments: allEnvAssignments,
-          cwd: currentCwd,
-          unverifiableEnvSplit: true,
-          rewritten: hasSynthesizedWord(result, parsed),
-        };
-      }
+      envSplitValues.push(...(envResult.envSplitValues ?? []));
       result = envResult.words;
       if (envResult.cwd !== undefined) {
         currentCwd = envResult.cwd;
@@ -165,6 +156,7 @@ export function stripWrapperWords(
     words: final.words,
     envAssignments: allEnvAssignments,
     cwd: currentCwd,
+    envSplitValues: envSplitValues.length > 0 ? envSplitValues : undefined,
     rewritten: hasSynthesizedWord(final.words, parsed),
   };
 }
@@ -262,15 +254,7 @@ function stripSudoWords(
 }
 
 const ENV_OPTS_NO_VALUE = new Set(['-i', '-0', '--null']);
-const ENV_OPTS_WITH_VALUE = new Set([
-  '-u',
-  '--unset',
-  '-C',
-  '--chdir',
-  '-S',
-  '--split-string',
-  '-P',
-]);
+const ENV_OPTS_WITH_VALUE = new Set(['-u', '--unset', '-C', '--chdir', '-P']);
 
 function stripEnvWords(
   words: readonly CommandWord[],
@@ -279,16 +263,21 @@ function stripEnvWords(
   environment: EnvironmentContext,
 ): EnvWordStrippingResult {
   const envAssignments = new Map<string, string>();
+  const envSplitValues: string[] = [];
   let currentCwd = cwd;
-  let expanded = words;
-  const unsetEnvNames = new Set<string>();
   let i = 1;
-  while (i < expanded.length) {
-    const token = wordText(expanded, i);
+  const result = (index: number): EnvWordStrippingResult => ({
+    words: words.slice(index),
+    envAssignments,
+    cwd: currentCwd,
+    envSplitValues: envSplitValues.length > 0 ? envSplitValues : undefined,
+  });
+  while (i < words.length) {
+    const token = wordText(words, i);
     if (!token) break;
 
     if (token === '--') {
-      return { words: expanded.slice(i + 1), envAssignments, cwd: currentCwd };
+      return result(i + 1);
     }
 
     if (token === '-i' || token === '--ignore-environment' || token === '-') {
@@ -305,9 +294,8 @@ function stripEnvWords(
     }
 
     if (token === '-u' || token === '--unset') {
-      const name = wordText(expanded, i + 1);
+      const name = wordText(words, i + 1);
       if (name !== undefined) {
-        unsetEnvNames.add(name);
         envAssignments.set(name, '');
       }
       i += 2;
@@ -315,50 +303,37 @@ function stripEnvWords(
     }
 
     if (token.startsWith('-u') && token.length > 2 && !token.startsWith('-u=')) {
-      const name = token.slice(2);
-      unsetEnvNames.add(name);
-      envAssignments.set(name, '');
+      envAssignments.set(token.slice(2), '');
       i++;
       continue;
     }
 
     if (token.startsWith('--unset=')) {
-      const name = token.slice('--unset='.length);
-      unsetEnvNames.add(name);
-      envAssignments.set(name, '');
+      envAssignments.set(token.slice('--unset='.length), '');
       i++;
       continue;
     }
 
     const splitString =
       token === '-S' || token === '--split-string'
-        ? { value: wordText(expanded, i + 1), consumed: 2 }
+        ? { value: wordText(words, i + 1), consumed: 2 }
         : token.startsWith('-S') && token.length > 2
           ? { value: token.slice('-S'.length), consumed: 1 }
           : token.startsWith('--split-string=')
             ? { value: token.slice('--split-string='.length), consumed: 1 }
             : null;
     if (splitString) {
-      const applied = applyEnvSplitStringOption(
-        expanded,
-        i,
-        splitString.value,
-        splitString.consumed,
-        inheritedEnvAssignments,
-        unsetEnvNames,
-        currentCwd,
-        environment.env,
-      );
-      if (applied.done) return applied.result;
-      expanded = applied.expanded;
-      currentCwd = applied.currentCwd;
-      i = applied.nextIndex;
-      continue;
+      // The split-string language is not emulated: keep the raw value for the caller's
+      // dangerous-text scan, drop the option and mark the cwd unknown so relaxations fail closed.
+      // Option parsing stops here because GNU env treats every following word as an operand.
+      if (splitString.value !== undefined) envSplitValues.push(splitString.value);
+      currentCwd = null;
+      return result(i + splitString.consumed);
     }
 
     if (ENV_OPTS_WITH_VALUE.has(token)) {
       if (token === '-C' || token === '--chdir') {
-        const target = wordText(expanded, i + 1);
+        const target = wordText(words, i + 1);
         currentCwd = target ? resolveWrapperCwd(currentCwd, target, environment.paths) : null;
       }
       i += 2;
@@ -395,202 +370,16 @@ function stripEnvWords(
     if (!parseEnvAssignment(token)) {
       break;
     }
-    while (i < expanded.length) {
-      const nextAssignment = parseEnvAssignment(wordText(expanded, i) ?? '');
+    while (i < words.length) {
+      const nextAssignment = parseEnvAssignment(wordText(words, i) ?? '');
       if (!nextAssignment) break;
       envAssignments.set(nextAssignment.name, nextAssignment.value);
       i++;
     }
-    if (wordText(expanded, i) === '--') i++;
-    return { words: expanded.slice(i), envAssignments, cwd: currentCwd };
+    if (wordText(words, i) === '--') i++;
+    return result(i);
   }
-  return { words: expanded.slice(i), envAssignments, cwd: currentCwd };
-}
-
-function applyEnvSplitStringOption(
-  expanded: readonly CommandWord[],
-  index: number,
-  value: string | undefined,
-  consumed: number,
-  inheritedEnvAssignments: ReadonlyMap<string, string>,
-  unsetEnvNames: ReadonlySet<string>,
-  currentCwd: string | null | undefined,
-  env: ReadonlyMap<string, string>,
-):
-  | { done: true; result: EnvWordStrippingResult }
-  | {
-      done: false;
-      expanded: readonly CommandWord[];
-      currentCwd: string | null | undefined;
-      nextIndex: number;
-    } {
-  const splitResult =
-    value !== undefined
-      ? parseEnvSplitString(value, inheritedEnvAssignments, unsetEnvNames, env)
-      : { tokens: null, unverifiableEnvSplit: false };
-  if (splitResult.unverifiableEnvSplit) {
-    return {
-      done: true,
-      result: {
-        words: expanded,
-        envAssignments: new Map(),
-        cwd: currentCwd,
-        unverifiableEnvSplit: true,
-      },
-    };
-  }
-  if (!splitResult.tokens) {
-    // Match historical env -S failure: drop the option, mark cwd unknown, keep scanning.
-    return {
-      done: false,
-      expanded,
-      currentCwd: null,
-      nextIndex: index + consumed,
-    };
-  }
-  return {
-    done: false,
-    expanded: [
-      ...expanded.slice(0, index),
-      ...textCommandWords(splitResult.tokens),
-      ...expanded.slice(index + consumed),
-    ],
-    currentCwd,
-    nextIndex: index,
-  };
-}
-
-function parseEnvSplitString(
-  value: string,
-  envAssignments: ReadonlyMap<string, string>,
-  unsetEnvNames: ReadonlySet<string>,
-  env: ReadonlyMap<string, string>,
-): { tokens: string[] | null; unverifiableEnvSplit: boolean } {
-  if (value.length > MAX_ENV_SPLIT_EXPANDED_LENGTH) {
-    return { tokens: null, unverifiableEnvSplit: true };
-  }
-  const splitResult = splitEnvString(value, (name) => {
-    if (unsetEnvNames.has(name)) return '';
-    if (envAssignments.has(name)) return envAssignments.get(name) ?? '';
-    return env.get(name) ?? '';
-  });
-  return {
-    tokens: splitResult.tokens,
-    unverifiableEnvSplit: splitResult.limited,
-  };
-}
-
-function splitEnvString(
-  value: string,
-  resolveVariable: (name: string) => string,
-): { tokens: string[] | null; limited: boolean } {
-  const tokens: string[] = [];
-  let parts: string[] = [];
-  let totalLength = 0;
-  let tokenStarted = false;
-  let singleQuoted = false;
-  let doubleQuoted = false;
-  let limited = false;
-
-  const append = (text: string) => {
-    if (totalLength + text.length > MAX_ENV_SPLIT_EXPANDED_LENGTH) {
-      limited = true;
-      return false;
-    }
-    parts.push(text);
-    totalLength += text.length;
-    tokenStarted = true;
-    return true;
-  };
-  const flush = () => {
-    if (!tokenStarted) return true;
-    if (tokens.length >= MAX_ENV_SPLIT_TOKENS) {
-      limited = true;
-      return false;
-    }
-    tokens.push(parts.join(''));
-    parts = [];
-    tokenStarted = false;
-    return true;
-  };
-
-  for (let index = 0; index < value.length; index++) {
-    const char = value[index] ?? '';
-    if (char === "'" && !doubleQuoted) {
-      singleQuoted = !singleQuoted;
-      tokenStarted = true;
-      continue;
-    }
-    if (char === '"' && !singleQuoted) {
-      doubleQuoted = !doubleQuoted;
-      tokenStarted = true;
-      continue;
-    }
-    if (!singleQuoted && !doubleQuoted && isEnvSplitWhitespace(char)) {
-      if (!flush()) return { tokens: null, limited };
-      continue;
-    }
-    if (!singleQuoted && !doubleQuoted && char === '#' && !tokenStarted) break;
-    if (char === '$' && !singleQuoted) {
-      const match = value.slice(index).match(ENV_SPLIT_VARIABLE_RE);
-      if (!match?.[1] || !append(resolveVariable(match[1]))) {
-        return { tokens: null, limited };
-      }
-      index += match[0].length - 1;
-      continue;
-    }
-    if (char !== '\\') {
-      if (!append(char)) return { tokens: null, limited };
-      continue;
-    }
-
-    const escaped = value[index + 1];
-    if (escaped === undefined) return { tokens: null, limited };
-    if (singleQuoted && escaped !== "'" && escaped !== '\\') {
-      if (!append('\\')) return { tokens: null, limited };
-      continue;
-    }
-    if (escaped === 'c') {
-      if (doubleQuoted) return { tokens: null, limited };
-      break;
-    }
-    if (escaped === '_' && !singleQuoted && !doubleQuoted) {
-      if (!flush()) return { tokens: null, limited };
-      index++;
-      continue;
-    }
-    const replacement = getEnvSplitEscape(escaped);
-    if (replacement === undefined || !append(replacement)) {
-      return { tokens: null, limited };
-    }
-    index++;
-  }
-
-  if (singleQuoted || doubleQuoted || !flush()) return { tokens: null, limited };
-  return { tokens, limited: false };
-}
-
-function getEnvSplitEscape(escaped: string): string | undefined {
-  if (escaped === 'f') return '\f';
-  if (escaped === 'n') return '\n';
-  if (escaped === 'r') return '\r';
-  if (escaped === 't') return '\t';
-  if (escaped === 'v') return '\v';
-  if (escaped === '_') return ' ';
-  if (escaped === '#' || escaped === '$' || escaped === '"' || escaped === "'") return escaped;
-  if (escaped === '\\') return '\\';
-  return undefined;
-}
-
-function isEnvSplitWhitespace(char: string): boolean {
-  return (
-    char === ' ' ||
-    char === '\t' ||
-    char === '\n' ||
-    char === '\r' ||
-    char === '\f' ||
-    char === '\v'
-  );
+  return result(i);
 }
 
 function resolveWrapperCwd(
@@ -647,7 +436,7 @@ export interface EnvStrippingResult {
   tokens: string[];
   envAssignments: Map<string, string>;
   cwd?: string | null;
-  unverifiableEnvSplit?: boolean;
+  envSplitValues?: readonly string[];
 }
 
 /**
@@ -682,6 +471,6 @@ export function stripWrappersWithInfo(
     tokens: stripped.words.map(analysisWordText),
     envAssignments: stripped.envAssignments,
     cwd: stripped.cwd,
-    unverifiableEnvSplit: stripped.unverifiableEnvSplit,
+    envSplitValues: stripped.envSplitValues,
   };
 }

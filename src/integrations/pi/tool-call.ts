@@ -97,7 +97,7 @@ function handlePiToolCallWithDependencies(
         getSessionId: () => ctx.sessionManager.getSessionId(),
       },
     });
-    return blockPiEvaluation(evaluation, evaluation.stage !== 'config-state');
+    return blockPiEvaluation(evaluation, true);
   } catch (error) {
     if (!(error instanceof GuardEvaluationError)) throw error;
     if (envTruthy(ENV_FLAGS.debug)) {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { isDynamicExecutable } from '@/ir/command';
 import { parseCommand } from '@/parser/command';
 import { projectCommandViews, walkCommandViews } from '@/parser/traversal';
 import { expectProgramSpans } from './assertions';
@@ -104,7 +105,7 @@ describe('command parser boundary', () => {
 
     expect(view?.words.map((word) => word.text)).toEqual(['m', '-rf', '/']);
     expect(view?.words[0]?.provenance).toBe('command-substitution');
-    expect(view?.dynamicExecutable).toBeTrue();
+    expect(view && isDynamicExecutable(view.dialect, view.words)).toBeTrue();
     expect(view?.words.map((word) => word.text).join(' ')).not.toContain('CC_SAFETY_NET');
   });
 

@@ -28,7 +28,7 @@ export function loadPolicySnapshot(options: PolicySnapshotOptions = {}): PolicyS
     destructiveCommandAllowPaths: userPolicy.destructiveCommandAllowPaths,
     secretProtection: {
       enabled: userPolicy.secretProtection.enabled ?? true,
-      disabledRules: [...(userPolicy.secretProtection.disabledRules ?? [])],
+      disabledRules: userPolicy.secretProtection.disabledRules ?? [],
       denyPaths: userPolicy.secretProtection.denyPaths,
       allowPaths: userPolicy.secretProtection.allowPaths ?? [],
     },

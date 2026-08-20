@@ -5,6 +5,7 @@ import { analysisWordText, textCommandWords } from '@/analyzer/command-words';
 import { dangerousInTextMatch } from '@/analyzer/dangerous-text';
 import { getFindExecCommand, getFindPrimaryArity, isFindExecPrimary } from '@/analyzer/find';
 import { extractGitSubcommandAndRest } from '@/analyzer/git/parse';
+import { GIT_RULE_SUBCOMMANDS } from '@/analyzer/git/rules';
 import {
   getInterpreterExecutableSourceSelectors,
   isInterpreterCommand,
@@ -44,16 +45,6 @@ const EVAL_SHELL_SOURCE_RE =
 const SHELL_EXPANSION_RE =
   /\$(?:([0-9]+|[@*]|[A-Za-z_][A-Za-z0-9_]*)|\{!?([0-9]+|[@*]|[A-Za-z_][A-Za-z0-9_]*)(?:[^}]*)\})/g;
 const POSITIONAL_SHELL_PARAMETER_RE = /^(?:[0-9]+|[@*])$/;
-const PROTECTED_GIT_SUBCOMMANDS = new Set([
-  'branch',
-  'checkout',
-  'clean',
-  'push',
-  'reset',
-  'restore',
-  'switch',
-  'tag',
-]);
 
 export interface XargsAnalyzeContext extends NestedCommandAnalyzeContext {
   analyzeNested: (
@@ -280,7 +271,7 @@ function xargsInputCanChangeExecutedSource(
       ? parsed.subcommand === null
       : (parsed.subcommand?.includes(replacementToken) ?? false) ||
           (parsed.subcommand !== null &&
-            PROTECTED_GIT_SUBCOMMANDS.has(parsed.subcommand.toLowerCase()) &&
+            GIT_RULE_SUBCOMMANDS.has(parsed.subcommand.toLowerCase()) &&
             tokensBeforeStableOptionTerminator(parsed.rest, replacementToken).some((token) =>
               token.includes(replacementToken),
             ));

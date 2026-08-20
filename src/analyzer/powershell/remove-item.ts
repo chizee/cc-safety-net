@@ -18,6 +18,7 @@ import type {
 import type { CommandView } from '@/ir/command';
 import type { EffectivePolicy } from '@/ir/policy';
 import {
+  type DestructiveCommandRulePolicy,
   destructiveCommandMatch,
   destructiveCommandRuleIsEnabled,
 } from '@/rules/destructive-command-rules';
@@ -51,10 +52,7 @@ interface AnalyzePowerShellRemoveItemOptions {
   paranoid?: boolean;
   allowTmpdirVar?: boolean;
   protectedGitMetadata: ProtectedGitMetadata | null;
-  policy?: Pick<
-    EffectivePolicy,
-    'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
-  > &
+  policy?: DestructiveCommandRulePolicy &
     Partial<Pick<EffectivePolicy, 'destructiveCommandAllowPaths'>>;
 }
 

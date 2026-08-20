@@ -1006,14 +1006,14 @@ describe('explainCommand worktree parity', () => {
     );
   });
 
-  test('includes keyword-export git context overrides in current segment', async () => {
+  test('includes in-segment git context overrides in current segment', async () => {
     await expectWorktreeExplainBlocked(
       (main) => `set -k; git restore file.txt GIT_WORK_TREE=${main}`,
       'git restore',
     );
   });
 
-  test('includes nested keyword-export git context overrides in current segment', async () => {
+  test('includes nested in-segment git context overrides in current segment', async () => {
     await expectWorktreeExplainBlocked(
       (main) => `sh -c "set -k; git restore file.txt GIT_WORK_TREE=${main}"`,
       'git restore',

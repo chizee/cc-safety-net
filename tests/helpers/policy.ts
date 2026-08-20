@@ -124,7 +124,7 @@ export function loadTestPolicy(
     destructiveCommandAllowPaths: snapshot.policy.destructiveCommandAllowPaths,
     secretProtection: {
       ...snapshot.policy.secretProtection,
-      disabledRules: new Set(snapshot.policy.secretProtection.disabledRules),
+      disabledRules: [...snapshot.policy.secretProtection.disabledRules],
       denyPaths: [...snapshot.policy.secretProtection.denyPaths],
       allowPaths: [...snapshot.policy.secretProtection.allowPaths],
     },

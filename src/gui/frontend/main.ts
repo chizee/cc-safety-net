@@ -260,18 +260,6 @@ const errorText = (result: RequestResult) =>
   `Request failed (status ${result.status}).`;
 const isWriteSuccess = (result: RequestResult) =>
   result.ok && !(Array.isArray(result.data?.errors) && result.data.errors.length > 0);
-const isPolicyState = (value: PolicyState | undefined): value is PolicyState =>
-  !!value &&
-  typeof value === 'object' &&
-  !!value.policy &&
-  typeof value.policy === 'object' &&
-  !!value.policy.safety &&
-  !!value.policy.workflow &&
-  !!value.policy.secret_protection &&
-  Array.isArray(value.destructiveCommandRules) &&
-  Array.isArray(value.secretPatterns) &&
-  (value.preview === null || (value.preview && typeof value.preview === 'object')) &&
-  Array.isArray(value.errors);
 // Every id this reads is in page.html, so the element is asserted rather than
 // null-checked at each of the call sites.
 const qs = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -407,12 +395,6 @@ const applyView = () => {
   // rule can be scrolled into view.
   if (view === 'rules' && rulesData && pendingRuleFocus) renderRules();
 };
-const isActivityFeed = (value: ActivityFeed | undefined): value is ActivityFeed =>
-  !!value &&
-  typeof value === 'object' &&
-  Array.isArray(value.entries) &&
-  !!value.counts &&
-  typeof value.counts === 'object';
 const agentLabels: Record<string, string> = integrationDisplayNames;
 const tierCountHtml = (segments: [number, string, string?][]) => {
   const parts = segments
@@ -574,8 +556,9 @@ const renderTopList = (
           )
           .join('');
 };
-const renderTopRules = () => {
+const renderTopLists = () => {
   if (!overview) return;
+  renderTopList('top-commands', overview.counts.commands, 'top-command', 'data-command');
   renderTopList('top-rules', overview.counts.rules, 'top-rule', 'data-rule-id');
 };
 // Blocks that look like false positives rather than catches: a fail-closed
@@ -615,14 +598,6 @@ const jumpToActivityRule = (ruleId: string) => {
     renderActivityFeed();
   }
   location.hash = 'activity';
-};
-const renderTopCommands = () => {
-  if (!overview) return;
-  renderTopList('top-commands', overview.counts.commands, 'top-command', 'data-command');
-};
-const renderTopLists = () => {
-  renderTopCommands();
-  renderTopRules();
 };
 const renderGuardErrors = () => {
   if (!overview) return;
@@ -711,7 +686,7 @@ const renderActivityFeed = () => {
 };
 const loadOverview = async () => {
   const result = await requestJson(`/api/activity?days=${overviewDays()}`);
-  if (!result.ok || !isActivityFeed(result.data)) {
+  if (!result.ok || !result.data) {
     const message = `<p class="empty">Could not load activity: ${escapeHtml(errorText(result))}</p>`;
     qs('overview-window').textContent = '';
     qs('overview-tiles').innerHTML = '';
@@ -719,7 +694,8 @@ const loadOverview = async () => {
     qs('guard-errors').hidden = true;
     return;
   }
-  overview = result.data;
+  const feed: ActivityFeed = result.data;
+  overview = feed;
   qs('logs-path').textContent = overview.logsDir ?? 'Not available';
   renderOverviewActivity();
   renderTopLists();
@@ -727,13 +703,16 @@ const loadOverview = async () => {
 };
 const loadActivity = async () => {
   const result = await requestJson(`/api/activity?days=${activityFilters.days}`);
-  if (!result.ok || !isActivityFeed(result.data)) {
+  if (!result.ok || !result.data) {
     const message = `<p class="empty">Could not load activity: ${escapeHtml(errorText(result))}</p>`;
     qs('activity-feed').innerHTML = message;
     qs('activity-count').textContent = '';
     return;
   }
-  activity = result.data;
+  // `data` is unverified JSON, so it is named at its type once here; every read
+  // below is through the narrowed module-level feed.
+  const feed: ActivityFeed = result.data;
+  activity = feed;
   suspects = findSuspects(activity.entries);
   if (activityFilters.agent !== 'all' && !(activityFilters.agent in activity.counts.agents)) {
     activityFilters.agent = 'all';
@@ -747,20 +726,18 @@ const loadActivity = async () => {
   renderActivityControls();
   renderActivityFeed();
 };
-const refreshActivity = async () => {
-  const button = qs<HTMLButtonElement>('activity-refresh');
+const runRefresh = async (buttonId: string, reload: () => Promise<unknown>) => {
+  const button = qs<HTMLButtonElement>(buttonId);
   if (button.disabled) return;
   button.disabled = true;
   button.classList.add('spinning');
   // Spin for a minimum duration so a fast local refresh still reads as an action.
-  await Promise.all([
-    loadOverview(),
-    loadActivity(),
-    new Promise((resolve) => setTimeout(resolve, 600)),
-  ]);
+  await Promise.all([reload(), new Promise((resolve) => setTimeout(resolve, 600))]);
   button.classList.remove('spinning');
   button.disabled = false;
 };
+const refreshActivity = () =>
+  runRefresh('activity-refresh', () => Promise.all([loadOverview(), loadActivity()]));
 const renderIntegrations = () => {
   const loaded = integrations;
   if (!loaded) return;
@@ -833,16 +810,11 @@ const loadIntegrations = async () => {
   qs('integrations-platform').textContent = result.data.system.platform;
   qs('integrations-system').hidden = false;
 };
-const refreshIntegrations = async () => {
-  const button = qs<HTMLButtonElement>('integrations-refresh');
-  if (button.disabled) return;
-  button.disabled = true;
-  button.classList.add('spinning');
-  integrationsRequested = true;
-  await Promise.all([loadIntegrations(), new Promise((resolve) => setTimeout(resolve, 600))]);
-  button.classList.remove('spinning');
-  button.disabled = false;
-};
+const refreshIntegrations = () =>
+  runRefresh('integrations-refresh', () => {
+    integrationsRequested = true;
+    return loadIntegrations();
+  });
 const renderRules = () => {
   const loaded = rulesData;
   if (!loaded) return;
@@ -918,16 +890,11 @@ const loadRules = async () => {
   rulesData = result.data;
   renderRules();
 };
-const refreshRules = async () => {
-  const button = qs<HTMLButtonElement>('rules-refresh');
-  if (button.disabled) return;
-  button.disabled = true;
-  button.classList.add('spinning');
-  rulesRequested = true;
-  await Promise.all([loadRules(), new Promise((resolve) => setTimeout(resolve, 600))]);
-  button.classList.remove('spinning');
-  button.disabled = false;
-};
+const refreshRules = () =>
+  runRefresh('rules-refresh', () => {
+    rulesRequested = true;
+    return loadRules();
+  });
 const jumpToRulesRule = (ruleId: string) => {
   pendingRuleFocus = ruleId.replace(/^custom\./, '');
   location.hash = 'rules';
@@ -1388,6 +1355,17 @@ const createPathList = (prefix: string, config: PathListConfig) => {
   };
   return { render, add, remove };
 };
+// Every path list validates the same way: preview the draft policy with the
+// candidate paths patched into it, and report the preview's own error text.
+const validatePathAdditions = async (
+  patch: (candidate: ReturnType<typeof collectFormPolicy>) => void,
+) => {
+  const candidate = collectFormPolicy();
+  patch(candidate);
+  const result = await requestPolicyPreview(candidate);
+  if (result.ok && result.data?.preview) return null;
+  return errorText(result);
+};
 const pathLists = {
   'deny-paths': createPathList('deny-paths', {
     getPaths: () => draftPolicy.secret_protection.deny_paths,
@@ -1396,16 +1374,10 @@ const pathLists = {
     },
     isDisabled: () => !draftPolicy.secret_protection.enabled,
     itemLabel: 'deny path',
-    validateAdditions: async (paths: string[]) => {
-      const candidate = collectFormPolicy();
-      candidate.secret_protection = {
-        ...candidate.secret_protection,
-        deny_paths: paths,
-      };
-      const result = await requestPolicyPreview(candidate);
-      if (result.ok && result.data?.preview) return null;
-      return errorText(result);
-    },
+    validateAdditions: (paths: string[]) =>
+      validatePathAdditions((candidate) => {
+        candidate.secret_protection = { ...candidate.secret_protection, deny_paths: paths };
+      }),
   }),
   'secret-allow-paths': createPathList('secret-allow-paths', {
     getPaths: () => draftPolicy.secret_protection.allow_paths,
@@ -1414,16 +1386,10 @@ const pathLists = {
     },
     isDisabled: () => !draftPolicy.secret_protection.enabled,
     itemLabel: 'allow path',
-    validateAdditions: async (paths: string[]) => {
-      const candidate = collectFormPolicy();
-      candidate.secret_protection = {
-        ...candidate.secret_protection,
-        allow_paths: paths,
-      };
-      const result = await requestPolicyPreview(candidate);
-      if (result.ok && result.data?.preview) return null;
-      return errorText(result);
-    },
+    validateAdditions: (paths: string[]) =>
+      validatePathAdditions((candidate) => {
+        candidate.secret_protection = { ...candidate.secret_protection, allow_paths: paths };
+      }),
   }),
   'allow-paths': createPathList('allow-paths', {
     getPaths: () => draftPolicy.destructive_command_protection.allow_paths,
@@ -1432,16 +1398,13 @@ const pathLists = {
     },
     isDisabled: () => !draftPolicy.destructive_command_protection.enabled,
     itemLabel: 'allow path',
-    validateAdditions: async (paths) => {
-      const candidate = collectFormPolicy();
-      candidate.destructive_command_protection = {
-        ...candidate.destructive_command_protection,
-        allow_paths: paths,
-      };
-      const result = await requestPolicyPreview(candidate);
-      if (result.ok && result.data?.preview) return null;
-      return errorText(result);
-    },
+    validateAdditions: (paths) =>
+      validatePathAdditions((candidate) => {
+        candidate.destructive_command_protection = {
+          ...candidate.destructive_command_protection,
+          allow_paths: paths,
+        };
+      }),
   }),
 };
 // The two lists are addressed by name from a data attribute, so a lookup has to
@@ -1975,7 +1938,7 @@ const restoreDraft = () => {
 };
 async function load() {
   const result = await requestJson('/api/policy');
-  if (!isPolicyState(result.data)) {
+  if (!result.ok || !result.data) {
     setAppStatus('Load failed', 'error');
     setDetailStatus(`Error: Could not load policy: ${errorText(result)}`, 'error');
     return false;
@@ -2032,6 +1995,24 @@ document.addEventListener('paste', (event) => {
   event.preventDefault();
   void list.add(`${input.value}\n${text}`);
 });
+// Posts a policy write and reports a failed one, so every caller shares the one
+// success test rather than repeating the error plumbing.
+const writePolicy = async (path: string, body: string, failureStatus: string) => {
+  const result = await requestJson(path, { method: 'POST', body });
+  if (isWriteSuccess(result)) return result;
+  setAppStatus(failureStatus, 'error');
+  setDetailStatus(`Error: ${errorText(result)}`, 'error');
+  return null;
+};
+// A completed write makes the stored draft stale: discarding it before the
+// reload is what keeps restoreDraft from resurrecting the pre-write policy.
+const reloadAfterWrite = async () => {
+  sessionStorage.removeItem('cc-safety-net-draft');
+  if (!(await load())) return false;
+  dirty = false;
+  setDetailStatus('');
+  return true;
+};
 // Saves on its own rather than through the policy savebar, which lives in the
 // Policy view and cannot be reached from Settings. It writes the saved policy
 // with only this field changed, so unsaved Policy edits are not committed by
@@ -2074,16 +2055,13 @@ const saveRetentionDays = async (days: number) => {
   await runExclusive('Saving...', async () => {
     const policy = clonePolicy(saved.policy);
     policy.audit.retention_days = days;
-    const result = await requestJson('/api/policy', {
-      method: 'POST',
-      body: JSON.stringify(policy),
-    });
-    if (!isWriteSuccess(result)) {
+    if (!(await writePolicy('/api/policy', JSON.stringify(policy), 'Save failed'))) {
       qs<HTMLInputElement>('retention-days').value = String(current);
-      setAppStatus('Save failed', 'error');
-      setDetailStatus(`Error: ${errorText(result)}`, 'error');
       return;
     }
+    // Reloads through load() rather than reloadAfterWrite(): the write carried
+    // none of the Policy edits, so the stored draft is still live and must be
+    // restored instead of discarded.
     if (!(await load())) return;
     // A narrower window may no longer offer the selected one.
     activityFilters.days = Math.min(activityFilters.days, days);
@@ -2519,22 +2497,9 @@ qs('save').onclick = () => {
   }
   const policy = collectFormPolicy();
   void runExclusive('Saving...', async () => {
-    const result = await requestJson('/api/policy', {
-      method: 'POST',
-      body: JSON.stringify(policy),
-    });
-    if (!isWriteSuccess(result)) {
-      setAppStatus('Save failed', 'error');
-      setDetailStatus(`Error: ${errorText(result)}`, 'error');
-      return;
-    }
-    const savedPath = result.data.path;
-    sessionStorage.removeItem('cc-safety-net-draft');
-    if (await load()) {
-      dirty = false;
-      setAppStatus(`Saved ${savedPath}.`, 'ok');
-      setDetailStatus('');
-    }
+    const result = await writePolicy('/api/policy', JSON.stringify(policy), 'Save failed');
+    if (!result) return;
+    if (await reloadAfterWrite()) setAppStatus(`Saved ${result.data.path}.`, 'ok');
   });
 };
 qs('repair').onclick = async () => {
@@ -2560,19 +2525,9 @@ qs('repair').onclick = async () => {
     return;
   }
   void runExclusive('Repairing...', async () => {
-    const result = await requestJson('/api/repair', { method: 'POST', body: '{}' });
-    if (!isWriteSuccess(result)) {
-      setAppStatus('Repair failed', 'error');
-      setDetailStatus(`Error: ${errorText(result)}`, 'error');
-      return;
-    }
-    const repairedPath = result.data.path;
-    sessionStorage.removeItem('cc-safety-net-draft');
-    if (await load()) {
-      dirty = false;
-      setAppStatus(`Repaired ${repairedPath}.`, 'ok');
-      setDetailStatus('');
-    }
+    const result = await writePolicy('/api/repair', '{}', 'Repair failed');
+    if (!result) return;
+    if (await reloadAfterWrite()) setAppStatus(`Repaired ${result.data.path}.`, 'ok');
   });
 };
 qs('reset').onclick = async () => {
@@ -2592,19 +2547,9 @@ qs('reset').onclick = async () => {
     return;
   }
   void runExclusive('Resetting...', async () => {
-    const result = await requestJson('/api/reset', { method: 'POST', body: '{}' });
-    if (!isWriteSuccess(result)) {
-      setAppStatus('Reset failed', 'error');
-      setDetailStatus(`Error: ${errorText(result)}`, 'error');
-      return;
-    }
-    const resetPath = result.data.path;
-    sessionStorage.removeItem('cc-safety-net-draft');
-    if (await load()) {
-      dirty = false;
-      setAppStatus(`Reset ${resetPath} to defaults.`, 'ok');
-      setDetailStatus('');
-    }
+    const result = await writePolicy('/api/reset', '{}', 'Reset failed');
+    if (!result) return;
+    if (await reloadAfterWrite()) setAppStatus(`Reset ${result.data.path} to defaults.`, 'ok');
   });
 };
 setRawCopyCopied(false);

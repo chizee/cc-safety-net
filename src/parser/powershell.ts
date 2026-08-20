@@ -129,7 +129,6 @@ function scanPowerShellSequence(
       words: accumulator.words,
       redirections: accumulator.redirections,
       nested: accumulator.nested,
-      dynamicExecutable: accumulator.words[0]?.provenance !== 'literal',
       displayText: accumulator.words.map((word) => word.text).join(' '),
     } satisfies CommandView);
   };

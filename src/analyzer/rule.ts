@@ -14,10 +14,10 @@ import type {
   DestructiveCommandRuleMatch,
 } from '@/ir/analysis';
 import type { CommandProgram, CommandView, CommandWord } from '@/ir/command';
-import type { EffectivePolicy } from '@/ir/policy';
+import type { CommandAnalysisPolicy } from '@/ir/policy';
 
 export type InternalOptions = AnalyzeInput & {
-  policy: EffectivePolicy;
+  policy: CommandAnalysisPolicy;
   effectiveCwd: string | null | undefined;
   analyzeNested: (
     command: string,

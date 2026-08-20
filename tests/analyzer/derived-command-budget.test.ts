@@ -4,7 +4,6 @@ import {
   createDerivedCommandWorkBudget,
   DERIVED_COMMAND_WORK_LIMITS,
   DerivedCommandWorkLimitError,
-  EnvSplitStringExpansionError,
   REASON_DERIVED_COMMAND_WORK_LIMIT,
   reserveDerivedCommandTokens,
 } from '@/analyzer/derived-command-budget';
@@ -78,7 +77,16 @@ describe('derived command work budget', () => {
     }
   });
 
-  test('normalizes direct child commands and rejects unverifiable env split expansion', () => {
+  test('rejects env split strings in derived command position', () => {
+    expect(() =>
+      normalizeChildCommand(['env', '-S', 'git status'], {
+        environment: TEST_ENVIRONMENT,
+        cwd: '/tmp',
+      }),
+    ).toThrow(DerivedCommandWorkLimitError);
+  });
+
+  test('normalizes direct child commands', () => {
     expect(
       normalizeChildCommand(['busybox', 'git', 'status'], {
         environment: TEST_ENVIRONMENT,
@@ -89,26 +97,13 @@ describe('derived command work budget', () => {
       cwd: '/tmp',
       head: 'git',
     });
-    expect(() =>
-      normalizeChildCommand(['env', '-S', Array.from({ length: 16_385 }, () => 'x').join(' ')], {
-        environment: TEST_ENVIRONMENT,
-        cwd: '/tmp',
-      }),
-    ).toThrow(EnvSplitStringExpansionError);
   });
 
-  test('denies an over-limit env -S split string with the expansion-limit reason', () => {
+  test('allows benign env -S split strings of any size in standard mode', () => {
     const splitString = (tokens: number) =>
       `env -S '${Array.from({ length: tokens }, () => 'x').join(' ')}'`;
-    const denied = splitString(16_385);
 
-    expect(analyzeTestCommand(denied)).toEqual({
-      kind: 'deny',
-      reason:
-        'env -S split-string expansion exceeds the 16,384-token analysis limit and cannot be verified safely. Expand the command explicitly.',
-      intent: 'stop_and_explain',
-      evidence: [{ kind: 'command', command: denied, segment: denied }],
-    });
+    expect(analyzeTestCommand(splitString(16_385))).toBeNull();
     expect(analyzeTestCommand(splitString(16_384))).toBeNull();
     expect(analyzeTestCommand('env -S "$CMD" git status')).toBeNull();
   });

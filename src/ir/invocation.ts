@@ -11,7 +11,6 @@ export type ToolRoute = { kind: 'command'; shell: CommandToolKind } | NonCommand
 export type ToolCallContext = {
   configCwd: string;
   executionCwd: string;
-  policyConfigCwds?: readonly string[];
 };
 
 type ToolInvocationBase = {

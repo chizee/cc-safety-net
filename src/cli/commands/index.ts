@@ -14,7 +14,6 @@ export type { Command } from './types';
 /**
  * All registered commands.
  * Order determines display order in main help.
- * @internal Exported for testing
  */
 export const commands = [
   statusCommand,
@@ -37,10 +36,6 @@ function getCommandAliases(command: Command): readonly string[] {
   return command.aliases ?? [];
 }
 
-function isVisibleCommand(command: Command): boolean {
-  return !command.hidden;
-}
-
 /**
  * Lookup a command by name or alias.
  * Returns undefined if not found.
@@ -52,11 +47,4 @@ export function findCommand(nameOrAlias: string): RegisteredCommand | undefined 
       cmd.name.toLowerCase() === normalized ||
       getCommandAliases(cmd).some((alias) => alias.toLowerCase() === normalized),
   );
-}
-
-/**
- * Get all visible commands (non-hidden) for main help display.
- */
-export function getVisibleCommands(): readonly Command[] {
-  return commands.filter(isVisibleCommand);
 }

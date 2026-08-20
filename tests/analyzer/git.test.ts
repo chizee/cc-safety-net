@@ -9,9 +9,11 @@ import {
   withSymlinkedLinkedWorktreeDirectory,
   withSymlinkToMainWorktreeSubdirectory,
 } from '../helpers/git-worktree';
+import { commandAnalysisPolicy, policySnapshot } from '../helpers/policy.ts';
 import {
   assertAllowed,
   assertBlocked,
+  assertStrictBlocked,
   createLinkedWorktreeFixture,
   createSubmoduleLikeGitFileFixture,
   runGuard,
@@ -38,6 +40,17 @@ describe('analyzeGit direct', () => {
 
   test('fails closed on command-line shell aliases', () => {
     assertBlocked('git -c alias.nuke=!echo nuke', 'Git aliases');
+  });
+
+  test('resolves shell-alias enablement through the effective destructive-command rules', () => {
+    expect(
+      analyzeGit(['git', '-c', 'alias.nuke=!echo', 'nuke'], {
+        env: new Map(),
+        policy: commandAnalysisPolicy(
+          policySnapshot({ destructiveCommandProtectionEnabled: false }),
+        ),
+      }),
+    ).toBeNull();
   });
 
   test('allows safe command-line aliases', () => {
@@ -831,22 +844,38 @@ describe('git linked worktree mode', () => {
     });
   });
 
-  test('SAFETY_NET_WORKTREE honors disabled allexport before later assignments', async () => {
+  test('SAFETY_NET_WORKTREE keeps strict denials for shell git context assignments', async () => {
     await withReadonlyLinkedWorktreeFixture((fixture) => {
       const mainWorktree = toShellPath(fixture.mainWorktree);
       withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
-        expect(
-          runGuard(
-            `set -a; set +a; GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
-            fixture.linkedWorktree,
-          ),
-        ).toBeNull();
-        expect(
-          runGuard(
-            `set -o allexport; set +o allexport; GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
-            fixture.linkedWorktree,
-          ),
-        ).toBeNull();
+        assertStrictBlocked(
+          `export GIT_WORK_TREE=${mainWorktree}; ${gitResetHard}`,
+          gitResetHardReason,
+          fixture.linkedWorktree,
+        );
+        assertStrictBlocked(
+          `typeset +x GIT_WORK_TREE=${mainWorktree}; ${gitResetHard}`,
+          gitResetHardReason,
+          fixture.linkedWorktree,
+        );
+      });
+    });
+  });
+
+  test('SAFETY_NET_WORKTREE tracks assignments regardless of allexport state', async () => {
+    await withReadonlyLinkedWorktreeFixture((fixture) => {
+      const mainWorktree = toShellPath(fixture.mainWorktree);
+      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
+        assertBlocked(
+          `set -a; set +a; GIT_WORK_TREE=${mainWorktree}; ${gitResetHard}`,
+          gitResetHardReason,
+          fixture.linkedWorktree,
+        );
+        assertBlocked(
+          `set -o allexport; set +o allexport; GIT_WORK_TREE=${mainWorktree}; ${gitResetHard}`,
+          gitResetHardReason,
+          fixture.linkedWorktree,
+        );
       });
     });
   });

@@ -32,6 +32,7 @@ import type { CommandWord } from '@/ir/command';
 import type { EffectivePolicy } from '@/ir/policy';
 import { getBasename } from '@/parser/shell';
 import {
+  type DestructiveCommandRulePolicy,
   destructiveCommandMatch,
   filterDestructiveCommandMatch,
 } from '@/rules/destructive-command-rules';
@@ -96,10 +97,7 @@ const FIND_PRIMARY_ARITY = new Map<string, number>([
 export interface AnalyzeFindContext extends RecursiveDeleteTargetTrustOptions {
   derivedCommandWorkBudget?: DerivedCommandWorkBudget;
   envAssignments?: ReadonlyMap<string, string>;
-  policy?: Pick<
-    EffectivePolicy,
-    'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
-  > &
+  policy?: DestructiveCommandRulePolicy &
     Partial<Pick<EffectivePolicy, 'destructiveCommandAllowPaths'>>;
   analyzeTokens?: (
     tokens: readonly string[],

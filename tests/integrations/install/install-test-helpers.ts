@@ -1,6 +1,6 @@
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getAntigravityHooksPath } from '@/integrations/antigravity/hook';
+import { getAntigravityHooksPath } from '@/integrations/antigravity-cli/hook';
 import { makeTempHome } from '../hook-helpers';
 
 export function writeClaudePluginRecords(

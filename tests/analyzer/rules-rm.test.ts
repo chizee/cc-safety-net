@@ -9,7 +9,12 @@ import {
 } from '@/analyzer/rm';
 import type { CommandWord } from '@/ir/command';
 import { TEST_ENVIRONMENT, testEnvironment } from '../helpers/environment.ts';
-import { analyzeTestCommand, type TestPolicyInput } from '../helpers/policy.ts';
+import {
+  analyzeTestCommand,
+  commandAnalysisPolicy,
+  policySnapshot,
+  type TestPolicyInput,
+} from '../helpers/policy.ts';
 import {
   assertAllowed,
   assertBlocked,
@@ -1117,10 +1122,11 @@ describe('analyzeRm (unit)', () => {
     const home = homedir();
     const match = analyzeRmMatch(textCommandWords(['rm', '-rf', '.']), {
       originalCwd: home,
-      policy: {
-        destructiveCommandProtectionEnabled: true,
-        destructiveCommandRuleOverrides: { 'rm.recursive-force-home-cwd': 'off' },
-      },
+      policy: commandAnalysisPolicy(
+        policySnapshot({
+          destructiveCommandRuleOverrides: { 'rm.recursive-force-home-cwd': 'off' },
+        }),
+      ),
     });
     expect(match?.id).toBe('rm.recursive-force-cwd-self');
   });

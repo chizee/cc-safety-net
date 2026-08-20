@@ -389,7 +389,7 @@ describe('runtime config loading', () => {
     expect(config.configFallbackReason).toBeUndefined();
     expect(config.destructiveCommandRuleOverrides).toEqual({});
     // The project override is ignored, so only the built-in default-off tier remains.
-    expect(config.secretProtection?.disabledRules).toEqual(SECRET_DEFAULT_OFF_RULE_ID_SET);
+    expect(config.secretProtection?.disabledRules).toEqual([...SECRET_DEFAULT_OFF_RULE_ID_SET]);
     expect(config.safety).toEqual({});
     expect(config.worktreeMode).toBe(false);
   });
@@ -458,9 +458,10 @@ describe('runtime config loading', () => {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.secretProtection?.enabled).toBe(false);
-    expect(config.secretProtection?.disabledRules).toEqual(
-      new Set([...SECRET_DEFAULT_OFF_RULE_ID_SET, 'secret.ext.pem']),
-    );
+    expect(config.secretProtection?.disabledRules).toEqual([
+      ...SECRET_DEFAULT_OFF_RULE_ID_SET,
+      'secret.ext.pem',
+    ]);
     expect(config.secretProtection?.denyPaths).toEqual(['user.key']);
   });
 

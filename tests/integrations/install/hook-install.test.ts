@@ -6,7 +6,7 @@ import { Writable } from 'node:stream';
 import { runInstallCommand } from '@/cli/install';
 import { buildAmpArtifactHeader } from '@/integrations/amp/artifact';
 import { ampArtifactCandidates, resolveAmpArtifactPath } from '@/integrations/amp/install';
-import { getAntigravityHooksPath } from '@/integrations/antigravity/hook';
+import { getAntigravityHooksPath } from '@/integrations/antigravity-cli/hook';
 import { getCursorHooksPath, installCursor, uninstallCursor } from '@/integrations/cursor/install';
 import { captureConsoleOutput, withEnv } from '../../helpers';
 import { makeTempHome, runCli } from '../hook-helpers';

@@ -76,7 +76,7 @@ function handleAmpToolCallWithDependencies(
         getSessionId,
       },
     });
-    return projectAmpEvaluation(evaluation, evaluation.stage !== 'config-state');
+    return projectAmpEvaluation(evaluation, true);
   } catch (error) {
     if (!(error instanceof guardEngine.GuardEvaluationError)) throw error;
     if (envTruthy(ENV_FLAGS.debug)) {

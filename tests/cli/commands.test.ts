@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { findCommand, getVisibleCommands } from '@/cli/commands';
+import { commands, findCommand } from '@/cli/commands';
 import { runCCSafetyNetCli } from '../helpers';
 
 describe('command registry', () => {
@@ -32,12 +32,9 @@ describe('command registry', () => {
     });
   });
 
-  describe('getVisibleCommands', () => {
-    test('returns all non-hidden commands', () => {
-      const visible = getVisibleCommands();
-      expect(visible.length).toBeGreaterThan(0);
-
-      const names = visible.map((c) => c.name);
+  describe('commands', () => {
+    test('registers every command in display order', () => {
+      const names = commands.map((c) => c.name);
       expect(names).toEqual([
         'status',
         'doctor',
@@ -57,8 +54,7 @@ describe('command registry', () => {
 
 describe('command definitions', () => {
   test('all commands have required fields', () => {
-    const visible = getVisibleCommands();
-    for (const cmd of visible) {
+    for (const cmd of commands) {
       expect(cmd.name).toBeDefined();
       expect(cmd.description).toBeDefined();
       expect(cmd.usage).toBeDefined();
@@ -68,8 +64,7 @@ describe('command definitions', () => {
   });
 
   test('all commands have help option', () => {
-    const visible = getVisibleCommands();
-    for (const cmd of visible) {
+    for (const cmd of commands) {
       const hasHelpOption = cmd.options.some(
         (opt) => opt.flags.includes('--help') || opt.flags.includes('-h'),
       );
