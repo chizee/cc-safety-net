@@ -4,6 +4,7 @@
 !.claude/skills
 .claude/skills/*
 !.claude/skills/ccsn-find-simplifications
+!.claude/skills/release-notes
 .agents/*
 !.agents/setup
 !.agents/resume
