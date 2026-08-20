@@ -250,6 +250,18 @@ describe('Antigravity CLI hook', () => {
   });
 
   describe('target canonicalization limits', () => {
+    // A target costs one realpath attempt per missing component plus one for the
+    // existing root. Moderately deep targets exhaust the attempt budget with few
+    // enough input nodes to stay under the tool input traversal limits and few
+    // enough walked bytes to stay under the processed-candidate budget.
+    const missingComponentsPerTarget = 15;
+    const missingPrefix = Array.from(
+      { length: missingComponentsPerTarget - 1 },
+      (_, index) => `m${index}`,
+    ).join('/');
+    const exhaustingTargetCount =
+      PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / (missingComponentsPerTarget + 1) + 1;
+
     test('shares one target-root budget and keeps the exact attempt boundary', async () => {
       await withHookTestContext((context) => {
         const inputForCount = (count: number) => ({
@@ -257,13 +269,13 @@ describe('Antigravity CLI hook', () => {
             name: 'view_file',
             args: {
               targets: Array.from({ length: count }, (_, index) => ({
-                AbsolutePath: join(context.cwd, `ordinary-${index}.txt`),
+                AbsolutePath: join(context.cwd, missingPrefix, `ordinary-${index}.txt`),
               })),
             },
           },
           workspacePaths: [context.cwd],
         });
-        const boundaryTargetCount = PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2;
+        const boundaryTargetCount = exhaustingTargetCount - 1;
 
         expect(resolveAntigravityCwd(inputForCount(boundaryTargetCount), () => {})).toBe(
           realpathSync(context.cwd),
@@ -287,10 +299,9 @@ describe('Antigravity CLI hook', () => {
           toolCall: {
             name: 'view_file',
             args: {
-              targets: Array.from(
-                { length: PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2 + 1 },
-                (_, index) => ({ AbsolutePath: join(context.cwd, `ordinary-${index}.txt`) }),
-              ),
+              targets: Array.from({ length: exhaustingTargetCount }, (_, index) => ({
+                AbsolutePath: join(context.cwd, missingPrefix, `ordinary-${index}.txt`),
+              })),
             },
           },
           workspacePaths: [context.cwd],

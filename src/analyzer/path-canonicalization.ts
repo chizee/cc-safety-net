@@ -5,7 +5,7 @@ import type { EnvironmentContext, PathResolver } from '@/ir/analysis';
 export const PATH_CANONICALIZATION_LIMITS = Object.freeze({
   maxEnvironmentExpansionDepth: 64,
   maxMissingSuffixComponents: 256,
-  maxRealpathAttempts: 1024,
+  maxRealpathAttempts: 16384,
   maxProcessedCandidateBytes: 4 * 1024 * 1024,
 });
 
@@ -221,6 +221,31 @@ export function resolveExistingPath(
     suffixes.push(basename(candidate));
     candidate = parent;
   }
+}
+
+export function probeExistingPath(
+  path: string,
+  paths: PathResolver,
+  budget: PathCanonicalizationBudget,
+): string | null {
+  // A cached value may come from a full walk of a nonexistent path; returning it
+  // is safe because callers compare it against a known identity rather than
+  // treating it as proof the path exists.
+  const cached = budget.resolvedPaths.get(path);
+  if (cached !== undefined) return cached;
+
+  budget.realpathAttempts++;
+  budget.processedCandidateBytes += Buffer.byteLength(path);
+  if (
+    budget.realpathAttempts > PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts ||
+    budget.processedCandidateBytes > PATH_CANONICALIZATION_LIMITS.maxProcessedCandidateBytes
+  ) {
+    throw new PathCanonicalizationLimitError();
+  }
+
+  const existing = paths.realpath(path);
+  if (existing !== null) budget.resolvedPaths.set(path, existing);
+  return existing;
 }
 
 function getSupportedPathEnvironmentValue(

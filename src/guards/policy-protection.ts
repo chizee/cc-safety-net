@@ -1,4 +1,4 @@
-import { dirname } from 'node:path';
+import { basename, dirname } from 'node:path';
 import { textCommandWords } from '@/analyzer/command-words';
 import { findExecRmDeletesFoundPaths, findHasDelete, getFindStartingPoints } from '@/analyzer/find';
 import {
@@ -11,6 +11,7 @@ import {
   extractMvOperandPaths,
   findProtectedPathMutationInCommand,
   isAssignmentOnlySegment,
+  normalizeProtectedFileCandidate,
   normalizeProtectedPathCandidate,
   type ProtectedPathShellState,
 } from '@/guards/protected-path-scanner';
@@ -285,7 +286,13 @@ function isPolicyFile(
   identity: PolicyPathIdentity,
   context: PathCanonicalizationContext,
 ): boolean {
-  return comparePath(normalizeProtectedPathCandidate(target, cwd, context)) === identity.file;
+  const resolved = normalizeProtectedFileCandidate(
+    target,
+    cwd,
+    context,
+    (name) => comparePath(name) === basename(identity.file),
+  );
+  return resolved !== null && comparePath(resolved) === identity.file;
 }
 
 function isPolicyDirectoryOrAncestor(
