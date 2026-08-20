@@ -601,6 +601,21 @@ describe('writeAuditLog', () => {
     ]);
   });
 
+  test('keeps the full command on failure-stage entries', () => {
+    const sessionId = 'test-session-failure-full-command';
+    const command = `echo ${'x'.repeat(12_000)}`;
+    writeAuditLog(sessionId, command, 'y'.repeat(2_001), 'failed closed', null, {
+      homeDir: testDir,
+      failureStage: 'policy-protection',
+      errorCode: 'path-canonicalization-limit',
+    });
+
+    const entry = readLogEntries(sessionId)[0];
+    expect(entry?.command).toBe(command);
+    expect(entry?.segment?.length).toBe(2_000);
+    expect(entry?.truncated).toBe(true);
+  });
+
   test('ordinary log entries omit failure diagnostics', () => {
     const sessionId = 'test-session-without-failure-diagnostics';
     writeAuditLog(sessionId, 'git status', 'git status', 'allowed', '/home/user/project', {
