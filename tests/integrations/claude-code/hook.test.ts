@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PATH_CANONICALIZATION_LIMITS } from '@/analyzer/path-canonicalization';
 import { listAuditLogFiles } from '@/engine/audit-scan';
 import { syncRulesConfig, writeDefaultRulesConfig, writeStarterRulebook } from '@/rules/policy';
 import { readAuditLogEntriesForSession, readLatestAuditLogEntry } from '../../helpers';
@@ -632,16 +631,17 @@ period, so default to 0 instead of hiding the Weekly block at fresh-period start
     test('audits path canonicalization limits with sanitized diagnostics', async () => {
       await withHookTestContext(async (context) => {
         const sessionId = 'path-canonicalization-limit-session';
-        const command = `echo ${Array.from(
-          { length: PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2 + 1 },
-          (_, index) => join(context.cwd, `ordinary-${index}.txt`),
+        const command = `echo ${Array.from({ length: 82 }, (_, index) =>
+          [...Array.from({ length: 200 }, (_, depth) => `p${index}x${depth}`), 'policy.json'].join(
+            '/',
+          ),
         ).join(' ')}`;
         const result = await context.runClaudeCodeHook({
           ...context.claudeCodeBashInput(command),
           session_id: sessionId,
         });
 
-        expect(getHookDenyReason(result, 'claude-code')).toContain('CC Safety Net failed closed');
+        expect(getHookDenyReason(result, 'claude-code')).toContain('exceeds safe analysis limits');
         const entries = readAuditLogEntriesForSession(context.home, sessionId);
         expect(entries).toMatchObject([
           {

@@ -1,5 +1,7 @@
 import { analyzeCommandWithProgram } from '@/analyzer';
+import { PathCanonicalizationLimitError } from '@/analyzer/path-canonicalization';
 import {
+  REASON_COMMAND_ANALYSIS_LIMIT,
   REASON_RECURSION_LIMIT,
   REASON_SAFETY_NET_FAILED_CLOSED,
   REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT,
@@ -21,6 +23,7 @@ import {
   createSemanticFacts,
   type FactParserDependencies,
   getCommandSyntaxFact,
+  StructuralShellSyntaxLimitError,
 } from '@/guards/semantic-facts';
 import type { AnalyzeInput } from '@/ir/analysis';
 import type { AuditFailureStage } from '@/ir/audit';
@@ -256,6 +259,7 @@ function getInputCommandOrFail(invocation: ToolInvocation): string | undefined {
       failedClosedEvaluation(
         'policy-protection',
         cause instanceof ToolInputLimitError ? undefined : command,
+        cause,
       ),
       cause,
     );
@@ -272,7 +276,11 @@ function callDependency<T>(
   } catch (cause) {
     throw new GuardEvaluationError(
       stage,
-      failedClosedEvaluation(stage, cause instanceof ToolInputLimitError ? undefined : command),
+      failedClosedEvaluation(
+        stage,
+        cause instanceof ToolInputLimitError ? undefined : command,
+        cause,
+      ),
       cause,
     );
   }
@@ -281,12 +289,18 @@ function callDependency<T>(
 function failedClosedEvaluation(
   stage: GuardStage,
   command: string | null | undefined,
+  cause?: unknown,
 ): GuardEvaluation {
+  // Analysis budgets are documented limits the command crossed, so they get
+  // actionable wording instead of the internal-fault report.
+  const isAnalysisLimit =
+    cause instanceof PathCanonicalizationLimitError ||
+    cause instanceof StructuralShellSyntaxLimitError;
   return {
     stage,
     decision: {
       kind: 'deny',
-      reason: REASON_SAFETY_NET_FAILED_CLOSED,
+      reason: isAnalysisLimit ? REASON_COMMAND_ANALYSIS_LIMIT : REASON_SAFETY_NET_FAILED_CLOSED,
       intent: 'stop_and_explain',
       evidence: command ? [{ kind: 'command', command, segment: command }] : [],
     },

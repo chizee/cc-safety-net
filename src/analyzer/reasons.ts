@@ -7,5 +7,8 @@ export const REASON_RECURSION_LIMIT =
 export const REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT =
   'CC Safety Net could not validate the command because its structure exceeds safe analysis limits.';
 
+export const REASON_COMMAND_ANALYSIS_LIMIT =
+  'CC Safety Net could not analyze the command because it exceeds safe analysis limits. Simplify or split the command and retry.';
+
 export const REASON_SAFETY_NET_FAILED_CLOSED =
   'CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.';
