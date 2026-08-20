@@ -220,6 +220,78 @@ describe('built CLI protection contract', () => {
     });
   });
 
+  test('Coding CLI blocks secret metadata in paranoid mode', async () => {
+    await withWorkspace(async ({ cwd, home }) => {
+      const paranoidCommand = 'test -f "$HOME/.ssh/id_rsa"';
+      const paranoidSession = 'log-regression-secret-metadata-paranoid';
+      const paranoidResult = await runCodingCliTool(
+        'Bash',
+        { command: paranoidCommand },
+        cwd,
+        home,
+        paranoidSession,
+        () => writeFileSync(join(cwd, 'paranoid-secret-metadata-ran'), 'ran'),
+        'paranoid',
+      );
+      expect(paranoidResult.allowed).toBe(false);
+      expect(paranoidResult.reason).toContain('secret.home.ssh');
+      expectSingleAudit(home, paranoidSession, {
+        agent: 'claude-code',
+        command: paranoidCommand,
+        ruleId: 'secret.home.ssh',
+      });
+    });
+  });
+
+  // Dotfile and password managers routinely make ~/.ssh a symlink. Canonicalizing
+  // the candidate rewrites it to the link target, which no longer starts with
+  // `~/.ssh`, so the rule that names the directory used to stop matching. Guarded
+  // at the packaged-artifact level because that binary is what ships.
+  test('Coding CLI blocks credentials under a symlinked ~/.ssh', async () => {
+    await withWorkspace(async ({ cwd, home }) => {
+      mkdirSync(join(home, 'vault', 'ssh'), { recursive: true });
+      writeFileSync(join(home, 'vault', 'ssh', 'config'), 'Host *');
+      symlinkSync(join(home, 'vault', 'ssh'), join(home, '.ssh'), 'dir');
+
+      const command = 'cat "$HOME/.ssh/config"';
+      const sessionId = 'claude-symlinked-ssh-secret';
+      const result = await runCodingCliTool('Bash', { command }, cwd, home, sessionId, () =>
+        writeFileSync(join(cwd, 'symlinked-ssh-ran'), 'ran'),
+      );
+
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('secret.home.ssh');
+      expectSingleAudit(home, sessionId, {
+        agent: 'claude-code',
+        command,
+        ruleId: 'secret.home.ssh',
+      });
+    });
+  });
+
+  // Text that cannot name a local file must not be read as one: a regex operand
+  // survives shell quoting with its backslash intact, and a remote URL addresses
+  // another host entirely.
+  test.each([
+    [
+      'a regex operand of an unmodelled search tool',
+      'regex-operand',
+      'git grep -n "process\\.env" -- .',
+    ],
+    [
+      'a remote URL naming an env template',
+      'remote-url',
+      'curl -sL https://raw.githubusercontent.com/o/r/main/.env.test',
+    ],
+  ] as const)('Coding CLI allows %s and records only the allow decision', async (_name, slug, command) => {
+    await withWorkspace(async ({ cwd, home }) => {
+      const sessionId = `claude-allows-${slug}`;
+      await expectAllowedAction(cwd, home, sessionId, (action) =>
+        runCodingCliTool('Bash', { command }, cwd, home, sessionId, action),
+      );
+    });
+  });
+
   test.each([
     ['Bash execution', 'bash-executes', "bash -c 'rm -rf /'", 'rm.recursive-force-root-or-home'],
     [

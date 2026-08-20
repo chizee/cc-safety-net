@@ -1,9 +1,15 @@
 # --- Project Specific ---
 .cursor
-.claude
+.claude/*
+!.claude/skills
+.claude/skills/*
+!.claude/skills/ccsn-find-simplifications
 .agents/*
 !.agents/setup
 !.agents/resume
+!.agents/skills
+.agents/skills/*
+!.agents/skills/ccsn-find-simplifications
 .safety-net.json
 .opencode
 .gemini
@@ -15,6 +21,7 @@ coverage
 .codex
 .playwright
 .playwright-cli
+.factory
 codex-security-scans
 
 # --- Node.js ---

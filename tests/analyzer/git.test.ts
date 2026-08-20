@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { analyzeGit, getGitWorktreeRelaxation } from '@/analyzer/git';
+import { textCommandWords } from '@/analyzer/command-words';
+import { analyzeGitMatch, getGitWorktreeRelaxation } from '@/analyzer/git';
 import { testEnvironment } from '../helpers/environment.ts';
 import {
   runGit,
@@ -18,6 +19,9 @@ import {
   withEnv,
   withReadonlyLinkedWorktreeFixture,
 } from '../helpers.ts';
+
+const analyzeGit = (tokens: readonly string[], options: Parameters<typeof analyzeGitMatch>[1]) =>
+  analyzeGitMatch(textCommandWords(tokens), options)?.reason ?? null;
 
 const gitResetHard = ['git', 'reset', '--hard'].join(' ');
 const gitResetHardReason = ['git reset', '--hard'].join(' ');
@@ -534,6 +538,38 @@ describe('git reset', () => {
 
   test("sh -c 'git reset --hard' blocked", () => {
     assertBlocked("sh -c 'git reset --hard'", 'git reset --hard');
+  });
+});
+
+describe('git rm', () => {
+  test.each([
+    'git rm -f file.txt',
+    'git rm --force file.txt',
+    'git rm -rf .',
+    'git rm -fr .',
+    'git rm -qf file.txt',
+    'git rm --no-force --force file.txt',
+    'git rm --cached --no-cached --force file.txt',
+    'git rm --dry-run --no-dry-run --force file.txt',
+  ])('blocks forced working-tree removal: %s', (command) => {
+    assertBlocked(command, 'git rm --force');
+  });
+
+  test.each([
+    'git rm file.txt',
+    'git rm -r directory',
+    'git rm -f --cached file.txt',
+    'git rm --force --cached file.txt',
+    'git rm --no-cached --cached --force file.txt',
+    'git rm -n -f file.txt',
+    'git rm -nrf .',
+    'git rm --dry-run --force file.txt',
+    'git rm --no-dry-run --dry-run --force file.txt',
+    'git rm --force --no-force file.txt',
+    'git rm -- -f',
+    'git rm -- --force',
+  ])('allows removal that is not an effective forced working-tree write: %s', (command) => {
+    assertAllowed(command);
   });
 });
 

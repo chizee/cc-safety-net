@@ -57,6 +57,7 @@ describe('hook command routing', () => {
       getKimiCodeToolRoute('bash'),
       getCopilotCliToolRoute('bash'),
       getCopilotCliToolRoute('Bash'),
+      getCopilotCliToolRoute('powershell'),
       getCopilotCliToolRoute('PowerShell'),
       getAntigravityCliToolRoute('run_command'),
       getAntigravityCliToolRoute('Run_Command'),
@@ -70,7 +71,8 @@ describe('hook command routing', () => {
       { kind: 'unknown' },
       { kind: 'command', shell: 'auto' },
       { kind: 'command', shell: 'auto' },
-      { kind: 'unknown' },
+      { kind: 'command', shell: 'powershell' },
+      { kind: 'command', shell: 'powershell' },
       { kind: 'command', shell: 'auto' },
       { kind: 'unknown' },
     ]);
