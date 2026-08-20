@@ -1908,7 +1908,7 @@ describe('Amp artifact resolution', () => {
     const candidates = ampArtifactCandidates();
     expect(candidates.length).toBe(2);
     for (const candidate of candidates) {
-      expect(candidate.endsWith(join('amp', 'cc-safety-net.ts'))).toBe(true);
+      expect(candidate.endsWith(join('amp', 'cc-safety-net', 'index.ts'))).toBe(true);
     }
   });
 

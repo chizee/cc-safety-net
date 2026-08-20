@@ -395,11 +395,11 @@ fi
         '  "plugins repositories") printf \'[{"scope":"user","exists":true,"viewerCanWrite":true,"cloneRef":"tester/-/plugins"}]\\n\' ;;',
         'esac',
       ].join('\n'),
-      // Only `git status --porcelain` needs a real answer: the modified `cc-safety-net.ts` entry
+      // Only `git status --porcelain` needs a real answer: the modified directory-plugin entry
       // means the artifact is staged, so `commitAndPush` proceeds to commit and push.
       git: [
         'case "$1 $2" in',
-        '  "status --porcelain") printf \'%s\\n\' "M  cc-safety-net.ts" ;;',
+        '  "status --porcelain") printf \'%s\\n\' "M  cc-safety-net/index.ts" ;;',
         'esac',
       ].join('\n'),
     });
@@ -411,9 +411,7 @@ fi
       });
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain(
-        'Updated Amp Code plugin at tester/-/plugins/cc-safety-net.ts',
-      );
+      expect(result.stdout).toContain('Updated Amp Code plugin at tester/-/plugins/cc-safety-net');
       expect(result.stdout).toContain('including Orb threads');
       expect(existsSync(maskingPath)).toBe(false);
     } finally {
