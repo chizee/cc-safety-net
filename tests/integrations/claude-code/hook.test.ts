@@ -631,13 +631,15 @@ period, so default to 0 instead of hiding the Weekly block at fresh-period start
     test('audits path canonicalization limits with sanitized diagnostics', async () => {
       await withHookTestContext(async (context) => {
         const sessionId = 'path-canonicalization-limit-session';
-        const command = `echo ${Array.from({ length: 82 }, (_, index) =>
-          [...Array.from({ length: 200 }, (_, depth) => `p${index}x${depth}`), 'policy.json'].join(
-            '/',
-          ),
-        ).join(' ')}`;
         const result = await context.runClaudeCodeHook({
-          ...context.claudeCodeBashInput(command),
+          ...context.claudeCodeBashInput(
+            `echo ${Array.from({ length: 82 }, (_, index) =>
+              [
+                ...Array.from({ length: 200 }, (_, depth) => `p${index}x${depth}`),
+                'policy.json',
+              ].join('/'),
+            ).join(' ')}`,
+          ),
           session_id: sessionId,
         });
 

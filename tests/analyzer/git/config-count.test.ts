@@ -128,17 +128,17 @@ describe('Git config count fail-closed behavior', () => {
       GIT_CONFIG_VALUE_0: '!rm -rf .',
     });
 
-    for (const level of ['standard', 'strict'] as const) {
-      for (const command of [
+    (['standard', 'strict'] as const).forEach((level) => {
+      [
         'git nuke GIT_CONFIG_COUNT=0',
         'git nuke --foo GIT_CONFIG_COUNT=0',
         'true GIT_CONFIG_COUNT=0; git nuke',
-      ]) {
+      ].forEach((command) => {
         expect(
           analyzeTestCommand(command, { environment, config: { safety: { level } } }),
         ).toMatchObject({ ruleId: 'git.alias-config', reason: aliasConfigReason });
-      }
-    }
+      });
+    });
   });
 
   test('inline empty key masks an inherited key and fails closed', () => {
