@@ -797,6 +797,15 @@ describe('git linked worktree mode', () => {
     });
   });
 
+  test('SAFETY_NET_WORKTREE ignores post-command git context tokens in later segments', async () => {
+    await withReadonlyLinkedWorktreeFixture((fixture) => {
+      const mainGitDir = toShellPath(join(fixture.mainWorktree, '.git'));
+      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
+        assertAllowed(`git status GIT_DIR=${mainGitDir}; git clean -fd`, fixture.linkedWorktree);
+      });
+    });
+  });
+
   test('SAFETY_NET_WORKTREE treats GIT_INDEX_FILE as a git context override', async () => {
     await withReadonlyLinkedWorktreeFixture((fixture) => {
       withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {

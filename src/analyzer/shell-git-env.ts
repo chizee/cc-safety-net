@@ -30,6 +30,8 @@ const ENV_APPEND_ASSIGNMENT_RE = /^([A-Za-z_][A-Za-z0-9_]*)\+=/;
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** Builtins that can publish an already declared name to later commands. */
 const EXPORT_BUILTINS = new Set(['export', 'typeset', 'declare', 'readonly']);
+/** Prefixes that invoke a shell builtin, so the builtin's operands still declare names. */
+const BUILTIN_CALL_PREFIXES = new Set(['builtin', 'command', 'time']);
 
 export function createShellGitContextEnvState(
   env: ReadonlyMap<string, string>,
@@ -121,7 +123,9 @@ function collectSegmentEnvAssignments(
   state: ShellGitContextEnvState,
 ): { assignments: readonly SegmentGitContextAssignment[]; commandIndex: number } {
   const commandIndex = tokens.findIndex((token) => !isEnvAssignmentToken(token));
-  const declaresOperands = commandIndex !== -1 && EXPORT_BUILTINS.has(tokens[commandIndex] ?? '');
+  const declaresOperands =
+    commandIndex !== -1 &&
+    EXPORT_BUILTINS.has(tokens[resolveInvokedWordIndex(tokens, commandIndex)] ?? '');
   const currentValues = getCurrentShellAssignmentValues(state);
 
   const assignments = tokens.flatMap((token, index) => {
@@ -141,12 +145,24 @@ function collectSegmentEnvAssignments(
     return [
       {
         ...assignment,
-        persists: commandIndex === -1 || declaresOperands || index > commandIndex,
+        persists: commandIndex === -1 || declaresOperands,
       },
     ];
   });
 
   return { assignments, commandIndex };
+}
+
+/** Skips `builtin`/`command`/`time` prefixes and their options to the word they invoke. */
+function resolveInvokedWordIndex(tokens: readonly string[], commandIndex: number): number {
+  let index = commandIndex;
+  while (BUILTIN_CALL_PREFIXES.has(tokens[index] ?? '')) {
+    index += 1;
+    while (tokens[index]?.startsWith('-')) {
+      index += 1;
+    }
+  }
+  return index;
 }
 
 function isEnvAssignmentToken(token: string): boolean {
