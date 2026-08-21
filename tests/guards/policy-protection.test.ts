@@ -219,6 +219,8 @@ describe('policy config protection', () => {
         `env -S 'rm ${policyPath}' cat`,
         `env -S 'LC_ALL=C rm -r ${safetyNetHome}' true`,
         `find ${safetyNetHome} -exec env -S 'rm -rf' {} \\;`,
+        `env -S 'rm "${policyPath}"' true`,
+        `env -S 'rm -r "${safetyNetHome}"' true`,
       ]) {
         expect(findPolicyMutation('Bash', { command }, cwd), command).not.toBeNull();
       }

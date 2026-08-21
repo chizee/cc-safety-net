@@ -308,6 +308,8 @@ describe('Git metadata guard protection', () => {
         `env -S 'mv .git ${join(fixture.root, 'moved')}' true`,
         `env -S 'LC_ALL=C mv' .git ${join(fixture.root, 'moved')}`,
         `env -S 'LC_ALL=C mv .git ${join(fixture.root, 'moved')}' true`,
+        `env -S 'mv ".git" ${join(fixture.root, 'moved')}' true`,
+        `env -S '"mv" .git ${join(fixture.root, 'moved')}' true`,
       ];
       expect(
         commands.map(
