@@ -473,7 +473,43 @@ export function stripWrappers(
 }
 
 /**
- * Token view for the path guards, with the whitespace-split `env -S` value spliced ahead of the
+ * Words of an `env -S` value for the path-scan view: a `"…"` or `'…'` span becomes part of one word
+ * with the quotes dropped, so a quoted path containing whitespace stays a single word; whitespace
+ * outside quotes splits words. An unbalanced quote falls back to the plain whitespace split.
+ */
+function splitPathScanWords(value: string) {
+  const words: string[] = [];
+  let current = '';
+  let index = 0;
+  while (index < value.length) {
+    const char = value.charAt(index);
+    if (char === '"' || char === "'") {
+      const close = value.indexOf(char, index + 1);
+      if (close === -1) {
+        return value
+          .split(/\s+/)
+          .map((word) => word.replace(/["']/g, ''))
+          .filter((word) => word.length > 0);
+      }
+      current += value.slice(index + 1, close);
+      index = close + 1;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current.length > 0) words.push(current);
+      current = '';
+      index++;
+      continue;
+    }
+    current += char;
+    index++;
+  }
+  if (current.length > 0) words.push(current);
+  return words;
+}
+
+/**
+ * Token view for the path guards, with the quote-grouped `env -S` value words spliced ahead of the
  * retained operands so a mutation hidden in the split string is still matched against the
  * protected paths. Path matching needs no quoting fidelity, so the quote characters are dropped
  * from the split words and the inert-value and splice-budget limits of
@@ -486,12 +522,7 @@ export function stripWrappersForPathScan(
   depth = 0,
 ): string[] {
   const stripped = stripWrappersWithInfo(tokens, environment, cwd);
-  const splitWords = (stripped.envSplitValues ?? []).flatMap((value) =>
-    value
-      .split(/\s+/)
-      .map((word) => word.replace(/["']/g, ''))
-      .filter((word) => word.length > 0),
-  );
+  const splitWords = (stripped.envSplitValues ?? []).flatMap(splitPathScanWords);
   if (splitWords.length === 0) return stripped.tokens;
   const spliced = [...splitWords, ...stripped.tokens];
   // The spliced words can themselves start a prelude (`env -S 'LC_ALL=C mv'` hides the head command

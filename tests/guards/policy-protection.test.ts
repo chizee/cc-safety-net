@@ -227,6 +227,14 @@ describe('policy config protection', () => {
     });
   });
 
+  test('blocks a quoted policy path with spaces inside an env -S split value', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home with space', '.cc-safety-net') }, () => {
+      const policyPath = getUserPolicyPath();
+      const command = `env -S 'rm "${policyPath}"' true`;
+      expect(findPolicyMutation('Bash', { command }, cwd)?.target, command).toBe(policyPath);
+    });
+  });
+
   test('protects an outside-home policy through executed brace groups and called functions', () => {
     const safetyNetHome = join(cwd, 'shared-policy');
     withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
