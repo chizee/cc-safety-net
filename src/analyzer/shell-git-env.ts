@@ -19,6 +19,11 @@ interface GitContextAssignment {
   value: string;
 }
 
+interface SegmentGitContextAssignment extends GitContextAssignment {
+  /** False for assignments that only prefix a command word, which a shell scopes to it. */
+  persists: boolean;
+}
+
 const TMPDIR_ENV_NAME = 'TMPDIR';
 const IFS_ENV_NAME = 'IFS';
 const ENV_APPEND_ASSIGNMENT_RE = /^([A-Za-z_][A-Za-z0-9_]*)\+=/;
@@ -50,9 +55,10 @@ export function cloneShellGitContextEnvState(
 }
 
 /**
- * Any recognized assignment is effective for later segments, and an export-family
- * builtin naming a tracked variable publishes it too. Exotic export-state
- * manipulation is not emulated: it can only withhold the worktree relaxation.
+ * A recognized assignment is effective for later segments unless it merely prefixes a
+ * command word, which scopes it to that command. An export-family builtin naming a
+ * tracked variable publishes it too. Exotic export-state manipulation is not emulated:
+ * it can only withhold the worktree relaxation.
  */
 export function applyShellGitContextEnvSegment(
   tokens: readonly string[],
@@ -60,10 +66,12 @@ export function applyShellGitContextEnvSegment(
 ): void {
   const segment = collectSegmentEnvAssignments(tokens, state);
 
-  segment.assignments.forEach((assignment) => {
-    state.shellAssignments.set(assignment.name, assignment.value);
-    setEffectiveGitContextAssignment(state, assignment);
-  });
+  segment.assignments
+    .filter((assignment) => assignment.persists)
+    .forEach((assignment) => {
+      state.shellAssignments.set(assignment.name, assignment.value);
+      setEffectiveGitContextAssignment(state, assignment);
+    });
 
   const commandIndex = segment.commandIndex;
   if (commandIndex !== -1 && EXPORT_BUILTINS.has(tokens[commandIndex] ?? '')) {
@@ -111,7 +119,7 @@ export function getSegmentGitContextEnvAssignments(
 function collectSegmentEnvAssignments(
   tokens: readonly string[],
   state: ShellGitContextEnvState,
-): { assignments: readonly GitContextAssignment[]; commandIndex: number } {
+): { assignments: readonly SegmentGitContextAssignment[]; commandIndex: number } {
   const commandIndex = tokens.findIndex((token) => !isEnvAssignmentToken(token));
   const declaresOperands = commandIndex !== -1 && EXPORT_BUILTINS.has(tokens[commandIndex] ?? '');
   const currentValues = getCurrentShellAssignmentValues(state);
@@ -130,7 +138,12 @@ function collectSegmentEnvAssignments(
       return [];
     }
     currentValues.set(assignment.name, assignment.value);
-    return [assignment];
+    return [
+      {
+        ...assignment,
+        persists: commandIndex === -1 || declaresOperands || index > commandIndex,
+      },
+    ];
   });
 
   return { assignments, commandIndex };

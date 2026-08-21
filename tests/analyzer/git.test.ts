@@ -788,6 +788,15 @@ describe('git linked worktree mode', () => {
     });
   });
 
+  test('SAFETY_NET_WORKTREE keeps command-prefixed git context overrides out of later segments', async () => {
+    await withReadonlyLinkedWorktreeFixture((fixture) => {
+      const mainGitDir = toShellPath(join(fixture.mainWorktree, '.git'));
+      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
+        assertAllowed(`GIT_DIR=${mainGitDir} git status; git clean -fd`, fixture.linkedWorktree);
+      });
+    });
+  });
+
   test('SAFETY_NET_WORKTREE treats GIT_INDEX_FILE as a git context override', async () => {
     await withReadonlyLinkedWorktreeFixture((fixture) => {
       withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
