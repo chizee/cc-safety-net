@@ -157,6 +157,22 @@ describe('secret protection path matching', () => {
     }
   });
 
+  test('allows a quoted interpreter heredoc with many slash tokens in one word', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'secret-protection-heredoc-'));
+    try {
+      const tokens = Array.from(
+        { length: 128 },
+        (_, index) => `p${index}_0/p${index}_1/p${index}_2.md`,
+      ).join(' ');
+
+      expect(
+        findSensitiveTargetInCommand(`python3 - <<'PYEOF'\ns = '''${tokens}'''\nPYEOF`, cwd),
+      ).toBeNull();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test('matches project env files without substring matching', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 

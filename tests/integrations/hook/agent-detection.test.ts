@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { PATH_CANONICALIZATION_LIMITS } from '@/analyzer/path-canonicalization';
 import { detectClaudeShapeAgent } from '@/integrations/hook/agent-detection';
 import { withEnv, withTempDir } from '../../helpers';
 
@@ -85,7 +86,10 @@ describe('Claude-shaped hook agent detection', () => {
 
   test('returns unknown when canonicalization exceeds its work limit', async () => {
     await withTempDir('cc-safety-net-agent-limit-', (root) => {
-      const transcript = join(root, ...Array.from({ length: 257 }, () => 'missing'));
+      const transcript = join(
+        root,
+        'm'.repeat(PATH_CANONICALIZATION_LIMITS.maxProcessedCandidateBytes + 1),
+      );
       expect(withEnv({ CODEX_HOME: root }, () => detectClaudeShapeAgent(transcript))).toBe(
         'unknown',
       );

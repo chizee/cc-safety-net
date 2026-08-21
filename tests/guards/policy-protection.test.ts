@@ -454,7 +454,11 @@ describe('policy config protection', () => {
   test('still fails closed when a plausible candidate exceeds analysis limits', () => {
     const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
     withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
-      const command = `tee ${'a/'.repeat(257)}policy.json`;
+      const prefix = Array.from({ length: 15 }, (_, index) => `m${index}`).join('/');
+      const command = `tee ${Array.from(
+        { length: 1100 },
+        (_, index) => `${prefix}/p${index}/policy.json`,
+      ).join(' ')}`;
       expect(() => findPolicyMutation('Bash', { command }, cwd)).toThrow(
         PathCanonicalizationLimitError,
       );
