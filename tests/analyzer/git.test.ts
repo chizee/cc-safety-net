@@ -846,6 +846,25 @@ describe('git linked worktree mode', () => {
     });
   });
 
+  test('SAFETY_NET_WORKTREE tracks prefixed unset of git context overrides', async () => {
+    await withReadonlyLinkedWorktreeFixture((fixture) => {
+      const mainGitDir = toShellPath(join(fixture.mainWorktree, '.git'));
+      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
+        const commands = [
+          `export GIT_DIR=${mainGitDir}; unset GIT_DIR; git clean -fd`,
+          `export GIT_DIR=${mainGitDir}; command unset GIT_DIR; git clean -fd`,
+          `export GIT_DIR=${mainGitDir}; builtin unset GIT_DIR; git clean -fd`,
+          `export GIT_DIR=${mainGitDir}; time unset GIT_DIR; git clean -fd`,
+          `export GIT_DIR=${mainGitDir}; command -- unset GIT_DIR; git clean -fd`,
+        ];
+
+        for (const command of commands) {
+          expect(runGuard(command, fixture.linkedWorktree)).toBeNull();
+        }
+      });
+    });
+  });
+
   test('SAFETY_NET_WORKTREE tracks time-prefixed shell git context updates', async () => {
     await withReadonlyLinkedWorktreeFixture((fixture) => {
       const mainWorktree = toShellPath(fixture.mainWorktree);

@@ -84,10 +84,11 @@ export function applyShellGitContextEnvSegment(
       });
   }
 
-  if (commandIndex === -1 || tokens[commandIndex] !== 'unset') {
+  const invokedIndex = commandIndex === -1 ? -1 : resolveInvokedWordIndex(tokens, commandIndex);
+  if (invokedIndex === -1 || tokens[invokedIndex] !== 'unset') {
     return;
   }
-  const operandsStart = getUnsetOperandsStart(tokens, commandIndex);
+  const operandsStart = getUnsetOperandsStart(tokens, invokedIndex);
   if (operandsStart === null) {
     return;
   }
