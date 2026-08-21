@@ -732,9 +732,14 @@ const runRefresh = async (buttonId: string, reload: () => Promise<unknown>) => {
   button.disabled = true;
   button.classList.add('spinning');
   // Spin for a minimum duration so a fast local refresh still reads as an action.
-  await Promise.all([reload(), new Promise((resolve) => setTimeout(resolve, 600))]);
-  button.classList.remove('spinning');
-  button.disabled = false;
+  // `finally` (no catch) so a failed reload restores the button instead of
+  // leaving it disabled and spinning; the rejection still propagates.
+  try {
+    await Promise.all([reload(), new Promise((resolve) => setTimeout(resolve, 600))]);
+  } finally {
+    button.classList.remove('spinning');
+    button.disabled = false;
+  }
 };
 const refreshActivity = () =>
   runRefresh('activity-refresh', () => Promise.all([loadOverview(), loadActivity()]));
