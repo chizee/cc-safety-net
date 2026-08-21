@@ -472,6 +472,30 @@ export function stripWrappers(
   return stripWrappersWithInfo(tokens, environment, cwd).tokens;
 }
 
+/**
+ * Token view for the path guards, with the whitespace-split `env -S` value spliced ahead of the
+ * retained operands so a mutation hidden in the split string is still matched against the
+ * protected paths. Path matching needs no quoting fidelity, so the inert-value and splice-budget
+ * limits of {@link reconstructEnvSplitWords} do not apply.
+ */
+export function stripWrappersForPathScan(
+  tokens: string[],
+  environment: EnvironmentContext,
+  cwd?: string | null,
+  depth = 0,
+): string[] {
+  const stripped = stripWrappersWithInfo(tokens, environment, cwd);
+  const splitWords = (stripped.envSplitValues ?? []).flatMap((value) =>
+    value.split(/\s+/).filter((word) => word.length > 0),
+  );
+  if (splitWords.length === 0) return stripped.tokens;
+  const spliced = [...splitWords, ...stripped.tokens];
+  // The spliced words can themselves start a prelude (`env -S 'LC_ALL=C mv'` hides the head command
+  // behind an assignment), so re-normalize until the view settles.
+  if (depth >= 8) return spliced;
+  return stripWrappersForPathScan(spliced, environment, cwd, depth + 1);
+}
+
 export function stripWrappersWithInfo(
   tokens: string[],
   environment: EnvironmentContext,

@@ -5,7 +5,7 @@ import {
   createPathCanonicalizationContext,
   type PathCanonicalizationContext,
 } from '@/analyzer/path-canonicalization';
-import { stripWrappers } from '@/analyzer/wrapper-prelude';
+import { stripWrappersForPathScan } from '@/analyzer/wrapper-prelude';
 import {
   expandTrackedShellVariables,
   extractMvOperandPaths,
@@ -149,7 +149,7 @@ function findPolicyConfigMutationTargetInSegment(
 ): PolicyConfigTarget | null {
   if (isAssignmentOnlySegment(segment)) return null;
   const environment = context.environment;
-  const stripped = stripWrappers([...segment], environment);
+  const stripped = stripWrappersForPathScan([...segment], environment);
   const command = getBasename(stripped[0] ?? '').toLowerCase();
   const args = stripped.slice(1);
 
@@ -194,7 +194,8 @@ function findPolicyConfigMutationTargetInSegment(
   }
 
   if (isReadOnlySegment(segment, environment)) return null;
-  for (const token of segment) {
+  // `env -S` words join the scan so a mutation hidden in the split string is still matched.
+  for (const token of [...segment, ...stripped]) {
     for (const candidate of extractDirectPathCandidates(token)) {
       if (
         isPolicyFile(
@@ -231,7 +232,7 @@ function extractRmOperands(args: readonly string[]): readonly string[] {
 }
 
 function isReadOnlySegment(tokens: readonly string[], environment: EnvironmentContext): boolean {
-  const stripped = stripWrappers([...tokens], environment);
+  const stripped = stripWrappersForPathScan([...tokens], environment);
   if (stripped.length === 0) return false;
   const command = getBasename(stripped[0] ?? '').toLowerCase();
   if (!READ_ONLY_COMMANDS.has(command)) return false;

@@ -301,6 +301,27 @@ describe('Git metadata guard protection', () => {
     }
   });
 
+  test('blocks a Git metadata move hidden in an env -S split string', () => {
+    const fixture = createRepositoryFixture();
+    try {
+      const commands = [
+        `env -S 'mv .git ${join(fixture.root, 'moved')}' true`,
+        `env -S 'LC_ALL=C mv' .git ${join(fixture.root, 'moved')}`,
+        `env -S 'LC_ALL=C mv .git ${join(fixture.root, 'moved')}' true`,
+      ];
+      expect(
+        commands.map(
+          (command) =>
+            guard('Bash', { command }, fixture.repository, { kind: 'command', shell: 'posix' })
+              .decision,
+        ),
+        commands.join(' | '),
+      ).toMatchObject(commands.map(() => ({ kind: 'deny', intent: 'hard_stop' })));
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   test('blocks write tools and patches for existing and new hook files', () => {
     const fixture = createRepositoryFixture();
     try {

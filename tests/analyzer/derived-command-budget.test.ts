@@ -114,6 +114,14 @@ describe('derived command work budget', () => {
     expect(analyzeTestCommand('env -S "$CMD" git status')).toBeNull();
   });
 
+  test('denies destructive env -S split strings padded past the splice budget', () => {
+    const padded = `rm -rf / ${Array.from({ length: 70 }, () => 'x').join(' ')}`;
+
+    expect(analyzeTestCommand(`env -S '${padded}' git status`)?.ruleId).toBe(
+      'raw-text.dangerous-command',
+    );
+  });
+
   test('accepts the exact embedded Git suffix limit and denies the first token over it', () => {
     const accepted = EXACT_REPEATED_GIT;
     const denied = OVER_LIMIT_REPEATED_GIT;

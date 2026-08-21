@@ -209,6 +209,22 @@ describe('policy config protection', () => {
     });
   });
 
+  test('blocks policy mutations hidden in an env -S split string', () => {
+    const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
+    withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
+      const policyPath = getUserPolicyPath();
+      for (const command of [
+        `env -S 'rm ${policyPath}' true`,
+        `env -S 'rm -r ${safetyNetHome}' true`,
+        `env -S 'rm ${policyPath}' cat`,
+        `env -S 'LC_ALL=C rm -r ${safetyNetHome}' true`,
+        `find ${safetyNetHome} -exec env -S 'rm -rf' {} \\;`,
+      ]) {
+        expect(findPolicyMutation('Bash', { command }, cwd), command).not.toBeNull();
+      }
+    });
+  });
+
   test('protects an outside-home policy through executed brace groups and called functions', () => {
     const safetyNetHome = join(cwd, 'shared-policy');
     withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {

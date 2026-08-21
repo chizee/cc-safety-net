@@ -18,7 +18,7 @@ import {
   isTmpdirOverriddenToNonTemp,
   isTmpdirValueTrusted,
 } from '@/analyzer/tmpdir';
-import { stripWrappers } from '@/analyzer/wrapper-prelude';
+import { stripWrappers, stripWrappersForPathScan } from '@/analyzer/wrapper-prelude';
 import {
   isProtectedGitHookNameSelection,
   REASON_GIT_METADATA_PROTECTION,
@@ -229,7 +229,7 @@ export function findExecRmDeletesFoundPaths(
       continue;
     }
     const command = getFindExecCommand(tokens, index);
-    const stripped = stripWrappers([...command.tokens], environment);
+    const stripped = stripWrappersForPathScan([...command.tokens], environment);
     const head = getBasename(stripped[0] ?? '').toLowerCase();
     if ((head === 'rm' || head === 'rmdir') && stripped.some((token) => token.includes('{}'))) {
       return true;
