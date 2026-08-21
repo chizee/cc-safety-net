@@ -120,6 +120,16 @@ describe('parallel diagnostics', () => {
       },
     ],
     [
+      'placeholder-free selected env value with the coarse parallel rules disabled',
+      "FOO='rm -rf /' parallel --env FOO sh -c '$FOO' ::: x",
+      {
+        destructiveCommandRuleOverrides: {
+          'parallel.command-stream-dynamic': 'off' as const,
+          'parallel.shell-dynamic': 'off' as const,
+        },
+      },
+    ],
+    [
       'child env-wrapper value with the master switch off',
       "parallel env FOO='rm -rf / {}' sh -c '$FOO' ::: x",
       { destructiveCommandProtectionEnabled: false },

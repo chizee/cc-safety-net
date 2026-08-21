@@ -130,14 +130,13 @@ function firstMatch<T>(
 
 // The coarse dynamic-parallel rules are policy-filterable, but recognizable destructive text in an
 // env value feeding the jobs must stay denied in every configuration, so this scan is never passed
-// through filterDestructiveCommandMatch.
+// through filterDestructiveCommandMatch. Placeholder-free values are scanned too: the job shell
+// expands them just the same, so narrowing the scan would let a literal payload reach the jobs.
 function dangerousParallelEnvValue(
   values: Iterable<string>,
   context: ParallelAnalyzeContext,
 ): DestructiveCommandRuleMatch | null {
-  return firstMatch([...values].filter(hasParallelPlaceholder), (value) =>
-    dangerousInTextMatch(value, context.scanWork),
-  );
+  return firstMatch([...values], (value) => dangerousInTextMatch(value, context.scanWork));
 }
 
 export function analyzeParallel(
