@@ -92,7 +92,7 @@ export function createCCSafetyNetPlugin(
               getSessionId: () => input.sessionID,
             },
           });
-          throwGuardDenial(evaluation, evaluation.stage !== 'config-state');
+          throwGuardDenial(evaluation, true);
         } catch (error) {
           if (!(error instanceof guardEngine.GuardEvaluationError)) throw error;
           if (

@@ -1,5 +1,5 @@
-import type { EffectivePolicy } from '@/ir/policy';
 import { extractShortOpts } from '@/parser/shell';
+import type { DestructiveCommandRulePolicy } from '@/rules/destructive-command-rules';
 import { hasRecursiveSubmoduleConfig } from './config';
 import { extractGitSubcommandAndRest, splitAtDoubleDash } from './parse';
 import {
@@ -17,10 +17,7 @@ export interface GitAnalyzeOptions {
   envAssignments?: ReadonlyMap<string, string>;
   worktreeMode?: boolean;
   dynamicArguments?: boolean;
-  policy?: Pick<
-    EffectivePolicy,
-    'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
-  >;
+  policy?: DestructiveCommandRulePolicy;
 }
 
 export interface GitWorktreeRelaxation {

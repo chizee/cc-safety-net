@@ -80,10 +80,10 @@ function resolveCursorContext(
   }
 
   if (toolInput === null || typeof toolInput !== 'object' || Array.isArray(toolInput)) {
-    return { configCwd: base, executionCwd: base, policyConfigCwds: roots };
+    return { configCwd: base, executionCwd: base };
   }
   if (!Object.hasOwn(toolInput, 'working_directory')) {
-    return { configCwd: base, executionCwd: base, policyConfigCwds: roots };
+    return { configCwd: base, executionCwd: base };
   }
 
   const workingDirectory = (toolInput as Record<string, unknown>).working_directory;
@@ -96,7 +96,7 @@ function resolveCursorContext(
     outputFailedClosed(outputDeny, toolInput, toolName, workingDirectory);
     return null;
   }
-  return { configCwd: base, executionCwd, policyConfigCwds: roots };
+  return { configCwd: base, executionCwd };
 }
 
 function usableCursorRoots(input: CursorHookInput): string[] {

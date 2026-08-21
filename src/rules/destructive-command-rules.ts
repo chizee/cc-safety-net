@@ -595,43 +595,33 @@ export function destructiveCommandMatch(
   };
 }
 
+/** Resolved policy fields the destructive-command rule gates read. */
+export type DestructiveCommandRulePolicy = Pick<
+  CommandAnalysisPolicy,
+  'destructiveCommandProtectionEnabled' | 'effectiveDestructiveCommandRules'
+>;
+
 export function filterDestructiveCommandMatch(
   match: DestructiveCommandRuleMatch | null,
-  policy:
-    | (Pick<
-        EffectivePolicy,
-        'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
-      > &
-        Partial<Pick<CommandAnalysisPolicy, 'effectiveDestructiveCommandRules'>>)
-    | undefined,
+  policy: DestructiveCommandRulePolicy | undefined,
 ): DestructiveCommandRuleMatch | null {
   if (!match) return null;
   if (CATASTROPHIC_DESTRUCTIVE_COMMAND_RULE_IDS.has(match.id as DestructiveCommandRuleId)) {
     return match;
   }
   if (policy?.destructiveCommandProtectionEnabled === false) return null;
-  const effectiveRule = policy?.effectiveDestructiveCommandRules?.[match.id];
-  if (effectiveRule) return effectiveRule.enabled ? match : null;
-  return policy?.destructiveCommandRuleOverrides[match.id] === 'off' ? null : match;
+  const effectiveRule = policy?.effectiveDestructiveCommandRules[match.id];
+  return effectiveRule && !effectiveRule.enabled ? null : match;
 }
 
 export function destructiveCommandRuleIsEnabled(
-  policy:
-    | (Pick<
-        EffectivePolicy,
-        'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
-      > &
-        Partial<Pick<CommandAnalysisPolicy, 'effectiveDestructiveCommandRules'>>)
-    | undefined,
+  policy: DestructiveCommandRulePolicy | undefined,
   id: DestructiveCommandRuleId,
   inheritedEnabled: boolean,
 ): boolean {
   if (CATASTROPHIC_DESTRUCTIVE_COMMAND_RULE_IDS.has(id)) return true;
   if (policy?.destructiveCommandProtectionEnabled === false) return false;
-  const resolved = policy?.effectiveDestructiveCommandRules?.[id];
-  if (resolved) return resolved.enabled;
-  const override = policy?.destructiveCommandRuleOverrides[id];
-  return override ? override === 'on' : inheritedEnabled;
+  return policy?.effectiveDestructiveCommandRules[id]?.enabled ?? inheritedEnabled;
 }
 
 export function resolveEffectiveDestructiveCommandRules(

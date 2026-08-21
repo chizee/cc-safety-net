@@ -5,7 +5,7 @@ import {
   createPathCanonicalizationContext,
   type PathCanonicalizationContext,
 } from '@/analyzer/path-canonicalization';
-import { stripWrappers } from '@/analyzer/wrapper-prelude';
+import { stripWrappersForPathScan } from '@/analyzer/wrapper-prelude';
 import {
   expandTrackedShellVariables,
   extractMvOperandPaths,
@@ -242,7 +242,7 @@ function findGitMetadataMoveTarget(
   context: PathCanonicalizationContext,
 ): string | null {
   if (isAssignmentOnlySegment(segment)) return null;
-  const stripped = stripWrappers([...segment], context.environment);
+  const stripped = stripWrappersForPathScan([...segment], context.environment);
   if (getBasename(stripped[0] ?? '').toLowerCase() !== 'mv') return null;
   const operands = extractMvOperandPaths(stripped.slice(1));
   const source = operands.sources.find((target) =>

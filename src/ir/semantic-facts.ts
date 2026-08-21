@@ -1,4 +1,4 @@
-import type { CommandIssue, CommandProgram, CommandView, ShellKind } from '@/ir/command';
+import type { CommandProgram, ShellKind } from '@/ir/command';
 import type { ToolCallContext, ToolRoute } from '@/ir/invocation';
 
 export type CommandFactUsage = 'input-candidate' | 'declared-command';
@@ -25,8 +25,6 @@ export type CommandSyntaxFacts = {
   readonly usages: readonly CommandFactUsage[];
   readonly source: string;
   readonly program: CommandProgram;
-  readonly views: readonly CommandView[];
-  readonly uncertainties: readonly CommandIssue[];
   readonly shell: ShellSyntaxFacts;
 };
 

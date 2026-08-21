@@ -9,9 +9,7 @@ export const BLOCK_INTENTS = Object.freeze([
 export type BlockIntent = (typeof BLOCK_INTENTS)[number];
 
 /** @internal */
-export type DecisionEvidence =
-  | { kind: 'command'; command: string; segment?: string }
-  | { kind: 'path'; target: string };
+export type DecisionEvidence = { kind: 'command'; command: string; segment?: string };
 
 export type Decision =
   | { kind: 'allow' }

@@ -22,7 +22,7 @@ import {
 } from '@/analyzer/xargs';
 import type { DestructiveCommandRuleMatch, EnvironmentContext } from '@/ir/analysis';
 import { type CommandView, type CommandWord, isDynamicExecutable } from '@/ir/command';
-import type { EffectivePolicy } from '@/ir/policy';
+import type { CommandAnalysisPolicy } from '@/ir/policy';
 import { normalizeCommandToken } from '@/parser/shell';
 import {
   destructiveCommandMatch,
@@ -54,7 +54,7 @@ export function analyzeDynamicCommandStructure(
   environment: EnvironmentContext,
   topLevel: boolean,
   strict = false,
-  policy?: EffectivePolicy,
+  policy?: CommandAnalysisPolicy,
 ): DestructiveCommandRuleMatch | null {
   // A variable executable name is only judged here for the command as written: derived
   // commands reach this path as reconstructed words their own carriers already fail closed on.
@@ -76,7 +76,7 @@ function analyzeDynamicStructure(
   words: readonly CommandWord[],
   environment: EnvironmentContext,
   strict: boolean,
-  policy?: EffectivePolicy,
+  policy?: CommandAnalysisPolicy,
 ): DestructiveCommandRuleMatch | null {
   if (words.length < 2) return null;
   const dynamicIndexes = words.flatMap((word, index) =>
@@ -179,7 +179,7 @@ function analyzeDynamicChildStructure(
   kind: 'xargs' | 'parallel',
   environment: EnvironmentContext,
   strict: boolean,
-  policy?: EffectivePolicy,
+  policy?: CommandAnalysisPolicy,
 ): DestructiveCommandRuleMatch | null {
   if (childWords.length === 0) return null;
   const child = normalizeChildCommandWords(childWords, environment);

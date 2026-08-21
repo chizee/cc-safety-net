@@ -14,7 +14,10 @@ import {
 } from '@/analyzer/git/worktree-relaxation';
 import type { DestructiveCommandRuleMatch } from '@/ir/analysis';
 import type { CommandWord } from '@/ir/command';
-import { destructiveCommandMatch } from '@/rules/destructive-command-rules';
+import {
+  destructiveCommandMatch,
+  filterDestructiveCommandMatch,
+} from '@/rules/destructive-command-rules';
 
 const REASON_GIT_SSH_ENV =
   'Git SSH environment overrides can execute arbitrary commands during network operations. Run git without GIT_SSH/GIT_SSH_COMMAND overrides, or ask the user to run it manually.';
@@ -40,11 +43,13 @@ function evaluateGit(
   onRelaxation?: (relaxation: GitWorktreeRelaxation) => void,
 ): DestructiveCommandRuleMatch | null {
   const aliasResolution = resolveGitCommandLineAliases(tokens, options.env, options.envAssignments);
-  const aliasConfigDisabled =
-    options.policy?.destructiveCommandRuleOverrides['git.alias-config'] === 'off';
-  if (aliasResolution.blockedReason && !aliasConfigDisabled) {
-    return destructiveCommandMatch('git.alias-config', aliasResolution.blockedReason);
-  }
+  const aliasConfigMatch = aliasResolution.blockedReason
+    ? filterDestructiveCommandMatch(
+        destructiveCommandMatch('git.alias-config', aliasResolution.blockedReason),
+        options.policy,
+      )
+    : null;
+  if (aliasConfigMatch) return aliasConfigMatch;
 
   const resolvedTokens = aliasResolution.tokens;
   if (

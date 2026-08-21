@@ -6,7 +6,6 @@ import { runInstallCommand } from '@/cli/install';
 import { canPromptInstallTargets, renderInstallSelection } from '@/cli/install/prompt';
 import {
   applyInstallTargetState,
-  buildInstallTargetChoices,
   buildInstallTargetChoicesAsync,
   type InstallTargetChoice,
 } from '@/integrations/install/choices';
@@ -217,8 +216,8 @@ async function runInstallGateProbe(
 
 describe('install target availability', () => {
   test('probes target CLIs and preserves install help order', async () => {
-    await withFakeInstallProbePath('safety-net-install-probe-', () => {
-      const choices = buildInstallTargetChoices();
+    await withFakeInstallProbePath('safety-net-install-probe-', async () => {
+      const choices = await buildInstallTargetChoicesAsync();
 
       expect(choices.map((choice) => choice.target)).toEqual([
         'amp',
@@ -241,25 +240,16 @@ describe('install target availability', () => {
   test('can build choices with async probes in parallel', async () => {
     let active = 0;
     let maxActive = 0;
-    const choices = await buildInstallTargetChoices(
-      async (command) => {
-        active += 1;
-        maxActive = Math.max(maxActive, active);
-        await new Promise((resolve) => setTimeout(resolve, 5));
-        active -= 1;
-        return command[0] === 'codex' || command[0] === 'gemini';
-      },
-      { async: true },
-    );
+    const choices = await buildInstallTargetChoicesAsync(async (command) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return command[0] === 'codex' || command[0] === 'gemini';
+    });
 
     expect(maxActive).toBeGreaterThan(1);
     expectAvailableTargets(choices, ['codex', 'gemini-cli']);
-  });
-
-  test('uses Node async subprocess probing for default interactive availability', async () => {
-    await withFakeInstallProbePath('safety-net-install-async-probe-', async () => {
-      expectAvailableTargets(await buildInstallTargetChoicesAsync(), ['codex', 'gemini-cli']);
-    });
   });
 
   async function withFakeWindowsCmdShimPath<T>(prefix: string, fn: () => T | Promise<T>) {
@@ -284,16 +274,7 @@ describe('install target availability', () => {
   test.skipIf(process.platform === 'win32')(
     'probes Windows cmd shims through COMSPEC',
     async () => {
-      await withFakeWindowsCmdShimPath('safety-net-install-windows-probe-', () => {
-        expectAvailableTargets(buildInstallTargetChoices(), ['codex']);
-      });
-    },
-  );
-
-  test.skipIf(process.platform === 'win32')(
-    'probes Windows cmd shims through COMSPEC when probing asynchronously',
-    async () => {
-      await withFakeWindowsCmdShimPath('safety-net-install-windows-async-probe-', async () => {
+      await withFakeWindowsCmdShimPath('safety-net-install-windows-probe-', async () => {
         expectAvailableTargets(await buildInstallTargetChoicesAsync(), ['codex']);
       });
     },
@@ -301,9 +282,8 @@ describe('install target availability', () => {
 
   test('applies configured state after async CLI probing', async () => {
     const choices = applyInstallTargetState(
-      await buildInstallTargetChoices(
+      await buildInstallTargetChoicesAsync(
         async (command) => command[0] === 'codex' || command[0] === 'gemini',
-        { async: true },
       ),
       { action: 'install', configuredTargets: ['codex'] },
     );
@@ -317,8 +297,8 @@ describe('install target availability', () => {
     );
   });
 
-  test('disables already configured integrations while installing', () => {
-    const choices = buildInstallTargetChoices(() => true, {
+  test('disables already configured integrations while installing', async () => {
+    const choices = await buildInstallTargetChoicesAsync(() => true, {
       action: 'install',
       configuredTargets: ['codex', 'kimi-code'],
     });
@@ -340,8 +320,8 @@ describe('install target availability', () => {
     );
   });
 
-  test('enables only configured integrations while uninstalling', () => {
-    const choices = buildInstallTargetChoices((command) => command[0] !== 'opencode', {
+  test('enables only configured integrations while uninstalling', async () => {
+    const choices = await buildInstallTargetChoicesAsync((command) => command[0] !== 'opencode', {
       action: 'uninstall',
       configuredTargets: ['codex', 'kimi-code', 'opencode'],
     });
@@ -352,8 +332,8 @@ describe('install target availability', () => {
     );
   });
 
-  test('keeps configured integrations selectable for uninstall without their CLI', () => {
-    const choices = buildInstallTargetChoices(() => false, {
+  test('keeps configured integrations selectable for uninstall without their CLI', async () => {
+    const choices = await buildInstallTargetChoicesAsync(() => false, {
       action: 'uninstall',
       configuredTargets: ['amp', 'antigravity-cli', 'cursor', 'kimi-code', 'opencode'],
     });

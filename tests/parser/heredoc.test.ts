@@ -17,7 +17,6 @@ describe('POSIX heredoc parsing', () => {
       body: "it's never executed: rm -rf ~ and git reset --hard\n",
       delimiter: 'EOF',
       quotedDelimiter: true,
-      stripTabs: false,
     });
     if (!heredoc) throw new Error('expected parser-owned heredoc metadata');
     expect(source.slice(heredoc.bodySpan.start, heredoc.bodySpan.end)).toBe(heredoc.body);
@@ -35,12 +34,10 @@ describe('POSIX heredoc parsing', () => {
     expect(projectCommandViews(unquoted)[0]?.redirections[0]?.heredoc).toMatchObject({
       body: 'body\n',
       quotedDelimiter: false,
-      stripTabs: false,
     });
     expect(projectCommandViews(stripped)[0]?.redirections[0]?.heredoc).toMatchObject({
       body: 'body\n',
       quotedDelimiter: false,
-      stripTabs: true,
     });
   });
 
@@ -55,19 +52,18 @@ describe('POSIX heredoc parsing', () => {
   });
 
   test.each([
-    ["cat <<'EOF'\nbody\nEOF", false],
-    ['cat <<"EOF"\nbody\nEOF', false],
-    ['cat <<\\EOF\nbody\nEOF', false],
-    ["cat <<E'O'F\nbody\nEOF", false],
-    ["cat <<-'EOF'\n\tbody\n\tEOF", true],
-  ])('applies delimiter quote removal for %s', (source, stripTabs) => {
+    "cat <<'EOF'\nbody\nEOF",
+    'cat <<"EOF"\nbody\nEOF',
+    'cat <<\\EOF\nbody\nEOF',
+    "cat <<E'O'F\nbody\nEOF",
+    "cat <<-'EOF'\n\tbody\n\tEOF",
+  ])('applies delimiter quote removal for %s', (source) => {
     expect(
       projectCommandViews(parseCommand(source, 'posix'))[0]?.redirections[0]?.heredoc,
     ).toMatchObject({
       body: 'body\n',
       delimiter: 'EOF',
       quotedDelimiter: true,
-      stripTabs,
     });
   });
 
@@ -82,7 +78,6 @@ E$OF`;
       body: 'body\n',
       delimiter: 'E$OF',
       quotedDelimiter: true,
-      stripTabs: false,
     });
   });
 

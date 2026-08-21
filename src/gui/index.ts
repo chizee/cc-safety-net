@@ -90,7 +90,6 @@ interface PolicyGuiServerOptions extends RulesPolicyOptions {
     target: InstallTarget,
   ) => Promise<{ ok: boolean; output: string }>;
   activityLogsDir?: string;
-  token?: string;
 }
 
 interface RunGuiCommandOptions extends RulesPolicyOptions {
@@ -140,7 +139,7 @@ export async function runGuiCommand(
 export async function createPolicyGuiServer(
   options: PolicyGuiServerOptions = {},
 ): Promise<PolicyGuiServer> {
-  const token = options.token ?? randomBytes(24).toString('base64url');
+  const token = randomBytes(24).toString('base64url');
   const server = createServer((request, response) => {
     void handleRequest(request, response, token, options);
   });
@@ -373,7 +372,7 @@ function explainDraftCommand(
     destructiveCommandAllowPaths: draft.destructive_command_protection.allow_paths,
     secretProtection: {
       enabled: draft.secret_protection.enabled,
-      disabledRules: [...resolveSecretDisabledRules(draft.secret_protection.overrides)],
+      disabledRules: resolveSecretDisabledRules(draft.secret_protection.overrides),
       denyPaths: draft.secret_protection.deny_paths,
       allowPaths: draft.secret_protection.allow_paths,
     },

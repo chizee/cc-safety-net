@@ -25,7 +25,7 @@ describe('published runtime contract', () => {
   });
 
   test('pins the supported build and runtime dependency contract', () => {
-    expect(pkg.packageManager).toBe('bun@1.3.14');
+    expect(pkg.packageManager).toBe('bun@1.4.0');
     expect(pkg.engines).toEqual({ node: '>=18' });
     expect(pkg.dependencies).toEqual({ zod: '4.3.5' });
     expect(pkg.devDependencies).toMatchObject({

@@ -3,7 +3,7 @@
  * CLI and marked available or not for the action being run.
  */
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import type { NativeCommand } from '@/integrations/install/native';
 import {
   INSTALL_TARGETS,
@@ -20,29 +20,16 @@ export type InstallTargetChoice = {
   unavailableReason?: string;
 };
 
-export type InstallTargetProbe = (command: NativeCommand) => boolean;
-export type AsyncInstallTargetProbe = (command: NativeCommand) => boolean | Promise<boolean>;
+export type InstallTargetProbe = (command: NativeCommand) => boolean | Promise<boolean>;
 
 export type BuildInstallTargetChoicesOptions = {
   action?: InstallAction;
-  async?: boolean;
   configuredTargets?: readonly InstallTarget[];
 };
 
 // All targets probe in parallel, so a slow CLI (Electron-backed Cursor, or a Node CLI under
 // contention) must not be misreported as missing. Absent binaries still fail fast on spawn error.
 const PROBE_TIMEOUT_MS = 5000;
-
-function defaultInstallTargetProbe(command: NativeCommand): boolean {
-  const spawnCommand = getSpawnCommand([...command], process.env);
-  const result = spawnSync(spawnCommand.cmd, spawnCommand.args, {
-    env: process.env,
-    stdio: 'ignore',
-    timeout: PROBE_TIMEOUT_MS,
-  });
-
-  return !result.error && result.status === 0;
-}
 
 export function probeInstallTarget(command: NativeCommand): Promise<boolean> {
   return new Promise((resolve) => {
@@ -70,58 +57,28 @@ export function probeInstallTarget(command: NativeCommand): Promise<boolean> {
   });
 }
 
-/** @internal */
-export function buildInstallTargetChoices(
-  probe?: InstallTargetProbe,
-  options?: Omit<BuildInstallTargetChoicesOptions, 'async'> & { async?: false },
-): InstallTargetChoice[];
-export function buildInstallTargetChoices(
-  probe: AsyncInstallTargetProbe,
-  options: BuildInstallTargetChoicesOptions & { async: true },
-): Promise<InstallTargetChoice[]>;
-export function buildInstallTargetChoices(
-  probe: InstallTargetProbe | AsyncInstallTargetProbe = defaultInstallTargetProbe,
-  options: BuildInstallTargetChoicesOptions = {},
-): InstallTargetChoice[] | Promise<InstallTargetChoice[]> {
-  const configuredTargets = new Set(options.configuredTargets ?? []);
-  if (options.async) {
-    return Promise.all(
-      INSTALL_TARGETS.map(async (target) => ({
-        target: target.target,
-        flag: target.flag,
-        label: target.label,
-        ...getChoiceAvailability(
-          options.action,
-          await probe(target.probeCommand),
-          configuredTargets.has(target.target),
-        ),
-      })),
-    );
-  }
-
-  const syncProbe = probe as InstallTargetProbe;
-  return INSTALL_TARGETS.map((target) => ({
-    target: target.target,
-    flag: target.flag,
-    label: target.label,
-    ...getChoiceAvailability(
-      options.action,
-      syncProbe(target.probeCommand),
-      configuredTargets.has(target.target),
-    ),
-  }));
-}
-
 export function buildInstallTargetChoicesAsync(
-  probe: AsyncInstallTargetProbe = probeInstallTarget,
-  options: Omit<BuildInstallTargetChoicesOptions, 'async'> = {},
+  probe: InstallTargetProbe = probeInstallTarget,
+  options: BuildInstallTargetChoicesOptions = {},
 ): Promise<InstallTargetChoice[]> {
-  return buildInstallTargetChoices(probe, { ...options, async: true });
+  const configuredTargets = new Set(options.configuredTargets ?? []);
+  return Promise.all(
+    INSTALL_TARGETS.map(async (target) => ({
+      target: target.target,
+      flag: target.flag,
+      label: target.label,
+      ...getChoiceAvailability(
+        options.action,
+        await probe(target.probeCommand),
+        configuredTargets.has(target.target),
+      ),
+    })),
+  );
 }
 
 export function applyInstallTargetState(
   choices: readonly InstallTargetChoice[],
-  options: Omit<BuildInstallTargetChoicesOptions, 'async'>,
+  options: BuildInstallTargetChoicesOptions,
 ): InstallTargetChoice[] {
   const configuredTargets = new Set(options.configuredTargets ?? []);
   return choices.map((choice) => ({

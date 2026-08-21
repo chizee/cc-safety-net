@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { getAntigravityHooksPath } from '@/integrations/antigravity/hook';
+import { getAntigravityHooksPath } from '@/integrations/antigravity-cli/hook';
 import { atomicWriteFile } from '@/integrations/install/atomic-write';
 import type { InstallResult } from '@/integrations/install/types';
 

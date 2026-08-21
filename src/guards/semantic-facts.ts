@@ -1,5 +1,5 @@
 import { expandSupportedPathEnvironmentVariables } from '@/analyzer/path-canonicalization';
-import type { CommandProgram, CommandView, ShellKind } from '@/ir/command';
+import type { CommandProgram, ShellKind } from '@/ir/command';
 import { createProcessEnvironment } from '@/ir/environment';
 import type { ToolInvocation } from '@/ir/invocation';
 import type {
@@ -87,8 +87,6 @@ export function createSemanticFacts(
       usages: [candidate.usage],
       source: candidate.source,
       program,
-      views: projectAnalysisOrder(program),
-      uncertainties: program.issues,
       shell: store.getShellSyntax(candidate.source, program),
     });
     return facts;
@@ -163,14 +161,6 @@ export function createSemanticFactStore(
     getShellSyntax,
     getCommandProgram,
   };
-}
-
-function projectAnalysisOrder(program: CommandProgram): readonly CommandView[] {
-  return program.nodes.flatMap((node): readonly CommandView[] => {
-    if (node.kind === 'group') return projectAnalysisOrder(node.body);
-    if (node.kind !== 'command') return [];
-    return [...node.nested.flatMap((nested) => projectAnalysisOrder(nested)), node];
-  });
 }
 
 function extractDirectPathFacts(invocation: ToolInvocation): string[] {

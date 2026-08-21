@@ -1,6 +1,4 @@
-export type BuiltinCommandName = 'cc-safety-net';
-
-export interface CommandDefinition {
+interface CommandDefinition {
   description?: string;
   template: string;
 }

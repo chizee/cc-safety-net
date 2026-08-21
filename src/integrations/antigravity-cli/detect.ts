@@ -3,7 +3,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { getAntigravityHooksPath } from '@/integrations/antigravity/hook';
+import { getAntigravityHooksPath } from '@/integrations/antigravity-cli/hook';
 import type { DetectContext, HookDetection } from '@/integrations/detect/context';
 
 const ANTIGRAVITY_HOOK_COMMAND_PATTERN =

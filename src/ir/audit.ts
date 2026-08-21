@@ -2,31 +2,22 @@ import type { BlockIntent } from './decision.js';
 import type { EffectiveSafetyLevel } from './policy.js';
 
 /** Guard stages recorded for an unexpected evaluation failure. */
-/** @internal */
-export const AUDIT_FAILURE_STAGES = Object.freeze([
-  'policy-protection',
-  'config-load',
-  'config-state',
-  'secret-protection',
-  'non-command',
-  'command-validation',
-  'command-analysis',
-] as const);
-export type AuditFailureStage = (typeof AUDIT_FAILURE_STAGES)[number];
+export type AuditFailureStage =
+  | 'policy-protection'
+  | 'config-load'
+  | 'secret-protection'
+  | 'non-command'
+  | 'command-validation'
+  | 'command-analysis';
 
 /** Sanitized categories recorded for an unexpected evaluation failure. */
-/** @internal */
-export const AUDIT_ERROR_CODES = Object.freeze([
-  'path-canonicalization-limit',
-  'tool-input-limit',
-  'structural-shell-syntax-limit',
-  'unexpected-error',
-] as const);
-export type AuditErrorCode = (typeof AUDIT_ERROR_CODES)[number];
+export type AuditErrorCode =
+  | 'path-canonicalization-limit'
+  | 'tool-input-limit'
+  | 'structural-shell-syntax-limit'
+  | 'unexpected-error';
 
-/** @internal */
-export const AUDIT_LOG_DECISIONS = Object.freeze(['allow', 'deny'] as const);
-type AuditLogDecision = (typeof AUDIT_LOG_DECISIONS)[number];
+type AuditLogDecision = 'allow' | 'deny';
 
 /** Audit log entry */
 export interface AuditLogEntry {

@@ -456,6 +456,11 @@ describe('policy GUI server', () => {
       expect(html).toContain('window.addEventListener("beforeunload"');
       expect(html).toContain('cc-safety-net-draft');
       expect(html).toContain('Restored unsaved draft');
+      // A retention change writes only the saved policy, so its reload must
+      // restore the session draft instead of discarding it like a policy write.
+      expect(html).toContain(
+        'if (!await load())\n      return;\n    activityFilters.days = Math.min(activityFilters.days, days);',
+      );
       expect(html).toContain('setAppStatus("Repair required", "error");');
       expect(html).toContain('setAppStatus("");');
       expect(html).toContain('setDetailStatus(');
@@ -673,7 +678,7 @@ describe('policy GUI server', () => {
       expect(html).toContain('aria-label="Add deny path"');
       expect(html).toContain('aria-label="Add allow path"');
       expect(html).toContain('Recursive deletes targeting these paths are not blocked, like /tmp.');
-      expect(html).toContain('validateAdditions: async (paths) => {');
+      expect(html).toContain('validateAdditions: (paths) => validatePathAdditions(');
       expect(html).not.toContain('>Add</button>');
       expect(html).not.toContain('>Remove</button>');
       expect(html).toContain('event.clipboardData');

@@ -102,7 +102,7 @@ export function createOpenClawBeforeToolCallHandler(
         },
         audit: { agent: 'openclaw', getSessionId },
       });
-      return blockOpenClawEvaluation(evaluation, evaluation.stage !== 'config-state');
+      return blockOpenClawEvaluation(evaluation, true);
     } catch (error) {
       if (!(error instanceof GuardEvaluationError)) throw error;
       if (envTruthy(ENV_FLAGS.debug)) {

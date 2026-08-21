@@ -61,7 +61,6 @@ import {
   type InstallTarget,
   orderInstallTargets,
   runInstallTargetsInOrder,
-  TARGET_FLAGS,
 } from '@/integrations/install/targets';
 import type { InstallResult } from '@/integrations/install/types';
 import { stripJsonComments } from '@/integrations/jsonc';
@@ -403,7 +402,9 @@ function parseInstallTarget(args: readonly string[], action: InstallAction): Ins
     (target) => target.target,
   );
   if (targets.length !== 1)
-    throw new Error(`Choose exactly one ${action} target: ${[...TARGET_FLAGS.keys()].join(', ')}`);
+    throw new Error(
+      `Choose exactly one ${action} target: ${INSTALL_TARGETS.map((target) => target.flag).join(', ')}`,
+    );
   return targets[0] as InstallTarget;
 }
 

@@ -161,6 +161,35 @@ describe('policy GUI helpers', () => {
     expect(readFileSync(join(safetyNetHome, 'policy.json'), 'utf-8')).toBe('{bad json');
   });
 
+  test('reading a parseable invalid policy returns the salvaged projection', () => {
+    mkdirSync(safetyNetHome, { recursive: true });
+    writeFileSync(
+      join(safetyNetHome, 'policy.json'),
+      JSON.stringify({
+        safety: { level: 'paranoid', overrides: { fail_closed: true, paranoid_rm: 'yes' } },
+        destructive_command_protection: {
+          enabled: 'yes',
+          overrides: { 'git.reset-hard': 'off', 'git.clean-force': 'allow' },
+        },
+      }),
+      'utf-8',
+    );
+
+    const result = readUserPolicyForGui({ userConfigDir: join(safetyNetHome, 'rules') });
+
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.policy.safety).toEqual({ level: 'paranoid', overrides: { fail_closed: true } });
+    expect(result.policy.destructive_command_protection.overrides).toEqual({
+      'git.reset-hard': 'off',
+    });
+    // The invalid boolean is replaced by the protective default, not by whole-file defaults.
+    expect(result.policy.destructive_command_protection.enabled).toBe(true);
+    // The GUI read, the repair write, and the runtime read all project through one salvage path.
+    expect(result.policy).toEqual(
+      repairUserPolicyForGui({ userConfigDir: join(safetyNetHome, 'rules') }).policy,
+    );
+  });
+
   test('repair preserves valid fields from parseable invalid policy', () => {
     mkdirSync(safetyNetHome, { recursive: true });
     writeFileSync(
@@ -413,44 +442,44 @@ describe('policy GUI helpers', () => {
     };
     const disabled = () =>
       loadPolicyConfig({ userConfigDir: join(safetyNetHome, 'rules') }).secretProtection
-        .disabledRules ?? new Set<string>();
+        .disabledRules ?? [];
 
     test('a missing policy file disables every coding CLI config rule', () => {
       const configIds = idsInCategory('Coding CLI config');
       const resolved = disabled();
 
       expect(configIds.length).toBeGreaterThan(0);
-      for (const id of configIds) expect(resolved.has(id), id).toBe(true);
+      for (const id of configIds) expect(resolved.includes(id), id).toBe(true);
     });
 
     test('a missing policy file leaves every other rule enabled', () => {
       const resolved = disabled();
 
       for (const id of idsInCategory('Coding CLI credential')) {
-        expect(resolved.has(id), id).toBe(false);
+        expect(resolved.includes(id), id).toBe(false);
       }
-      expect(resolved.has('secret.basename.env')).toBe(false);
+      expect(resolved.includes('secret.basename.env')).toBe(false);
     });
 
     test('an on override re-enables a single coding CLI config rule', () => {
       writePolicy({ 'secret.cli.gemini.config': 'on' });
       const resolved = disabled();
 
-      expect(resolved.has('secret.cli.gemini.config')).toBe(false);
-      expect(resolved.has('secret.cli.codex.config')).toBe(true);
+      expect(resolved.includes('secret.cli.gemini.config')).toBe(false);
+      expect(resolved.includes('secret.cli.codex.config')).toBe(true);
     });
 
     test('an off override still disables a credential rule', () => {
       writePolicy({ 'secret.cli.codex': 'off' });
 
-      expect(disabled().has('secret.cli.codex')).toBe(true);
+      expect(disabled().includes('secret.cli.codex')).toBe(true);
     });
 
     test('reset restores the default, so config rules go back off', () => {
       writePolicy({ 'secret.cli.gemini.config': 'on' });
       writeUserPolicyFromGui(DEFAULT_GUI_POLICY, { userConfigDir: join(safetyNetHome, 'rules') });
 
-      expect(disabled().has('secret.cli.gemini.config')).toBe(true);
+      expect(disabled().includes('secret.cli.gemini.config')).toBe(true);
     });
 
     test('the GUI read keeps an on override', () => {
@@ -474,7 +503,7 @@ describe('policy GUI helpers', () => {
         { userConfigDir: join(safetyNetHome, 'rules') },
       );
 
-      expect(disabled().has('secret.cli.gemini.config')).toBe(false);
+      expect(disabled().includes('secret.cli.gemini.config')).toBe(false);
     });
 
     test('repair keeps an on override active', () => {
@@ -491,7 +520,7 @@ describe('policy GUI helpers', () => {
 
       repairUserPolicyForGui({ userConfigDir: join(safetyNetHome, 'rules') });
 
-      expect(disabled().has('secret.cli.gemini.config')).toBe(false);
+      expect(disabled().includes('secret.cli.gemini.config')).toBe(false);
     });
   });
 });

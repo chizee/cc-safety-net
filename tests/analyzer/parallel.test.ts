@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { analyzeCommandInternal } from '@/analyzer/analyze-command';
-import { estimateParallelDynamicEnvWork, replaceParallelPlaceholder } from '@/analyzer/parallel';
+import { replaceParallelPlaceholder } from '@/analyzer/parallel';
 import {
   PARALLEL_ANALYSIS_LIMITS,
   REASON_PARALLEL_ANALYSIS_LIMIT,
@@ -30,12 +30,6 @@ const repeatedArgs = (value: string, count: number) =>
 
 const quotedCommands = (value: string, count: number) =>
   Array.from({ length: count }, () => `'${value}'`).join(' ');
-
-const analyzeWithInheritedParallelEnv = (command: string) =>
-  analyzeTestCommand(command, {
-    envAssignments: new Map([['FOO', 'echo {}']]),
-    config: { destructiveCommandRuleOverrides: { 'parallel.shell-dynamic': 'off' } },
-  });
 
 describe('parallel diagnostics', () => {
   test.each([
@@ -97,6 +91,51 @@ describe('parallel diagnostics', () => {
         envAssignments: new Map([['FOO', '{= system("rm -rf /") =}']]),
       })?.ruleId,
     ).toBe('parallel.command-stream-dynamic');
+  });
+
+  test('treats selected environment variables as unverifiable command construction', () => {
+    expect(analyzeTestCommand('parallel --env FOO echo ::: value')?.ruleId).toBe(
+      'parallel.command-stream-dynamic',
+    );
+  });
+
+  test('keeps blocking placeholder-carrying child environment values', () => {
+    expect(analyzeTestCommand("parallel env FOO='echo {}' sh -c 'true' ::: x")).not.toBeNull();
+  });
+
+  test.each([
+    [
+      'selected env value with the master switch off',
+      "FOO='rm -rf / {}' parallel --env FOO sh -c '$FOO' ::: x",
+      { destructiveCommandProtectionEnabled: false },
+    ],
+    [
+      'selected env value with the coarse parallel rules disabled',
+      "FOO='rm -rf / {}' parallel --env FOO sh -c '$FOO' ::: x",
+      {
+        destructiveCommandRuleOverrides: {
+          'parallel.command-stream-dynamic': 'off' as const,
+          'parallel.shell-dynamic': 'off' as const,
+        },
+      },
+    ],
+    [
+      'placeholder-free selected env value with the coarse parallel rules disabled',
+      "FOO='rm -rf /' parallel --env FOO sh -c '$FOO' ::: x",
+      {
+        destructiveCommandRuleOverrides: {
+          'parallel.command-stream-dynamic': 'off' as const,
+          'parallel.shell-dynamic': 'off' as const,
+        },
+      },
+    ],
+    [
+      'child env-wrapper value with the master switch off',
+      "parallel env FOO='rm -rf / {}' sh -c '$FOO' ::: x",
+      { destructiveCommandProtectionEnabled: false },
+    ],
+  ])('keeps catastrophic env values blocked for %s', (_name, command, config) => {
+    expect(analyzeTestCommand(command, { config })?.ruleId).toBe('raw-text.dangerous-command');
   });
 });
 
@@ -248,53 +287,6 @@ describe('parallel analysis budgets', () => {
     )}`;
 
     expect(analyzeTestCommand(command)).toEqual(limitedResult(command));
-  });
-
-  test('charges inherited dynamic env values after the static shell analysis', () => {
-    const command = `parallel --env FOO sh -c 'echo ok' ::: ${repeatedArgs('arg', 1_024)}`;
-
-    expect(analyzeWithInheritedParallelEnv(command)).toEqual(limitedResult(command));
-  });
-
-  test('shares the budget across sequential inherited-env siblings', () => {
-    const command = `parallel --env FOO sh -c 'echo ok' ::: ${repeatedArgs(
-      'arg',
-      511,
-    )} ; parallel --env FOO sh -c 'echo ok' ::: ${repeatedArgs('arg', 512)}`;
-
-    expect(analyzeWithInheritedParallelEnv(command)).toEqual(limitedResult(command));
-  });
-
-  test('charges duplicate selected and child env values independently', () => {
-    const command = `parallel --env FOO env FOO='echo {}' sh -c 'echo ok' ::: ${repeatedArgs(
-      'arg',
-      512,
-    )}`;
-
-    expect(
-      analyzeTestCommand(command, {
-        envAssignments: new Map([['FOO', 'inherited {}']]),
-      }),
-    ).toEqual(limitedResult(command));
-  });
-
-  test('bounds repeated selections of one large dynamic env value', () => {
-    const envOptions = Array.from({ length: 1_025 }, () => '--env FOO').join(' ');
-    const command = `parallel ${envOptions} env FOO='echo ${'{}'.repeat(
-      512,
-    )}' sh -c 'echo ok' ::: arg`;
-
-    expect(analyzeTestCommand(command)).toEqual(limitedResult(command));
-  });
-
-  test('tracks one unique-value scan while charging duplicate dynamic env executions', () => {
-    const value = `echo ${'{}'.repeat(512)}`;
-
-    expect(estimateParallelDynamicEnvWork([value, value], ['arg'])).toMatchObject({
-      childAnalyses: 2,
-      placeholderReplacements: 1_024,
-      uniqueValueScans: 1,
-    });
   });
 
   test('charges every rm scan when only modifier placeholders are present', () => {

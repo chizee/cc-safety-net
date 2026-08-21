@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, parse, relative } from 'node:path';
+import { PathCanonicalizationLimitError } from '@/analyzer/path-canonicalization';
 import { findPolicyConfigMutationTargetInToolInput as findPolicyMutationWithRoute } from '@/guards/policy-protection';
 import type { ToolRoute } from '@/ir/invocation';
 import { getNonCommandToolInputKind, normalizeToolName } from '@/parser/tool-input';
@@ -30,6 +31,13 @@ function findPolicyMutation(toolName: string, input: unknown, cwd = process.cwd(
     configCwd: cwd,
     executionCwd: cwd,
   });
+}
+
+function materializeUserPolicyFile() {
+  const policyPath = getUserPolicyPath();
+  mkdirSync(dirname(policyPath), { recursive: true });
+  writeFileSync(policyPath, '{}');
+  return policyPath;
 }
 
 describe('policy config protection', () => {
@@ -109,9 +117,7 @@ describe('policy config protection', () => {
   test('resolves supported environment, relative, and symlink aliases', () => {
     const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
     withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
-      const policyPath = getUserPolicyPath();
-      mkdirSync(dirname(policyPath), { recursive: true });
-      writeFileSync(policyPath, '{}');
+      const policyPath = materializeUserPolicyFile();
       const alias = join(cwd, 'policy-alias.json');
       symlinkSync(policyPath, alias);
 
@@ -200,6 +206,32 @@ describe('policy config protection', () => {
       ]) {
         expect(findPolicyMutation('Bash', { command }, cwd), command).toBeNull();
       }
+    });
+  });
+
+  test('blocks policy mutations hidden in an env -S split string', () => {
+    const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
+    withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
+      const policyPath = getUserPolicyPath();
+      for (const command of [
+        `env -S 'rm ${policyPath}' true`,
+        `env -S 'rm -r ${safetyNetHome}' true`,
+        `env -S 'rm ${policyPath}' cat`,
+        `env -S 'LC_ALL=C rm -r ${safetyNetHome}' true`,
+        `find ${safetyNetHome} -exec env -S 'rm -rf' {} \\;`,
+        `env -S 'rm "${policyPath}"' true`,
+        `env -S 'rm -r "${safetyNetHome}"' true`,
+      ]) {
+        expect(findPolicyMutation('Bash', { command }, cwd), command).not.toBeNull();
+      }
+    });
+  });
+
+  test('blocks a quoted policy path with spaces inside an env -S split value', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home with space', '.cc-safety-net') }, () => {
+      const policyPath = getUserPolicyPath();
+      const command = `env -S 'rm "${policyPath}"' true`;
+      expect(findPolicyMutation('Bash', { command }, cwd)?.target, command).toBe(policyPath);
     });
   });
 
@@ -374,6 +406,59 @@ describe('policy config protection', () => {
         { configCwd: cwd, executionCwd: cwd },
       ),
     ).toBeNull();
+  });
+
+  test('allows a command dense with ordinary relative path tokens', () => {
+    const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
+    withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
+      const command = `echo ${Array.from({ length: 256 }, (_, index) => `d${index}/e${index}/f${index}`).join(' ')}`;
+      expect(findPolicyMutation('Bash', { command }, cwd)).toBeNull();
+    });
+  });
+
+  test('allows a quoted interpreter heredoc with many slash tokens in one word', () => {
+    const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
+    withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
+      const body = Array.from({ length: 128 }, (_, index) => `t${index}/u${index}/v${index}`).join(
+        ' ',
+      );
+      expect(
+        findPolicyMutation('Bash', { command: `python3 - <<'PY'\ns = '''${body}'''\nPY` }, cwd),
+      ).toBeNull();
+    });
+  });
+
+  test('allows prose heredoc bodies re-parsed as shell', () => {
+    const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
+    withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
+      const body = Array.from({ length: 600 }, (_, index) => `word_${index}`).join(' ');
+      expect(
+        findPolicyMutation('Bash', { command: `python3 - <<'PY'\n${body}\nPY` }, cwd),
+      ).toBeNull();
+    });
+  });
+
+  test('still blocks a bare-name symlink alias and the literal policy path', () => {
+    const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
+    withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
+      const policyPath = materializeUserPolicyFile();
+      symlinkSync(policyPath, join(cwd, 'innocent'));
+
+      expect(findPolicyMutation('Bash', { command: 'tee innocent' }, cwd)?.target).toBe('innocent');
+      expect(findPolicyMutation('Bash', { command: `rm ${policyPath}` }, cwd)?.target).toBe(
+        policyPath,
+      );
+    });
+  });
+
+  test('still fails closed when a plausible candidate exceeds analysis limits', () => {
+    const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
+    withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
+      const command = `tee ${'a/'.repeat(257)}policy.json`;
+      expect(() => findPolicyMutation('Bash', { command }, cwd)).toThrow(
+        PathCanonicalizationLimitError,
+      );
+    });
   });
 
   test('keeps conservative direct-path inspection for unknown tools', () => {

@@ -212,12 +212,7 @@ export async function verifyPackage(): Promise<void> {
       throw new Error('Packed CLI did not fail closed before over-limit source synchronization');
     }
     rmSync(sourceLimitConfig);
-    for (const args of [
-      ['--version'],
-      ['--help'],
-      ['explain', '--json', 'git status'],
-      ['explain', '--json', 'git reset --hard'],
-    ]) {
+    for (const args of [['--version'], ['--help']]) {
       run(['node', cli, ...args], directory);
     }
     if (

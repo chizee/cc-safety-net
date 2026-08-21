@@ -17,6 +17,7 @@ import type { DestructiveCommandRuleMatch } from '@/ir/analysis';
 import type { CommandWord } from '@/ir/command';
 import type { EffectivePolicy } from '@/ir/policy';
 import {
+  type DestructiveCommandRulePolicy,
   destructiveCommandMatch,
   destructiveCommandRuleIsEnabled,
   filterDestructiveCommandMatch,
@@ -34,10 +35,7 @@ const REASON_RM_HOME_CWD =
   'rm -rf in home directory is dangerous. Change to a project directory first.';
 
 export interface AnalyzeRmOptions extends RecursiveDeleteTargetOptions {
-  policy?: Pick<
-    EffectivePolicy,
-    'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
-  > &
+  policy?: DestructiveCommandRulePolicy &
     Partial<Pick<EffectivePolicy, 'destructiveCommandAllowPaths'>>;
 }
 

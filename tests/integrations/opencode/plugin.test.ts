@@ -69,6 +69,15 @@ describe('OpenCode plugin', () => {
     await withSafetyNetHomeDir('safety-net-opencode-path-budget-', async (dir) => {
       const plugin = await loadToolPlugin(dir);
       const marker = 'private-opencode-path-marker';
+      // A target costs one realpath attempt per missing component plus one for
+      // the existing root. Moderately deep targets exceed the attempt budget with
+      // few enough input nodes to stay under the tool input traversal limits and
+      // few enough walked bytes to stay under the processed-candidate budget.
+      const missingComponentsPerTarget = 15;
+      const missingPrefix = Array.from(
+        { length: missingComponentsPerTarget - 1 },
+        (_, index) => `m${index}`,
+      ).join('/');
 
       const errorMessage = await capturePluginErrorMessage(() =>
         plugin['tool.execute.before'](
@@ -76,8 +85,13 @@ describe('OpenCode plugin', () => {
           {
             args: {
               targets: Array.from(
-                { length: PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts / 2 + 1 },
-                (_, index) => ({ path: join(dir, `${marker}-${index}`) }),
+                {
+                  length:
+                    PATH_CANONICALIZATION_LIMITS.maxRealpathAttempts /
+                      (missingComponentsPerTarget + 1) +
+                    1,
+                },
+                (_, index) => ({ path: join(dir, missingPrefix, `${marker}-${index}`) }),
               ),
             },
           },

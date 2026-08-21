@@ -590,7 +590,7 @@ describe('shell parsing helpers', () => {
   });
 
   describe('stripWrappersWithInfo', () => {
-    test('preserves supported append assignments and env split-string semantics', () => {
+    test('preserves supported append assignments', () => {
       const appended = stripWrappersWithInfo(
         ['TMPDIR+=/nested', 'git', 'status'],
         TEST_ENVIRONMENT,
@@ -599,23 +599,17 @@ describe('shell parsing helpers', () => {
       );
       expect(appended.tokens).toEqual(['git', 'status']);
       expect(appended.envAssignments.get('TMPDIR')).toBe('/base/nested');
+    });
 
-      const split = stripWrappersWithInfo(
-        ['env', '-S', '--unset=DROP VALUE=${VALUE} printf one\\_two \\t', 'tail'],
+    test('drops env split strings and reports the dropped value', () => {
+      const result = stripWrappersWithInfo(
+        ['env', '-S', 'printf one\\_two', 'git', 'status'],
         TEST_ENVIRONMENT,
         '/tmp',
-        new Map([
-          ['DROP', 'removed'],
-          ['VALUE', 'kept'],
-        ]),
       );
-      expect(split.tokens).toEqual(['printf', 'one', 'two', '\t', 'tail']);
-      expect(split.envAssignments).toEqual(
-        new Map([
-          ['DROP', ''],
-          ['VALUE', 'kept'],
-        ]),
-      );
+      expect(result.tokens).toEqual(['git', 'status']);
+      expect(result.cwd).toBeNull();
+      expect(result.envSplitValues).toEqual(['printf one\\_two']);
     });
 
     test('resolves inherited values from the analysis environment only', () => {
@@ -626,14 +620,14 @@ describe('shell parsing helpers', () => {
         ),
       );
       expect(ambient.envAssignments.get('TMPDIR')).toBe('/nested');
-      expect(ambient.tokens).toEqual(['printf', 'tail']);
+      expect(ambient.envSplitValues).toEqual(['printf ${VALUE}tail']);
 
       const injected = stripWrappersWithInfo(
         ['TMPDIR+=/nested', 'env', '-S', 'printf ${VALUE}tail'],
         testEnvironment({ TMPDIR: '/base', VALUE: 'kept' }),
       );
       expect(injected.envAssignments.get('TMPDIR')).toBe('/base/nested');
-      expect(injected.tokens).toEqual(['printf', 'kepttail']);
+      expect(injected.tokens).toEqual([]);
     });
 
     test('strips sudo options that consume a value', () => {
@@ -652,24 +646,6 @@ describe('shell parsing helpers', () => {
     test('strips env -C=...', () => {
       const result = stripWrappersWithInfo(['env', '-C=/tmp', 'rm', '-rf'], TEST_ENVIRONMENT);
       expect(result.tokens).toEqual(['rm', '-rf']);
-    });
-
-    test('invalid env -S split string makes cwd unknown', () => {
-      const result = stripWrappersWithInfo(
-        ['env', '-S', '"unterminated', 'git', 'status'],
-        TEST_ENVIRONMENT,
-        '/tmp',
-      );
-      expect(result.tokens).toEqual(['git', 'status']);
-      expect(result.cwd).toBeNull();
-    });
-
-    test('marks an over-limit env -S split string as unverifiable', () => {
-      const result = stripWrappersWithInfo(
-        ['env', '-S', Array.from({ length: 16_385 }, () => 'x').join(' ')],
-        TEST_ENVIRONMENT,
-      );
-      expect(result.unverifiableEnvSplit).toBeTrue();
     });
 
     test('empty env chdir target makes cwd unknown', () => {

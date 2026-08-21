@@ -31,7 +31,6 @@ export const GIT_SSH_ENV_NAMES: ReadonlySet<string> = new Set([
 
 const GIT_CONTEXT_APPEND_ASSIGNMENT_RE = /^([A-Za-z_][A-Za-z0-9_]*)\+=/;
 
-/** @internal - exported for test coverage */
 export function isGitContextEnvOverrideName(name: string): boolean {
   return GIT_CONTEXT_ENV_OVERRIDE_NAMES.has(name);
 }

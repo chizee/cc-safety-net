@@ -8,9 +8,9 @@ import { getUserPolicyPath } from '@/policy/store';
 import { analyzeTestCommand, policySnapshot, type TestPolicyInput } from '../helpers/policy.ts';
 import { createLinkedWorktreeFixture, createSubmoduleLikeGitFileFixture } from '../helpers.ts';
 
-function createRepositoryFixture() {
+function createRepositoryFixture(repositoryName = 'repository') {
   const root = mkdtempSync(join(tmpdir(), 'ccsn-git-metadata-'));
-  const repository = join(root, 'repository');
+  const repository = join(root, repositoryName);
   mkdirSync(join(repository, '.git', 'hooks'), { recursive: true });
   writeFileSync(join(repository, '.git', 'HEAD'), 'ref: refs/heads/main\n');
   writeFileSync(join(repository, '.git', 'config'), '[core]\n');
@@ -296,6 +296,43 @@ describe('Git metadata guard protection', () => {
           command,
         ).toMatchObject({ kind: 'deny', intent: 'hard_stop' });
       }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('blocks a Git metadata move hidden in an env -S split string', () => {
+    const fixture = createRepositoryFixture();
+    try {
+      const commands = [
+        `env -S 'mv .git ${join(fixture.root, 'moved')}' true`,
+        `env -S 'LC_ALL=C mv' .git ${join(fixture.root, 'moved')}`,
+        `env -S 'LC_ALL=C mv .git ${join(fixture.root, 'moved')}' true`,
+        `env -S 'mv ".git" ${join(fixture.root, 'moved')}' true`,
+        `env -S '"mv" .git ${join(fixture.root, 'moved')}' true`,
+      ];
+      expect(
+        commands.map(
+          (command) =>
+            guard('Bash', { command }, fixture.repository, { kind: 'command', shell: 'posix' })
+              .decision,
+        ),
+        commands.join(' | '),
+      ).toMatchObject(commands.map(() => ({ kind: 'deny', intent: 'hard_stop' })));
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test('blocks a quoted Git metadata move on a space-containing path inside an env -S split value', () => {
+    const fixture = createRepositoryFixture('My Repo');
+    try {
+      const command = `env -S 'mv "${join(fixture.repository, '.git')}" "${join(fixture.root, 'moved')}"' true`;
+      expect(
+        guard('Bash', { command }, fixture.repository, { kind: 'command', shell: 'posix' })
+          .decision,
+        command,
+      ).toMatchObject({ kind: 'deny', intent: 'hard_stop' });
     } finally {
       fixture.cleanup();
     }

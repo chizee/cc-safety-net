@@ -9,9 +9,11 @@ import {
   withSymlinkedLinkedWorktreeDirectory,
   withSymlinkToMainWorktreeSubdirectory,
 } from '../helpers/git-worktree';
+import { commandAnalysisPolicy, policySnapshot } from '../helpers/policy.ts';
 import {
   assertAllowed,
   assertBlocked,
+  assertStrictBlocked,
   createLinkedWorktreeFixture,
   createSubmoduleLikeGitFileFixture,
   runGuard,
@@ -38,6 +40,17 @@ describe('analyzeGit direct', () => {
 
   test('fails closed on command-line shell aliases', () => {
     assertBlocked('git -c alias.nuke=!echo nuke', 'Git aliases');
+  });
+
+  test('resolves shell-alias enablement through the effective destructive-command rules', () => {
+    expect(
+      analyzeGit(['git', '-c', 'alias.nuke=!echo', 'nuke'], {
+        env: new Map(),
+        policy: commandAnalysisPolicy(
+          policySnapshot({ destructiveCommandProtectionEnabled: false }),
+        ),
+      }),
+    ).toBeNull();
   });
 
   test('allows safe command-line aliases', () => {
@@ -775,6 +788,24 @@ describe('git linked worktree mode', () => {
     });
   });
 
+  test('SAFETY_NET_WORKTREE keeps command-prefixed git context overrides out of later segments', async () => {
+    await withReadonlyLinkedWorktreeFixture((fixture) => {
+      const mainGitDir = toShellPath(join(fixture.mainWorktree, '.git'));
+      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
+        assertAllowed(`GIT_DIR=${mainGitDir} git status; git clean -fd`, fixture.linkedWorktree);
+      });
+    });
+  });
+
+  test('SAFETY_NET_WORKTREE ignores post-command git context tokens in later segments', async () => {
+    await withReadonlyLinkedWorktreeFixture((fixture) => {
+      const mainGitDir = toShellPath(join(fixture.mainWorktree, '.git'));
+      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
+        assertAllowed(`git status GIT_DIR=${mainGitDir}; git clean -fd`, fixture.linkedWorktree);
+      });
+    });
+  });
+
   test('SAFETY_NET_WORKTREE treats GIT_INDEX_FILE as a git context override', async () => {
     await withReadonlyLinkedWorktreeFixture((fixture) => {
       withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
@@ -815,6 +846,42 @@ describe('git linked worktree mode', () => {
     });
   });
 
+  test('SAFETY_NET_WORKTREE tracks prefixed unset of git context overrides', async () => {
+    await withReadonlyLinkedWorktreeFixture((fixture) => {
+      const mainGitDir = toShellPath(join(fixture.mainWorktree, '.git'));
+      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
+        const commands = [
+          `export GIT_DIR=${mainGitDir}; unset GIT_DIR; git clean -fd`,
+          `export GIT_DIR=${mainGitDir}; command unset GIT_DIR; git clean -fd`,
+          `export GIT_DIR=${mainGitDir}; builtin unset GIT_DIR; git clean -fd`,
+          `export GIT_DIR=${mainGitDir}; time unset GIT_DIR; git clean -fd`,
+          `export GIT_DIR=${mainGitDir}; command -- unset GIT_DIR; git clean -fd`,
+        ];
+
+        for (const command of commands) {
+          expect(runGuard(command, fixture.linkedWorktree)).toBeNull();
+        }
+      });
+    });
+  });
+
+  test('SAFETY_NET_WORKTREE keeps overrides live across query-only command -v unset', async () => {
+    await withReadonlyLinkedWorktreeFixture((fixture) => {
+      const mainGitDir = toShellPath(join(fixture.mainWorktree, '.git'));
+      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
+        const commands = [
+          `export GIT_DIR=${mainGitDir}; command -v unset GIT_DIR; git clean -fd`,
+          `export GIT_DIR=${mainGitDir}; command -pv unset GIT_DIR; git clean -fd`,
+          `export GIT_DIR=${mainGitDir}; command -V unset GIT_DIR; git clean -fd`,
+        ];
+
+        for (const command of commands) {
+          assertBlocked(command, 'git clean -f', fixture.linkedWorktree);
+        }
+      });
+    });
+  });
+
   test('SAFETY_NET_WORKTREE tracks time-prefixed shell git context updates', async () => {
     await withReadonlyLinkedWorktreeFixture((fixture) => {
       const mainWorktree = toShellPath(fixture.mainWorktree);
@@ -831,22 +898,38 @@ describe('git linked worktree mode', () => {
     });
   });
 
-  test('SAFETY_NET_WORKTREE honors disabled allexport before later assignments', async () => {
+  test('SAFETY_NET_WORKTREE keeps strict denials for shell git context assignments', async () => {
     await withReadonlyLinkedWorktreeFixture((fixture) => {
       const mainWorktree = toShellPath(fixture.mainWorktree);
       withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
-        expect(
-          runGuard(
-            `set -a; set +a; GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
-            fixture.linkedWorktree,
-          ),
-        ).toBeNull();
-        expect(
-          runGuard(
-            `set -o allexport; set +o allexport; GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
-            fixture.linkedWorktree,
-          ),
-        ).toBeNull();
+        assertStrictBlocked(
+          `export GIT_WORK_TREE=${mainWorktree}; ${gitResetHard}`,
+          gitResetHardReason,
+          fixture.linkedWorktree,
+        );
+        assertStrictBlocked(
+          `typeset +x GIT_WORK_TREE=${mainWorktree}; ${gitResetHard}`,
+          gitResetHardReason,
+          fixture.linkedWorktree,
+        );
+      });
+    });
+  });
+
+  test('SAFETY_NET_WORKTREE tracks assignments regardless of allexport state', async () => {
+    await withReadonlyLinkedWorktreeFixture((fixture) => {
+      const mainWorktree = toShellPath(fixture.mainWorktree);
+      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
+        assertBlocked(
+          `set -a; set +a; GIT_WORK_TREE=${mainWorktree}; ${gitResetHard}`,
+          gitResetHardReason,
+          fixture.linkedWorktree,
+        );
+        assertBlocked(
+          `set -o allexport; set +o allexport; GIT_WORK_TREE=${mainWorktree}; ${gitResetHard}`,
+          gitResetHardReason,
+          fixture.linkedWorktree,
+        );
       });
     });
   });

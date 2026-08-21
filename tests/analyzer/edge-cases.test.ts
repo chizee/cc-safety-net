@@ -954,18 +954,18 @@ describe('edge cases', () => {
       }
     });
 
-    test('parallel env placeholders make child command dynamic', () => {
+    test('parallel selected environment variables stay unverifiable', () => {
       const fixture = createLinkedWorktreeFixture();
       try {
         withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
           assertBlocked(
             `FOO="git clean -f {}" parallel --env FOO sh -c '$FOO' ::: -ffdx`,
-            'git clean -f',
+            'parallel command construction cannot be verified safely',
             fixture.linkedWorktree,
           );
           assertBlocked(
             `FOO="git clean -f {}" parallel --env=FOO sh -c '$FOO' ::: -ffdx`,
-            'git clean -f',
+            'parallel command construction cannot be verified safely',
             fixture.linkedWorktree,
           );
         });
@@ -1184,6 +1184,52 @@ describe('edge cases', () => {
 
     test('env S wrapper bypass blocked', () => {
       assertBlocked("env -S 'PATH=/usr/bin' git reset --hard", 'git reset --hard');
+    });
+
+    test('env S dangerous split-string value is caught by the raw-text scan', () => {
+      expect(analyzeCommand("env -S 'rm -rf /'")?.ruleId).toBe('raw-text.dangerous-command');
+    });
+
+    test('env S scans split words together with the retained operands', () => {
+      expect(analyzeCommand("env -S 'rm' -rf /")?.ruleId).toBe('raw-text.dangerous-command');
+      expect(
+        analyzeCommand("env -S 'rm' -rf /", {
+          config: { destructiveCommandProtectionEnabled: false },
+        })?.ruleId,
+      ).toBe('raw-text.dangerous-command');
+      expect(analyzeCommand("env -S 'git -C /repo' reset --hard")?.ruleId).toBe(
+        'raw-text.dangerous-command',
+      );
+      expect(analyzeCommand("env -S 'FOO=bar' git status")).toBeNull();
+      expect(analyzeCommand('env -S "$CMD" git status')).toBeNull();
+    });
+
+    test('env S stays allowed in standard mode and fails closed in strict mode', () => {
+      expect(analyzeCommand("env -S 'true' git status")).toBeNull();
+      expect(analyzeCommand("env -S 'true' git status", { strict: true })?.reason).toContain(
+        'shell execution source cannot be verified safely',
+      );
+    });
+
+    test('embedded env -S with inert split values analyzes the spliced child command', () => {
+      expect(analyzeCommand('mytool run env -S FOO=bar server start')).toBeNull();
+      expect(analyzeCommand('foo env -S bar')).toBeNull();
+    });
+
+    test('env -S split value becoming a shell head denies the dynamic execution source', () => {
+      expect(analyzeCommand('env -S \'sh\' -c "$X"')?.reason).toContain(
+        'shell execution source cannot be verified safely',
+      );
+      expect(analyzeCommand('sh -c "env -S \'sh\' -c \\"$X\\""')?.reason).toContain(
+        'shell execution source cannot be verified safely',
+      );
+    });
+
+    test('env -S non-inert and benign shapes keep their standard-mode verdicts', () => {
+      expect(analyzeCommand('env -S "$CMD" git status')).toBeNull();
+      expect(analyzeCommand("env -S 'git status'")).toBeNull();
+      expect(analyzeCommand('env FOO=bar ls')).toBeNull();
+      expect(analyzeCommand("env -S FOO='a b' cmd")).toBeNull();
     });
 
     test('env dash breaks option scan still blocks', () => {

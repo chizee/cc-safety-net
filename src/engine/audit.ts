@@ -94,7 +94,12 @@ export function writeAuditLog(
 
   try {
     const ts = (options.now ?? (() => new Date()))().toISOString();
-    const cappedCommand = capField(redactSecrets(command), COMMAND_MAX_LENGTH);
+    // Failure entries are the diagnostic of record for fail-closed events, so they
+    // keep the whole command (already bounded upstream by the tool input caps).
+    const cappedCommand = capField(
+      redactSecrets(command),
+      options.failureStage ? Number.POSITIVE_INFINITY : COMMAND_MAX_LENGTH,
+    );
     const cappedSegment = capField(redactSecrets(segment), SEGMENT_MAX_LENGTH);
     const cappedToolName = options.toolName
       ? capField(redactSecrets(options.toolName), TOOL_NAME_MAX_LENGTH)

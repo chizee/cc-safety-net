@@ -437,7 +437,7 @@ describe('analyzeCommand (coverage)', () => {
       expect(result?.reason).toContain('git reset --hard');
     });
 
-    test('command inspection with no executable target leaves later git context unchanged', async () => {
+    test('assignments after a command inspection stay effective', async () => {
       await withLinkedWorktreeFixture((fixture) => {
         withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
           expect(
@@ -450,8 +450,8 @@ describe('analyzeCommand (coverage)', () => {
                 config: EMPTY_CONFIG,
                 worktreeMode: true,
               },
-            ),
-          ).toBeNull();
+            )?.reason,
+          ).toContain('git reset --hard');
           expect(
             analyzeCommand('command; git reset --hard', {
               cwd: fixture.linkedWorktree,
@@ -463,29 +463,21 @@ describe('analyzeCommand (coverage)', () => {
       });
     });
 
-    test('export option parsing tracks only valid export operands', async () => {
+    test('export operands stay tracked through option-like words', async () => {
       await withLinkedWorktreeFixture((fixture) => {
         withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
-          expect(
-            analyzeCommand(
-              `export -z GIT_WORK_TREE=${toShellPath(fixture.mainWorktree)}; git reset --hard`,
-              {
-                cwd: fixture.linkedWorktree,
-                config: EMPTY_CONFIG,
-                worktreeMode: true,
-              },
-            ),
-          ).toBeNull();
-
-          const result = analyzeCommand(
-            `export -- GIT_WORK_TREE=${toShellPath(fixture.mainWorktree)}; git reset --hard`,
-            {
+          const mainWorktree = toShellPath(fixture.mainWorktree);
+          for (const command of [
+            `export -z GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
+            `export -- GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
+          ]) {
+            const result = analyzeCommand(command, {
               cwd: fixture.linkedWorktree,
               config: EMPTY_CONFIG,
               worktreeMode: true,
-            },
-          );
-          expect(result?.reason).toContain('git reset --hard');
+            });
+            expect(result?.reason).toContain('git reset --hard');
+          }
         });
       });
     });
@@ -503,7 +495,7 @@ describe('analyzeCommand (coverage)', () => {
       });
     });
 
-    test('typeset and readonly forms update tracked env state only when exported', () => {
+    test('typeset and readonly forms keep tracked assignments effective', () => {
       const fixture = createLinkedWorktreeFixture();
       try {
         withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
@@ -513,6 +505,9 @@ describe('analyzeCommand (coverage)', () => {
             `declare -x GIT_WORK_TREE; GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
             `export GIT_WORK_TREE; typeset GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
             `GIT_WORK_TREE=${mainWorktree} readonly GIT_WORK_TREE; git reset --hard`,
+            `typeset -- -x GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
+            `declare -x; GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
+            `typeset +x GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
           ];
 
           for (const command of blockedCommands) {
@@ -523,52 +518,39 @@ describe('analyzeCommand (coverage)', () => {
             });
             expect(result?.reason).toContain('git reset --hard');
           }
-
-          for (const command of [
-            `typeset -- -x GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
-            `declare -x; GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
-          ]) {
-            expect(
-              analyzeCommand(command, {
-                cwd: fixture.linkedWorktree,
-                config: EMPTY_CONFIG,
-                worktreeMode: true,
-              }),
-            ).toBeNull();
-          }
-
-          expect(
-            analyzeCommand(`typeset +x GIT_WORK_TREE=${mainWorktree}; git reset --hard`, {
-              cwd: fixture.linkedWorktree,
-              config: EMPTY_CONFIG,
-              worktreeMode: true,
-            }),
-          ).toBeNull();
         });
       } finally {
         fixture.cleanup();
       }
     });
 
-    test('set option parsing toggles exported assignment behavior', () => {
+    test('set options do not change assignment effectiveness', () => {
       const fixture = createLinkedWorktreeFixture();
       try {
         withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
           const mainWorktree = toShellPath(fixture.mainWorktree);
-          const allowedCommands = [
-            `set -k; set +k; git restore file.txt GIT_WORK_TREE=${mainWorktree}`,
-            `set positional; GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
-            `set --; GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
+          const blockedCommands = [
+            {
+              command: `set -k; set +k; git restore file.txt GIT_WORK_TREE=${mainWorktree}`,
+              reason: 'git restore',
+            },
+            {
+              command: `set positional; GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
+              reason: 'git reset --hard',
+            },
+            {
+              command: `set --; GIT_WORK_TREE=${mainWorktree}; git reset --hard`,
+              reason: 'git reset --hard',
+            },
           ];
 
-          for (const command of allowedCommands) {
-            expect(
-              analyzeCommand(command, {
-                cwd: fixture.linkedWorktree,
-                config: EMPTY_CONFIG,
-                worktreeMode: true,
-              }),
-            ).toBeNull();
+          for (const { command, reason } of blockedCommands) {
+            const result = analyzeCommand(command, {
+              cwd: fixture.linkedWorktree,
+              config: EMPTY_CONFIG,
+              worktreeMode: true,
+            });
+            expect(result?.reason).toContain(reason);
           }
         });
       } finally {

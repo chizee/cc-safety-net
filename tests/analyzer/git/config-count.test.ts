@@ -5,7 +5,7 @@ import { getGitEnvValue, resolveGitConfigCount } from '@/analyzer/git/env';
 import type { EnvironmentContext } from '@/ir/analysis';
 import { createLinkedWorktreeFixture } from '../../helpers';
 import { testEnvironment } from '../../helpers/environment';
-import { analyzeTestCommand } from '../../helpers/policy';
+import { analyzeTestCommand, commandAnalysisPolicy, policySnapshot } from '../../helpers/policy';
 
 const analyzeGitMatch = (
   tokens: readonly string[],
@@ -14,10 +14,9 @@ const analyzeGitMatch = (
 
 const aliasConfigReason =
   'Git aliases supplied through command-line or environment config can hide or execute commands. Run git without Git alias overrides, or ask the user to run it manually.';
-const aliasConfigDisabledPolicy = {
-  destructiveCommandProtectionEnabled: true,
-  destructiveCommandRuleOverrides: { 'git.alias-config': 'off' as const },
-};
+const aliasConfigDisabledPolicy = commandAnalysisPolicy(
+  policySnapshot({ destructiveCommandRuleOverrides: { 'git.alias-config': 'off' } }),
+);
 
 function configEnv(
   count: number,
@@ -120,6 +119,26 @@ describe('Git config count fail-closed behavior', () => {
         }),
       }),
     ).toBeNull();
+  });
+
+  test('ignores config assignments passed as git arguments', () => {
+    const environment = testEnvironment({
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'alias.nuke',
+      GIT_CONFIG_VALUE_0: '!rm -rf .',
+    });
+
+    (['standard', 'strict'] as const).forEach((level) => {
+      [
+        'git nuke GIT_CONFIG_COUNT=0',
+        'git nuke --foo GIT_CONFIG_COUNT=0',
+        'true GIT_CONFIG_COUNT=0; git nuke',
+      ].forEach((command) => {
+        expect(
+          analyzeTestCommand(command, { environment, config: { safety: { level } } }),
+        ).toMatchObject({ ruleId: 'git.alias-config', reason: aliasConfigReason });
+      });
+    });
   });
 
   test('inline empty key masks an inherited key and fails closed', () => {

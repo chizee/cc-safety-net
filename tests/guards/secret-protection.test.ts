@@ -11,11 +11,14 @@ import {
   findSensitivePathTarget,
   findSensitiveTargetInCommand,
   findSensitiveTargetInToolInput as findSensitiveTargetWithRoute,
-  getCommandFromToolInput,
 } from '@/guards/secret-protection';
 import type { ToolRoute } from '@/ir/invocation';
 import type { SecretProtectionConfig } from '@/ir/policy';
-import { getNonCommandToolInputKind, normalizeToolName } from '@/parser/tool-input';
+import {
+  getCommandFromToolInput,
+  getNonCommandToolInputKind,
+  normalizeToolName,
+} from '@/parser/tool-input';
 import { getCCSafetyNetEnvModes } from '@/policy/env';
 import {
   SECRET_CODING_CLI_RULES,
@@ -33,9 +36,7 @@ const COMMAND_TOOL_NAMES = new Set([
 ]);
 
 const CONFIG_WITH_CODING_CLI_RULES_DISABLED: SecretProtectionConfig = {
-  disabledRules: new Set(
-    SECRET_PROTECTION_RULE_IDS.filter((ruleId) => ruleId.startsWith('secret.cli.')),
-  ),
+  disabledRules: SECRET_PROTECTION_RULE_IDS.filter((ruleId) => ruleId.startsWith('secret.cli.')),
   denyPaths: [],
 };
 
@@ -173,7 +174,7 @@ describe('secret protection path matching', () => {
   test('blocks configured paths and descendants without matching sibling prefixes', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
     const config = {
-      disabledRules: new Set<string>(),
+      disabledRules: [],
       denyPaths: ['protected'],
     };
 
@@ -191,14 +192,14 @@ describe('secret protection path matching', () => {
       withEnv({ HOME: home }, () => {
         expect(
           findSensitivePathTarget(['~/developer/projects/child.txt'], home, {
-            disabledRules: new Set(),
+            disabledRules: [],
             denyPaths: ['~/developer/projects'],
           })?.ruleId,
         ).toBe('secret.deny-path');
       });
       expect(
         findSensitivePathTarget([join(tmpdir(), 'ordinary.txt')], home, {
-          disabledRules: new Set(),
+          disabledRules: [],
           denyPaths: ['/'],
         })?.ruleId,
       ).toBe('secret.deny-path');
@@ -351,7 +352,7 @@ describe('secret protection path matching', () => {
 
       expect(
         findSensitivePathTarget(['protected\\child.txt'], cwd, {
-          disabledRules: new Set(),
+          disabledRules: [],
           denyPaths: ['protected'],
         }),
       ).not.toBeNull();
@@ -378,7 +379,7 @@ describe('secret protection path matching', () => {
       // A relative backslash candidate is a literal filename here, not a path.
       expect(
         findSensitivePathTarget(['protected\\child.txt'], cwd, {
-          disabledRules: new Set(),
+          disabledRules: [],
           denyPaths: ['protected'],
         }),
       ).toBeNull();
@@ -409,19 +410,19 @@ describe('secret protection per-pattern overrides', () => {
 
     expect(
       findSensitivePathTarget(['server.pem'], cwd, {
-        disabledRules: new Set(['secret.ext.pem']),
+        disabledRules: ['secret.ext.pem'],
         denyPaths: [],
       }),
     ).toBeNull();
     expect(
       findSensitivePathTarget(['server.p12'], cwd, {
-        disabledRules: new Set(['secret.ext.pem']),
+        disabledRules: ['secret.ext.pem'],
         denyPaths: [],
       }),
     ).not.toBeNull();
     expect(
       findSensitivePathTarget(['id_rsa.pem'], cwd, {
-        disabledRules: new Set(['secret.ext.pem']),
+        disabledRules: ['secret.ext.pem'],
         denyPaths: [],
       }),
     ).not.toBeNull();
@@ -432,7 +433,7 @@ describe('secret protection per-pattern overrides', () => {
 
     expect(
       findSensitivePathTarget(['server.pem'], cwd, {
-        disabledRules: new Set(['secret.ext.pem']),
+        disabledRules: ['secret.ext.pem'],
         denyPaths: ['server.pem'],
       }),
     ).not.toBeNull();
@@ -1075,7 +1076,7 @@ describe('treats quoted heredoc bodies as literal data', () => {
   });
 
   test('stops matching deny paths named only in quoted heredoc prose', () => {
-    const config = { disabledRules: new Set<string>(), denyPaths: ['secret-notes.txt'] };
+    const config = { disabledRules: [], denyPaths: ['secret-notes.txt'] };
 
     expect(
       findSensitiveTargetInCommand("cat <<'EOF'\nsee secret-notes.txt here\nEOF", cwd, config),
@@ -1172,7 +1173,7 @@ describe('secret protection generic tool input extraction', () => {
       { target: '~/.ssh/id_rsa' },
       {
         target: 'configured/private.txt',
-        config: { disabledRules: new Set<string>(), denyPaths: ['configured/private.txt'] },
+        config: { disabledRules: [], denyPaths: ['configured/private.txt'] },
       },
     ]) {
       const patch = [
@@ -1208,7 +1209,7 @@ describe('secret protection generic tool input extraction', () => {
         { diff: 'diff --git a/private.dat a/private.dat\nGIT binary patch' },
         { kind: 'patch' },
         cwd,
-        { disabledRules: new Set(), denyPaths: ['a/private.dat'] },
+        { disabledRules: [], denyPaths: ['a/private.dat'] },
       )?.ruleId,
     ).toBe('secret.deny-path');
   });
@@ -1224,7 +1225,7 @@ describe('secret protection generic tool input extraction', () => {
 
     expect(
       findSensitiveTargetWithRoute({ patch }, { kind: 'patch' }, cwd, {
-        disabledRules: new Set(),
+        disabledRules: [],
         denyPaths: ['private secret.txt'],
       })?.ruleId,
     ).toBe('secret.deny-path');
@@ -1243,7 +1244,7 @@ describe('secret protection generic tool input extraction', () => {
     ).not.toBeNull();
     expect(
       findSensitiveTargetWithRoute({ path: blockedPath }, { kind: 'unknown' }, cwd, {
-        disabledRules: new Set(),
+        disabledRules: [],
         denyPaths: [blockedPath],
       })?.ruleId,
     ).toBe('secret.deny-path');
@@ -1301,7 +1302,7 @@ describe('secret protection generic tool input extraction', () => {
     const blockedPath = join(configCwd, 'blocked');
     mkdirSync(blockedPath);
     symlinkSync(blockedPath, join(executionCwd, 'blocked-alias'));
-    const config = { disabledRules: new Set<string>(), denyPaths: [blockedPath] };
+    const config = { disabledRules: [], denyPaths: [blockedPath] };
 
     expect(
       findSensitiveTargetWithRoute(
@@ -1332,7 +1333,7 @@ describe('secret protection generic tool input extraction', () => {
           { path: join(configCwd, 'private/token.txt') },
           { kind: 'path' },
           executionCwd,
-          { disabledRules: new Set(), denyPaths: ['private'] },
+          { disabledRules: [], denyPaths: ['private'] },
           configCwd,
         )?.ruleId,
       ).toBe('secret.deny-path');
@@ -1527,7 +1528,7 @@ describe('secret protection case-insensitive matching', () => {
     }
     expect(
       findSensitivePathTarget(['project/Protected/child.txt'], cwd, {
-        disabledRules: new Set(),
+        disabledRules: [],
         denyPaths: ['project/protected'],
       }),
     ).not.toBeNull();
@@ -2117,7 +2118,7 @@ describe('secret protection coding CLI credential locations', () => {
 
   test('coding CLI rules can be disabled independently', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
-    const config = { disabledRules: new Set(['secret.cli.codex']), denyPaths: [] };
+    const config = { disabledRules: ['secret.cli.codex'], denyPaths: [] };
 
     expect(findSensitivePathTarget(['~/.codex/auth.json'], cwd, config)).toBeNull();
     expect(findSensitivePathTarget(['~/.gemini/oauth_creds.json'], cwd, config)).not.toBeNull();
@@ -2490,7 +2491,7 @@ describe('secret protection URL parsing is not pattern matching', () => {
 
     expect(
       findSensitivePathTarget(['https://example.com/internal/secret.txt'], cwd, {
-        disabledRules: new Set(),
+        disabledRules: [],
         denyPaths: ['https://example.com/internal/secret.txt'],
       }),
     ).not.toBeNull();
@@ -2715,7 +2716,7 @@ describe('secret protection allow paths', () => {
   const cwd = join(tmpdir(), 'secret-protection-allow-project');
 
   test('an exact-file allow entry suppresses pattern rules for that file only', () => {
-    const config = { disabledRules: new Set<string>(), denyPaths: [], allowPaths: ['.env.test'] };
+    const config = { disabledRules: [], denyPaths: [], allowPaths: ['.env.test'] };
     expect(findSensitivePathTarget(['.env.test'], cwd, config)).toBeNull();
     expect(findSensitivePathTarget(['.env.production'], cwd, config)?.ruleId).toBe(
       'secret.pattern.env-variant',
@@ -2727,7 +2728,7 @@ describe('secret protection allow paths', () => {
     try {
       withEnv({ HOME: home }, () => {
         const config = {
-          disabledRules: new Set<string>(),
+          disabledRules: [],
           denyPaths: [],
           allowPaths: ['~/projects/vulcan'],
         };
@@ -2746,7 +2747,7 @@ describe('secret protection allow paths', () => {
     // so the guard compares every entry literally. A `*` that still reaches
     // this far must not become a wildcard.
     const config = {
-      disabledRules: new Set<string>(),
+      disabledRules: [],
       denyPaths: [],
       allowPaths: ['**/.env.test', 'apps/*/.env.test'],
     };
@@ -2760,7 +2761,7 @@ describe('secret protection allow paths', () => {
 
   test('an explicit deny beats an allow for the same path', () => {
     const config = {
-      disabledRules: new Set<string>(),
+      disabledRules: [],
       denyPaths: ['.env.test'],
       allowPaths: ['.env.test'],
     };
@@ -2772,7 +2773,7 @@ describe('secret protection allow paths', () => {
     try {
       withEnv({ HOME: home, CLAUDE_CONFIG_DIR: '' }, () => {
         const config = {
-          disabledRules: new Set<string>(),
+          disabledRules: [],
           denyPaths: [],
           allowPaths: ['~/.claude'],
         };
@@ -2792,7 +2793,7 @@ describe('secret protection allow paths', () => {
         // Validation rejects literal home-covering entries, but this one is
         // non-absolute at save time and expands to home only at match time.
         const config = {
-          disabledRules: new Set<string>(),
+          disabledRules: [],
           denyPaths: [],
           allowPaths: ['$CC_SAFETY_NET_HOME/..'],
         };
@@ -2809,7 +2810,7 @@ describe('secret protection allow paths', () => {
     const home = mkdtempSync(join(tmpdir(), 'secret-protection-allow-relative-escape-'));
     try {
       withEnv({ HOME: home }, () => {
-        const config = { disabledRules: new Set<string>(), denyPaths: [], allowPaths: ['..'] };
+        const config = { disabledRules: [], denyPaths: [], allowPaths: ['..'] };
         expect(
           findSensitivePathTarget(['~/.ssh/id_rsa'], join(home, 'project'), config)?.ruleId,
         ).toBe('secret.home.ssh');
@@ -2826,7 +2827,7 @@ describe('secret protection allow paths', () => {
         // Relative at save time, so validation cannot judge it; it resolves to
         // ~/.cc-safety-net only against this session's config cwd.
         const config = {
-          disabledRules: new Set<string>(),
+          disabledRules: [],
           denyPaths: [],
           allowPaths: ['.cc-safety-net'],
         };
@@ -2848,7 +2849,7 @@ describe('secret protection allow paths', () => {
       withEnv({ HOME: home, CC_SAFETY_NET_HOME: '' }, () => {
         // Candidate normalization follows the link to the vault, so the guard
         // root must follow it too, or a vault-covering entry slips past it.
-        const config = { disabledRules: new Set<string>(), denyPaths: [], allowPaths: [vault] };
+        const config = { disabledRules: [], denyPaths: [], allowPaths: [vault] };
         expect(
           findSensitivePathTarget(['~/.cc-safety-net/credentials'], home, config)?.ruleId,
         ).toBe('secret.basename.credentials');
@@ -2871,7 +2872,7 @@ describe('secret protection allow paths', () => {
         // saves without an error. The target-side guard-root boundary resolves
         // both sides through the filesystem and must still refuse it.
         const config = {
-          disabledRules: new Set<string>(),
+          disabledRules: [],
           denyPaths: [],
           allowPaths: [join(realpathSync(real), '.cc-safety-net')],
         };
@@ -2895,7 +2896,7 @@ describe('secret protection allow paths', () => {
         // one IS the guard root, the other is only an ANCESTOR of it. The
         // target below the effective guard root must stay protected either way.
         for (const entry of [guardHome, guardParent]) {
-          const config = { disabledRules: new Set<string>(), denyPaths: [], allowPaths: [entry] };
+          const config = { disabledRules: [], denyPaths: [], allowPaths: [entry] };
           expect(
             findSensitivePathTarget([join(guardHome, 'credentials')], home, config)?.ruleId,
             entry,
@@ -2909,7 +2910,7 @@ describe('secret protection allow paths', () => {
   });
 
   test('matching is case-insensitive like every other secret rule', () => {
-    const config = { disabledRules: new Set<string>(), denyPaths: [], allowPaths: ['.ENV.TEST'] };
+    const config = { disabledRules: [], denyPaths: [], allowPaths: ['.ENV.TEST'] };
     expect(findSensitivePathTarget(['.env.test'], cwd, config)).toBeNull();
   });
 });

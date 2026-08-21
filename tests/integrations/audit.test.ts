@@ -41,8 +41,8 @@ describe('runtime audit integration', () => {
             ruleId: 'policy.rule',
             intent: 'hard_stop',
             evidence: [
-              { kind: 'path', target: '/project/config.json' },
               { kind: 'command', command: 'evidence command', segment: 'evidence segment' },
+              { kind: 'command', command: 'later command', segment: 'later segment' },
             ],
           },
         },
@@ -119,7 +119,7 @@ describe('runtime audit integration', () => {
 
   test('falls back to invocation command and then empty evidence', () => {
     const denied = {
-      stage: 'config-state' as const,
+      stage: 'command-analysis' as const,
       decision: {
         kind: 'deny' as const,
         reason: 'invalid config',

@@ -57,7 +57,7 @@ A quick 5-minute issue can save hours of implementation time on both sides.
 
 ### Prerequisites
 
-- **Bun 1.3.14** - Required build/test runtime and package manager ([install guide](https://bun.sh/docs/installation))
+- **Bun 1.4.0** - Required build/test runtime and package manager ([install guide](https://bun.sh/docs/installation))
 - **Node.js 18 or newer** - Supported runtime for built artifacts
 - **Claude Code** or **OpenCode** - For testing the plugin
 
@@ -179,7 +179,7 @@ bun run build
 
 | Convention | Rule |
 |------------|------|
-| Build/test runtime | **Bun 1.3.14** |
+| Build/test runtime | **Bun 1.4.0** |
 | Published runtime | **Node.js 18+** |
 | Package Manager | **bun only** (`bun install`, `bun run`) |
 | Formatter/Linter | **Biome** |

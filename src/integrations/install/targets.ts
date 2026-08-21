@@ -20,10 +20,6 @@ export const INSTALL_TARGETS: readonly {
   probeCommand: integration.probeCommand,
 }));
 
-export const TARGET_FLAGS = new Map<string, InstallTarget>(
-  INSTALL_TARGETS.map((target) => [target.flag, target.target]),
-);
-
 export function orderInstallTargets(targets: readonly InstallTarget[]): InstallTarget[] {
   const selectedTargets = new Set(targets);
   return INSTALL_TARGETS.map((target) => target.target).filter((target) =>

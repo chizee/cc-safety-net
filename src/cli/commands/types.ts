@@ -42,6 +42,4 @@ export interface Command {
   examples?: string[];
   /** Positional argument description, e.g., "<command>" */
   argument?: string;
-  /** Whether this is a hidden command (not shown in main help) */
-  hidden?: boolean;
 }

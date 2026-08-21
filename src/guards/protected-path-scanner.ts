@@ -1,7 +1,8 @@
-import { isAbsolute, normalize, resolve } from 'node:path';
+import { basename, isAbsolute, normalize, resolve } from 'node:path';
 import {
   expandSupportedPathEnvironmentVariables,
   type PathCanonicalizationContext,
+  probeExistingPath,
   resolveExistingPath,
 } from '@/analyzer/path-canonicalization';
 import { stripWrappers } from '@/analyzer/wrapper-prelude';
@@ -89,7 +90,7 @@ export function isAssignmentOnlySegment(tokens: readonly string[]): boolean {
   return tokens.length > 0 && tokens.every((token) => /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token));
 }
 
-export function normalizeProtectedPathCandidate(
+function lexicallyNormalizeCandidate(
   target: string,
   cwd: string,
   context: PathCanonicalizationContext,
@@ -102,11 +103,39 @@ export function normalizeProtectedPathCandidate(
   if (!unix) return '';
   const expanded =
     unix === '~' ? home : unix.startsWith('~/') ? resolve(home, unix.slice(2)) : unix;
-  return resolveExistingPath(
-    normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded)),
-    context.environment.paths,
-    context,
-  ).replace(/\\/g, '/');
+  return normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded));
+}
+
+export function normalizeProtectedPathCandidate(
+  target: string,
+  cwd: string,
+  context: PathCanonicalizationContext,
+): string {
+  const lexical = lexicallyNormalizeCandidate(target, cwd, context);
+  if (!lexical) return '';
+  return resolveExistingPath(lexical, context.environment.paths, context).replace(/\\/g, '/');
+}
+
+/**
+ * Canonicalizes like normalizeProtectedPathCandidate, but skips the ancestor walk
+ * for candidates whose basename cannot match the protected file: resolveExistingPath
+ * appends missing components verbatim, so a nonexistent path always resolves to its
+ * own lexical basename. A single budgeted probe still catches an existing symlink
+ * aliasing the protected file. Returns null when the candidate is disqualified.
+ */
+export function normalizeProtectedFileCandidate(
+  target: string,
+  cwd: string,
+  context: PathCanonicalizationContext,
+  isPlausibleBasename: (name: string) => boolean,
+): string | null {
+  const lexical = lexicallyNormalizeCandidate(target, cwd, context);
+  if (!lexical) return null;
+  if (isPlausibleBasename(basename(lexical))) {
+    return resolveExistingPath(lexical, context.environment.paths, context).replace(/\\/g, '/');
+  }
+  const probed = probeExistingPath(lexical, context.environment.paths, context);
+  return probed === null ? null : probed.replace(/\\/g, '/');
 }
 
 export function extractMvOperandPaths(args: readonly string[]): {

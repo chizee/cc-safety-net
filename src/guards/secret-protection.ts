@@ -33,8 +33,6 @@ import {
   SECRET_VARIANT_SEPARATOR_RULES,
 } from '@/rules/secret-protection-rules';
 
-export { getCommandFromToolInput } from '@/parser/tool-input';
-
 export const REASON_SECRET_PROTECTION = 'Access to a sensitive path is not allowed.';
 
 // Secret protection inspects operands by default (fail-safe): any command that is
@@ -218,8 +216,7 @@ type SecretTarget = {
 };
 
 type SecretProtectionPolicy = {
-  readonly enabled?: boolean;
-  readonly disabledRules?: ReadonlySet<string> | readonly string[];
+  readonly disabledRules?: readonly string[];
   readonly denyPaths: readonly string[];
   readonly allowPaths?: readonly string[];
 };
@@ -1796,9 +1793,7 @@ function comparable(value: string): string {
 }
 
 function isSecretRuleEnabled(id: string, config: SecretProtectionPolicy | undefined): boolean {
-  if (!config?.disabledRules) return true;
-  if (Array.isArray(config.disabledRules)) return !config.disabledRules.includes(id);
-  return !(config.disabledRules as ReadonlySet<string>).has(id);
+  return !config?.disabledRules?.includes(id);
 }
 
 function normalizeCandidatePath(

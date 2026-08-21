@@ -5,9 +5,7 @@ import {
   createDerivedCommandWorkBudget,
   type DerivedCommandWorkBudget,
   DerivedCommandWorkLimitError,
-  EnvSplitStringExpansionError,
   REASON_DERIVED_COMMAND_WORK_LIMIT,
-  REASON_ENV_SPLIT_STRING_UNVERIFIABLE,
   reserveDerivedCommandTokens,
 } from '@/analyzer/derived-command-budget';
 import {
@@ -54,6 +52,7 @@ import {
   type CommandView,
   type CommandWord,
   getCalledCommandName,
+  isDynamicExecutable,
 } from '@/ir/command';
 import type { CommandTraceContext } from '@/ir/command-trace';
 import type { CommandAnalysisPolicy } from '@/ir/policy';
@@ -111,13 +110,11 @@ export function analyzeCommandInternal(
     );
   } catch (error) {
     const reason =
-      error instanceof EnvSplitStringExpansionError
-        ? REASON_ENV_SPLIT_STRING_UNVERIFIABLE
-        : error instanceof DerivedCommandWorkLimitError && ownsDerivedCommandWorkBudget
-          ? REASON_DERIVED_COMMAND_WORK_LIMIT
-          : error instanceof ParallelAnalysisLimitError && ownsParallelBudget
-            ? REASON_PARALLEL_ANALYSIS_LIMIT
-            : undefined;
+      error instanceof DerivedCommandWorkLimitError && ownsDerivedCommandWorkBudget
+        ? REASON_DERIVED_COMMAND_WORK_LIMIT
+        : error instanceof ParallelAnalysisLimitError && ownsParallelBudget
+          ? REASON_PARALLEL_ANALYSIS_LIMIT
+          : undefined;
     if (!reason) {
       throw error;
     }
@@ -712,7 +709,11 @@ function analyzeCommandView(
     if (match) return resultFromCommandMatch(segmentStr, match);
   }
 
-  if (segment.length === 1 && segment[0]?.includes(' ') && !commandView.dynamicExecutable) {
+  if (
+    segment.length === 1 &&
+    segment[0]?.includes(' ') &&
+    !isDynamicExecutable(commandView.dialect, commandView.words)
+  ) {
     const textMatch = filterDestructiveCommandMatch(
       dangerousInTextMatch(segment[0], options.scanWork),
       options.policy,
@@ -1163,7 +1164,7 @@ function isInertShellHeredoc(
   const tokens = stripped.words.map(analysisWordText);
   const head = normalizeCommandToken(tokens[0] ?? '');
   if (
-    stripped.unverifiableEnvSplit ||
+    (stripped.envSplitValues?.length ?? 0) > 0 ||
     (!SHELL_WRAPPERS.has(head) && !SHELL_WRAPPERS.has(getBasename(head)))
   ) {
     return false;
@@ -1228,10 +1229,7 @@ function analysisStatesEqual(left: AnalysisState, right: AnalysisState): boolean
     optionalMapsEqual(
       left.shellGitContextState.shellAssignments,
       right.shellGitContextState.shellAssignments,
-    ) &&
-    setsEqual(left.shellGitContextState.exportedNames, right.shellGitContextState.exportedNames) &&
-    left.shellGitContextState.allexport === right.shellGitContextState.allexport &&
-    left.shellGitContextState.keywordExport === right.shellGitContextState.keywordExport
+    )
   );
 }
 
@@ -1250,10 +1248,6 @@ function getCalledFunctionBody(
 ): CommandProgram | undefined {
   const name = getCalledCommandName(view);
   return name === undefined ? undefined : functions.get(name);
-}
-
-function setsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
-  return left.size === right.size && [...left].every((value) => right.has(value));
 }
 
 function resultFromCommandMatch(

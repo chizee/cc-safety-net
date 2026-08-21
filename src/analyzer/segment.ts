@@ -6,9 +6,9 @@ import {
 } from '@/analyzer/awk';
 import { type NormalizedChildCommand, normalizeChildCommands } from '@/analyzer/child-command';
 import { analysisWordText, analyzedViewWords, textCommandWords } from '@/analyzer/command-words';
+import { dangerousInTextMatch } from '@/analyzer/dangerous-text';
 import {
   DerivedCommandWorkLimitError,
-  EnvSplitStringExpansionError,
   reserveDerivedCommandTokens,
 } from '@/analyzer/derived-command-budget';
 import {
@@ -56,6 +56,7 @@ import {
   unwrapTransparentWrapper,
 } from '@/analyzer/transparent-wrappers';
 import {
+  reconstructEnvSplitWords,
   stripEnvAssignmentWords,
   stripWrappers,
   stripWrapperWords,
@@ -68,7 +69,7 @@ import type {
 } from '@/ir/analysis';
 import type { CommandView, CommandWord } from '@/ir/command';
 import type { CommandTraceContext } from '@/ir/command-trace';
-import type { EffectivePolicy } from '@/ir/policy';
+import type { CommandAnalysisPolicy } from '@/ir/policy';
 import { getBasename, normalizeCommandToken } from '@/parser/shell';
 import { hasUnclosedQuotes } from '@/parser/shell/shared';
 import { DISPLAY_COMMANDS, MAX_STRIP_ITERATIONS, SHELL_WRAPPERS } from '@/rules/constants';
@@ -118,7 +119,41 @@ export function analyzeSegment(
     baseCwdForRm,
     new Map([...(options.envAssignments ?? []), ...leading.envAssignments]),
   );
-  if (prelude.unverifiableEnvSplit) throw new EnvSplitStringExpansionError();
+  // The `env -S` split-string language is not emulated: env splices the split words ahead of the
+  // retained operands, so the reconstructed text owns the linear dangerous-text scan
+  // unconditionally, and strict mode refuses the unverified execution source outright. Standard
+  // mode splices inert values ahead of the operands and analyzes that reconstruction as the real
+  // command line; an allow still falls through to analyzing the operands on their own.
+  const envSplitValues = prelude.envSplitValues ?? [];
+  if (envSplitValues.length > 0) {
+    const splitCommandText = [...envSplitValues, ...texts(prelude.words)].join(' ');
+    const dangerousSplitMatch = dangerousInTextMatch(splitCommandText, options.scanWork);
+    if (dangerousSplitMatch) {
+      trace?.recordSegment({
+        type: 'dangerous-text',
+        token: splitCommandText,
+        matched: true,
+        reason: dangerousSplitMatch.reason,
+      });
+      return blockResultFromMatch(dangerousSplitMatch);
+    }
+    if (options.strict) {
+      return dynamicShellSourceResult(trace);
+    }
+    const spliced = reconstructEnvSplitWords(envSplitValues, texts(prelude.words));
+    if (spliced) {
+      reserveDerivedCommandTokens(options.derivedCommandWorkBudget, spliced.length);
+      const splicedResult = options.analyzeNested(spliced.join(' '), {
+        effectiveCwd: prelude.cwd === undefined ? options.effectiveCwd : prelude.cwd,
+        envAssignments: new Map([
+          ...(options.envAssignments ?? []),
+          ...leading.envAssignments,
+          ...prelude.envAssignments,
+        ]),
+      });
+      if (splicedResult) return splicedResult;
+    }
+  }
   // Words the prelude rewrote carry no parser facts, so the whole command analyzes as text.
   const words = prelude.rewritten
     ? textCommandWords(texts(prelude.words))
@@ -783,9 +818,13 @@ function matchEmbeddedCustomRule(
 
 function filterBuiltInCommandMatch(
   match: DestructiveCommandRuleMatch | null,
-  policy: EffectivePolicy,
+  policy: CommandAnalysisPolicy,
 ): DestructiveCommandRuleMatch | null {
-  return match?.id.startsWith('custom.') ? match : filterDestructiveCommandMatch(match, policy);
+  // Raw-text matches reaching this path are minted unfiltered on purpose (recognizable destructive
+  // text must stay denied in every configuration); nested analyses filter theirs before returning.
+  return match?.id.startsWith('custom.') || match?.id === 'raw-text.dangerous-command'
+    ? match
+    : filterDestructiveCommandMatch(match, policy);
 }
 
 const CWD_CHANGE_REGEX =

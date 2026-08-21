@@ -1,5 +1,7 @@
 import { analyzeCommandWithProgram } from '@/analyzer';
+import { PathCanonicalizationLimitError } from '@/analyzer/path-canonicalization';
 import {
+  REASON_COMMAND_ANALYSIS_LIMIT,
   REASON_RECURSION_LIMIT,
   REASON_SAFETY_NET_FAILED_CLOSED,
   REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT,
@@ -15,13 +17,13 @@ import {
 } from '@/guards/policy-protection';
 import {
   findSensitiveTargetInSemanticFacts,
-  getCommandFromToolInput,
   REASON_SECRET_PROTECTION,
 } from '@/guards/secret-protection';
 import {
   createSemanticFacts,
   type FactParserDependencies,
   getCommandSyntaxFact,
+  StructuralShellSyntaxLimitError,
 } from '@/guards/semantic-facts';
 import type { AnalyzeInput } from '@/ir/analysis';
 import type { AuditFailureStage } from '@/ir/audit';
@@ -30,7 +32,7 @@ import { createProcessEnvironment } from '@/ir/environment';
 import type { ToolInvocation } from '@/ir/invocation';
 import type { EffectiveSafetyLevel, PolicySnapshot } from '@/ir/policy';
 import type { SemanticFacts } from '@/ir/semantic-facts';
-import { ToolInputLimitError } from '@/parser/tool-input';
+import { getCommandFromToolInput, ToolInputLimitError } from '@/parser/tool-input';
 import { getCCSafetyNetEnvModes } from '@/policy/env';
 import { loadPolicySnapshot, type PolicySnapshotOptions } from '@/policy/snapshot';
 
@@ -149,10 +151,7 @@ export function evaluateGuard(
         kind: 'deny',
         reason: REASON_POLICY_CONFIG_PROTECTION,
         intent: 'hard_stop',
-        evidence: [
-          { kind: 'command', command: displayCommand, segment: policyTarget.target },
-          { kind: 'path', target: policyTarget.target },
-        ],
+        evidence: [{ kind: 'command', command: displayCommand, segment: policyTarget.target }],
       },
     };
   }
@@ -168,10 +167,7 @@ export function evaluateGuard(
         kind: 'deny',
         reason: REASON_GIT_METADATA_PROTECTION,
         intent: 'hard_stop',
-        evidence: [
-          { kind: 'command', command: displayCommand, segment: gitMetadataTarget.target },
-          { kind: 'path', target: gitMetadataTarget.target },
-        ],
+        evidence: [{ kind: 'command', command: displayCommand, segment: gitMetadataTarget.target }],
       },
     };
   }
@@ -205,10 +201,7 @@ export function evaluateGuard(
         reason: REASON_SECRET_PROTECTION,
         intent: 'hard_stop',
         ruleId: secretTarget.ruleId,
-        evidence: [
-          { kind: 'command', command: displayCommand, segment: secretTarget.target },
-          { kind: 'path', target: secretTarget.target },
-        ],
+        evidence: [{ kind: 'command', command: displayCommand, segment: secretTarget.target }],
       },
     };
   }
@@ -266,6 +259,7 @@ function getInputCommandOrFail(invocation: ToolInvocation): string | undefined {
       failedClosedEvaluation(
         'policy-protection',
         cause instanceof ToolInputLimitError ? undefined : command,
+        cause,
       ),
       cause,
     );
@@ -282,7 +276,11 @@ function callDependency<T>(
   } catch (cause) {
     throw new GuardEvaluationError(
       stage,
-      failedClosedEvaluation(stage, cause instanceof ToolInputLimitError ? undefined : command),
+      failedClosedEvaluation(
+        stage,
+        cause instanceof ToolInputLimitError ? undefined : command,
+        cause,
+      ),
       cause,
     );
   }
@@ -291,12 +289,18 @@ function callDependency<T>(
 function failedClosedEvaluation(
   stage: GuardStage,
   command: string | null | undefined,
+  cause?: unknown,
 ): GuardEvaluation {
+  // Analysis budgets are documented limits the command crossed, so they get
+  // actionable wording instead of the internal-fault report.
+  const isAnalysisLimit =
+    cause instanceof PathCanonicalizationLimitError ||
+    cause instanceof StructuralShellSyntaxLimitError;
   return {
     stage,
     decision: {
       kind: 'deny',
-      reason: REASON_SAFETY_NET_FAILED_CLOSED,
+      reason: isAnalysisLimit ? REASON_COMMAND_ANALYSIS_LIMIT : REASON_SAFETY_NET_FAILED_CLOSED,
       intent: 'stop_and_explain',
       evidence: command ? [{ kind: 'command', command, segment: command }] : [],
     },

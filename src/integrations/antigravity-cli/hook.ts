@@ -1,4 +1,4 @@
-import { isAbsolute, relative } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import { createFailedClosedDenial, type IntegrationDenial } from '@/integrations/denial';
 import { getToolRoute, runConfiguredHookAdapter } from '@/integrations/hook/common';
 import {
@@ -13,6 +13,11 @@ import {
   ToolInputLimitError,
 } from '@/integrations/runtime';
 import type { CommandToolKind, ToolCallContext } from '@/ir/invocation';
+
+/** Config file holding the Antigravity CLI PreToolUse hook registrations. */
+export function getAntigravityHooksPath(homeDir: string): string {
+  return join(homeDir, '.gemini', 'config', 'hooks.json');
+}
 
 /** Antigravity CLI PreToolUse hook input format */
 interface AntigravityCliHookInput {
@@ -120,20 +125,12 @@ function resolveAntigravityContext(
       outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
       return null;
     }
-    return {
-      configCwd: targetRoot,
-      executionCwd: targetRoot,
-      policyConfigCwds: configRoots,
-    };
+    return { configCwd: targetRoot, executionCwd: targetRoot };
   }
 
   const args = input.toolCall?.args;
   if (!args || !Object.hasOwn(args, 'Cwd')) {
-    return {
-      configCwd: configRoots[0],
-      executionCwd: configRoots[0],
-      policyConfigCwds: configRoots,
-    };
+    return { configCwd: configRoots[0], executionCwd: configRoots[0] };
   }
   const cwd = args.Cwd;
   if (typeof cwd !== 'string' || cwd.trim() === '') {
@@ -148,7 +145,7 @@ function resolveAntigravityContext(
       outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd);
       return null;
     }
-    return { configCwd, executionCwd: containedCwd, policyConfigCwds: configRoots };
+    return { configCwd, executionCwd: containedCwd };
   }
 
   outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd);

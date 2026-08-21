@@ -33,6 +33,7 @@ import { hasUnclosedQuotes } from '@/parser/shell/shared';
 import { SHELL_WRAPPERS } from '@/rules/constants';
 import { checkPolicyRuleMatch } from '@/rules/custom';
 import {
+  type DestructiveCommandRulePolicy,
   destructiveCommandMatch,
   destructiveCommandRuleIsEnabled,
   filterDestructiveCommandMatch,
@@ -52,11 +53,7 @@ export interface ChildCommandAnalysisContext {
   worktreeMode?: boolean;
   scanWork?: { units: number };
   protectedGitMetadata: ProtectedGitMetadata | null;
-  policy?: Pick<
-    EffectivePolicy,
-    'destructiveCommandProtectionEnabled' | 'destructiveCommandRuleOverrides'
-  > &
-    Partial<Pick<EffectivePolicy, 'rules'>>;
+  policy?: DestructiveCommandRulePolicy & Partial<Pick<EffectivePolicy, 'rules'>>;
   analyzeNested?: (
     command: string,
     overrides?: AnalyzeNestedOverrides,

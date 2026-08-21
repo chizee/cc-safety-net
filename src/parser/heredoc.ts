@@ -91,7 +91,6 @@ export function consumeHeredocBodies(
             : source.slice(bodyStart, cursor),
           delimiter: declaration.delimiter,
           quotedDelimiter: declaration.quotedDelimiter,
-          stripTabs: declaration.stripTabs,
           bodySpan: { start: bodyStart, end: cursor },
           terminatorSpan: { start: cursor, end: line.contentEnd },
         });

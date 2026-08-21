@@ -43,7 +43,6 @@ export type CommandHeredoc = {
   readonly body: string;
   readonly delimiter: string;
   readonly quotedDelimiter: boolean;
-  readonly stripTabs: boolean;
   readonly bodySpan: CommandSpan;
   readonly terminatorSpan: CommandSpan;
 };
@@ -65,7 +64,6 @@ export type CommandView = {
   readonly words: readonly CommandWord[];
   readonly redirections: readonly CommandRedirection[];
   readonly nested: readonly CommandProgram[];
-  readonly dynamicExecutable: boolean;
   /** Command text for block messages; the raw source when the parse could not tokenize it. */
   readonly displayText: string;
 };

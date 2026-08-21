@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { PathCanonicalizationLimitError } from '@/analyzer/path-canonicalization';
 import { REASON_RECURSION_LIMIT } from '@/analyzer/reasons';
 import {
   evaluateGuard,
@@ -9,6 +10,7 @@ import {
   GuardEvaluationError,
   type GuardStage,
 } from '@/engine/guard';
+import { StructuralShellSyntaxLimitError } from '@/guards/semantic-facts';
 import { parseCommand } from '@/parser/command';
 import { getUserPolicyPath } from '@/policy/store';
 import { withTempDir } from '../helpers';
@@ -17,6 +19,8 @@ import { policySnapshot, testModes } from '../helpers/policy';
 const SNAPSHOT = policySnapshot();
 const REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT =
   'CC Safety Net could not validate the command because its structure exceeds safe analysis limits.';
+const REASON_COMMAND_ANALYSIS_LIMIT =
+  'CC Safety Net could not analyze the command because it exceeds safe analysis limits. Simplify or split the command and retry.';
 
 function structurallyLimitedFactParsers() {
   return {
@@ -373,10 +377,7 @@ describe('guard evaluation', () => {
           reason:
             'This path contains the protected policy config and you must not modify or delete it.',
           intent: 'hard_stop',
-          evidence: [
-            { kind: 'command', command: 'rm policy.json', segment: 'policy.json' },
-            { kind: 'path', target: 'policy.json' },
-          ],
+          evidence: [{ kind: 'command', command: 'rm policy.json', segment: 'policy.json' }],
         },
       });
     });
@@ -445,10 +446,7 @@ describe('guard evaluation', () => {
         reason: 'Access to a sensitive path is not allowed.',
         intent: 'hard_stop',
         ruleId: 'secret.basename.env',
-        evidence: [
-          { kind: 'command', command: 'cat .env', segment: '.env' },
-          { kind: 'path', target: '.env' },
-        ],
+        evidence: [{ kind: 'command', command: 'cat .env', segment: '.env' }],
       });
     });
   });
@@ -689,6 +687,52 @@ describe('guard evaluation', () => {
           intent: 'stop_and_explain',
           evidence: [{ kind: 'command', command: 'git status', segment: 'git status' }],
         },
+      });
+    });
+  });
+
+  test.each([
+    ['path canonicalization', () => new PathCanonicalizationLimitError()],
+    ['structural shell syntax', () => new StructuralShellSyntaxLimitError()],
+  ] as const)('reports analysis-limit dependency failures with the limit reason: %s', async (label, createCause) => {
+    await withTempDir(`cc-safety-net-guard-limit-reason-${label.replace(/ /g, '-')}-`, (cwd) => {
+      const cause = createCause();
+      const error = captureGuardError(() =>
+        evaluateGuard(commandInvocation(cwd), {
+          dependencies: dependencies({
+            findPolicyMutation: () => {
+              throw cause;
+            },
+          }),
+        }),
+      );
+
+      expect(error.stage).toBe('policy-protection');
+      expect(error.cause).toBe(cause);
+      expect(error.evaluation.decision).toMatchObject({
+        kind: 'deny',
+        reason: REASON_COMMAND_ANALYSIS_LIMIT,
+      });
+    });
+  });
+
+  test('allows path-token-dense commands end-to-end', async () => {
+    await withTempDir('cc-safety-net-guard-token-flood-', (cwd) => {
+      const command = `echo ${Array.from({ length: 256 }, (_, index) => `d${index}/e${index}/f${index}`).join(' ')}`;
+
+      expect(evaluateGuard(commandInvocation(cwd, command))).toEqual({
+        stage: 'command-analysis',
+        level: 'standard',
+        decision: { kind: 'allow' },
+      });
+    });
+  });
+
+  test('keeps git.reset-hard denials intact', async () => {
+    await withTempDir('cc-safety-net-guard-reset-control-', (cwd) => {
+      expect(evaluateGuard(commandInvocation(cwd, 'git reset --hard origin/main'))).toMatchObject({
+        stage: 'command-analysis',
+        decision: { kind: 'deny', ruleId: 'git.reset-hard' },
       });
     });
   });
@@ -942,10 +986,7 @@ function expectedSecretBlock(command: string): GuardEvaluation {
       reason: 'Access to a sensitive path is not allowed.',
       intent: 'hard_stop',
       ruleId: 'secret.basename.env',
-      evidence: [
-        { kind: 'command', command, segment: '.env' },
-        { kind: 'path', target: '.env' },
-      ],
+      evidence: [{ kind: 'command', command, segment: '.env' }],
     },
   };
 }
@@ -958,10 +999,7 @@ function expectedPolicyBlock(command: string, target: string): GuardEvaluation {
       reason:
         'This path contains the protected policy config and you must not modify or delete it.',
       intent: 'hard_stop',
-      evidence: [
-        { kind: 'command', command, segment: target },
-        { kind: 'path', target },
-      ],
+      evidence: [{ kind: 'command', command, segment: target }],
     },
   };
 }

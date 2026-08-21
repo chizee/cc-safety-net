@@ -45,17 +45,6 @@ const SAFETY_LEVELS = new Set(['standard', 'strict', 'paranoid']);
  */
 type PolicyFallback = 'salvaged' | 'defaults';
 
-type PolicyConfig = {
-  safety: PolicySafety;
-  worktreeMode: boolean;
-  destructiveCommandProtectionEnabled: boolean;
-  destructiveCommandRuleOverrides: Readonly<Record<string, DestructiveCommandRuleOverride>>;
-  destructiveCommandAllowPaths: string[];
-  secretProtection: SecretProtectionConfig;
-  errors: string[];
-  fallback?: PolicyFallback;
-};
-
 type PartialPolicy = {
   safety: PolicySafety;
   worktreeMode: boolean;
@@ -63,6 +52,11 @@ type PartialPolicy = {
   destructiveCommandRuleOverrides: Record<string, DestructiveCommandRuleOverride>;
   destructiveCommandAllowPaths: string[];
   secretProtection: SecretProtectionConfig;
+};
+
+type PolicyConfig = PartialPolicy & {
+  errors: string[];
+  fallback?: PolicyFallback;
 };
 
 export type GuiPolicy = {
@@ -175,11 +169,13 @@ export function readUserPolicyForGui(options: RulesPolicyOptions = {}): GuiPolic
   try {
     const parsed = JSON.parse(raw) as unknown;
     const errors = getUserPolicyDiagnostics(parsed);
+    // The GUI displays the same salvaged projection the engine enforces and repair would
+    // write, so a partially invalid file cannot show one policy while another is in force.
     return {
       path,
       exists: true,
       raw,
-      policy: errors.length > 0 ? createDefaultGuiPolicy() : normalizeGuiPolicy(parsed),
+      policy: normalizeGuiPolicy(parsed),
       errors,
     };
   } catch (error) {
@@ -263,12 +259,7 @@ export function repairUserPolicyForGui(options: RulesPolicyOptions = {}): GuiPol
 export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig {
   const user = readPolicyConfig(getUserPolicyPath(options));
   return {
-    safety: user.policy.safety,
-    worktreeMode: user.policy.worktreeMode,
-    destructiveCommandProtectionEnabled: user.policy.destructiveCommandProtectionEnabled,
-    destructiveCommandRuleOverrides: user.policy.destructiveCommandRuleOverrides,
-    destructiveCommandAllowPaths: user.policy.destructiveCommandAllowPaths,
-    secretProtection: user.policy.secretProtection,
+    ...user.policy,
     errors: user.errors,
     ...(user.fallback ? { fallback: user.fallback } : {}),
   };
@@ -414,13 +405,15 @@ function readPolicyConfig(path: string): {
 }
 
 // A rule in the default-off tier stays off until an explicit 'on' override opts into it.
-export function resolveSecretDisabledRules(overrides: Record<string, 'on' | 'off'>): Set<string> {
+export function resolveSecretDisabledRules(overrides: Record<string, 'on' | 'off'>): string[] {
   const entries = Object.entries(overrides);
   const optedIn = new Set(entries.flatMap(([id, value]) => (value === 'on' ? [id] : [])));
-  return new Set([
-    ...[...SECRET_DEFAULT_OFF_RULE_ID_SET].filter((id) => !optedIn.has(id)),
-    ...entries.flatMap(([id, value]) => (value === 'off' ? [id] : [])),
-  ]);
+  return [
+    ...new Set([
+      ...[...SECRET_DEFAULT_OFF_RULE_ID_SET].filter((id) => !optedIn.has(id)),
+      ...entries.flatMap(([id, value]) => (value === 'off' ? [id] : [])),
+    ]),
+  ];
 }
 
 function createEmptyPolicy(): PartialPolicy {
