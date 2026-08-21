@@ -865,6 +865,23 @@ describe('git linked worktree mode', () => {
     });
   });
 
+  test('SAFETY_NET_WORKTREE keeps overrides live across query-only command -v unset', async () => {
+    await withReadonlyLinkedWorktreeFixture((fixture) => {
+      const mainGitDir = toShellPath(join(fixture.mainWorktree, '.git'));
+      withEnv({ SAFETY_NET_WORKTREE: '1' }, () => {
+        const commands = [
+          `export GIT_DIR=${mainGitDir}; command -v unset GIT_DIR; git clean -fd`,
+          `export GIT_DIR=${mainGitDir}; command -pv unset GIT_DIR; git clean -fd`,
+          `export GIT_DIR=${mainGitDir}; command -V unset GIT_DIR; git clean -fd`,
+        ];
+
+        for (const command of commands) {
+          assertBlocked(command, 'git clean -f', fixture.linkedWorktree);
+        }
+      });
+    });
+  });
+
   test('SAFETY_NET_WORKTREE tracks time-prefixed shell git context updates', async () => {
     await withReadonlyLinkedWorktreeFixture((fixture) => {
       const mainWorktree = toShellPath(fixture.mainWorktree);

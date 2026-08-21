@@ -160,6 +160,10 @@ function resolveInvokedWordIndex(tokens: readonly string[], commandIndex: number
   while (BUILTIN_CALL_PREFIXES.has(tokens[index] ?? '')) {
     index += 1;
     while (tokens[index]?.startsWith('-')) {
+      // `command -v`/`-V` only reports availability; nothing is invoked.
+      if (/^-p*[vV][pvV]*$/.test(tokens[index] ?? '')) {
+        return commandIndex;
+      }
       index += 1;
     }
   }
