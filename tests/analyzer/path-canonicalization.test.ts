@@ -54,7 +54,7 @@ describe('path canonicalization', () => {
     }
   });
 
-  test('accepts exactly the missing-component boundary and rejects the next component', () => {
+  test('walks the full missing-component boundary and falls back to the lexical join past it', () => {
     const root = mkdtempSync(join(tmpdir(), 'path-canonicalization-components-'));
     try {
       const components = Array.from(
@@ -65,8 +65,8 @@ describe('path canonicalization', () => {
       expect(resolveExistingPath(join(root, ...components.slice(0, -1)), processPathResolver)).toBe(
         join(realpathSync(root), ...components.slice(0, -1)),
       );
-      expect(() => resolveExistingPath(join(root, ...components), processPathResolver)).toThrow(
-        PathCanonicalizationLimitError,
+      expect(resolveExistingPath(join(root, ...components), processPathResolver)).toBe(
+        join(root, ...components),
       );
     } finally {
       rmSync(root, { recursive: true, force: true });

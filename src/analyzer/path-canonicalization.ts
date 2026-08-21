@@ -215,8 +215,12 @@ export function resolveExistingPath(
       budget.resolvedPaths.set(path, resolved);
       return resolved;
     }
+    // The cap bounds walk cost, not trust: a path whose nearest existing ancestor is this far up
+    // names no existing file, so stopping at the lexical reconstruction hides nothing.
     if (suffixes.length >= PATH_CANONICALIZATION_LIMITS.maxMissingSuffixComponents) {
-      throw new PathCanonicalizationLimitError();
+      const resolved = join(candidate, ...suffixes.reverse());
+      budget.resolvedPaths.set(path, resolved);
+      return resolved;
     }
     suffixes.push(basename(candidate));
     candidate = parent;
