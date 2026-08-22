@@ -119,15 +119,13 @@ A workspace-writable sandbox still permits `git reset --hard`, `git push --force
 
 ## Safety presets
 
-Set a session safety preset with `CC_SAFETY_NET_LEVEL=standard|strict|paranoid`:
+Set a session safety preset with the GUI `npx cc-safety-net gui` then navigate to the policy tab:
 
 | Preset | Effect |
 |---|---|
 | Standard | Blocks recognizable destructive Git and filesystem commands. Allows metadata-only checks of built-in sensitive paths while continuing to block content access. Recommended for normal coding. |
 | Strict | Standard, plus blocks dynamic or unparseable commands the analyzer cannot verify safely and metadata-only discovery of built-in sensitive paths. Occasional false positives on advanced shell. |
 | Paranoid | Strict, plus blocks `rm -rf` inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos. |
-
-Presets supply inherited defaults. `policy.json` stores only settings that differ from those defaults. These settings include per-rule overrides, allow paths, deny paths, worktree mode, and audit retention. Safety-level and capability environment variables can only raise protection. `CC_SAFETY_NET_WORKTREE` is the one exception. It enables worktree mode, which allows local Git discards in linked worktrees. Read the full contract in [Modes](https://ccsafetynet.com/docs/configuration/modes), [Policy](https://ccsafetynet.com/docs/configuration/policy), and [Environment](https://ccsafetynet.com/docs/configuration/environment). You can also change these settings in the [local GUI](https://ccsafetynet.com/docs/guides/dashboard).
 
 ## Diagnostics and tracing
 
