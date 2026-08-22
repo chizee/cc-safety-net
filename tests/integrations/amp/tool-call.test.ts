@@ -290,6 +290,28 @@ describe('Amp tool.call event', () => {
     });
   });
 
+  test('still protects the workspace repo git metadata from an out-of-workspace dir', () => {
+    withTempDir((dir) => {
+      mkdirSync(join(dir, '.git'));
+      const outside = mkdtempSync(join(tmpdir(), 'safety-net-amp-outside-'));
+      try {
+        withEnv({ HOME: join(dir, 'home') }, () => {
+          const result = handleAmpToolCall(
+            shellEvent(`rm -rf ${join(realpathSync(dir), '.git')}`, outside),
+            ampApi(dir),
+          );
+
+          expect(result).toEqual({
+            action: 'reject-and-continue',
+            message: expect.stringContaining('Git metadata and hooks are protected'),
+          });
+        });
+      } finally {
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
   test('fails closed when the dir cannot be canonicalized', () => {
     withTempDir((dir) => {
       expect(handleAmpToolCall(shellEvent('git status', 'missing'), ampApi(dir))).toEqual({
