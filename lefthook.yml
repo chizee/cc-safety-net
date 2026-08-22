@@ -13,4 +13,11 @@ pre-commit:
 pre-push:
   jobs:
     - name: check
+      exclude:
+        - "*.md"
+        - "**/*.md"
+        - "*.yml"
+        - "**/*.yml"
+        - "*.yaml"
+        - "**/*.yaml"
       run: bun run check
