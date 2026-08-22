@@ -19,32 +19,32 @@
 
 </div>
 
-CC Safety Net — short for **Coding CLI** Safety Net — is a PreToolUse hook that blocks destructive commands and access to secrets like SSH keys and `.env` files, before AI coding agents run them. It parses command **semantics**, so flag reordering, shell wrappers, and interpreter one-liners can't bypass it.
+CC Safety Net is short for Coding CLI Safety Net. It is a PreToolUse hook that blocks destructive commands and access to secrets such as SSH keys and `.env` files before the tool call runs. It parses what a command does, so flag reordering, shell wrappers, and interpreter one-liners cannot bypass it.
 
 > [!NOTE]
-> **[Full documentation →](https://ccsafetynet.com/docs)** — installation, configuration, reference, guides, and the security model live on the docs site. This README is the short version.
+> **[Full documentation →](https://ccsafetynet.com/docs)** covers installation, configuration, reference material, guides, and the security model. This README is the short version.
 
 ## Why this exists
 
-We learned the [hard way](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) that instructions aren't enough to keep AI agents in check. After an agent silently wiped hours of progress with a single `rm -rf ~/` or `git checkout --`, it became clear that **soft** rules in a `CLAUDE.md` or `AGENTS.md` file cannot replace **hard** technical constraints. CC Safety Net is that constraint: it observes relevant tool calls and blocks destructive commands and secret access before they reach the shell. See [What Is CC Safety Net](https://ccsafetynet.com/docs/introduction) for the full background.
+We built CC Safety Net after an agent [wiped hours of work](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) with one `rm -rf ~/` or `git checkout --`. Instructions did not stop it. Rules in `CLAUDE.md` or `AGENTS.md` can guide an agent, but they cannot enforce a technical limit. CC Safety Net watches relevant tool calls and blocks destructive commands and secret access before they reach the shell. See [What is CC Safety Net](https://ccsafetynet.com/docs/introduction) for the full background.
 
 ## What's new in v2.0.0
 
 > [!TIP]
-> **Already running v1?** One command upgrades every installed integration to v2: `npx -y cc-safety-net@latest update`. If you defined custom rules under v1, also read [Upgrading from an older version](#upgrading-from-an-older-version).
+> **Already running v1?** Run `npx -y cc-safety-net@latest update` to upgrade every installed integration to v2. If you defined custom rules under v1, also read [Upgrading from an older version](#upgrading-from-an-older-version).
 
-- **Rebuilt evaluation engine** — canonical command IR, deeply immutable policy snapshots, and an ordered guard pipeline with intrinsic decision tracing behind `explain`.
-- **Secret protection** — built-in rules block content access to SSH keys, `.env` files, cloud credentials, and coding-CLI credential stores, across shell commands and file tools alike.
-- **Always-on catastrophic protections** — recursive deletion of root or home, Git metadata mutation (`.git` control plane, hooks, worktrees, submodules), and mutation of the user policy file are blocked in every mode, regardless of overrides.
-- **Safety presets** — `standard`/`strict`/`paranoid` levels with per-rule overrides, trusted delete allow-paths, and safety-level and capability env vars that can only raise protection — the one deliberate exception is `CC_SAFETY_NET_WORKTREE`, which allows local git discards in linked worktrees.
-- **Policy GUI** — `cc-safety-net gui` serves a local, token-authenticated editor with live preset preview.
-- **Universal installer** — interactive `install`/`uninstall` across all twelve supported agent CLIs, with an `update` command for installed integrations.
-- **Command-decision audit trail** — allowed and blocked command decisions recorded by default to local per-project JSONL with secret redaction, retained for 30 days by default, browsable via `cc-safety-net logs`.
-- **Documented threat model** — the [SECURITY.md](SECURITY.md) mode contract, explicit resource limits, and a residual-risk registry of adjudicated bypass families.
+- **Evaluation engine.** A canonical command IR, policy snapshots that remain immutable at every nested level, and an ordered guard pipeline now support decision tracing through `explain`.
+- **Secret protection.** Built-in rules block content access to SSH keys, `.env` files, cloud credentials, and coding-CLI credential stores through shell commands and file tools.
+- **Always-on protections.** Every mode blocks recursive deletion of root or home, Git metadata changes to the `.git` control plane, hooks, worktrees, or submodules, and changes to the user policy file. Overrides do not disable these rules.
+- **Safety presets.** The `standard`, `strict`, and `paranoid` levels support per-rule overrides and trusted delete allow-paths. Safety-level and capability environment variables can only raise protection. `CC_SAFETY_NET_WORKTREE` is the one exception. It allows local Git discards in linked worktrees.
+- **Policy GUI.** `cc-safety-net gui` runs a local, token-authenticated editor with a live preset preview.
+- **Universal installer.** Interactive `install` and `uninstall` commands support all twelve coding CLIs. The `update` command updates installed integrations.
+- **Command-decision audit trail.** CC Safety Net records allowed and blocked decisions in local per-project JSONL. It redacts secrets, keeps records for 30 days by default, and shows them through `cc-safety-net logs`.
+- **Threat model.** [SECURITY.md](SECURITY.md) defines the mode contract and resource limits. Its residual-risk registry records decisions for bypass families.
 
 ## Quick start
 
-**Prerequisite:** Node.js 18 or higher.
+You need Node.js 18 or higher.
 
 Run the interactive selector to install CC Safety Net into one or more installed coding CLIs:
 
@@ -58,8 +58,8 @@ To update every installed integration:
 npx -y cc-safety-net@latest update
 ```
 
-The `@latest` qualifier matters: a bare `cc-safety-net` spec can re-run an older
-cached copy from the npx cache instead of the current release.
+Keep the `@latest` qualifier. A bare `cc-safety-net` spec can run an older cached
+copy from the npx cache instead of the current release.
 
 To remove integrations interactively:
 
@@ -76,7 +76,7 @@ ccsn doctor
 
 ## Supported coding CLIs
 
-CC Safety Net works across all coding agent CLIs on **Windows, macOS, and Linux**. Windows is covered by automated tests for the analyzer and a subset of integrations; for the remaining hosts it is best-effort and untested, and Amp's own manual documents macOS, Linux, and WSL rather than native Windows.
+CC Safety Net supports the coding agent CLIs below on Windows, macOS, and Linux. Automated tests cover the analyzer and some Windows integrations. Other hosts have best-effort Windows support that has not been tested. Amp documents macOS, Linux, and WSL, but not native Windows.
 
 <table align="center">
   <tr>
@@ -103,19 +103,19 @@ CC Safety Net works across all coding agent CLIs on **Windows, macOS, and Linux*
 
 | Capability | What it catches |
 |---|---|
-| **Semantic command analysis** | `rm -rf` on destructive targets, `git reset --hard`, `git checkout --`, `git push --force`, `git stash clear`, `git clean -f`, unsafe `find -delete`, `dd`/`mkfs`/`shred` — by intent, not string pattern. `git checkout -b feature` (safe) is allowed while `git checkout -- file` (destructive) is blocked. |
-| **Shell wrapper detection** | Destructive commands hidden in `bash -c`, `sh -c`, and similar wrappers, recursively analyzed up to 10 levels deep. |
-| **Interpreter one-liners** | Destructive code in `python -c`, `node -e`, `ruby -e`, `perl -e` one-liners (e.g. `os.system("rm -rf /")`). |
-| **Fail-closed by default** | Malformed hook input and unparseable commands (in strict mode) block rather than allow. Invalid config never blocks: an unverifiable rule source is dropped and an unreadable `policy.json` falls back to protective defaults, both with a warning on every reporting surface. |
-| **Secret protection** | Content access to SSH keys, `.env` files, `~/.aws`, kube/docker/gcloud configs, and coding-CLI credential stores — enforced on shell commands and file tools (read/edit/write/search) alike. |
-| **Custom rules via rulebooks** | Add your own blocking rules at user or project scope, pinned by SHA-256 digest when fetched from GitHub. |
-| **Audit logging** | Allowed and blocked command decisions written to local per-project JSONL with secrets auto-redacted, retained for 30 days by default. Browse them with `npx cc-safety-net logs`, or triage them in the **Activity** view of `npx cc-safety-net gui`. |
+| **Semantic command analysis** | Detects the intent of `rm -rf` on destructive targets, `git reset --hard`, `git checkout --`, `git push --force`, `git stash clear`, `git clean -f`, unsafe `find -delete`, `dd`, `mkfs`, and `shred`. It allows `git checkout -b feature` but blocks `git checkout -- file`. |
+| **Shell wrapper detection** | Finds destructive commands inside `bash -c`, `sh -c`, and similar wrappers. It analyzes nested wrappers up to 10 levels deep. |
+| **Interpreter one-liners** | Finds destructive code in `python -c`, `node -e`, `ruby -e`, and `perl -e` one-liners such as `os.system("rm -rf /")`. |
+| **Fail-closed by default** | Blocks malformed hook input and, in strict mode, commands it cannot parse. Invalid configuration never blocks. CC Safety Net drops an unverifiable rule source and uses protective defaults when it cannot read `policy.json`. It reports these states in block messages, `doctor`, the status line, and the GUI. |
+| **Secret protection** | Blocks content access to SSH keys, `.env` files, `~/.aws`, Kubernetes, Docker, and gcloud configuration, and coding-CLI credential stores. The rules apply to shell commands and read, edit, write, and search tools. |
+| **Custom rules via rulebooks** | Lets you add blocking rules at user or project scope. CC Safety Net pins rulebooks fetched from GitHub by SHA-256 digest. |
+| **Audit logging** | Writes allowed and blocked command decisions to local per-project JSONL, redacts secrets, and keeps records for 30 days by default. Browse them with `npx cc-safety-net logs`, or review them in the Activity view of `npx cc-safety-net gui`. |
 
 Full rule catalogs: [Blocked Commands](https://ccsafetynet.com/docs/reference/blocked-commands) · [Allowed Commands](https://ccsafetynet.com/docs/reference/allowed-commands) · [Secret Protection](https://ccsafetynet.com/docs/reference/secret-protection).
 
 ## Why not just use a sandbox?
 
-A workspace-writable sandbox still permits `git reset --hard`, `git push --force`, and `rm -rf .` *inside* the project directory, because the OS only sees writes to an allowed path. Sandboxing contains blast radius; CC Safety Net catches the destructive operations sandboxing permits — use both for defense-in-depth. See [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing).
+A workspace-writable sandbox still permits `git reset --hard`, `git push --force`, and `rm -rf .` inside the project directory. The operating system sees writes to an allowed path. A sandbox limits where a process can write. CC Safety Net blocks destructive operations inside that allowed area. Use both. See [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing).
 
 ## Safety presets
 
@@ -127,7 +127,7 @@ Set a session safety preset with `CC_SAFETY_NET_LEVEL=standard|strict|paranoid`:
 | Strict | Standard, plus blocks dynamic or unparseable commands the analyzer cannot verify safely and metadata-only discovery of built-in sensitive paths. Occasional false positives on advanced shell. |
 | Paranoid | Strict, plus blocks `rm -rf` inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos. |
 
-Presets supply inherited defaults; `policy.json` stores only your explicit deviations — per-rule overrides, allow paths, deny paths, worktree mode, and audit retention. Safety-level and capability environment variables can only raise protection, never lower it; the one deliberate relaxation is `CC_SAFETY_NET_WORKTREE`, which enables worktree mode to allow local git discards in linked worktrees. The full contract is on [Modes](https://ccsafetynet.com/docs/configuration/modes), [Policy](https://ccsafetynet.com/docs/configuration/policy), and [Environment](https://ccsafetynet.com/docs/configuration/environment), or edit everything visually with the [local GUI](https://ccsafetynet.com/docs/guides/dashboard).
+Presets supply inherited defaults. `policy.json` stores only settings that differ from those defaults. These settings include per-rule overrides, allow paths, deny paths, worktree mode, and audit retention. Safety-level and capability environment variables can only raise protection. `CC_SAFETY_NET_WORKTREE` is the one exception. It enables worktree mode, which allows local Git discards in linked worktrees. Read the full contract in [Modes](https://ccsafetynet.com/docs/configuration/modes), [Policy](https://ccsafetynet.com/docs/configuration/policy), and [Environment](https://ccsafetynet.com/docs/configuration/environment). You can also change these settings in the [local GUI](https://ccsafetynet.com/docs/guides/dashboard).
 
 ## Diagnostics and tracing
 
@@ -144,17 +144,17 @@ npx cc-safety-net logs
 npx cc-safety-net gui
 ```
 
-`doctor`, `explain`, and `logs` support `--json` for machine-readable output. The audit trail records command decisions only — never command output or prompts — and stays on your machine. Invalid configuration never blocks your agent: unverifiable rule sources are dropped and every degraded state is reported on the next block message, `doctor`, the status line, and the GUI banner.
+`doctor`, `explain`, and `logs` support `--json` for machine-readable output. The audit trail stays on your machine. It records command decisions, but it does not record command output or prompts. Invalid configuration never blocks your agent. CC Safety Net drops unverifiable rule sources and reports each degraded state in the next block message, `doctor`, the status line, and the GUI banner.
 
 Details: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace) · [Audit Log](https://ccsafetynet.com/docs/reference/audit-log) · [Dashboard](https://ccsafetynet.com/docs/guides/dashboard) · [Configuration Recovery](https://ccsafetynet.com/docs/configuration/recovery).
 
 ## Limitations
 
-CC Safety Net denies a tool call before it runs; it does not enforce filesystem permissions, inspect network egress, or contain a process. Two v2 bounds worth knowing up front: the policy and sensitive-path command extractors remain primarily POSIX-oriented, so native PowerShell path expressions such as `Get-Content $HOME\.ssh\id_rsa` can evade static path extraction; and policy-file protection is a best-effort exact-path guard, not command emulation. Use operating-system permissions, a sandbox, or equivalent runtime enforcement when complete protection is required.
+CC Safety Net denies a tool call before it runs. It does not enforce filesystem permissions, inspect network egress, or contain a process. Two v2 limits matter. First, the policy and sensitive-path command extractors remain mainly POSIX-oriented. Native PowerShell path expressions such as `Get-Content $HOME\.ssh\id_rsa` can evade static path extraction. Second, policy-file protection is a best-effort exact-path guard. It does not emulate commands. Use operating-system permissions, a sandbox, or equivalent runtime controls when you need complete protection.
 
-One integration-specific bound: Codex's unified exec path, the default on macOS and Linux, sends a hook payload when a command starts a session but none for `write_stdin`. Text the model types into an already-running interactive session is therefore never inspected and never audited — only the command that opened the session is. The host emits no event for that call, so no adapter change can close it.
+Codex has one integration-specific limit. Its unified exec path is the default on macOS and Linux. It sends a hook payload when a command starts a session, but it sends none for `write_stdin`. CC Safety Net can inspect and audit the command that opens the session. It cannot inspect or audit text that the model types into the running session. Codex emits no event for that call, so an adapter change cannot close this gap.
 
-The full residual-risk registry lives in [SECURITY.md](SECURITY.md); the practical consequences are on [Known Limitations](https://ccsafetynet.com/docs/guides/known-limitations).
+[SECURITY.md](SECURITY.md) contains the full residual-risk registry. [Known Limitations](https://ccsafetynet.com/docs/guides/known-limitations) explains what those risks mean in practice.
 
 ## Upgrading from an older version
 
@@ -165,11 +165,11 @@ npx -y cc-safety-net@latest update
 ```
 
 > [!WARNING]
-> If you previously defined custom rules in a legacy inline config (`.safety-net.json` or `~/.cc-safety-net/config.json`), those files are **no longer loaded at runtime** and **their rules are not enforcing anything**. Nothing is blocked, so you will not notice this from normal use — the commands those rules used to block now run. Run `npx -y cc-safety-net rule migrate` to convert them to the rulebook layout, then `npx -y cc-safety-net doctor` to confirm the runtime is `ready`. See the [migration guide](https://ccsafetynet.com/docs/configuration/custom-rules#migrate-legacy-configuration).
+> If you defined custom rules in a legacy inline config such as `.safety-net.json` or `~/.cc-safety-net/config.json`, CC Safety Net no longer loads those files at runtime. Their rules enforce nothing. Normal use does not show this failure because the commands now run. Run `npx -y cc-safety-net rule migrate` to convert the rules to the rulebook layout. Then run `npx -y cc-safety-net doctor` and confirm that the runtime is `ready`. See the [migration guide](https://ccsafetynet.com/docs/configuration/custom-rules#migrate-legacy-configuration).
 
 ## Full documentation
 
-All details live on the docs site at **[ccsafetynet.com/docs](https://ccsafetynet.com/docs)**:
+The **[ccsafetynet.com/docs](https://ccsafetynet.com/docs)** site contains the full documentation:
 
 | Area | Pages |
 |---|---|
@@ -181,11 +181,11 @@ All details live on the docs site at **[ccsafetynet.com/docs](https://ccsafetyne
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
+See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute to the project.
 
-The generated distribution is committed: all 11 files under `dist/` are tracked — the library
+The repository tracks all 11 generated files under `dist/`. They include the library
 bundle and its type declarations, the CLI entrypoint, the shared chunks, the vendored Zod copy,
-and the Pi, Amp and OpenClaw adapter files. Run `bun run verify:package` and
+and the Pi, Amp, and OpenClaw adapter files. Run `bun run verify:package` and
 `bun run verify:repository-plugin` when changing packaging, integrations, or release automation.
 
 ## License
