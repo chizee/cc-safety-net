@@ -1442,6 +1442,19 @@ describe('rules policy recovery coverage', () => {
       },
       'No rulebooks found',
     ],
+    [{ '/repos/owner/repo': null }, 'missing default branch'],
+    [
+      { '/repos/owner/repo': { default_branch: 'main' }, '/commits/main': null },
+      'Failed to resolve commit for owner/repo',
+    ],
+    [
+      {
+        '/repos/owner/repo': { default_branch: 'main' },
+        '/commits/main': { sha: 'abc123' },
+        '/git/trees/abc123?recursive=1': null,
+      },
+      'Failed to inspect owner/repo: unexpected GitHub tree response',
+    ],
   ] as const)('reports a stable error for malformed GitHub shapes: %#', async (routes, message) => {
     const tempDir = makeTempDir('rules-policy-github-shapes');
     const originalFetch = globalThis.fetch;

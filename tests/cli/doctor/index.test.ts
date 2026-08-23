@@ -167,10 +167,10 @@ describe('doctor report verification ownership', () => {
   test('an unsafe protected directory fails the run for JSON and human output', async () => {
     await withTempDir('doctor-report-', async (cwd) => {
       const host = mockHealthyDoctorHost(cwd);
-      mkdirSync(join(cwd, 'safety-net'));
-      chmodSync(join(cwd, 'safety-net'), 0o777);
 
       try {
+        mkdirSync(join(cwd, 'safety-net'));
+        chmodSync(join(cwd, 'safety-net'), 0o777);
         const run = await runDoctorBothModes(cwd, host);
 
         expect(run.report.findings).toEqual(

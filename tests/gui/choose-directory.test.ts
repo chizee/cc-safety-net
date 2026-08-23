@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chooseDirectory, isDirectoryPickerAvailable } from '@/gui/choose-directory';
@@ -52,6 +52,25 @@ describe('directory picker availability', () => {
     writeFileSync(join(nonExecutable, 'zenity'), '');
     chmodSync(join(nonExecutable, 'zenity'), 0o644);
     expect(isDirectoryPickerAvailable('linux', { PATH: nonExecutable, DISPLAY: ':0' })).toBe(false);
+  });
+
+  // A PATH entry pointing at a file makes the lookup below it fail with ENOTDIR
+  // rather than "not found": the probe must treat that as one dead entry.
+  test('survives a PATH entry that is not a directory', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc-picker-'));
+    stubs.push(dir);
+    const fileEntry = join(dir, 'not-a-directory');
+    writeFileSync(fileEntry, '');
+    expect(isDirectoryPickerAvailable('linux', { PATH: fileEntry, DISPLAY: ':0' })).toBe(false);
+  });
+
+  // Directories carry the executable bit by default, so a directory named after
+  // the binary would otherwise advertise a picker that can never start.
+  test('rejects a directory named after a dialog binary', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc-picker-'));
+    stubs.push(dir);
+    mkdirSync(join(dir, 'zenity'));
+    expect(isDirectoryPickerAvailable('linux', { PATH: dir, DISPLAY: ':0' })).toBe(false);
   });
 
   test('is unavailable on platforms with no known dialog', () => {

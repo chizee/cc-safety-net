@@ -199,11 +199,15 @@ export function withHostWorkspace<T>(run: (context: { cwd: string; home: string 
     const before = snapshotRealHostState();
     // The checks run in finally so a test that dirties real host state and
     // then throws still reports the real-machine write, not just its own
-    // failure.
+    // failure. They are nested for the same reason: a snapshot mismatch must
+    // not hide a leaked audit file behind it.
     try {
-      return await run(context);
+      try {
+        return await run(context);
+      } finally {
+        expect(snapshotRealHostState()).toBe(before);
+      }
     } finally {
-      expect(snapshotRealHostState()).toBe(before);
       expect(
         listAuditLogFiles(join(REAL_HOME, '.cc-safety-net', 'logs')).filter((file) =>
           basename(file).includes(SESSION_PREFIX),

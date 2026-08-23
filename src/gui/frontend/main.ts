@@ -1918,7 +1918,7 @@ const restoreDraft = () => {
     isRecordField(parsed) &&
     isRecordField(parsed.safety) &&
     typeof parsed.safety.level === 'string' &&
-    parsed.safety.level in safetyLevels &&
+    Object.hasOwn(safetyLevels, parsed.safety.level) &&
     isRecordField(parsed.safety.overrides) &&
     isRecordField(parsed.workflow) &&
     isRecordField(parsed.destructive_command_protection) &&

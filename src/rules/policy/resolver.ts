@@ -113,8 +113,8 @@ export async function discoverGitHubRepositoryRulebooks(
   }
   const metadata = JSON.parse(metadataResource.content) as {
     default_branch?: unknown;
-  };
-  const defaultBranch = metadata.default_branch;
+  } | null;
+  const defaultBranch = metadata?.default_branch;
   if (typeof defaultBranch !== 'string' || defaultBranch === '') {
     throw new Error(`Failed to inspect ${source}: missing default branch`);
   }
@@ -128,8 +128,8 @@ export async function discoverGitHubRepositoryRulebooks(
   if (!treeResponse.ok) {
     throw new Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
   }
-  const treeJson = JSON.parse(treeResource.content) as { tree?: unknown };
-  if (!Array.isArray(treeJson.tree)) {
+  const treeJson = JSON.parse(treeResource.content) as { tree?: unknown } | null;
+  if (!Array.isArray(treeJson?.tree)) {
     throw new Error(`Failed to inspect ${source}: unexpected GitHub tree response`);
   }
   const entries: unknown[] = treeJson.tree;
@@ -299,8 +299,8 @@ async function resolveGitHubCommit(
   }
   const commitJson = JSON.parse(commitResource.content) as {
     sha?: unknown;
-  };
-  if (typeof commitJson.sha !== 'string' || commitJson.sha === '') {
+  } | null;
+  if (typeof commitJson?.sha !== 'string' || commitJson.sha === '') {
     throw new Error(`Failed to resolve commit for ${source}`);
   }
   return commitJson.sha;

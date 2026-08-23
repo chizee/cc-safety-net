@@ -33,13 +33,20 @@ const LINUX_DIALOGS = [
   { binary: 'kdialog', args: ['--getexistingdirectory', '.', '--title', PROMPT] },
 ];
 
-/** Presence alone is not enough: a stale non-executable file would advertise a
- *  picker that can never start. */
+/** Presence alone is not enough: a stale non-executable file, or a directory
+ *  carrying its default executable bit, would advertise a picker that can never
+ *  start. The stat is caught per entry because a PATH entry that is itself a
+ *  file (ENOTDIR) or unreadable (EACCES) is one dead entry, not a lookup
+ *  failure. */
 const onPath = (binary: string, env: NodeJS.ProcessEnv) =>
   (env.PATH ?? '').split(delimiter).some((dir) => {
     if (dir.length === 0) return false;
-    const stats = statSync(join(dir, binary), { throwIfNoEntry: false });
-    return stats !== undefined && (stats.mode & 0o111) !== 0;
+    try {
+      const stats = statSync(join(dir, binary));
+      return stats.isFile() && (stats.mode & 0o111) !== 0;
+    } catch {
+      return false;
+    }
   });
 
 /**

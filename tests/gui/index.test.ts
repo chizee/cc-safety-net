@@ -459,7 +459,7 @@ describe('policy GUI server', () => {
       // The restore path dereferences these nested draft fields, so a damaged
       // or stale draft must fail this validation and be discarded instead of
       // crashing rendering after a successful policy load.
-      expect(html).toContain('parsed.safety.level in safetyLevels');
+      expect(html).toContain('Object.hasOwn(safetyLevels, parsed.safety.level)');
       expect(html).toContain('isRecordField(parsed.safety.overrides)');
       expect(html).toContain('isRecordField(parsed.destructive_command_protection.overrides)');
       expect(html).toContain('isRecordField(parsed.secret_protection.overrides)');
