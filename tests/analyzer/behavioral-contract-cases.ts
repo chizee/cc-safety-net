@@ -485,8 +485,8 @@ export function behavioralContractCases(paths: {
       expected: { kind: 'allow' },
     },
     {
-      name: 'blocks an unquoted heredoc carrying a destructive command',
-      command: 'cat <<EOF\nrm -rf ~\nEOF',
+      name: 'blocks an unquoted heredoc carrying a destructive command and a live expansion',
+      command: 'cat <<EOF\nrm -rf ~ $target\nEOF',
       options: options({ cwd: paths.cwd }),
       expected: {
         kind: 'block',

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { analyzeTestCommand } from '../helpers/policy';
 
 const unsupportedHeredocCases = [
-  ['unquoted delimiter', 'cat <<EOF\nharmless body\nEOF'],
+  ['unquoted delimiter', 'cat <<EOF\nharmless $body\nEOF'],
   ['shell interpreter', "bash <<'EOF'\nprintf harmless\nEOF"],
   ['non-shell interpreter', "node <<'EOF'\nconsole.log('harmless')\nEOF"],
   ['unknown consumer', "custom-tool <<'EOF'\nharmless body\nEOF"],
@@ -54,6 +54,42 @@ describe('heredoc command analysis', () => {
     expect(
       analyzeTestCommand("cat <<'EOF'\nrm -rf ~ remains inert prose\nEOF", { strict: true }),
     ).toBeNull();
+  });
+
+  // Field false positive (#86): an unquoted heredoc body with no expansion or
+  // escape characters is delivered byte-for-byte like a quoted one, so prose
+  // that only mentions a guarded command stays data.
+  test.each([
+    'cat <<EOF\nnever run git reset --hard on shared branches\nEOF',
+    'tee note.md <<EOF\nrm -rf ~ is inert prose\nEOF',
+  ])('allows an expansion-free unquoted data heredoc in %s', (command) => {
+    expect(analyzeTestCommand(command)).toBeNull();
+  });
+
+  test('allows an expansion-free unquoted data heredoc in strict mode', () => {
+    expect(
+      analyzeTestCommand('cat <<EOF\nrm -rf ~ remains inert prose\nEOF', { strict: true }),
+    ).toBeNull();
+  });
+
+  test.each([
+    ['expansion', 'cat <<EOF\nrun $cleanup then git reset --hard\nEOF'],
+    ['backtick', 'cat <<EOF\n`printf harmless` then git reset --hard\nEOF'],
+    ['backslash', 'cat <<EOF\nC:\\path then git reset --hard\nEOF'],
+  ])('keeps the raw-text scan for an unquoted body containing a %s', (_name, command) => {
+    expect(analyzeTestCommand(command)).toMatchObject({
+      ruleId: 'raw-text.dangerous-command',
+    });
+  });
+
+  test('tracks an expansion-free unquoted heredoc script for later execution', () => {
+    expect(
+      analyzeTestCommand('cat > /tmp/ccsn-x.sh <<EOF\nrm -rf ~\nEOF\nbash /tmp/ccsn-x.sh'),
+    ).toMatchObject({ ruleId: 'rm.recursive-force-root-or-home' });
+  });
+
+  test('allows an expansion-free unquoted heredoc on a shell syntax check', () => {
+    expect(analyzeTestCommand('bash -n <<EOF\nrm -rf ~\nEOF')).toBeNull();
   });
 
   test.each(
@@ -152,8 +188,12 @@ describe('interpreter stdin heredocs', () => {
     });
   });
 
-  test('keeps the raw-text scan for unquoted delimiters', () => {
-    expect(analyzeTestCommand("python3 - <<PY\ns = 'mkfs /dev/sda1'\nPY")).toMatchObject({
+  test('allows an expansion-free unquoted interpreter heredoc with literal-confined danger', () => {
+    expect(analyzeTestCommand("python3 - <<PY\ns = 'mkfs /dev/sda1'\nPY")).toBeNull();
+  });
+
+  test('keeps the raw-text scan for unquoted delimiters with expansions', () => {
+    expect(analyzeTestCommand("python3 - <<PY\ns = '$x mkfs /dev/sda1'\nPY")).toMatchObject({
       ruleId: 'raw-text.dangerous-command',
     });
   });
