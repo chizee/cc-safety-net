@@ -59,7 +59,11 @@ async function runWithInput(
 }
 
 async function runHookJson(run: () => Promise<void>, input: object | string) {
-  return JSON.parse((await runWithInput(run, input)).stdout);
+  const result = await runWithInput(run, input);
+  // stderr is part of the hook protocol: a successful run that also writes
+  // diagnostics is a regression this helper must surface, not swallow.
+  expect(result.stderr).toBe('');
+  return JSON.parse(result.stdout);
 }
 
 async function expectAntigravityFailClosed(input: object): Promise<void> {
@@ -84,6 +88,20 @@ describe('hook adapter direct integration', () => {
   test('Claude Code hook blocks supported Bash commands', async () => {
     const output = await runHookJson(runClaudeCodeHook, claudeCodeBashInput('git reset --hard'));
 
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(output.hookSpecificOutput.permissionDecisionReason).toContain('git reset --hard');
+  });
+
+  // The payload is external JSON, so any field can hold any shape; a non-string
+  // transcript_path must degrade agent detection, not crash before analysis.
+  test('Claude Code hook still denies when transcript_path is an object', async () => {
+    const result = await runWithInput(runClaudeCodeHook, {
+      ...claudeCodeBashInput('git reset --hard'),
+      transcript_path: { nested: true },
+    });
+
+    expect(result.stderr).toBe('');
+    const output = JSON.parse(result.stdout);
     expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
     expect(output.hookSpecificOutput.permissionDecisionReason).toContain('git reset --hard');
   });

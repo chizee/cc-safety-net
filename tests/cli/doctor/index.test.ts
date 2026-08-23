@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from 'bun:test';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import { join } from 'node:path';
 import { runDoctor } from '@/cli/doctor';
@@ -31,6 +31,54 @@ async function withoutTtyStdout<T>(fn: () => Promise<T>): Promise<T> {
       configurable: true,
     });
   }
+}
+
+/** Healthy host mocks shared by the exit-code tests: one configured hook, a
+ *  passing self-test, and an isolated home. */
+function mockHealthyDoctorHost(cwd: string) {
+  const detectHooks = spyOn(hookDetection, 'detectAllHooks').mockReturnValue([
+    {
+      platform: 'claude-code',
+      detected: true,
+      configured: true,
+      inspectionStatus: 'verified',
+    },
+  ]);
+  const runSelfTest = spyOn(selfTest, 'runIntegrationSelfTest');
+  runSelfTest.mockReturnValue({ passed: 3, failed: 0, total: 3, results: [] });
+  const homeDir = spyOn(os, 'homedir').mockReturnValue(cwd);
+  const captured = captureConsoleLog();
+  return {
+    captured,
+    env: {
+      HOME: cwd,
+      CC_SAFETY_NET_HOME: `${cwd}/safety-net`,
+      PATH: '',
+      COPILOT_HOME: `${cwd}/copilot`,
+      KIMI_CODE_HOME: `${cwd}/kimi`,
+    },
+    restore: () => {
+      captured.log.mockRestore();
+      homeDir.mockRestore();
+      runSelfTest.mockRestore();
+      detectHooks.mockRestore();
+    },
+  };
+}
+
+/** Runs doctor once as JSON and once as human output under the mocked host,
+ *  returning both exit codes with the parsed report and rendered text. */
+async function runDoctorBothModes(cwd: string, host: ReturnType<typeof mockHealthyDoctorHost>) {
+  const jsonExit = await withEnv(host.env, () =>
+    runDoctor({ cwd, json: true, skipUpdateCheck: true }),
+  );
+  const report = JSON.parse(host.captured.output.join('\n')) as { findings: unknown[] };
+
+  host.captured.output.length = 0;
+  const humanExit = await withoutTtyStdout(() =>
+    withEnv(host.env, () => runDoctor({ cwd, skipUpdateCheck: true })),
+  );
+  return { jsonExit, humanExit, report, human: host.captured.output.join('\n') };
 }
 
 describe('doctor report verification ownership', () => {
@@ -101,61 +149,42 @@ describe('doctor report verification ownership', () => {
 
   test('uses the same empty findings for JSON and human output without changing exit behavior', async () => {
     await withTempDir('doctor-report-', async (cwd) => {
-      const detectHooks = spyOn(hookDetection, 'detectAllHooks').mockReturnValue([
-        {
-          platform: 'claude-code',
-          detected: true,
-          configured: true,
-          inspectionStatus: 'verified',
-        },
-      ]);
-      const runSelfTest = spyOn(selfTest, 'runIntegrationSelfTest');
-      runSelfTest.mockReturnValue({
-        passed: 3,
-        failed: 0,
-        total: 3,
-        results: [],
-      });
-      const homeDir = spyOn(os, 'homedir').mockReturnValue(cwd);
-      const captured = captureConsoleLog();
+      const host = mockHealthyDoctorHost(cwd);
 
       try {
-        const jsonExit = await withEnv(
-          {
-            HOME: cwd,
-            CC_SAFETY_NET_HOME: `${cwd}/safety-net`,
-            PATH: '',
-            COPILOT_HOME: `${cwd}/copilot`,
-            KIMI_CODE_HOME: `${cwd}/kimi`,
-          },
-          () => runDoctor({ cwd, json: true, skipUpdateCheck: true }),
-        );
-        const report = JSON.parse(captured.output.join('\n')) as { findings: unknown[] };
+        const run = await runDoctorBothModes(cwd, host);
 
-        captured.output.length = 0;
-        const humanExit = await withoutTtyStdout(() =>
-          withEnv(
-            {
-              HOME: cwd,
-              CC_SAFETY_NET_HOME: `${cwd}/safety-net`,
-              PATH: '',
-              COPILOT_HOME: `${cwd}/copilot`,
-              KIMI_CODE_HOME: `${cwd}/kimi`,
-            },
-            () => runDoctor({ cwd, skipUpdateCheck: true }),
-          ),
-        );
-        const human = captured.output.join('\n');
-
-        expect(jsonExit).toBe(0);
-        expect(humanExit).toBe(0);
-        expect(report.findings).toEqual([]);
-        expect(human).toContain('No findings from inspected doctor facts.');
+        expect(run.jsonExit).toBe(0);
+        expect(run.humanExit).toBe(0);
+        expect(run.report.findings).toEqual([]);
+        expect(run.human).toContain('No findings from inspected doctor facts.');
       } finally {
-        captured.log.mockRestore();
-        homeDir.mockRestore();
-        runSelfTest.mockRestore();
-        detectHooks.mockRestore();
+        host.restore();
+      }
+    });
+  });
+
+  test('an unsafe protected directory fails the run for JSON and human output', async () => {
+    await withTempDir('doctor-report-', async (cwd) => {
+      const host = mockHealthyDoctorHost(cwd);
+
+      try {
+        mkdirSync(join(cwd, 'safety-net'));
+        chmodSync(join(cwd, 'safety-net'), 0o777);
+        const run = await runDoctorBothModes(cwd, host);
+
+        expect(run.report.findings).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              checkId: 'posture.policy-directory-unsafe',
+              severity: 'error',
+            }),
+          ]),
+        );
+        expect(run.jsonExit).toBe(1);
+        expect(run.humanExit).toBe(1);
+      } finally {
+        host.restore();
       }
     });
   });

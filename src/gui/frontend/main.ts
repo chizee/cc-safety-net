@@ -1904,24 +1904,43 @@ const restoreDraft = () => {
       return null;
     }
   })();
-  // 'audit' is listed so a draft stored before the field existed is discarded
+  // The render path below dereferences every field checked here, so a draft
+  // saved by an older build - or damaged in storage - must fail validation and
+  // be discarded rather than crash rendering after a successful policy load.
+  // 'audit' is checked so a draft stored before the field existed is discarded
   // rather than restored and saved back over the configured retention.
-  const isPolicyShape = [
-    'safety',
-    'workflow',
-    'destructive_command_protection',
-    'secret_protection',
-    'audit',
-  ].every((key) => parsed && typeof parsed[key] === 'object' && parsed[key] !== null);
+  const isRecordField = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+  const isOptionalPathList = (value: unknown) =>
+    value === undefined ||
+    (Array.isArray(value) && value.every((item) => typeof item === 'string'));
+  const isPolicyShape =
+    isRecordField(parsed) &&
+    isRecordField(parsed.safety) &&
+    typeof parsed.safety.level === 'string' &&
+    Object.hasOwn(safetyLevels, parsed.safety.level) &&
+    isRecordField(parsed.safety.overrides) &&
+    isRecordField(parsed.workflow) &&
+    isRecordField(parsed.destructive_command_protection) &&
+    isRecordField(parsed.destructive_command_protection.overrides) &&
+    isOptionalPathList(parsed.destructive_command_protection.allow_paths) &&
+    isRecordField(parsed.secret_protection) &&
+    isRecordField(parsed.secret_protection.overrides) &&
+    isOptionalPathList(parsed.secret_protection.deny_paths) &&
+    isOptionalPathList(parsed.secret_protection.allow_paths) &&
+    isRecordField(parsed.audit);
   if (!isPolicyShape || stored === JSON.stringify(state.policy)) {
     sessionStorage.removeItem('cc-safety-net-draft');
     return;
   }
-  // The shape check only proves the top-level sections exist, so a draft saved
-  // before allow_paths was introduced restores without the field and the path
-  // list render below would read undefined.length.
-  parsed.secret_protection.allow_paths ??= [];
-  draftPolicy = parsed;
+  // Validated above: every field the render path reads has its checked shape.
+  const draft = parsed as Policy;
+  // Path lists added after a draft was stored restore as empty rather than
+  // discarding the rest of the draft.
+  draft.destructive_command_protection.allow_paths ??= [];
+  draft.secret_protection.deny_paths ??= [];
+  draft.secret_protection.allow_paths ??= [];
+  draftPolicy = draft;
   // render() builds the two master-toggle checkboxes from state.policy and the
   // sub-renders below do not rebuild them, so sync them from the restored draft.
   const masterToggle = document.querySelector<HTMLInputElement>(

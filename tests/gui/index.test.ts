@@ -456,6 +456,18 @@ describe('policy GUI server', () => {
       expect(html).toContain('window.addEventListener("beforeunload"');
       expect(html).toContain('cc-safety-net-draft');
       expect(html).toContain('Restored unsaved draft');
+      // The restore path dereferences these nested draft fields, so a damaged
+      // or stale draft must fail this validation and be discarded instead of
+      // crashing rendering after a successful policy load.
+      expect(html).toContain('Object.hasOwn(safetyLevels, parsed.safety.level)');
+      expect(html).toContain('isRecordField(parsed.safety.overrides)');
+      expect(html).toContain('isRecordField(parsed.destructive_command_protection.overrides)');
+      expect(html).toContain('isRecordField(parsed.secret_protection.overrides)');
+      expect(html).toContain(
+        'isOptionalPathList(parsed.destructive_command_protection.allow_paths)',
+      );
+      expect(html).toContain('isOptionalPathList(parsed.secret_protection.deny_paths)');
+      expect(html).toContain('isOptionalPathList(parsed.secret_protection.allow_paths)');
       // A retention change writes only the saved policy, so its reload must
       // restore the session draft instead of discarding it like a policy write.
       expect(html).toContain(
@@ -869,6 +881,35 @@ describe('policy GUI server', () => {
         state: 'degraded',
         reason: expect.stringContaining('Enforcing built-in protective defaults') as string,
       });
+    } finally {
+      await server.close();
+    }
+  });
+
+  // The server buffers the whole body before parsing, so it must stop reading
+  // at a named cap instead of letting one request grow process memory.
+  test('POST bodies over the size cap are rejected with 413', async () => {
+    const server = await createPolicyGuiServer({ userConfigDir: join(safetyNetHome, 'rules') });
+    try {
+      const bodyOfBytes = (bytes: number) => `{"pad":"${'a'.repeat(bytes - 10)}"}`;
+      const post = (body: string) =>
+        fetch(`${server.origin}/api/policy/preview?token=${server.token}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-cc-safety-net-token': server.token,
+          },
+          body,
+        });
+
+      const oversized = await post(bodyOfBytes(1_048_577));
+      expect(oversized.status).toBe(413);
+
+      // At the cap the request must still reach normal JSON handling.
+      const atLimit = await post(bodyOfBytes(1_048_576));
+      expect(atLimit.status).toBe(400);
+      const atLimitBody = (await atLimit.json()) as { errors: string[] };
+      expect(atLimitBody.errors[0]).not.toContain('too large');
     } finally {
       await server.close();
     }

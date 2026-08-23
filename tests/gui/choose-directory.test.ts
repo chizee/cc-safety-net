@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chooseDirectory, isDirectoryPickerAvailable } from '@/gui/choose-directory';
@@ -8,8 +8,10 @@ import { chooseDirectory, isDirectoryPickerAvailable } from '@/gui/choose-direct
 // would make the result depend on whatever the suite happens to run on.
 const withZenity = mkdtempSync(join(tmpdir(), 'cc-picker-'));
 writeFileSync(join(withZenity, 'zenity'), '');
+chmodSync(join(withZenity, 'zenity'), 0o755);
 const withKdialog = mkdtempSync(join(tmpdir(), 'cc-picker-'));
 writeFileSync(join(withKdialog, 'kdialog'), '');
+chmodSync(join(withKdialog, 'kdialog'), 0o755);
 const empty = mkdtempSync(join(tmpdir(), 'cc-picker-'));
 
 afterAll(() => {
@@ -40,6 +42,38 @@ describe('directory picker availability', () => {
   // and the dialog would only fail with "cannot open display" after the click.
   test('rejects a dialog binary with no display', () => {
     expect(isDirectoryPickerAvailable('linux', { PATH: withZenity })).toBe(false);
+  });
+
+  // A stale install can leave a plain file where the binary was: advertising it
+  // would offer a picker that can never start.
+  test('rejects a dialog file that is not executable', () => {
+    const nonExecutable = mkdtempSync(join(tmpdir(), 'cc-picker-'));
+    stubs.push(nonExecutable);
+    writeFileSync(join(nonExecutable, 'zenity'), '');
+    chmodSync(join(nonExecutable, 'zenity'), 0o644);
+    expect(isDirectoryPickerAvailable('linux', { PATH: nonExecutable, DISPLAY: ':0' })).toBe(false);
+  });
+
+  // A PATH entry pointing at a file makes the lookup below it fail with ENOTDIR
+  // rather than "not found": the probe must treat that as one dead entry.
+  test('survives a PATH entry that is not a directory', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc-picker-'));
+    stubs.push(dir);
+    const fileEntry = join(dir, 'not-a-directory');
+    writeFileSync(fileEntry, '');
+    expect(isDirectoryPickerAvailable('linux', { PATH: fileEntry, DISPLAY: ':0' })).toBe(false);
+  });
+
+  // Directories carry the executable bit by default, so a directory named after
+  // the binary would otherwise advertise a picker that can never start.
+  test('rejects a directory named after a dialog binary', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc-picker-'));
+    stubs.push(dir);
+    mkdirSync(join(dir, 'zenity'));
+    // Explicit mode: a restrictive umask stripping the execute bits would let
+    // the mode check reject the entry before the isFile check is exercised.
+    chmodSync(join(dir, 'zenity'), 0o755);
+    expect(isDirectoryPickerAvailable('linux', { PATH: dir, DISPLAY: ':0' })).toBe(false);
   });
 
   test('is unavailable on platforms with no known dialog', () => {

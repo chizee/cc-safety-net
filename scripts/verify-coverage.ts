@@ -75,6 +75,14 @@ export function verifyCoverageSummary(
   summary: CoverageSummary,
   threshold = COVERAGE_THRESHOLD,
 ): CoverageSummary {
+  // 0/0 divides to NaN, and NaN compares below no threshold, so an empty
+  // report would otherwise pass at any threshold.
+  const unmeasured = (['lines', 'functions'] as const).filter(
+    (metric) => summary[metric].total === 0,
+  );
+  if (unmeasured.length > 0) {
+    throw new Error(`Coverage report has no measurable ${unmeasured.join(', ')}`);
+  }
   const below = (['lines', 'functions'] as const).filter(
     (metric) => summary[metric].hit / summary[metric].total < threshold,
   );

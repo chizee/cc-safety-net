@@ -55,6 +55,41 @@ const shown = (feed: ReturnType<typeof getActivityFeed>) => ({
   allowed: feed.entries.filter((entry) => entry.decision === 'allow').length,
 });
 
+describe('activity feed record validation', () => {
+  // An entry with an object agent would flow into per-agent counting; it must
+  // be dropped by the shared reader and captioned as unreadable instead.
+  test('drops records with wrong field shapes and reports them as unreadable', () => {
+    const logsDir = mkdtempSync(join(tmpdir(), 'safety-net-gui-activity-'));
+    try {
+      const today = new Date();
+      const ts = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12).toISOString();
+      const monthDir = join(logsDir, '-project-a', ts.slice(0, 7));
+      mkdirSync(monthDir, { recursive: true });
+      writeFileSync(
+        join(monthDir, `${ts.slice(0, 10)}-s1.jsonl`),
+        [
+          JSON.stringify({
+            ts,
+            sessionId: 's1',
+            decision: 'deny',
+            agent: 'claude-code',
+            command: 'git status',
+            segment: 'git status',
+            reason: 'fixture',
+          }),
+          JSON.stringify({ ts, command: 'evil', agent: { nested: true } }),
+        ].join('\n'),
+      );
+
+      const feed = getActivityFeed(1, logsDir);
+      expect(feed.totalInWindow).toBe(1);
+      expect(feed.unreadable).toBe(1);
+    } finally {
+      rmSync(logsDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('activity feed entry cap', () => {
   test('keeps both decisions when denials alone would fill the cap', () => {
     // A fail-closed storm produced enough denials to crowd every allowed entry

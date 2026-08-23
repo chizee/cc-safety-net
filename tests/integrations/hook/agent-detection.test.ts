@@ -46,6 +46,8 @@ describe('Claude-shaped hook agent detection', () => {
       expect(detectClaudeShapeAgent(null)).toBe('unknown');
       expect(detectClaudeShapeAgent(undefined)).toBe('unknown');
       expect(detectClaudeShapeAgent('relative/transcript.jsonl')).toBe('unknown');
+      expect(detectClaudeShapeAgent({ nested: true })).toBe('unknown');
+      expect(detectClaudeShapeAgent(42)).toBe('unknown');
       expect(withEnv({ CODEX_HOME: codex }, () => detectClaudeShapeAgent(sibling))).toBe('unknown');
       expect(
         withEnv({ CODEX_HOME: shared, COPILOT_HOME: shared }, () =>

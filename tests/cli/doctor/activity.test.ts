@@ -398,6 +398,31 @@ describe('getActivitySummary', () => {
     }
   });
 
+  // A record with an object command would reach the human formatter, which
+  // calls .replace() on it; it must be dropped and reported as unreadable.
+  test('drops records with wrong field shapes and reports them as unreadable', () => {
+    const logsDir = join(tmpdir(), `doctor-logs-shape-${Date.now()}`);
+    mkdirSync(logsDir, { recursive: true });
+    const ts = new Date().toISOString();
+    writeFileSync(
+      join(logsDir, 'session.jsonl'),
+      [
+        JSON.stringify({ ts, command: 'valid command', reason: 'Blocked' }),
+        JSON.stringify({ ts, command: { nested: true }, reason: 'Blocked' }),
+      ].join('\n'),
+    );
+
+    try {
+      const activity = getActivitySummary(7, logsDir);
+
+      expect(activity.totalBlocked).toBe(1);
+      expect(activity.recentEntries.map((entry) => entry.command)).toEqual(['valid command']);
+      expect(activity.unreadable).toBe(1);
+    } finally {
+      rmSync(logsDir, { recursive: true, force: true });
+    }
+  });
+
   test('ignores non-jsonl files', () => {
     const logsDir = join(tmpdir(), `doctor-logs-${Date.now()}`);
     mkdirSync(logsDir, { recursive: true });

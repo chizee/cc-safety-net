@@ -2,13 +2,13 @@
  * Audit log activity summary for the doctor command.
  */
 
-import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import {
   formatRelativeTime,
   getAuditLogsDir,
   listAuditLogFiles,
   pruneExpiredAuditLogs,
+  readAuditLogEntries,
 } from '@/engine/facade';
 import type { ActivitySummary } from '@/integrations/doctor-types';
 import type { AuditLogEntry } from '@/ir/audit';
@@ -32,36 +32,26 @@ export function getActivitySummary(
   const files = logsDir ? listAuditLogFiles(logsDir, skips) : [];
 
   for (const file of files) {
-    try {
-      const content = readFileSync(file, 'utf-8');
-      const lines = content.trim().split('\n').filter(Boolean);
-
-      for (const line of lines) {
-        try {
-          const entry = JSON.parse(line) as AuditLogEntry;
-          if (entry.decision === 'allow') {
-            continue;
-          }
-          const ts = new Date(entry.ts).getTime();
-          if (ts >= cutoff) {
-            totalBlocked++;
-            recentSessions.add(entry.sessionId ?? basename(file, '.jsonl'));
-            if (oldestEntryTs === undefined || ts <= oldestEntryTs) {
-              oldestEntry = entry.ts;
-              oldestEntryTs = ts;
-            }
-            if (newestEntryTs === undefined || ts > newestEntryTs) {
-              newestEntry = entry.ts;
-              newestEntryTs = ts;
-            }
-            insertRecentEntry(recentEntries, entry, ts);
-          }
-        } catch {
-          skips.count++;
-        }
+    // The shared reader validates each record's shape, so every field used
+    // below - and by the formatter downstream - is a string when present.
+    for (const entry of readAuditLogEntries(file, skips)) {
+      if (entry.decision === 'allow') {
+        continue;
       }
-    } catch {
-      skips.count++;
+      const ts = new Date(entry.ts).getTime();
+      if (ts >= cutoff) {
+        totalBlocked++;
+        recentSessions.add(entry.sessionId ?? basename(file, '.jsonl'));
+        if (oldestEntryTs === undefined || ts <= oldestEntryTs) {
+          oldestEntry = entry.ts;
+          oldestEntryTs = ts;
+        }
+        if (newestEntryTs === undefined || ts > newestEntryTs) {
+          newestEntry = entry.ts;
+          newestEntryTs = ts;
+        }
+        insertRecentEntry(recentEntries, entry, ts);
+      }
     }
   }
 

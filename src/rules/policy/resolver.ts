@@ -112,12 +112,13 @@ export async function discoverGitHubRepositoryRulebooks(
     throw new Error(`Failed to inspect ${source}: GitHub returned ${metadataResponse.status}`);
   }
   const metadata = JSON.parse(metadataResource.content) as {
-    default_branch?: string;
-  };
-  if (!metadata.default_branch) {
+    default_branch?: unknown;
+  } | null;
+  const defaultBranch = metadata?.default_branch;
+  if (typeof defaultBranch !== 'string' || defaultBranch === '') {
     throw new Error(`Failed to inspect ${source}: missing default branch`);
   }
-  const commit = await resolveGitHubCommit(owner, repo, metadata.default_branch, source, operation);
+  const commit = await resolveGitHubCommit(owner, repo, defaultBranch, source, operation);
   const treeResource = await fetchRuleSyncResource(
     `https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`,
     'tree',
@@ -127,13 +128,17 @@ export async function discoverGitHubRepositoryRulebooks(
   if (!treeResponse.ok) {
     throw new Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
   }
-  const treeJson = JSON.parse(treeResource.content) as {
-    tree?: Array<{ path?: string; type?: string }>;
-  };
-  const names = (treeJson.tree ?? [])
+  const treeJson = JSON.parse(treeResource.content) as { tree?: unknown } | null;
+  if (!Array.isArray(treeJson?.tree)) {
+    throw new Error(`Failed to inspect ${source}: unexpected GitHub tree response`);
+  }
+  const entries: unknown[] = treeJson.tree;
+  const names = entries
     .flatMap((entry) => {
-      if (entry.type !== 'blob' || typeof entry.path !== 'string') return [];
-      const match = entry.path.match(GITHUB_RULEBOOK_PATH_RE);
+      if (!entry || typeof entry !== 'object') return [];
+      const record = entry as { path?: unknown; type?: unknown };
+      if (record.type !== 'blob' || typeof record.path !== 'string') return [];
+      const match = record.path.match(GITHUB_RULEBOOK_PATH_RE);
       return match?.[1] ? [match[1]] : [];
     })
     .sort();
@@ -142,7 +147,7 @@ export async function discoverGitHubRepositoryRulebooks(
   }
   return names.map((name) => ({
     spec: `${owner}/${repo}#${commit}/${name}`,
-    display_ref: metadata.default_branch,
+    display_ref: defaultBranch,
   }));
 }
 
@@ -293,9 +298,9 @@ async function resolveGitHubCommit(
     throw new Error(`Failed to resolve ${source}: GitHub returned ${commitResponse.status}`);
   }
   const commitJson = JSON.parse(commitResource.content) as {
-    sha?: string;
-  };
-  if (!commitJson.sha) {
+    sha?: unknown;
+  } | null;
+  if (typeof commitJson?.sha !== 'string' || commitJson.sha === '') {
     throw new Error(`Failed to resolve commit for ${source}`);
   }
   return commitJson.sha;

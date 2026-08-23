@@ -197,14 +197,23 @@ const WATCHED_REAL_PATHS = [
 export function withHostWorkspace<T>(run: (context: { cwd: string; home: string }) => Promise<T>) {
   return withWorkspace(async (context) => {
     const before = snapshotRealHostState();
-    const result = await run(context);
-    expect(snapshotRealHostState()).toBe(before);
-    expect(
-      listAuditLogFiles(join(REAL_HOME, '.cc-safety-net', 'logs')).filter((file) =>
-        basename(file).includes(SESSION_PREFIX),
-      ),
-    ).toEqual([]);
-    return result;
+    // The checks run in finally so a test that dirties real host state and
+    // then throws still reports the real-machine write, not just its own
+    // failure. They are nested for the same reason: a snapshot mismatch must
+    // not hide a leaked audit file behind it.
+    try {
+      try {
+        return await run(context);
+      } finally {
+        expect(snapshotRealHostState()).toBe(before);
+      }
+    } finally {
+      expect(
+        listAuditLogFiles(join(REAL_HOME, '.cc-safety-net', 'logs')).filter((file) =>
+          basename(file).includes(SESSION_PREFIX),
+        ),
+      ).toEqual([]);
+    }
   });
 }
 
