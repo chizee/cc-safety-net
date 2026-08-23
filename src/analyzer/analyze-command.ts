@@ -47,6 +47,7 @@ import type {
   PathResolver,
 } from '@/ir/analysis';
 import {
+  type CommandHeredoc,
   type CommandProgram,
   type CommandRedirection,
   type CommandView,
@@ -891,7 +892,7 @@ function trackLiteralHeredocFiles(
   const heredoc = commandView.redirections.find(
     (redirection) => redirection.operator === '<<' || redirection.operator === '<<-',
   )?.heredoc;
-  if (!heredoc?.quotedDelimiter) return;
+  if (!heredoc || !isLiteralHeredoc(heredoc)) return;
 
   for (const target of getLiteralHeredocOutputTargets(commandView)) {
     const path = resolveTrackedHeredocPath(target.text, state.effectiveCwd, paths);
@@ -995,6 +996,12 @@ function isBareCommandWord(word: CommandWord | undefined, value: string): boolea
   );
 }
 
+// An unquoted body free of `$`, backtick, and backslash undergoes no expansion or
+// escape processing, so the shell delivers it byte-for-byte like a quoted one.
+function isLiteralHeredoc(heredoc: CommandHeredoc): boolean {
+  return heredoc.quotedDelimiter || !/[$`\\]/.test(heredoc.body);
+}
+
 function getHeredocReason(commandView: CommandView): string | undefined {
   const heredocs = commandView.redirections.filter(
     (redirection) => redirection.operator === '<<' || redirection.operator === '<<-',
@@ -1004,7 +1011,7 @@ function getHeredocReason(commandView: CommandView): string | undefined {
 
   const heredoc = heredocs[0];
   if (!heredoc?.heredoc) return REASON_UNSUPPORTED_HEREDOC;
-  if (!heredoc.heredoc.quotedDelimiter) return REASON_UNQUOTED_HEREDOC;
+  if (!isLiteralHeredoc(heredoc.heredoc)) return REASON_UNQUOTED_HEREDOC;
   if (heredoc.fd !== undefined && heredoc.fd !== 0) return REASON_UNSUPPORTED_HEREDOC;
   if (
     commandView.redirections.some(
@@ -1089,7 +1096,7 @@ function analyzeUnsupportedHeredoc(
   return result ? { ...result, segment: commandView.displayText } : null;
 }
 
-// A quoted heredoc feeding an interpreter's stdin is that interpreter's program, so
+// A literal heredoc feeding an interpreter's stdin is that interpreter's program, so
 // scan it like inline -c/-e code instead of raw unparseable shell text. Returns
 // undefined when the heredoc is not a literal interpreter program (fall back to the
 // raw-text scan) and null when the body is analyzed and allowed.
@@ -1099,7 +1106,11 @@ function analyzeInterpreterHeredocMatch(
   options: ActiveInternalOptions,
 ): DestructiveCommandRuleMatch | null | undefined {
   const heredoc = heredocs.length === 1 ? heredocs[0] : undefined;
-  if (!heredoc?.heredoc?.quotedDelimiter || (heredoc.fd !== undefined && heredoc.fd !== 0)) {
+  if (
+    !heredoc?.heredoc ||
+    !isLiteralHeredoc(heredoc.heredoc) ||
+    (heredoc.fd !== undefined && heredoc.fd !== 0)
+  ) {
     return undefined;
   }
   const head = commandView.words[0];
@@ -1151,7 +1162,11 @@ function isInertShellHeredoc(
   options: ActiveInternalOptions,
 ): boolean {
   const heredoc = heredocs.length === 1 ? heredocs[0] : undefined;
-  if (!heredoc?.heredoc?.quotedDelimiter || (heredoc.fd !== undefined && heredoc.fd !== 0)) {
+  if (
+    !heredoc?.heredoc ||
+    !isLiteralHeredoc(heredoc.heredoc) ||
+    (heredoc.fd !== undefined && heredoc.fd !== 0)
+  ) {
     return false;
   }
 
