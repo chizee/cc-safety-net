@@ -201,7 +201,7 @@ async function handleRequest(
   if (request.method === 'POST' && url.pathname === '/api/policy/preview') {
     const body = await readJsonBody(request);
     if (!body.ok) {
-      sendJson(response, 400, { errors: [body.error] });
+      sendJson(response, body.status, { errors: [body.error] });
       return;
     }
     const result = previewUserPolicyForGui(body.value);
@@ -212,7 +212,7 @@ async function handleRequest(
   if (request.method === 'POST' && url.pathname === '/api/policy/explain') {
     const body = await readJsonBody(request);
     if (!body.ok) {
-      sendJson(response, 400, { errors: [body.error] });
+      sendJson(response, body.status, { errors: [body.error] });
       return;
     }
     const payload = body.value as { command?: unknown; policy?: unknown } | null;
@@ -232,7 +232,7 @@ async function handleRequest(
   if (request.method === 'POST' && url.pathname === '/api/policy') {
     const body = await readJsonBody(request);
     if (!body.ok) {
-      sendJson(response, 400, { errors: [body.error] });
+      sendJson(response, body.status, { errors: [body.error] });
       return;
     }
     const result = writeUserPolicyFromGui(body.value, options);
@@ -335,7 +335,7 @@ async function handleRequest(
   ) {
     const body = await readJsonBody(request);
     if (!body.ok) {
-      sendJson(response, 400, { errors: [body.error] });
+      sendJson(response, body.status, { errors: [body.error] });
       return;
     }
     const target = (body.value as { target?: unknown } | null)?.target;
@@ -398,18 +398,29 @@ function requestHasValidToken(request: IncomingMessage, url: URL, token: string)
   return request.headers['x-cc-safety-net-token'] === token;
 }
 
+/** The whole body sits in memory before parsing, so one oversized local
+ *  request must stop at this cap instead of growing the process unbounded. */
+const MAX_JSON_BODY_BYTES = 1_048_576;
+
 async function readJsonBody(
   request: IncomingMessage,
-): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> {
+): Promise<{ ok: true; value: unknown } | { ok: false; status: 400 | 413; error: string }> {
   const chunks: Buffer[] = [];
+  let bytes = 0;
   for await (const chunk of request) {
-    chunks.push(chunk as Buffer);
+    const buffer = chunk as Buffer;
+    bytes += buffer.byteLength;
+    if (bytes > MAX_JSON_BODY_BYTES) {
+      return { ok: false, status: 413, error: 'Request body is too large' };
+    }
+    chunks.push(buffer);
   }
   try {
     return { ok: true, value: JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}') };
   } catch (error) {
     return {
       ok: false,
+      status: 400,
       error: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
     };
   }

@@ -62,6 +62,16 @@ describe('coverage verification', () => {
     );
   });
 
+  test('rejects a report whose metric totals are zero', () => {
+    const summary = parseCoverageSummary(
+      ['SF:src/a.ts', 'FNF:0', 'FNH:0', 'LF:0', 'LH:0', 'end_of_record'].join('\n'),
+    );
+    expect(summary).toEqual({ lines: { hit: 0, total: 0 }, functions: { hit: 0, total: 0 } });
+    expect(() => verifyCoverageSummary(summary)).toThrow(
+      'Coverage report has no measurable lines, functions',
+    );
+  });
+
   test.each([
     ['', 'LCOV report is empty'],
     ['SF:src/a.ts\nLF:1\nLH:1\nend_of_record', 'LCOV report has no function totals'],

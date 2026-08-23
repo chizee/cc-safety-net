@@ -33,8 +33,14 @@ const LINUX_DIALOGS = [
   { binary: 'kdialog', args: ['--getexistingdirectory', '.', '--title', PROMPT] },
 ];
 
+/** Presence alone is not enough: a stale non-executable file would advertise a
+ *  picker that can never start. */
 const onPath = (binary: string, env: NodeJS.ProcessEnv) =>
-  (env.PATH ?? '').split(delimiter).some((dir) => dir.length > 0 && existsSync(join(dir, binary)));
+  (env.PATH ?? '').split(delimiter).some((dir) => {
+    if (dir.length === 0) return false;
+    const stats = statSync(join(dir, binary), { throwIfNoEntry: false });
+    return stats !== undefined && (stats.mode & 0o111) !== 0;
+  });
 
 /**
  * Whether a native folder dialog can be opened for this process.

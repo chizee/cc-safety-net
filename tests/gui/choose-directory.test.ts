@@ -8,8 +8,10 @@ import { chooseDirectory, isDirectoryPickerAvailable } from '@/gui/choose-direct
 // would make the result depend on whatever the suite happens to run on.
 const withZenity = mkdtempSync(join(tmpdir(), 'cc-picker-'));
 writeFileSync(join(withZenity, 'zenity'), '');
+chmodSync(join(withZenity, 'zenity'), 0o755);
 const withKdialog = mkdtempSync(join(tmpdir(), 'cc-picker-'));
 writeFileSync(join(withKdialog, 'kdialog'), '');
+chmodSync(join(withKdialog, 'kdialog'), 0o755);
 const empty = mkdtempSync(join(tmpdir(), 'cc-picker-'));
 
 afterAll(() => {
@@ -40,6 +42,16 @@ describe('directory picker availability', () => {
   // and the dialog would only fail with "cannot open display" after the click.
   test('rejects a dialog binary with no display', () => {
     expect(isDirectoryPickerAvailable('linux', { PATH: withZenity })).toBe(false);
+  });
+
+  // A stale install can leave a plain file where the binary was: advertising it
+  // would offer a picker that can never start.
+  test('rejects a dialog file that is not executable', () => {
+    const nonExecutable = mkdtempSync(join(tmpdir(), 'cc-picker-'));
+    stubs.push(nonExecutable);
+    writeFileSync(join(nonExecutable, 'zenity'), '');
+    chmodSync(join(nonExecutable, 'zenity'), 0o644);
+    expect(isDirectoryPickerAvailable('linux', { PATH: nonExecutable, DISPLAY: ':0' })).toBe(false);
   });
 
   test('is unavailable on platforms with no known dialog', () => {

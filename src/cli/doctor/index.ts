@@ -29,12 +29,7 @@ import {
   resolveEffectiveDestructiveCommandRules,
 } from '@/engine/facade';
 import { detectAllHooks } from '@/integrations/detect';
-import type {
-  ConfigSourceInfo,
-  DoctorOptions,
-  DoctorReport,
-  HookStatus,
-} from '@/integrations/doctor-types';
+import type { DoctorOptions, DoctorReport } from '@/integrations/doctor-types';
 import { runIntegrationSelfTest } from '@/integrations/self-test';
 import { getPackageVersion, getSystemInfo } from '@/integrations/system-info';
 
@@ -60,10 +55,10 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
     printReport(report);
   }
 
-  return doctorHasFailure(report.hooks, report.engineSelfTest, {
-    userConfig: report.userConfig,
-    projectConfig: report.projectConfig,
-  })
+  // Findings own the failure contract so a rendered error can never exit 0;
+  // the self-test stays a fact check because it has no finding rule.
+  return report.engineSelfTest.failed > 0 ||
+    report.findings.some((finding) => finding.severity === 'error')
     ? 1
     : 0;
 }
@@ -126,20 +121,6 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
     system,
   };
   return { ...report, findings: deriveDoctorFindings(report) };
-}
-
-function doctorHasFailure(
-  hooks: readonly HookStatus[],
-  engineSelfTest: DoctorReport['engineSelfTest'],
-  configInfo: { userConfig: ConfigSourceInfo; projectConfig: ConfigSourceInfo },
-): boolean {
-  return (
-    (hooks.length > 0 && hooks.every((hook) => !hook.configured)) ||
-    hooks.some((hook) => hook.inspectionStatus === 'failed') ||
-    engineSelfTest.failed > 0 ||
-    (configInfo.userConfig.exists && !configInfo.userConfig.valid) ||
-    (configInfo.projectConfig.exists && !configInfo.projectConfig.valid)
-  );
 }
 
 function printReport(report: DoctorReport): void {
