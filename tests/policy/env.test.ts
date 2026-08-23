@@ -290,19 +290,30 @@ describe('getCCSafetyNetEnvModes', () => {
     delete process.env.CC_SAFETY_NET_LEVEL;
   });
 
+  // withEnv and the finally keep the env value and console spy from leaking
+  // into later tests when the assertion fails. The warning text itself is
+  // owned by the 'invalid CC_SAFETY_NET_LEVEL reporting' suite below.
   test('invalid env level is ignored', () => {
-    process.env.CC_SAFETY_NET_LEVEL = 'bananas';
-    const spy = spyOn(console, 'error').mockImplementation(() => {});
-
-    expect(getCCSafetyNetEnvModes()).toMatchObject({
-      strict: false,
-      paranoidRm: false,
-      paranoidInterpreters: false,
-      effectiveLevel: 'standard',
+    const messages: unknown[] = [];
+    const spy = spyOn(console, 'error').mockImplementation((message: unknown) => {
+      messages.push(message);
     });
 
-    spy.mockRestore();
-    delete process.env.CC_SAFETY_NET_LEVEL;
+    try {
+      withEnv({ CC_SAFETY_NET_LEVEL: 'bananas' }, () => {
+        expect(getCCSafetyNetEnvModes()).toMatchObject({
+          strict: false,
+          paranoidRm: false,
+          paranoidInterpreters: false,
+          effectiveLevel: 'standard',
+        });
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(messages).toHaveLength(1);
+    expect(String(messages[0])).toContain('CC_SAFETY_NET_LEVEL');
   });
 });
 

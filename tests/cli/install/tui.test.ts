@@ -153,15 +153,27 @@ printf '1.0.0\\n'
     chmodSync(commandPath, 0o755);
   }
 
-  await spawnInstallEval<{ exitCode: number }>(
+  // console.log and the output stream are part of the command protocol, so
+  // they are captured and asserted rather than discarded: a probe run that
+  // starts printing diagnostics must fail here.
+  const probe = await spawnInstallEval<{
+    exitCode: number;
+    consoleLines: string[];
+    output: string;
+  }>(
     `
 import { Writable } from "node:stream";
 import { runInstallCommand } from "./src/cli/install/index.ts";
 
-console.log = () => {};
+const consoleLines = [];
+console.log = (...args) => {
+  consoleLines.push(args.join(" "));
+};
+let output = "";
 const exitCode = await runInstallCommand("install", [], {
   output: new Writable({
-    write(_chunk, _encoding, callback) {
+    write(chunk, _encoding, callback) {
+      output += String(chunk);
       callback();
     },
   }),
@@ -169,10 +181,13 @@ const exitCode = await runInstallCommand("install", [], {
   selectTargets: async () => null,
 });
 
-process.stdout.write(JSON.stringify({ exitCode }));
+process.stdout.write(JSON.stringify({ exitCode, consoleLines, output }));
 `,
     { HOME: homeDir, PATH: `${binDir}${delimiter}${process.env.PATH ?? ''}` },
   );
+  expect(probe.exitCode).toBe(0);
+  expect(probe.consoleLines).toEqual([]);
+  expect(probe.output).toBe('Cancelled: nothing was installed.\n');
 
   return readFileSync(logPath, 'utf-8');
 }

@@ -52,8 +52,11 @@ async function runStatuslineWithStdin(stdin: string, env: Record<string, string>
   // payload can fail with EPIPE — the expected outcome, not a harness error.
   await Promise.resolve(proc.stdin.write(stdin)).catch(() => {});
   await Promise.resolve(proc.stdin.end()).catch(() => {});
-  const output = await new Response(proc.stdout).text();
-  return { output: output.trim(), exitCode: await proc.exited };
+  const [output, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  return { output: output.trim(), stderr, exitCode: await proc.exited };
 }
 
 async function expectStatusline(env: Record<string, string>, output: string) {
@@ -200,6 +203,7 @@ describe('statusline command', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.output).toBe('upstream context | 🛡️ CC Safety Net ✅');
+    expect(result.stderr).toBe('');
   });
 
   test('drops piped input larger than the bounded stdin limit', async () => {
@@ -209,6 +213,7 @@ describe('statusline command', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.output).toBe('🛡️ CC Safety Net ✅');
+    expect(result.stderr).toBe('');
   });
 
   test('keeps the preset emoji for a redundant rule override', async () => {
