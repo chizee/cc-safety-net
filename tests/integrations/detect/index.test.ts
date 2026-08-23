@@ -819,6 +819,30 @@ describe('detectAllHooks', () => {
     });
   });
 
+  // Valid JSON with the wrong nested shape must degrade to a reported error;
+  // crashing here would take down the whole doctor run.
+  test('GitHub Copilot CLI: reports invalid preToolUse shapes instead of crashing', () => {
+    withHookFixture('copilot', ({ homeDir, projectDir }) => {
+      const copilotDir = join(projectDir, '.github', 'hooks');
+      mkdirSync(copilotDir, { recursive: true });
+      writeFileSync(
+        join(copilotDir, 'string-hooks.json'),
+        JSON.stringify({ hooks: { preToolUse: 'disabled' } }),
+      );
+      writeFileSync(
+        join(copilotDir, 'null-entry.json'),
+        JSON.stringify({ hooks: { preToolUse: [null] } }),
+      );
+      const copilot = findHook('copilot-cli', homeDir, projectDir);
+
+      expectHookState(copilot, 'n/a');
+      expect(copilot?.errors?.toSorted()).toEqual([
+        expect.stringContaining(`Invalid hook config ${join(copilotDir, 'null-entry.json')}`),
+        expect.stringContaining(`Invalid hook config ${join(copilotDir, 'string-hooks.json')}`),
+      ]);
+    });
+  });
+
   test('GitHub Copilot CLI: supports the nested short -cp flag', () => {
     withHookFixture('copilot', ({ homeDir, projectDir }) => {
       const copilotDir = join(projectDir, '.github', 'hooks');

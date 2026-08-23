@@ -48,6 +48,27 @@ export function findSuspectEntries(entries: readonly AuditLogEntry[]): Set<Audit
   );
 }
 
+/** Fields readers dereference with string methods or use as record keys.
+ *  Legacy entries may omit them, so they are only type-checked when present. */
+const OPTIONAL_STRING_FIELDS = [
+  'segment',
+  'reason',
+  'sessionId',
+  'decision',
+  'agent',
+  'ruleId',
+  'failureStage',
+] as const;
+
+function isReadableAuditLogEntry(value: unknown): value is AuditLogEntry {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (typeof record.ts !== 'string' || typeof record.command !== 'string') return false;
+  return OPTIONAL_STRING_FIELDS.every(
+    (field) => record[field] === undefined || typeof record[field] === 'string',
+  );
+}
+
 /** See `listAuditLogFiles` for `skips`. */
 export function readAuditLogEntries(filePath: string, skips?: { count: number }): AuditLogEntry[] {
   try {
@@ -56,7 +77,12 @@ export function readAuditLogEntries(filePath: string, skips?: { count: number })
       .filter(Boolean)
       .flatMap((line) => {
         try {
-          return [JSON.parse(line) as AuditLogEntry];
+          const parsed: unknown = JSON.parse(line);
+          if (!isReadableAuditLogEntry(parsed)) {
+            if (skips) skips.count++;
+            return [];
+          }
+          return [parsed];
         } catch {
           if (skips) skips.count++;
           return [];

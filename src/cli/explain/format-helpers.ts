@@ -259,7 +259,9 @@ export function formatStepStyleD(
       return { lines, incrementStep: false };
     }
 
-    default:
-      return null;
+    default: {
+      const _exhaustive: never = step;
+      return _exhaustive;
+    }
   }
 }

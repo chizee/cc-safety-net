@@ -24,7 +24,13 @@ type AntigravityHookDefinition = {
   [key: string]: unknown;
 };
 
-type AntigravityHooksConfig = Record<string, AntigravityHookDefinition>;
+// Read-side values stay unknown: the file is hand-editable, so any key can
+// hold any JSON shape and must be preserved rather than crashed on.
+type AntigravityHooksConfig = Record<string, unknown>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
 
 function managedHookEntry(): AntigravityHookDefinition {
   return {
@@ -57,46 +63,53 @@ function parseAntigravityHooksConfig(configPath: string): AntigravityHooksConfig
   }
 }
 
-function getManagedHookDefinition(config: AntigravityHooksConfig): AntigravityHookDefinition {
+function getManagedHookDefinition(config: AntigravityHooksConfig): {
+  definition: Record<string, unknown>;
+  preToolUse: unknown[];
+} {
   const existing = config[MANAGED_HOOK_NAME];
   if (existing === undefined) {
-    config[MANAGED_HOOK_NAME] = managedHookEntry();
-    return config[MANAGED_HOOK_NAME];
+    const created = managedHookEntry();
+    config[MANAGED_HOOK_NAME] = created;
+    return { definition: created, preToolUse: created.PreToolUse ?? [] };
   }
 
-  if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+  if (!isRecord(existing)) {
     throw new Error(`Antigravity hooks config entry "${MANAGED_HOOK_NAME}" must be an object`);
   }
 
-  if (!Array.isArray(existing.PreToolUse)) {
-    existing.PreToolUse = [];
-  }
-  return existing;
+  const preToolUse = Array.isArray(existing.PreToolUse) ? existing.PreToolUse : [];
+  existing.PreToolUse = preToolUse;
+  return { definition: existing, preToolUse };
 }
 
-function hasManagedHookCommand(definition: AntigravityHookDefinition): boolean {
+function hasManagedHookCommand(definition: Record<string, unknown>): boolean {
   if (!Array.isArray(definition.PreToolUse)) return false;
 
   return definition.PreToolUse.some(
     (entry) =>
+      isRecord(entry) &&
       Array.isArray(entry.hooks) &&
-      entry.hooks.some((hook) => hook.command === ANTIGRAVITY_HOOK_COMMAND),
+      entry.hooks.some((hook) => isRecord(hook) && hook.command === ANTIGRAVITY_HOOK_COMMAND),
   );
 }
 
 function hasActiveManagedHook(config: AntigravityHooksConfig): boolean {
   return Object.values(config).some(
-    (definition) => definition.enabled !== false && hasManagedHookCommand(definition),
+    (definition) =>
+      isRecord(definition) && definition.enabled !== false && hasManagedHookCommand(definition),
   );
 }
 
 function enableManagedHookDefinition(config: AntigravityHooksConfig): boolean {
   if (config[MANAGED_HOOK_NAME] === undefined) return false;
 
-  const definition = getManagedHookDefinition(config);
-  if (definition.enabled !== false || !hasManagedHookCommand(definition)) return false;
+  const managed = getManagedHookDefinition(config);
+  if (managed.definition.enabled !== false || !hasManagedHookCommand(managed.definition)) {
+    return false;
+  }
 
-  definition.enabled = true;
+  managed.definition.enabled = true;
   return true;
 }
 
@@ -106,20 +119,21 @@ function appendManagedHook(config: AntigravityHooksConfig): void {
     return;
   }
 
-  const definition = getManagedHookDefinition(config);
-  definition.PreToolUse ??= [];
-  definition.enabled = true;
-  definition.PreToolUse.push(managedHookEntry().PreToolUse?.[0] ?? { hooks: [] });
+  const managed = getManagedHookDefinition(config);
+  managed.definition.enabled = true;
+  managed.preToolUse.push(managedHookEntry().PreToolUse?.[0] ?? { hooks: [] });
 }
 
 function removeManagedHook(config: AntigravityHooksConfig): boolean {
   let removed = false;
   for (const definition of Object.values(config)) {
-    if (!Array.isArray(definition.PreToolUse)) continue;
+    if (!isRecord(definition) || !Array.isArray(definition.PreToolUse)) continue;
     definition.PreToolUse = definition.PreToolUse.flatMap((entry) => {
-      if (!Array.isArray(entry.hooks)) return [entry];
+      if (!isRecord(entry) || !Array.isArray(entry.hooks)) return [entry];
 
-      const hooks = entry.hooks.filter((hook) => hook.command !== ANTIGRAVITY_HOOK_COMMAND);
+      const hooks = entry.hooks.filter(
+        (hook) => !isRecord(hook) || hook.command !== ANTIGRAVITY_HOOK_COMMAND,
+      );
       if (hooks.length !== entry.hooks.length) removed = true;
       return hooks.length === 0 ? [] : [{ ...entry, hooks }];
     });

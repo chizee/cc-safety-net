@@ -86,12 +86,50 @@ function _hasSafetyNetCopilotHook(config: CopilotHookConfig): boolean {
   });
 }
 
+function _isStringOrAbsent(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === 'string';
+}
+
+function _isCopilotHookConfig(value: unknown): value is CopilotHookConfig {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const config = value as Record<string, unknown>;
+  if (config.disableAllHooks !== undefined && typeof config.disableAllHooks !== 'boolean') {
+    return false;
+  }
+  if (config.hooks === undefined) return true;
+  if (!config.hooks || typeof config.hooks !== 'object' || Array.isArray(config.hooks)) {
+    return false;
+  }
+  const preToolUse = (config.hooks as Record<string, unknown>).preToolUse;
+  if (preToolUse === undefined) return true;
+  return (
+    Array.isArray(preToolUse) &&
+    preToolUse.every(
+      (entry) =>
+        entry !== null &&
+        typeof entry === 'object' &&
+        !Array.isArray(entry) &&
+        _isStringOrAbsent((entry as Record<string, unknown>).type) &&
+        _isStringOrAbsent((entry as Record<string, unknown>).command) &&
+        _isStringOrAbsent((entry as Record<string, unknown>).bash) &&
+        _isStringOrAbsent((entry as Record<string, unknown>).powershell),
+    )
+  );
+}
+
 function _readCopilotConfigFile(
   configPath: string,
   errors?: string[],
 ): CopilotHookConfig | undefined {
   try {
-    return JSON.parse(stripJsonComments(readFileSync(configPath, 'utf-8'))) as CopilotHookConfig;
+    const parsed: unknown = JSON.parse(stripJsonComments(readFileSync(configPath, 'utf-8')));
+    if (!_isCopilotHookConfig(parsed)) {
+      errors?.push(
+        `Invalid hook config ${configPath}: hooks.preToolUse must be an array of hook objects`,
+      );
+      return undefined;
+    }
+    return parsed;
   } catch (e) {
     errors?.push(`Failed to parse ${configPath}: ${e instanceof Error ? e.message : String(e)}`);
     return undefined;

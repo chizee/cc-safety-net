@@ -1418,6 +1418,52 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
+  // A successful GitHub response can still carry the wrong JSON shape; each
+  // one must surface the source-specific error, never a raw TypeError.
+  test.each([
+    [{ '/repos/owner/repo': { default_branch: 123 } }, 'missing default branch'],
+    [
+      { '/repos/owner/repo': { default_branch: 'main' }, '/commits/main': { sha: { n: 1 } } },
+      'Failed to resolve commit for owner/repo',
+    ],
+    [
+      {
+        '/repos/owner/repo': { default_branch: 'main' },
+        '/commits/main': { sha: 'abc123' },
+        '/git/trees/abc123?recursive=1': { tree: {} },
+      },
+      'Failed to inspect owner/repo: unexpected GitHub tree response',
+    ],
+    [
+      {
+        '/repos/owner/repo': { default_branch: 'main' },
+        '/commits/main': { sha: 'abc123' },
+        '/git/trees/abc123?recursive=1': { tree: [null] },
+      },
+      'No rulebooks found',
+    ],
+  ] as const)('reports a stable error for malformed GitHub shapes: %#', async (routes, message) => {
+    const tempDir = makeTempDir('rules-policy-github-shapes');
+    const originalFetch = globalThis.fetch;
+
+    try {
+      writeProjectRulebook(tempDir);
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        const url = String(input);
+        const suffix = Object.keys(routes).find((key) => url.endsWith(key));
+        if (suffix === undefined) return new Response('', { status: 404 });
+        return new Response(JSON.stringify(routes[suffix as keyof typeof routes]));
+      }) as typeof fetch;
+
+      expect((await addRulebookSource('owner/repo', { cwd: tempDir })).errors[0]).toContain(
+        message,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   test('rejects over-limit local rulebooks before cache or lock publication', async () => {
     const tempDir = makeTempDir('rules-policy-rulebook-limits');
     const source = join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json');

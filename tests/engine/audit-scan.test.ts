@@ -69,4 +69,32 @@ describe('readAuditLogEntries', () => {
   test('returns empty array for missing files', () => {
     expect(readAuditLogEntries(join(tmpdir(), 'missing-audit-log.jsonl'))).toEqual([]);
   });
+
+  // Valid JSON lines can still carry the wrong field shapes; readers downstream
+  // call string methods on these fields, so such records must be dropped here.
+  test('drops records whose fields have the wrong shape and counts them', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'safety-net-audit-shape-'));
+    try {
+      const file = join(dir, 'session.jsonl');
+      writeFileSync(
+        file,
+        [
+          JSON.stringify({ ts: '2026-07-07T00:00:00.000Z', command: 'valid', reason: 'blocked' }),
+          JSON.stringify({ ts: '2026-07-07T00:00:01.000Z', command: { nested: true } }),
+          JSON.stringify({
+            ts: '2026-07-07T00:00:02.000Z',
+            command: 'ok',
+            agent: { nested: true },
+          }),
+          JSON.stringify(['not', 'an', 'object']),
+        ].join('\n'),
+      );
+
+      const skips = { count: 0 };
+      expect(readAuditLogEntries(file, skips).map((entry) => entry.command)).toEqual(['valid']);
+      expect(skips.count).toBe(3);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

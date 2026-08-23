@@ -10,19 +10,27 @@ import {
 
 type ClaudeShapeAgent = 'codex' | 'copilot-cli' | 'claude-code' | 'unknown';
 
-/** Detect the caller behind a Claude Code-shaped hook payload. */
-export function detectClaudeShapeAgent(
-  transcriptPath: string | null | undefined,
-): ClaudeShapeAgent {
-  if (transcriptPath !== undefined && transcriptPath !== null && !isAbsolute(transcriptPath)) {
+/** Detect the caller behind a Claude Code-shaped hook payload. The path is
+ *  externally supplied JSON, so any non-string shape must degrade to
+ *  'unknown' rather than crash the hook before analysis. */
+export function detectClaudeShapeAgent(transcriptPath: unknown): ClaudeShapeAgent {
+  if (
+    transcriptPath !== undefined &&
+    transcriptPath !== null &&
+    typeof transcriptPath !== 'string'
+  ) {
+    return 'unknown';
+  }
+  if (typeof transcriptPath === 'string' && !isAbsolute(transcriptPath)) {
     return 'unknown';
   }
 
   try {
     const budget = createPathCanonicalizationBudget();
-    const transcript = transcriptPath
-      ? resolveExistingPath(transcriptPath, processPathResolver, budget)
-      : undefined;
+    const transcript =
+      typeof transcriptPath === 'string' && transcriptPath
+        ? resolveExistingPath(transcriptPath, processPathResolver, budget)
+        : undefined;
     const home = process.env.HOME || homedir();
     const roots = [
       ['codex', process.env.CODEX_HOME || join(home, '.codex')],

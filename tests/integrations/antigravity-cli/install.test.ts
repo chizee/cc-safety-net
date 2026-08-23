@@ -97,12 +97,38 @@ describe('installAntigravityCli', () => {
     }
   });
 
-  test.each([
-    ['PreToolUse', { PreToolUse: { hooks: [] } }],
-    ['hooks', { PreToolUse: [{ hooks: {} }] }],
-  ] as const)('installs over a hand-edited non-array %s instead of crashing', (_field, entry) => {
+  // Hand-edited configs can hold any JSON shape on the managed entry or under
+  // other keys; install must keep working so the command can still repair the
+  // managed hook, and must return invalid unrelated values untouched.
+  const installsOverCases: [string, Record<string, unknown>, (config: unknown) => void][] = [
+    [
+      'a hand-edited non-array PreToolUse',
+      { 'cc-safety-net': { PreToolUse: { hooks: [] } } },
+      (config) =>
+        expect(config).toMatchObject({ 'cc-safety-net': { PreToolUse: expect.any(Array) } }),
+    ],
+    [
+      'a hand-edited non-array hooks',
+      { 'cc-safety-net': { PreToolUse: [{ hooks: {} }] } },
+      (config) =>
+        expect(config).toMatchObject({ 'cc-safety-net': { PreToolUse: expect.any(Array) } }),
+    ],
+    [
+      'a non-object unrelated definition',
+      { other: null },
+      (config) => expect(config).toMatchObject({ other: null }),
+    ],
+    [
+      'a null PreToolUse entry in an unrelated definition',
+      { other: { PreToolUse: [null] } },
+      (config) => expect(config).toMatchObject({ other: { PreToolUse: [null] } }),
+    ],
+  ];
+  test.each(
+    installsOverCases,
+  )('installs over %s instead of crashing', (_label, initial, assertConfig) => {
     const homeDir = makeTempHome('safety-net-antigravity-install');
-    const configPath = writeAntigravityConfig(homeDir, { 'cc-safety-net': entry });
+    const configPath = writeAntigravityConfig(homeDir, initial);
 
     try {
       const result = installAntigravityCli(homeDir);
@@ -110,7 +136,21 @@ describe('installAntigravityCli', () => {
 
       expect(result).toEqual({ path: configPath, alreadyInstalled: false });
       expect(countManagedHooks(config)).toBe(1);
-      expect(Array.isArray(config['cc-safety-net'].PreToolUse)).toBe(true);
+      assertConfig(config);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('reports a clear error when the managed entry itself is invalid', () => {
+    const homeDir = makeTempHome('safety-net-antigravity-install');
+    const configPath = writeAntigravityConfig(homeDir, { 'cc-safety-net': 5 });
+
+    try {
+      expect(() => installAntigravityCli(homeDir)).toThrow(
+        'Antigravity hooks config entry "cc-safety-net" must be an object',
+      );
+      expect(readAntigravityConfig(configPath)).toEqual({ 'cc-safety-net': 5 });
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
@@ -155,6 +195,29 @@ describe('installAntigravityCli', () => {
 });
 
 describe('uninstallAntigravityCli', () => {
+  test('removes the managed hook while preserving invalid unrelated definitions', () => {
+    const homeDir = makeTempHome('safety-net-antigravity-uninstall');
+    const configPath = writeAntigravityConfig(homeDir, {
+      other: { PreToolUse: [null] },
+      broken: null,
+      'cc-safety-net': {
+        PreToolUse: [{ hooks: [{ type: 'command', command: ANTIGRAVITY_HOOK_COMMAND }] }],
+      },
+    });
+
+    try {
+      const result = uninstallAntigravityCli(homeDir);
+      const config = readAntigravityConfig(configPath);
+
+      expect(result).toEqual({ path: configPath, alreadyInstalled: true });
+      expect(countManagedHooks(config)).toBe(0);
+      expect(config.other).toEqual({ PreToolUse: [null] });
+      expect(config.broken).toBeNull();
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   test('drops emptied entries and preserves entry-level fields on shared entries', () => {
     const homeDir = makeTempHome('safety-net-antigravity-uninstall');
     const configPath = writeAntigravityConfig(homeDir, {
