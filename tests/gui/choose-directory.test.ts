@@ -70,6 +70,9 @@ describe('directory picker availability', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cc-picker-'));
     stubs.push(dir);
     mkdirSync(join(dir, 'zenity'));
+    // Explicit mode: a restrictive umask stripping the execute bits would let
+    // the mode check reject the entry before the isFile check is exercised.
+    chmodSync(join(dir, 'zenity'), 0o755);
     expect(isDirectoryPickerAvailable('linux', { PATH: dir, DISPLAY: ':0' })).toBe(false);
   });
 
