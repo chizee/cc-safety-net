@@ -17,8 +17,8 @@ export function getBundledOutputs(outputs: BuildOutput[]) {
   };
 }
 
-export function isRootDeclarationOutput(path: string): boolean {
-  return normalizeBuildPath(path) === 'dist/index.d.ts';
+export function isPublicDeclarationOutput(path: string): boolean {
+  return ['dist/index.d.ts', 'dist/api.d.ts'].includes(normalizeBuildPath(path));
 }
 
 function normalizeBuildPath(path: string): string {

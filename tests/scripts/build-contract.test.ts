@@ -36,6 +36,8 @@ function writeBuildFixture(directory: string) {
   );
   chmodSync(join(directory, 'dist', 'bin', 'cc-safety-net.js'), 0o755);
   writeFileSync(join(directory, 'dist', 'chunks', 'index-fixture.js'), 'export {};\n');
+  writeFileSync(join(directory, 'dist', 'api.d.ts'), 'export {};\n');
+  writeFileSync(join(directory, 'dist', 'api.js'), 'export {};\n');
   writeFileSync(join(directory, 'dist', 'index.d.ts'), 'export {};\n');
   writeFileSync(join(directory, 'dist', 'index.js'), 'import "./chunks/index-fixture.js";\n');
   writeFileSync(join(directory, 'dist', 'pi', 'index.js'), 'export {};\n');
@@ -174,6 +176,8 @@ describe('generated artifact contract', () => {
 
   test('tracks required entry artifacts and their shared chunks', async () => {
     const files = await verifyBuildArtifacts();
+    expect(files).toContain('dist/api.d.ts');
+    expect(files).toContain('dist/api.js');
     expect(files).toContain('dist/bin/cc-safety-net.js');
     expect(files).toContain('dist/index.d.ts');
     expect(files).toContain('dist/index.js');
@@ -190,6 +194,18 @@ describe('generated artifact contract', () => {
     expect(declaration).toContain('CCSafetyNetPlugin');
     expect(declaration).not.toContain('resolveOpenCodeShellRoute');
     expect(declaration).not.toContain('normalizeOpenCodeWindowsWorkdir');
+    expect(declaration).not.toContain('checkCommand');
+  });
+
+  test('api declaration is self-contained and exposes only the check contract', () => {
+    const declaration = readFileSync('dist/api.d.ts', 'utf8');
+    expect(declaration).toContain('checkCommand');
+    expect(declaration).toContain('CheckCommandInput');
+    expect(declaration).toContain('CheckCommandResult');
+    // A library-only TypeScript consumer must compile without the optional
+    // OpenCode peer or any private module, so the declaration imports nothing.
+    expect(declaration).not.toMatch(/from ["']/);
+    expect(declaration).not.toContain('@opencode-ai/plugin');
   });
 
   test('skips repository filesystem mode enforcement only on Windows', () => {

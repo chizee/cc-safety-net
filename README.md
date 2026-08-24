@@ -146,6 +146,50 @@ npx cc-safety-net gui
 
 Details: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace) · [Audit Log](https://ccsafetynet.com/docs/reference/audit-log) · [Dashboard](https://ccsafetynet.com/docs/guides/dashboard) · [Configuration Recovery](https://ccsafetynet.com/docs/configuration/recovery).
 
+## Library API
+
+Node.js hosts that need an in-process allow or deny decision can call the command-check
+function directly instead of installing an agent integration:
+
+```bash
+npm install cc-safety-net
+```
+
+```ts
+import { checkCommand } from 'cc-safety-net/api';
+
+function commandIsAllowed(command: string, cwd: string): boolean {
+  try {
+    const result = checkCommand({ command, cwd });
+    if (result.kind === 'allow') return true;
+    console.error(result.reason);
+    return false;
+  } catch (error) {
+    console.error('CC Safety Net could not check the command', error);
+    return false;
+  }
+}
+
+if (commandIsAllowed('git status', process.cwd())) {
+  // The host can now decide how to run the command.
+}
+```
+
+Usage rules:
+
+- Requires Node.js 18 or later and ESM. There is no CommonJS build.
+- `cwd` is required and must be an absolute directory path. It anchors relative command
+  targets and selects the project policy, so the API never defaults to hidden process state.
+- The function reads local policy files, filesystem facts, and `CC_SAFETY_NET_*` environment
+  settings on each call. An invalid `CC_SAFETY_NET_LEVEL` is ignored and reported to stderr.
+  It does not run the command, write audit logs, change configuration, or make network requests.
+- Commands are fully checked, including secret file access performed through commands. The
+  host's own non-shell file tools (read, write, edit, search) are not checked by this function.
+- A `deny` result means the host must not execute the command. **If `checkCommand` throws,
+  do not execute the command either.**
+- `reason` is display text; do not parse or compare it. Use the `kind` field for the
+  decision and treat the optional `ruleId` as diagnostic data only.
+
 ## Limitations
 
 CC Safety Net denies a tool call before it runs. It does not enforce filesystem permissions, inspect network egress, or contain a process. Two v2 limits matter. First, the policy and sensitive-path command extractors remain mainly POSIX-oriented. Native PowerShell path expressions such as `Get-Content $HOME\.ssh\id_rsa` can evade static path extraction. Second, policy-file protection is a best-effort exact-path guard. It does not emulate commands. Use operating-system permissions, a sandbox, or equivalent runtime controls when you need complete protection.
@@ -181,8 +225,9 @@ The **[ccsafetynet.com/docs](https://ccsafetynet.com/docs)** site contains the f
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute to the project.
 
-The repository tracks all 11 generated files under `dist/`. They include the library
-bundle and its type declarations, the CLI entrypoint, the shared chunks, the vendored Zod copy,
+The repository tracks all 14 generated files under `dist/`. They include the library
+bundle and its type declarations, the command-check API entry and its declaration, the CLI
+entrypoint, the shared chunks, the vendored Zod copy,
 and the Pi, Amp, and OpenClaw adapter files. Run `bun run verify:package` and
 `bun run verify:repository-plugin` when changing packaging, integrations, or release automation.
 

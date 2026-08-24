@@ -3,6 +3,7 @@ import type { KnipConfig } from 'knip';
 const config: KnipConfig = {
   entry: [
     'src/index.ts!',
+    'src/api.ts!',
     'src/cli/cc-safety-net.ts!',
     'src/integrations/pi/index.ts!',
     'src/integrations/amp/index.ts!',

@@ -49,8 +49,12 @@ describe('source architecture', () => {
   });
 
   test('routes guard access through the runtime integration boundary', () => {
+    // api.ts is the public library entry; it evaluates without the runtime
+    // wrapper on purpose so a library check never writes audit data.
     const violations = sourceFiles()
-      .filter((path) => relative(SOURCE_ROOT, path) !== 'integrations/runtime.ts')
+      .filter(
+        (path) => !['integrations/runtime.ts', 'api.ts'].includes(relative(SOURCE_ROOT, path)),
+      )
       .flatMap((path) =>
         imports(path).includes('@/engine/guard') ? [relative(SOURCE_ROOT, path)] : [],
       );

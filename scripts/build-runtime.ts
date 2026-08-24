@@ -98,7 +98,12 @@ const vendorZod: BunPlugin = {
 
 export async function buildRuntimeBundles(outdir: string) {
   const result = await Bun.build({
-    entrypoints: ['src/index.ts', 'src/cli/cc-safety-net.ts', 'src/integrations/pi/index.ts'],
+    entrypoints: [
+      'src/index.ts',
+      'src/api.ts',
+      'src/cli/cc-safety-net.ts',
+      'src/integrations/pi/index.ts',
+    ],
     outdir,
     target: 'node',
     splitting: true,

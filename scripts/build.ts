@@ -6,7 +6,7 @@
 
 import { statSync } from 'node:fs';
 import { AMP_PLUGIN_ENTRY } from '../src/integrations/amp/artifact';
-import { getBundledOutputs, isRootDeclarationOutput } from './build-output';
+import { getBundledOutputs, isPublicDeclarationOutput } from './build-output';
 import { buildAmpBundle, buildOpenClawBundle, buildRuntimeBundles } from './build-runtime';
 import { generateThirdPartyLicenses } from './generate-third-party-licenses';
 import { formatSubprocessFailure } from './subprocess-output';
@@ -49,7 +49,7 @@ if (typesResult.exitCode !== 0) {
 }
 
 for await (const path of new Bun.Glob('dist/**/*.d.ts').scan('.')) {
-  if (!isRootDeclarationOutput(path)) await Bun.file(path).delete();
+  if (!isPublicDeclarationOutput(path)) await Bun.file(path).delete();
 }
 
 const schemaResult = Bun.spawnSync(['bun', 'run', 'build:schema']);
