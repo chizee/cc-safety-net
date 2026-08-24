@@ -89,6 +89,45 @@ describe('installGrokBuild', () => {
     }
   });
 
+  test('preserves foreign hook entries when installing into an edited file', () => {
+    const homeDir = makeTempHome('safety-net-grok-build-install');
+    const foreignEntry = { matcher: 'Read', hooks: [{ type: 'command', command: 'my-linter' }] };
+
+    try {
+      const configPath = writeHooksFile(
+        homeDir,
+        JSON.stringify({
+          hooks: {
+            PreToolUse: [
+              foreignEntry,
+              { hooks: [{ type: 'command', command: 'npx -y cc-safety-net hook --grok-build' }] },
+            ],
+          },
+        }),
+      );
+
+      expect(installGrokBuild(homeDir)).toEqual({ path: configPath, alreadyInstalled: false });
+      expect(JSON.parse(readFileSync(configPath, 'utf-8'))).toEqual({
+        hooks: {
+          PreToolUse: [
+            foreignEntry,
+            {
+              hooks: [
+                {
+                  type: 'command',
+                  command: 'npx -y cc-safety-net hook --grok-build',
+                  timeout: 30,
+                },
+              ],
+            },
+          ],
+        },
+      });
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   test('writes under GROK_HOME when it is set', () => {
     const homeDir = makeTempHome('safety-net-grok-build-install');
     const grokHome = makeTempHome('safety-net-grok-build-home');
@@ -115,6 +154,56 @@ describe('uninstallGrokBuild', () => {
 
       expect(uninstallGrokBuild(homeDir)).toEqual({ path: configPath, alreadyInstalled: true });
       expect(existsSync(configPath)).toBe(false);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('removes only the managed entry from a file with foreign hooks', () => {
+    const homeDir = makeTempHome('safety-net-grok-build-uninstall');
+    const foreignEntry = { matcher: 'Read', hooks: [{ type: 'command', command: 'my-linter' }] };
+    const sessionStart = [{ hooks: [{ type: 'command', command: 'my-logger' }] }];
+
+    try {
+      const configPath = writeHooksFile(
+        homeDir,
+        JSON.stringify({
+          hooks: {
+            PreToolUse: [
+              foreignEntry,
+              {
+                hooks: [
+                  {
+                    type: 'command',
+                    command: 'npx -y cc-safety-net hook --grok-build',
+                    timeout: 30,
+                  },
+                ],
+              },
+            ],
+            SessionStart: sessionStart,
+          },
+        }),
+      );
+
+      expect(uninstallGrokBuild(homeDir)).toEqual({ path: configPath, alreadyInstalled: true });
+      expect(JSON.parse(readFileSync(configPath, 'utf-8'))).toEqual({
+        hooks: { PreToolUse: [foreignEntry], SessionStart: sessionStart },
+      });
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('leaves an unparsable file in place even when it mentions the managed command', () => {
+    const homeDir = makeTempHome('safety-net-grok-build-uninstall');
+    const broken = '{ invalid "npx -y cc-safety-net hook --grok-build"';
+
+    try {
+      const configPath = writeHooksFile(homeDir, broken);
+
+      expect(uninstallGrokBuild(homeDir)).toEqual({ path: configPath, alreadyInstalled: false });
+      expect(readFileSync(configPath, 'utf-8')).toBe(broken);
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
