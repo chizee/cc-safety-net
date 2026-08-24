@@ -84,6 +84,18 @@ describe('clearBunxSafetyNetCache', () => {
     });
   });
 
+  test('keeps the entry the current process runs from', async () => {
+    await withTempDir('safety-net-bunx-cache-running-', async (tempDir) => {
+      const running = writeBunxEntry(tempDir, `${uidPrefix}cc-safety-net@latest`, 'cc-safety-net');
+      const stale = writeBunxEntry(tempDir, `${uidPrefix}cc-safety-net@2.1.0`, 'cc-safety-net');
+
+      clearBunxSafetyNetCache(tempDir, process.platform, `${uidPrefix}cc-safety-net@latest`);
+
+      expect(existsSync(running)).toBe(true);
+      expect(existsSync(stale)).toBe(false);
+    });
+  });
+
   test('is a no-op when the temp dir does not exist', async () => {
     await withTempDir('safety-net-bunx-cache-missing-', async (tempDir) => {
       expect(() => clearBunxSafetyNetCache(join(tempDir, 'absent'))).not.toThrow();

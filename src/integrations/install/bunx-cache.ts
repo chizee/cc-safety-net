@@ -4,6 +4,7 @@ import { join } from 'node:path';
 export function clearBunxSafetyNetCache(
   tempDir: string,
   platform: NodeJS.Platform = process.platform,
+  runningEntry?: string,
 ): void {
   // bunx installs each package into <os tmpdir>/bunx-<uid>-<pkg>@<version-or-latest>.
   // On posix the exact uid keeps other users' entries on a shared /tmp untouched — deleting
@@ -22,8 +23,11 @@ export function clearBunxSafetyNetCache(
     platform === 'win32'
       ? /^bunx-\d+-cc-safety-net@/
       : new RegExp(`^bunx-${process.getuid?.() ?? 0}-cc-safety-net@`);
+  // Deleting the entry this very process executes from fails on Windows (its files are in
+  // use) and would fail every bunx-launched update; the survivor re-resolves through bun's
+  // own manifest TTL instead.
   readdirSync(tempDir)
-    .filter((entry) => entryPattern.test(entry))
+    .filter((entry) => entry !== runningEntry && entryPattern.test(entry))
     .forEach((entry) => {
       rmSync(join(tempDir, entry), { recursive: true, force: true });
     });

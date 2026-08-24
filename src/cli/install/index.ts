@@ -862,11 +862,14 @@ async function updateInstalledIntegrations(options: UpdateCommandOptions): Promi
   // ephemeral run the cache clears below already refresh, so the registry round-trip is skipped
   // entirely; otherwise it starts ahead of detection so it overlaps the update work — and the
   // zero-target early return — instead of delaying either.
-  const latestCheck = (options.scriptPath ?? process.argv[1] ?? '')
-    .split(/[\\/]/)
-    .some((segment) => segment === '_npx' || segment.startsWith('bunx-'))
-    ? null
-    : (options.checkLatestVersion ?? checkForUpdates)();
+  const scriptSegments = (options.scriptPath ?? process.argv[1] ?? '').split(/[\\/]/);
+  // The numeric-id form is bun's real cache naming; a persistent install path may hold other
+  // bunx-* directories (say /opt/bunx-tools) and must still get the nudge.
+  const runningBunxEntry = scriptSegments.find((segment) => /^bunx-\d+-/.test(segment));
+  const latestCheck =
+    runningBunxEntry !== undefined || scriptSegments.includes('_npx')
+      ? null
+      : (options.checkLatestVersion ?? checkForUpdates)();
   // checkForUpdates resolves with an error field instead of rejecting, and reports no update for
   // a dev build, so a failed or offline check simply prints nothing and never changes the exit code.
   const printUpdateNudge = async () => {
@@ -910,7 +913,7 @@ async function updateInstalledIntegrations(options: UpdateCommandOptions): Promi
   // user-invoked, not tied to any target.
   const bunxCacheFailure = await Promise.resolve()
     .then(() => {
-      clearBunxSafetyNetCache(tmpdir());
+      clearBunxSafetyNetCache(tmpdir(), process.platform, runningBunxEntry);
       return null;
     })
     .catch((error: unknown) => formatInstallError(error));

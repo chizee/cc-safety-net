@@ -615,6 +615,29 @@ fi
     );
   });
 
+  test('keeps the bunx entry the update itself runs from while clearing the rest', async () => {
+    const homeDir = makeTempHome('safety-net-update-bunx-cache-running');
+    writeCursorHook(homeDir);
+    const running = join(homeDir, 'tmp', `bunx-${process.getuid?.() ?? 0}-cc-safety-net@latest`);
+    const stale = join(homeDir, 'tmp', `bunx-${process.getuid?.() ?? 0}-cc-safety-net@2.1.0`);
+    mkdirSync(join(running, 'node_modules', 'cc-safety-net'), { recursive: true });
+    mkdirSync(join(stale, 'node_modules', 'cc-safety-net'), { recursive: true });
+
+    try {
+      const result = await runUpdate({
+        homeDir,
+        path: dirname(process.execPath),
+        scriptPath: join(running, 'node_modules', '.bin', 'cc-safety-net'),
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(running)).toBe(true);
+      expect(existsSync(stale)).toBe(false);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   test('fails only npx-cache targets when the cache cannot be cleared', async () => {
     const fake = makeFakeBinHome('safety-net-update-npx-clear-failure', ['claude']);
     writeCursorHook(fake.homeDir);
@@ -637,8 +660,12 @@ fi
     }
   });
 
-  // The two nudge-printing cases differ only in what the update run itself reports first.
-  async function expectUpgradeNudgeAfter(name: string, firstLine: (homeDir: string) => string) {
+  // The nudge-printing cases differ only in what the update run itself reports first.
+  async function expectUpgradeNudgeAfter(
+    name: string,
+    firstLine: (homeDir: string) => string,
+    scriptPath?: string,
+  ) {
     const homeDir = makeTempHome(name);
     const expected = firstLine(homeDir);
 
@@ -647,6 +674,7 @@ fi
         homeDir,
         path: dirname(process.execPath),
         checkLatestVersion: behindCheck,
+        ...(scriptPath ? { scriptPath } : {}),
       });
 
       expect(result.exitCode).toBe(0);
@@ -670,11 +698,20 @@ fi
     );
   });
 
-  test('skips the registry check entirely when running from an npx cache', async () => {
+  test('nudges a persistent install whose path holds a non-numeric bunx directory', async () => {
+    await expectUpgradeNudgeAfter(
+      'safety-net-update-nudge-bunx-lookalike',
+      (homeDir) => `Cursor hook up to date in ${writeCursorHook(homeDir)}`,
+      '/opt/bunx-tools/bin/cc-safety-net',
+    );
+  });
+
+  // Ephemeral runs must skip the registry round-trip entirely, not merely suppress the line.
+  async function expectEphemeralRegistrySkip(name: string, scriptPath: string) {
     let checked = false;
 
-    await expectNoUpgradeNudge('safety-net-update-nudge-npx', {
-      scriptPath: '/Users/u/.npm/_npx/abc123/node_modules/.bin/cc-safety-net',
+    await expectNoUpgradeNudge(name, {
+      scriptPath,
       checkLatestVersion: () => {
         checked = true;
         return behindCheck();
@@ -682,13 +719,20 @@ fi
     });
 
     expect(checked).toBe(false);
+  }
+
+  test('skips the registry check entirely when running from an npx cache', async () => {
+    await expectEphemeralRegistrySkip(
+      'safety-net-update-nudge-npx',
+      '/Users/u/.npm/_npx/abc123/node_modules/.bin/cc-safety-net',
+    );
   });
 
-  test('prints no nudge when running from a bunx cache', async () => {
-    await expectNoUpgradeNudge('safety-net-update-nudge-bunx', {
-      scriptPath: '/var/folders/zz/T/bunx-501-cc-safety-net@latest/node_modules/.bin/cc-safety-net',
-      checkLatestVersion: behindCheck,
-    });
+  test('skips the registry check entirely when running from a bunx cache', async () => {
+    await expectEphemeralRegistrySkip(
+      'safety-net-update-nudge-bunx',
+      '/var/folders/zz/T/bunx-501-cc-safety-net@latest/node_modules/.bin/cc-safety-net',
+    );
   });
 
   test('prints no nudge when the registry check fails', async () => {
