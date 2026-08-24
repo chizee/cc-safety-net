@@ -97,6 +97,8 @@ describe('secret protection rule metadata', () => {
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.amp.config');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.cursor');
     expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.cursor.config');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.grok-build');
+    expect(SECRET_PROTECTION_RULE_IDS).toContain('secret.cli.grok-build.config');
     for (const entry of SECRET_PROTECTION_RULE_METADATA) {
       expect(entry.category).not.toBe('');
       expect(entry.label).not.toBe('');
@@ -1703,6 +1705,7 @@ describe('secret protection coding CLI credential locations', () => {
     OPENCODE_DB: '',
     PI_CODING_AGENT_DIR: '',
     CURSOR_DATA_DIR: '',
+    GROK_HOME: '',
     AMP_SETTINGS_FILE: '',
     GEMINI_CLI_SYSTEM_SETTINGS_PATH: '',
   };
@@ -1755,6 +1758,9 @@ describe('secret protection coding CLI credential locations', () => {
         '~/.config/opencode/opencode.json',
         '~/.config/opencode/opencode.jsonc',
         '~/.pi/agent/auth.json',
+        '~/.grok/auth.json',
+        '~/.grok/mcp_credentials.json',
+        '~/.grok/config.toml',
       ]) {
         expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
       }
@@ -1889,6 +1895,12 @@ describe('secret protection coding CLI credential locations', () => {
         [join(cwd, '.gemini', 'settings.json'), 'secret.cli.gemini.config'],
         ['/Library/Application Support/GeminiCli/settings.json', 'secret.cli.gemini.config'],
         ['/etc/gemini-cli/settings.json', 'secret.cli.gemini.config'],
+        ['~/.grok/managed_config.toml', 'secret.cli.grok-build.config'],
+        ['~/.grok/requirements.toml', 'secret.cli.grok-build.config'],
+        ['/etc/grok/managed_config.toml', 'secret.cli.grok-build.config'],
+        ['/etc/grok/requirements.toml', 'secret.cli.grok-build.config'],
+        [join(cwd, '.grok', 'config.toml'), 'secret.cli.grok-build.config'],
+        [join(cwd, 'nested', 'repo', '.grok', 'config.toml'), 'secret.cli.grok-build.config'],
       ] as const) {
         expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe(ruleId);
       }
@@ -1916,6 +1928,7 @@ describe('secret protection coding CLI credential locations', () => {
       COPILOT_HOME: join(home, 'state', 'copilot'),
       KIMI_CODE_HOME: join(home, 'state', 'kimi-code'),
       PI_CODING_AGENT_DIR: join(home, 'state', 'pi-agent'),
+      GROK_HOME: join(home, 'state', 'grok'),
       GEMINI_CLI_SYSTEM_SETTINGS_PATH: join(home, 'managed', 'gemini-settings.json'),
     };
 
@@ -1927,6 +1940,10 @@ describe('secret protection coding CLI credential locations', () => {
         // name no longer matches the .kimi-code segment test.
         [join(env.KIMI_CODE_HOME, 'mcp.json'), 'secret.cli.kimi-code.config'],
         [join(env.PI_CODING_AGENT_DIR, 'models.json'), 'secret.cli.pi.config'],
+        // The renamed root proves the user-root match survives when the directory
+        // name no longer matches the .grok segment test.
+        [join(env.GROK_HOME, 'managed_config.toml'), 'secret.cli.grok-build.config'],
+        [join(env.GROK_HOME, 'requirements.toml'), 'secret.cli.grok-build.config'],
         [env.GEMINI_CLI_SYSTEM_SETTINGS_PATH, 'secret.cli.gemini.config'],
       ] as const) {
         expect(findSensitivePathTarget([target], cwd)?.ruleId, target).toBe(ruleId);
@@ -1986,6 +2003,8 @@ describe('secret protection coding CLI credential locations', () => {
         '~/.cursor/mcp.json.bak',
         '~/.cursor/projects/my-repo/state.json',
         '~/.cursor/rules/team.md',
+        '~/.grok/mcp.json',
+        '~/.grok/sessions/session.json',
         '~/.cursor/extensions/x/package.json',
         '~/.local/share/opencode/sessions/x.db',
         join(tmpdir(), 'secret-protection-project', '.gemini', 'config.yaml'),
@@ -2049,6 +2068,7 @@ describe('secret protection coding CLI credential locations', () => {
       OPENCODE_CONFIG: join(home, 'managed', 'opencode.jsonc'),
       PI_CODING_AGENT_DIR: join(home, 'state', 'pi-agent'),
       CURSOR_DATA_DIR: join(home, 'state', 'cursor'),
+      GROK_HOME: join(home, 'state', 'grok'),
     };
 
     withEnv(env, () => {
@@ -2081,6 +2101,8 @@ describe('secret protection coding CLI credential locations', () => {
         join(env.PI_CODING_AGENT_DIR, 'auth.json'),
         join(env.XDG_CONFIG_HOME, 'cursor', 'auth.json'),
         join(env.CURSOR_DATA_DIR, 'projects', 'my-repo', 'mcp-auth.json'),
+        join(env.GROK_HOME, 'auth.json'),
+        join(env.GROK_HOME, 'mcp_credentials.json'),
       ]) {
         expect(findSensitivePathTarget([target], cwd), target).not.toBeNull();
       }

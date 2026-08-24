@@ -195,12 +195,14 @@ Documentation:        https://ccsafetynet.com/docs
       expect(output).toContain('-cc, --coding-cli');
       expect(output).toContain('-cp, --copilot-cli');
       expect(output).toContain('-gc, --gemini-cli');
+      expect(output).toContain('-gb, --grok-build');
       expect(output).toContain('-kc, --kimi-code');
       expect(output).toContain('-ha, --hermes-agent');
       expect(output).not.toContain('--openclaw');
       expect(output).toContain('cc-safety-net hook --coding-cli');
       expect(output).not.toContain('cc-safety-net hook --claude-code');
       expect(output).toContain('cc-safety-net hook --agy-cli');
+      expect(output).toContain('cc-safety-net hook --grok-build');
       expect(output).toContain('cc-safety-net hook --kimi-code');
     });
 
@@ -214,6 +216,7 @@ Documentation:        https://ccsafetynet.com/docs
       expect(output).toContain('install --agy-cli');
       expect(output).toContain('install --gemini-cli');
       expect(output).toContain('install --copilot-cli');
+      expect(output).toContain('install --grok-build');
       expect(output).toContain('install --hermes-agent');
       expect(output).toContain('install --kimi-code');
       expect(output).toContain('install --openclaw');
@@ -231,6 +234,7 @@ Documentation:        https://ccsafetynet.com/docs
       expect(output).toContain('uninstall --agy-cli');
       expect(output).toContain('uninstall --gemini-cli');
       expect(output).toContain('uninstall --copilot-cli');
+      expect(output).toContain('uninstall --grok-build');
       expect(output).toContain('uninstall --hermes-agent');
       expect(output).toContain('uninstall --kimi-code');
       expect(output).toContain('uninstall --openclaw');

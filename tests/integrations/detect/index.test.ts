@@ -224,6 +224,7 @@ describe('detectAllHooks', () => {
         'cursor',
         'gemini-cli',
         'copilot-cli',
+        'grok-build',
         'hermes-agent',
         'kimi-code',
         'openclaw',
@@ -414,6 +415,126 @@ describe('detectAllHooks', () => {
       const cursor = findHook('cursor', homeDir, projectDir);
 
       expectHookState(cursor, 'n/a');
+    });
+  });
+
+  function _writeGrokBuildHooks(homeDir: string, config: unknown): string {
+    const configPath = join(homeDir, '.grok', 'hooks', 'cc-safety-net.json');
+    _writeConfigFile(configPath, JSON.stringify(config, null, 2));
+    return configPath;
+  }
+
+  function _grokBuildManagedHooks(overrides: Record<string, unknown> = {}): unknown {
+    return {
+      hooks: {
+        PreToolUse: [
+          {
+            hooks: [
+              { type: 'command', command: 'npx -y cc-safety-net hook --grok-build', timeout: 30 },
+            ],
+            ...overrides,
+          },
+        ],
+      },
+    };
+  }
+
+  test('Grok Build: n/a when the managed hooks file is missing', () => {
+    withHookFixture('grok-build', ({ homeDir, projectDir }) => {
+      const grokBuild = findHook('grok-build', homeDir, projectDir);
+
+      expectHookState(grokBuild, 'n/a');
+      expect(grokBuild?.configPath).toBe(join(homeDir, '.grok', 'hooks', 'cc-safety-net.json'));
+    });
+  });
+
+  test('Grok Build: configured with no drift for the canonical managed file', () => {
+    withHookFixture('grok-build', ({ homeDir, projectDir }) => {
+      const configPath = _writeGrokBuildHooks(homeDir, _grokBuildManagedHooks());
+      const grokBuild = findHook('grok-build', homeDir, projectDir);
+
+      expectHookState(grokBuild, 'configured');
+      expect(grokBuild?.method).toBe('hook config');
+      expect(grokBuild?.configPath).toBe(configPath);
+      expect(grokBuild?.errors).toBeUndefined();
+    });
+  });
+
+  test('Grok Build: configured with drift warning when a matcher narrows coverage', () => {
+    withHookFixture('grok-build', ({ homeDir, projectDir }) => {
+      _writeGrokBuildHooks(homeDir, _grokBuildManagedHooks({ matcher: 'Bash' }));
+      const grokBuild = findHook('grok-build', homeDir, projectDir);
+
+      expectHookState(grokBuild, 'configured');
+      expect(grokBuild?.errors?.some((error) => error.includes('matcher'))).toBe(true);
+    });
+  });
+
+  test('Grok Build: no drift for the documented full-coverage matchers', () => {
+    withHookFixture('grok-build', ({ homeDir, projectDir }) => {
+      for (const matcher of ['', '*']) {
+        _writeGrokBuildHooks(homeDir, _grokBuildManagedHooks({ matcher }));
+        const grokBuild = findHook('grok-build', homeDir, projectDir);
+
+        expectHookState(grokBuild, 'configured');
+        expect(grokBuild?.errors, matcher).toBeUndefined();
+      }
+    });
+  });
+
+  test('Grok Build: configured with drift warnings for weakened managed handlers', () => {
+    const command = 'npx -y cc-safety-net hook --grok-build';
+
+    withHookFixture('grok-build', ({ homeDir, projectDir }) => {
+      for (const [handlers, expected] of [
+        [[{ type: 'command', command, timeout: 5 }], 'timeout'],
+        [[{ type: 'http', command, timeout: 30 }], '"type"'],
+        // Two half-right handlers must not read as healthy.
+        [
+          [
+            { type: 'command', command, timeout: 5 },
+            { type: 'http', command, timeout: 30 },
+          ],
+          'timeout',
+        ],
+      ] as const) {
+        _writeGrokBuildHooks(homeDir, _grokBuildManagedHooks({ hooks: handlers }));
+        const grokBuild = findHook('grok-build', homeDir, projectDir);
+
+        expectHookState(grokBuild, 'configured');
+        expect(
+          grokBuild?.errors?.some((error) => error.includes(expected)),
+          expected,
+        ).toBe(true);
+      }
+    });
+  });
+
+  test('Grok Build: n/a with error when the managed file is malformed', () => {
+    withHookFixture('grok-build', ({ homeDir, projectDir }) => {
+      const configPath = join(homeDir, '.grok', 'hooks', 'cc-safety-net.json');
+      _writeConfigFile(configPath, '{ invalid json');
+      const grokBuild = findHook('grok-build', homeDir, projectDir);
+
+      expectHookState(grokBuild, 'n/a');
+      expect(
+        grokBuild?.errors?.some((error) =>
+          error.includes('Failed to parse Grok Build hooks config'),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  test('Grok Build: n/a when the file has no managed command', () => {
+    withHookFixture('grok-build', ({ homeDir, projectDir }) => {
+      _writeGrokBuildHooks(homeDir, {
+        hooks: {
+          PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'other-tool' }] }],
+        },
+      });
+      const grokBuild = findHook('grok-build', homeDir, projectDir);
+
+      expectHookState(grokBuild, 'n/a');
     });
   });
 

@@ -11,6 +11,7 @@ import { getClaudeCodeToolRoute } from '@/integrations/claude-code/hook';
 import { getCopilotCliToolRoute } from '@/integrations/copilot-cli/hook';
 import { getCursorToolRoute } from '@/integrations/cursor/hook';
 import { getGeminiCliToolRoute } from '@/integrations/gemini-cli/hook';
+import { getGrokBuildToolRoute } from '@/integrations/grok-build/hook';
 import { getKimiCodeToolRoute } from '@/integrations/kimi-code/hook';
 import { writeLockedGitHubRulebookPolicy } from '../../helpers.ts';
 import {
@@ -98,6 +99,20 @@ describe('hook command routing', () => {
       getCursorToolRoute('shell'),
       getCursorToolRoute('Read'),
       getCursorToolRoute('apply_patch'),
+    ]).toEqual([
+      { kind: 'command', shell: 'auto' },
+      { kind: 'unknown' },
+      { kind: 'path' },
+      { kind: 'patch' },
+    ]);
+  });
+
+  test('Grok Build adapter routes run_terminal_command to auto shell and file tools to protections', () => {
+    expect([
+      getGrokBuildToolRoute('run_terminal_command'),
+      getGrokBuildToolRoute('Run_Terminal_Command'),
+      getGrokBuildToolRoute('read_file'),
+      getGrokBuildToolRoute('apply_patch'),
     ]).toEqual([
       { kind: 'command', shell: 'auto' },
       { kind: 'unknown' },

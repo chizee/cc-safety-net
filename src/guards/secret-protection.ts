@@ -1650,6 +1650,30 @@ function matchesCodingCliPath(
           const segments = comparable(normalized).split('/');
           return segments.at(-1) === 'mcp.json' && segments.at(-2) === '.cursor';
         }
+        case 'secret.cli.grok-build':
+          return matchesFileInRoot(
+            normalized,
+            codingCliRoot(process.env.GROK_HOME, '~/.grok', cwd, budget),
+            ['auth.json', 'mcp_credentials.json'],
+          );
+        case 'secret.cli.grok-build.config': {
+          // The project config sits directly in a .grok directory, so one segment
+          // test covers it and the default user root; the root match keeps the user
+          // files blocked when GROK_HOME renames the directory.
+          const segments = comparable(normalized).split('/');
+          return (
+            (segments.at(-1) === 'config.toml' && segments.at(-2) === '.grok') ||
+            matchesFileInRoot(
+              normalized,
+              codingCliRoot(process.env.GROK_HOME, '~/.grok', cwd, budget),
+              ['config.toml', 'managed_config.toml', 'requirements.toml'],
+            ) ||
+            matchesFileInRoot(normalized, normalizeCandidatePath('/etc/grok', cwd, budget), [
+              'managed_config.toml',
+              'requirements.toml',
+            ])
+          );
+        }
         default:
           return false;
       }

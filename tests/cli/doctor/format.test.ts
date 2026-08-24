@@ -209,6 +209,21 @@ describe('formatHooksSection', () => {
     expect(output).toContain('Configured');
   });
 
+  test('formats Grok Build hooks', () => {
+    const hooks: HookStatus[] = [
+      {
+        platform: 'grok-build',
+        detected: true,
+        configured: true,
+        inspectionStatus: 'verified',
+      },
+    ];
+
+    const output = formatHooksSection(hooks);
+    expect(output).toContain('Grok Build');
+    expect(output).toContain('Configured');
+  });
+
   test('formats Kimi Code hooks', () => {
     const hooks: HookStatus[] = [
       {
@@ -605,6 +620,7 @@ describe('formatSystemInfoSection', () => {
     expect(output).toContain('Amp Code');
     expect(output).toContain('Codex');
     expect(output).toContain('Cursor');
+    expect(output).toContain('Grok Build');
     expect(output).toContain('Kimi Code');
     expect(output).toContain('Pi');
     expect(output.indexOf('cc-safety-net')).toBeLessThan(output.indexOf('Claude Code'));
@@ -614,7 +630,8 @@ describe('formatSystemInfoSection', () => {
     expect(output.indexOf('Codex')).toBeLessThan(output.indexOf('Cursor'));
     expect(output.indexOf('Cursor')).toBeLessThan(output.indexOf('Gemini CLI'));
     expect(output.indexOf('Gemini CLI')).toBeLessThan(output.indexOf('GitHub Copilot CLI'));
-    expect(output.indexOf('GitHub Copilot CLI')).toBeLessThan(output.indexOf('Hermes Agent'));
+    expect(output.indexOf('GitHub Copilot CLI')).toBeLessThan(output.indexOf('Grok Build'));
+    expect(output.indexOf('Grok Build')).toBeLessThan(output.indexOf('Hermes Agent'));
     expect(output.indexOf('Hermes Agent')).toBeLessThan(output.indexOf('Kimi Code'));
     expect(output.indexOf('Kimi Code')).toBeLessThan(output.indexOf('OpenClaw'));
     expect(output.indexOf('OpenClaw')).toBeLessThan(output.indexOf('OpenCode'));

@@ -47,6 +47,8 @@ Codex support is bounded by the host's unified exec design, which is the default
 
 OpenClaw `exec` calls whose `host` is `auto` or absent are analyzed with local Gateway filesystem semantics, because Gateway is the only proven path mapping and an absent host is the default shape on every install without a sandbox. On a sandbox-configured install the host resolves `auto` to the sandbox, so such a command executes in the container while its analysis and audit record describe Gateway paths. An explicit `host: "sandbox"` request for that same execution is failed closed.
 
+Grok Build hooks are fail-open by design, and the host exposes no `failClosed` knob to change that. Only an explicit deny decision on stdout blocks a tool call; a hook that crashes, times out, or emits malformed output lets the call proceed. The adapter therefore emits an explicit deny for its own fail-closed outcomes, such as truncated tool input or an unusable working directory, but a failure that prevents the adapter from producing output at all is not a block on this host.
+
 Policy-file protection is deliberately a minimal exact-path guard, not command emulation or an operating-system security boundary. It tracks only simple assignment-only shell variables and explicit `cd` changes needed to resolve direct paths. It does not infer computed interpreter paths, inspect interpreter bodies, expand shell globs or braces, infer archive members, simulate `find` actions, infer remote filenames, or infer a transfer's final filename from its destination directory. Malformed shell input is blocked by this guard only when the canonical policy path remains directly extractable; parser resource exhaustion still fails closed. The hard-stop message, `This path contains the protected policy config and you must not modify or delete it.`, is guidance to the agent, not a claim of complete filesystem enforcement. Use a trusted write broker, operating-system permissions, a sandbox, or equivalent runtime enforcement when complete protection is required.
 
 The structural command IR is produced by the bounded internal POSIX and PowerShell parsers. No third-party shell parser is embedded in the published JavaScript artifacts.
@@ -61,7 +63,7 @@ Include as much detail as you can safely share:
 
 - The affected `cc-safety-net` version
 - Your operating system and runtime version
-- The affected integration, such as Claude Code, OpenCode, Gemini CLI, GitHub Copilot CLI, or Codex
+- The affected integration, such as Claude Code, OpenCode, Gemini CLI, GitHub Copilot CLI, Grok Build, or Codex
 - Steps to reproduce the issue
 - The command or input that bypasses, weakens, or abuses CC Safety Net
 - Any relevant output from `cc-safety-net explain` or `cc-safety-net doctor`
