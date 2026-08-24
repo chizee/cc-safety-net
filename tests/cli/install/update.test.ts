@@ -4,6 +4,7 @@ import { delimiter, dirname, join } from 'node:path';
 import { runUpdateCommand } from '@/cli/install';
 import { AMP_MANAGED_HEADER } from '@/integrations/amp/artifact';
 import { getCursorHooksPath } from '@/integrations/cursor/install';
+import type { UpdateInfo } from '@/integrations/doctor-types';
 import { captureConsoleOutput, withEnv } from '../../helpers';
 import { makeTempHome, runCli } from '../../integrations/hook-helpers';
 import {
@@ -72,7 +73,15 @@ function runUpdate(options: {
   logPath?: string;
   cwd?: string;
   isTTY?: boolean;
+  tmpDir?: string;
+  scriptPath?: string;
+  checkLatestVersion?: () => Promise<UpdateInfo>;
 }) {
+  // The bunx cache clear scans os.tmpdir(), and the Amp install mkdtemps inside it; both
+  // re-read the env per call, so every update run stays inside the test home instead of the
+  // developer's real temp dir. Only the default is created — an injected path is the test's own.
+  const tmpDir = options.tmpDir ?? join(options.homeDir, 'tmp');
+  if (!options.tmpDir) mkdirSync(tmpDir, { recursive: true });
   const execute = async () => {
     const originalCwd = process.cwd();
     // A non-TTY input keeps the banner off the real stdin (no raw mode, no keypress listener).
@@ -84,12 +93,27 @@ function runUpdate(options: {
           {
             HOME: options.homeDir,
             PATH: options.path,
+            // TMPDIR is the posix name os.tmpdir() reads, TEMP/TMP the win32 ones.
+            TMPDIR: tmpDir,
+            TEMP: tmpDir,
+            TMP: tmpDir,
             ...(options.logPath ? { CC_SAFETY_NET_TEST_COMMAND_LOG: options.logPath } : {}),
           },
           () =>
             runUpdateCommand([], {
               input: { isTTY: false } as unknown as NodeJS.ReadStream,
               output: output as unknown as NodeJS.WriteStream,
+              // A persistent-looking script path plus an up-to-date stub by default: the nudge
+              // branch is exercised silently and no test reaches the real npm registry.
+              scriptPath: options.scriptPath ?? '/usr/local/bin/ccsn',
+              checkLatestVersion:
+                options.checkLatestVersion ??
+                (() =>
+                  Promise.resolve({
+                    currentVersion: '0.0.0',
+                    latestVersion: null,
+                    updateAvailable: false,
+                  })),
             }),
         ),
       );
@@ -108,6 +132,52 @@ function runUpdate(options: {
     () => undefined,
   );
   return result;
+}
+
+// The npx and bunx clears differ only in the directory they scan; `tmp` is the test home's
+// injected os.tmpdir(). `installedHook: false` exercises the zero-integrations early return.
+async function expectStaleCacheEntryCleared(
+  name: string,
+  entrySegments: string[],
+  installedHook = true,
+) {
+  const homeDir = makeTempHome(name);
+  if (installedHook) writeCursorHook(homeDir);
+  const cacheEntry = join(homeDir, ...entrySegments);
+  mkdirSync(join(cacheEntry, 'node_modules', 'cc-safety-net'), { recursive: true });
+
+  try {
+    const result = await runUpdate({ homeDir, path: dirname(process.execPath) });
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(cacheEntry)).toBe(false);
+  } finally {
+    rmSync(homeDir, { recursive: true, force: true });
+  }
+}
+
+const NUDGE_LINE =
+  'Update available: cc-safety-net 2.1.0 → 9.9.9. Update this CLI with your package manager, e.g. `npm i -g cc-safety-net@latest` for a global install.';
+const behindCheck = () =>
+  Promise.resolve({ currentVersion: '2.1.0', latestVersion: '9.9.9', updateAvailable: true });
+
+// Every suppression case still updates the cursor hook, so the reports prove the run happened.
+async function expectNoUpgradeNudge(
+  name: string,
+  options: { scriptPath?: string; checkLatestVersion?: () => Promise<UpdateInfo> },
+) {
+  const homeDir = makeTempHome(name);
+  writeCursorHook(homeDir);
+
+  try {
+    const result = await runUpdate({ homeDir, path: dirname(process.execPath), ...options });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Cursor hook up to date');
+    expect(result.stdout).not.toContain('Update available');
+  } finally {
+    rmSync(homeDir, { recursive: true, force: true });
+  }
 }
 
 async function expectCodexLegacyMigration(fake: ReturnType<typeof makeFakeBinHome>) {
@@ -380,6 +450,23 @@ fi
     }
   });
 
+  test('reports a bunx cache clear failure without stopping the update', async () => {
+    const homeDir = makeTempHome('safety-net-update-bunx-failure');
+    const configPath = writeCursorHook(homeDir);
+    const tmpDir = join(homeDir, 'not-a-dir');
+    writeFileSync(tmpDir, '');
+
+    try {
+      const result = await runUpdate({ homeDir, path: dirname(process.execPath), tmpDir });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain(`Cursor hook up to date in ${configPath}`);
+      expect(result.stderr).toContain(tmpDir);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   test('updates the Amp plugin in the personal plugins repository', async () => {
     const homeDir = makeTempHome('safety-net-update-amp');
     // A leftover managed system-scope plugin masks the personal one, so update clears it.
@@ -510,19 +597,22 @@ fi
   }, 20000);
 
   test('clears a stale npx cache entry while updating', async () => {
-    const homeDir = makeTempHome('safety-net-update-npx-cache');
-    writeCursorHook(homeDir);
-    const cacheEntry = join(homeDir, '.npm', '_npx', 'a1b2c3');
-    mkdirSync(join(cacheEntry, 'node_modules', 'cc-safety-net'), { recursive: true });
+    await expectStaleCacheEntryCleared('safety-net-update-npx-cache', ['.npm', '_npx', 'a1b2c3']);
+  });
 
-    try {
-      const result = await runUpdate({ homeDir, path: dirname(process.execPath) });
+  test('clears a stale bunx cache entry while updating', async () => {
+    await expectStaleCacheEntryCleared('safety-net-update-bunx-cache', [
+      'tmp',
+      `bunx-${process.getuid?.() ?? 0}-cc-safety-net@latest`,
+    ]);
+  });
 
-      expect(result.exitCode).toBe(0);
-      expect(existsSync(cacheEntry)).toBe(false);
-    } finally {
-      rmSync(homeDir, { recursive: true, force: true });
-    }
+  test('clears a stale bunx cache entry even when no integrations are detected', async () => {
+    await expectStaleCacheEntryCleared(
+      'safety-net-update-bunx-cache-no-integrations',
+      ['tmp', `bunx-${process.getuid?.() ?? 0}-cc-safety-net@latest`],
+      false,
+    );
   });
 
   test('fails only npx-cache targets when the cache cannot be cleared', async () => {
@@ -545,6 +635,83 @@ fi
     } finally {
       rmSync(fake.homeDir, { recursive: true, force: true });
     }
+  });
+
+  // The two nudge-printing cases differ only in what the update run itself reports first.
+  async function expectUpgradeNudgeAfter(name: string, firstLine: (homeDir: string) => string) {
+    const homeDir = makeTempHome(name);
+    const expected = firstLine(homeDir);
+
+    try {
+      const result = await runUpdate({
+        homeDir,
+        path: dirname(process.execPath),
+        checkLatestVersion: behindCheck,
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe(`${expected}\n\n${NUDGE_LINE}`);
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  }
+
+  test('nudges a persistent install when the registry has a newer version', async () => {
+    await expectUpgradeNudgeAfter(
+      'safety-net-update-nudge',
+      (homeDir) => `Cursor hook up to date in ${writeCursorHook(homeDir)}`,
+    );
+  });
+
+  test('nudges a stale persistent install even when no integrations are detected', async () => {
+    await expectUpgradeNudgeAfter(
+      'safety-net-update-nudge-no-integrations',
+      () => 'No installed integrations found. Run `cc-safety-net install` to set one up.',
+    );
+  });
+
+  test('skips the registry check entirely when running from an npx cache', async () => {
+    let checked = false;
+
+    await expectNoUpgradeNudge('safety-net-update-nudge-npx', {
+      scriptPath: '/Users/u/.npm/_npx/abc123/node_modules/.bin/cc-safety-net',
+      checkLatestVersion: () => {
+        checked = true;
+        return behindCheck();
+      },
+    });
+
+    expect(checked).toBe(false);
+  });
+
+  test('prints no nudge when running from a bunx cache', async () => {
+    await expectNoUpgradeNudge('safety-net-update-nudge-bunx', {
+      scriptPath: '/var/folders/zz/T/bunx-501-cc-safety-net@latest/node_modules/.bin/cc-safety-net',
+      checkLatestVersion: behindCheck,
+    });
+  });
+
+  test('prints no nudge when the registry check fails', async () => {
+    await expectNoUpgradeNudge('safety-net-update-nudge-error', {
+      checkLatestVersion: () =>
+        Promise.resolve({
+          currentVersion: '2.1.0',
+          latestVersion: null,
+          updateAvailable: false,
+          error: 'npm registry returned 500',
+        }),
+    });
+  });
+
+  test('prints no nudge when the running version is current', async () => {
+    await expectNoUpgradeNudge('safety-net-update-nudge-current', {
+      checkLatestVersion: () =>
+        Promise.resolve({
+          currentVersion: '2.1.0',
+          latestVersion: '2.1.0',
+          updateAvailable: false,
+        }),
+    });
   });
 
   test('prints the install banner before the reports on a TTY', async () => {
