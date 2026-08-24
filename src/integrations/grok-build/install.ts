@@ -29,12 +29,19 @@ function canonicalEntry() {
   };
 }
 
-function isManagedEntry(entry: unknown): boolean {
-  return (
-    isRecord(entry) &&
-    Array.isArray(entry.hooks) &&
-    entry.hooks.some((hook) => isRecord(hook) && hook.command === GROK_BUILD_HOOK_COMMAND)
-  );
+function isManagedHandler(hook: unknown): boolean {
+  return isRecord(hook) && hook.command === GROK_BUILD_HOOK_COMMAND;
+}
+
+// Strip managed handlers out of each entry, keeping sibling handlers (and the entry's
+// matcher) intact; entries left with no handlers disappear entirely.
+function withoutManagedHandlers(entries: readonly unknown[]): unknown[] {
+  return entries.flatMap((entry) => {
+    if (!isRecord(entry) || !Array.isArray(entry.hooks)) return [entry];
+    const foreign = entry.hooks.filter((hook) => !isManagedHandler(hook));
+    if (foreign.length === entry.hooks.length) return [entry];
+    return foreign.length === 0 ? [] : [{ ...entry, hooks: foreign }];
+  });
 }
 
 function parseGrokBuildConfig(raw: string): GrokBuildConfig | null {
@@ -80,13 +87,14 @@ export function installGrokBuild(homeDir: string): InstallResult {
   }
 
   const existing = getPreToolUse(config);
-  const managed = existing.filter(isManagedEntry);
+  const managed = existing.filter(
+    (entry) => isRecord(entry) && Array.isArray(entry.hooks) && entry.hooks.some(isManagedHandler),
+  );
   if (managed.length === 1 && JSON.stringify(managed[0]) === JSON.stringify(canonicalEntry())) {
     return { path: configPath, alreadyInstalled: true };
   }
 
-  const foreign = existing.filter((entry) => !isManagedEntry(entry));
-  writeGrokBuildConfig(configPath, config, [...foreign, canonicalEntry()]);
+  writeGrokBuildConfig(configPath, config, [...withoutManagedHandlers(existing), canonicalEntry()]);
   return { path: configPath, alreadyInstalled: false };
 }
 
@@ -99,17 +107,19 @@ export function uninstallGrokBuild(homeDir: string): InstallResult {
   if (!config) return { path: configPath, alreadyInstalled: false };
 
   const existing = getPreToolUse(config);
-  const foreign = existing.filter((entry) => !isManagedEntry(entry));
-  if (foreign.length === existing.length) return { path: configPath, alreadyInstalled: false };
+  const stripped = withoutManagedHandlers(existing);
+  if (JSON.stringify(stripped) === JSON.stringify(existing)) {
+    return { path: configPath, alreadyInstalled: false };
+  }
 
   const hooks = isRecord(config.hooks) ? config.hooks : {};
   const onlyOurs =
-    foreign.length === 0 && Object.keys(config).length === 1 && Object.keys(hooks).length === 1;
+    stripped.length === 0 && Object.keys(config).length === 1 && Object.keys(hooks).length === 1;
   if (onlyOurs) {
     rmSync(configPath);
     return { path: configPath, alreadyInstalled: true };
   }
 
-  writeGrokBuildConfig(configPath, config, foreign);
+  writeGrokBuildConfig(configPath, config, stripped);
   return { path: configPath, alreadyInstalled: true };
 }
