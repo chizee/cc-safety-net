@@ -180,8 +180,9 @@ Usage rules:
 - Requires Node.js 18 or later and ESM. There is no CommonJS build.
 - `cwd` is required and must be an absolute directory path. It anchors relative command
   targets and selects the project policy, so the API never defaults to hidden process state.
-- The function reads local policy files and filesystem facts on each call. It does not run
-  the command, write audit logs, change configuration, or make network requests.
+- The function reads local policy files, filesystem facts, and `CC_SAFETY_NET_*` environment
+  settings on each call. An invalid `CC_SAFETY_NET_LEVEL` is ignored and reported to stderr.
+  It does not run the command, write audit logs, change configuration, or make network requests.
 - Commands are fully checked, including secret file access performed through commands. The
   host's own non-shell file tools (read, write, edit, search) are not checked by this function.
 - A `deny` result means the host must not execute the command. **If `checkCommand` throws,
