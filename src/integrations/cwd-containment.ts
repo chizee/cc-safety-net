@@ -1,6 +1,18 @@
-import { realpathSync, statSync } from 'node:fs';
+import { accessSync, constants, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isUnsupportedWindowsNamespacePath } from '@/analyzer/path';
+
+// Deliberately no realpath step: the OpenCode plugin and the library API both
+// use this check, so a symlinked directory resolves the same way on each surface.
+export function isUsableDirectory(path: string): boolean {
+  try {
+    if (!statSync(path).isDirectory()) return false;
+    accessSync(path, constants.R_OK | constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function resolveContainedCwd(
   requestedCwd: string,

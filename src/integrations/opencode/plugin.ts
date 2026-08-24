@@ -1,7 +1,7 @@
-import { accessSync, constants, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Plugin, PluginInput } from '@opencode-ai/plugin';
 import { writeIntegrationDenialAudit } from '@/integrations/audit';
+import { isUsableDirectory } from '@/integrations/cwd-containment';
 import {
   createFailedClosedDenial,
   formatDenial,
@@ -162,16 +162,6 @@ export function normalizeOpenCodeWindowsWorkdir(workdir: string): string {
   // Slash-rooted paths OpenCode does not rewrite (`/tmp`) stay as they are: the host hands them to
   // `cygpath` for POSIX shells, else resolves them against the config root, and runs the command.
   return normalized;
-}
-
-function isUsableDirectory(path: string): boolean {
-  try {
-    if (!statSync(path).isDirectory()) return false;
-    accessSync(path, constants.R_OK | constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function throwGuardDenial(evaluation: guardEngine.GuardEvaluation, includeEvidence: boolean): void {

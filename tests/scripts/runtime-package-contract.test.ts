@@ -4,11 +4,15 @@ import { readFileSync } from 'node:fs';
 const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as Record<string, unknown>;
 
 describe('published runtime contract', () => {
-  test('publishes one ESM API and rejects deep imports', () => {
+  test('publishes two supported ESM entries and rejects deep imports', () => {
     expect(pkg.exports).toEqual({
       '.': {
         types: './dist/index.d.ts',
         import: './dist/index.js',
+      },
+      './api': {
+        types: './dist/api.d.ts',
+        import: './dist/api.js',
       },
       './package.json': './package.json',
     });

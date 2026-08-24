@@ -313,7 +313,80 @@ export async function verifyPackage(): Promise<void> {
       }),
     );
     run([join(directory, 'node_modules', '.bin', 'tsc'), '--project', 'tsconfig.json'], directory);
+
+    evalModule(
+      "import * as api from 'cc-safety-net/api'; if (Object.keys(api).join() !== 'checkCommand') process.exit(2)",
+    );
+    const apiAuditHome = join(directory, 'api-audit-home');
+    run(
+      [
+        'node',
+        '--input-type=module',
+        '--eval',
+        `
+          import { checkCommand } from 'cc-safety-net/api';
+          const allow = checkCommand({ command: 'git status', cwd: process.cwd() });
+          if (allow.kind !== 'allow') process.exit(2);
+          const deny = checkCommand({ command: 'git reset --hard', cwd: process.cwd() });
+          if (deny.kind !== 'deny') process.exit(3);
+          if (deny.ruleId !== 'git.reset-hard') process.exit(4);
+        `,
+      ],
+      directory,
+      [0],
+      undefined,
+      { ...packageVerificationEnv, CC_SAFETY_NET_AUDIT_HOME: apiAuditHome },
+    );
+    if (existsSync(apiAuditHome)) {
+      throw new Error('Packed library API wrote audit data');
+    }
+    verifyLibraryOnlyConsumer(tarball);
     console.log(`Verified ${basename(tarball)} (${result.size} bytes)`);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+// The peer-installed fixture above cannot prove type isolation: with the peer
+// present, a declaration that leaked its types would still compile. This fixture
+// omits optional packages so the api subpath must compile from dist/api.d.ts alone.
+function verifyLibraryOnlyConsumer(tarball: string): void {
+  const directory = mkdtempSync(join(tmpdir(), 'cc-safety-net-library-'));
+  try {
+    run(['npm', 'init', '--yes'], directory);
+    run(
+      [
+        'npm',
+        'install',
+        '--ignore-scripts',
+        '--no-audit',
+        '--no-fund',
+        '--omit=optional',
+        tarball,
+        '@types/node@18',
+        'typescript@5',
+      ],
+      directory,
+    );
+    run(['node', '--eval', "require.resolve('@opencode-ai/plugin')"], directory, [1]);
+    writeFileSync(
+      join(directory, 'consumer.ts'),
+      "import { checkCommand, type CheckCommandResult } from 'cc-safety-net/api';\nconst result: CheckCommandResult = checkCommand({ command: 'git status', cwd: '/tmp' });\nvoid result;\n",
+    );
+    writeFileSync(
+      join(directory, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          module: 'ESNext',
+          moduleResolution: 'Bundler',
+          noEmit: true,
+          strict: true,
+          target: 'ES2022',
+        },
+        files: ['consumer.ts'],
+      }),
+    );
+    run([join(directory, 'node_modules', '.bin', 'tsc'), '--project', 'tsconfig.json'], directory);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

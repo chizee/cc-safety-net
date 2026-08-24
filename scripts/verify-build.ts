@@ -19,6 +19,8 @@ const BUILD_ENTRY_ARTIFACTS = [
   OPENCLAW_ARTIFACT,
   `${OPENCLAW_PLUGIN_DIR}/${OPENCLAW_PLUGIN_MANIFEST_FILE}`,
   `${OPENCLAW_PLUGIN_DIR}/package.json`,
+  'dist/api.d.ts',
+  'dist/api.js',
   'dist/bin/cc-safety-net.js',
   'dist/index.d.ts',
   'dist/index.js',

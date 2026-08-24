@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { posix } from 'node:path';
-import { getBundledOutputs, isRootDeclarationOutput } from '../../scripts/build-output';
+import { getBundledOutputs, isPublicDeclarationOutput } from '../../scripts/build-output';
 import { verifyBuildArtifacts } from '../../scripts/verify-build';
 
 describe('getBundledOutputs', () => {
@@ -21,9 +21,10 @@ describe('getBundledOutputs', () => {
     expect(outputs.piOutput?.size).toBe(3000);
   });
 
-  test('keeps the root declaration with Windows paths', () => {
-    expect(isRootDeclarationOutput('dist\\index.d.ts')).toBeTrue();
-    expect(isRootDeclarationOutput('dist\\pi\\index.d.ts')).toBeFalse();
+  test('keeps both public declarations with Windows paths', () => {
+    expect(isPublicDeclarationOutput('dist\\index.d.ts')).toBeTrue();
+    expect(isPublicDeclarationOutput('dist\\api.d.ts')).toBeTrue();
+    expect(isPublicDeclarationOutput('dist\\pi\\index.d.ts')).toBeFalse();
   });
 
   test('lazily loads the vendored Zod copy from the split bundles', async () => {
