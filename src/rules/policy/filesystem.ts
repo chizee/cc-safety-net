@@ -248,6 +248,18 @@ export function removePolicyDirectory(target: PolicyFilesystemTarget): void {
   }
 }
 
+// rmdirSync refuses a non-empty directory, so contents another process adds
+// concurrently survive instead of being swept into a recursive delete.
+export function removeEmptyPolicyDirectory(target: PolicyFilesystemTarget): void {
+  try {
+    if (!validateTarget(target, true, 'directory').exists) return;
+    rmdirSync(target.path);
+    validateTarget(target, true, 'directory');
+  } catch (error) {
+    throwPolicyFilesystemError(target.scope.label, error);
+  }
+}
+
 export function validatePolicyDirectoryRemoval(target: PolicyFilesystemTarget): boolean {
   try {
     if (!validateTarget(target, true, 'directory').exists) return false;
