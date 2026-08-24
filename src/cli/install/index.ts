@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseCommandArgs } from '@/cli/args';
+import { checkForUpdates } from '@/cli/doctor/updates';
 import { printInstallBanner } from '@/cli/install/banner';
 import {
   canPromptInstallTargets,
@@ -32,6 +33,7 @@ import {
 } from '@/integrations/copilot-cli/plugin-id';
 import { installCursor, uninstallCursor } from '@/integrations/cursor/install';
 import { detectAllHooks } from '@/integrations/detect';
+import type { UpdateInfo } from '@/integrations/doctor-types';
 import { detectGeminiCLI } from '@/integrations/gemini-cli/detect';
 import { HERMES_AGENT_PLUGIN_NAME } from '@/integrations/hermes-agent/artifact';
 import { isHermesAgentPluginEnabled } from '@/integrations/hermes-agent/detect';
@@ -41,6 +43,7 @@ import {
   uninstallHermesAgent,
 } from '@/integrations/hermes-agent/install';
 import { atomicWriteFile } from '@/integrations/install/atomic-write';
+import { clearBunxSafetyNetCache } from '@/integrations/install/bunx-cache';
 import {
   applyInstallTargetState,
   buildInstallTargetChoicesAsync,
@@ -111,6 +114,8 @@ type UpdateCommandOptions = {
   input?: NodeJS.ReadStream;
   output?: NodeJS.WriteStream;
   showBanner?: boolean;
+  checkLatestVersion?: () => Promise<UpdateInfo>;
+  scriptPath?: string;
 };
 
 type NativeInstallDefinition = {
@@ -853,6 +858,27 @@ async function detectUpdateTargets(homeDir: string, fetchVersion = defaultVersio
 async function updateInstalledIntegrations(options: UpdateCommandOptions): Promise<number> {
   const homeDir = getHomeDir();
   const output = options.output ?? process.stdout;
+  // Best-effort nudge for persistent installs (`npm i -g`). An npx or bunx cache path means an
+  // ephemeral run the cache clears below already refresh, so the registry round-trip is skipped
+  // entirely; otherwise it starts ahead of detection so it overlaps the update work — and the
+  // zero-target early return — instead of delaying either.
+  const scriptSegments = (options.scriptPath ?? process.argv[1] ?? '').split(/[\\/]/);
+  // The numeric-id form is bun's real cache naming; a persistent install path may hold other
+  // bunx-* directories (say /opt/bunx-tools) and must still get the nudge.
+  const runningBunxEntry = scriptSegments.find((segment) => /^bunx-\d+-/.test(segment));
+  const latestCheck =
+    runningBunxEntry !== undefined || scriptSegments.includes('_npx')
+      ? null
+      : (options.checkLatestVersion ?? checkForUpdates)();
+  // checkForUpdates resolves with an error field instead of rejecting, and reports no update for
+  // a dev build, so a failed or offline check simply prints nothing and never changes the exit code.
+  const printUpdateNudge = async () => {
+    const updateInfo = latestCheck && (await latestCheck);
+    if (updateInfo?.updateAvailable)
+      output.write(
+        `\nUpdate available: cc-safety-net ${updateInfo.currentVersion} → ${updateInfo.latestVersion}. Update this CLI with your package manager, e.g. \`npm i -g cc-safety-net@latest\` for a global install.\n`,
+      );
+  };
   // Detection queries every host CLI, so it starts before the banner animation and the
   // spinner covers whatever latency is left once the animation ends.
   const prepared = detectUpdateTargets(homeDir, options.fetchVersion ?? defaultVersionFetcher).then(
@@ -881,9 +907,22 @@ async function updateInstalledIntegrations(options: UpdateCommandOptions): Promi
     { loadingMessage: 'Checking installed integrations…', output },
   );
 
+  // bunx keeps per-package install dirs under the OS temp dir; clearing ours makes the next
+  // `bunx cc-safety-net` run resolve the fresh release, matching the npx clear below. It runs
+  // unconditionally — before the zero-target return too — because the bunx channel is
+  // user-invoked, not tied to any target.
+  const bunxCacheFailure = await Promise.resolve()
+    .then(() => {
+      clearBunxSafetyNetCache(tmpdir(), process.platform, runningBunxEntry);
+      return null;
+    })
+    .catch((error: unknown) => formatInstallError(error));
+
   if (detected.targets.length === 0) {
     output.write('No installed integrations found. Run `cc-safety-net install` to set one up.\n');
-    return 0;
+    if (bunxCacheFailure !== null) console.error(bunxCacheFailure);
+    await printUpdateNudge();
+    return bunxCacheFailure === null ? 0 : 1;
   }
 
   // Clearing the cache scans and removes entries under one directory, so the parallel targets
@@ -929,10 +968,13 @@ async function updateInstalledIntegrations(options: UpdateCommandOptions): Promi
       output,
     },
   );
-  reports.forEach((report) => {
+  const allReports =
+    bunxCacheFailure === null ? reports : [...reports, { message: bunxCacheFailure, failed: true }];
+  allReports.forEach((report) => {
     report.failed ? console.error(report.message) : output.write(`${report.message}\n`);
   });
-  return reports.some((report) => report.failed) ? 1 : 0;
+  await printUpdateNudge();
+  return allReports.some((report) => report.failed) ? 1 : 0;
 }
 
 export function runUpdateCommand(
