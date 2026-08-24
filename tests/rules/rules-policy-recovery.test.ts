@@ -63,6 +63,11 @@ import { analyzeTestCommand as analyzeCommand } from '../helpers/policy';
 type RemoveRulebookSourceTestOptions = NonNullable<Parameters<typeof removeRulebookSource>[1]> & {
   _testDeleteLocalSourceDir: (dir: string) => void;
 };
+type RemoveRulebookSourceRenameFaultOptions = NonNullable<
+  Parameters<typeof removeRulebookSource>[1]
+> & {
+  _testAfterPolicyRename: (path: string) => void;
+};
 type SyncRulesConfigTestOptions = NonNullable<Parameters<typeof syncRulesConfig>[0]> & {
   _testPruneRulebookCacheDir: (dir: string) => void;
 };
@@ -207,6 +212,24 @@ async function expectProjectRulesDeleteSourceRemoved(tempDir: string): Promise<v
   expect(removed.ok).toBe(true);
   expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([]);
   expect(existsSync(join(getProjectRulesDir(tempDir), 'project-rules'))).toBe(false);
+}
+
+async function removeProjectRulesSourceWithRenameFault(
+  tempDir: string,
+  fault: (sourceDir: string) => void,
+): Promise<{ sourceDir: string; result: Awaited<ReturnType<typeof removeRulebookSource>> }> {
+  writeProjectRulebookConfig(tempDir);
+  expect((await syncRulesConfig({ cwd: tempDir })).ok).toBe(true);
+  const sourceDir = join(getProjectRulesDir(tempDir), 'project-rules');
+  const options = {
+    cwd: tempDir,
+    deleteSource: true,
+    _testAfterPolicyRename: () => fault(sourceDir),
+  } satisfies RemoveRulebookSourceRenameFaultOptions;
+  return {
+    sourceDir,
+    result: await removeRulebookSourceWithHooks('project-rules', options, options),
+  };
 }
 
 async function expectProjectRulesDeleteSourcePreflightError(
@@ -1248,6 +1271,41 @@ describe('rules policy recovery coverage', () => {
       expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([
         'owner/repo#main/alpha',
       ]);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses to delete local source when files appear after preflight validation', async () => {
+    const tempDir = makeTempDir('rules-policy-remove-delete-source-late-file');
+
+    try {
+      const { sourceDir, result } = await removeProjectRulesSourceWithRenameFault(tempDir, (dir) =>
+        writeFileSync(join(dir, 'notes.txt'), 'keep me'),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.errors[0]).toContain('delete manually');
+      expect(readdirSync(sourceDir).sort()).toEqual(['notes.txt', 'rulebook.json']);
+      expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([
+        'project-rules',
+      ]);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('treats source directory removed after preflight as already deleted', async () => {
+    const tempDir = makeTempDir('rules-policy-remove-delete-source-vanished');
+
+    try {
+      const { sourceDir, result } = await removeProjectRulesSourceWithRenameFault(tempDir, (dir) =>
+        rmSync(dir, { recursive: true, force: true }),
+      );
+
+      expect(result.ok).toBe(true);
+      expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([]);
+      expect(existsSync(sourceDir)).toBe(false);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
