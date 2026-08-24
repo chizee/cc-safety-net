@@ -9,6 +9,7 @@ import {
   type PolicyFilesystemTarget,
   readPolicyDirectoryEntries,
   readPolicyFile,
+  removeEmptyPolicyDirectory,
   removePolicyDirectory,
   removePolicyFile,
   validatePolicyDirectoryRemoval,
@@ -454,7 +455,12 @@ async function removeRulebookSourceInternal(
     restoreConfig(scope.configTarget, before);
     return result;
   }
-  const deleteResult = deleteLocalSourceDirs(sourceDirs.dirs, hooks, scope.filesystemScope);
+  const deleteResult = deleteLocalSourceDirs(
+    scope.configDir,
+    sourceDirs.dirs,
+    hooks,
+    scope.filesystemScope,
+  );
   if (!deleteResult.ok) {
     restoreConfig(scope.configTarget, before);
     const rollback = await syncRulesConfigInternal(
@@ -659,14 +665,23 @@ function getLocalSourceDirDeleteError(
   return [];
 }
 
+// `dirs` holds at most one entry: duplicate config specs are rejected at
+// validation and GitHub multi-matches are refused by the local-only check, so
+// a failed delete never leaves other requested source dirs partially removed.
 function deleteLocalSourceDirs(
+  configDir: string,
   dirs: string[],
   hooks: RuleSyncTestHooks,
   filesystemScope: PolicyFilesystemScope,
 ): { ok: true } | { ok: false; result: SyncRulesConfigResult } {
   const errors = dirs.flatMap((dir) => {
     try {
-      deleteLocalSourceDir(getPolicyFilesystemTargetForPath(filesystemScope, dir), hooks);
+      // The preflight check ran before the sync, which can await network
+      // fetches; files a concurrent process added during that gap must refuse
+      // the delete, not be swept up by it.
+      const staleErrors = getLocalSourceDirDeleteError(configDir, dir, filesystemScope);
+      if (staleErrors.length > 0) return staleErrors;
+      deleteLocalSourceDir(dir, hooks, filesystemScope);
       return [];
     } catch (error) {
       return [
@@ -687,12 +702,22 @@ function pruneRulebookCacheDir(target: PolicyFilesystemTarget, hooks: RuleSyncTe
   removePolicyDirectory(target);
 }
 
-function deleteLocalSourceDir(target: PolicyFilesystemTarget, hooks: RuleSyncTestHooks): void {
+function deleteLocalSourceDir(
+  dir: string,
+  hooks: RuleSyncTestHooks,
+  filesystemScope: PolicyFilesystemScope,
+): void {
   if (hooks._testDeleteLocalSourceDir) {
-    hooks._testDeleteLocalSourceDir(target.path);
+    hooks._testDeleteLocalSourceDir(dir);
     return;
   }
-  removePolicyDirectory(target);
+  // Delete exactly what the revalidation approved — the rulebook file, then
+  // the directory only if still empty — instead of a recursive delete that
+  // would also take files added between the revalidation and this point. A
+  // file that lands after the unlink surfaces as an rmdir failure with that
+  // file preserved; only the user-requested rulebook file is ever deleted.
+  removePolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, join(dir, RULEBOOK_FILE)));
+  removeEmptyPolicyDirectory(getPolicyFilesystemTargetForPath(filesystemScope, dir));
 }
 
 function restoreConfig(path: PolicyFilesystemTarget, content: string | null): void {

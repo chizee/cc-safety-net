@@ -17,6 +17,7 @@ import {
   getPolicyFilesystemTarget,
   PolicyFilesystemError,
   readPolicyFile,
+  removeEmptyPolicyDirectory,
   removePolicyDirectory,
   writePolicyFileAtomic,
 } from '@/rules/policy/filesystem';
@@ -152,6 +153,26 @@ describe('rules policy filesystem confinement', () => {
       );
       expect(existsSync(join(root, 'cache', 'linked', 'child'))).toBe(true);
       expect(readFileSync(join(outside, 'sentinel'), 'utf-8')).toBe('TOPSECRET');
+    });
+  });
+
+  test('empty-directory removal refuses concurrent contents atomically', () => {
+    withTempDir((dir) => {
+      const root = join(dir, 'project');
+      mkdirSync(join(root, 'sources', 'entry'), { recursive: true });
+      writeFileSync(join(root, 'sources', 'entry', 'late.txt'), 'keep me');
+      const scope = bindPolicyFilesystemScope(root, 'project policy');
+      const entry = () => getPolicyFilesystemTarget(scope, 'sources/entry');
+
+      expect(() => removeEmptyPolicyDirectory(entry())).toThrow(
+        'Unable to access project policy filesystem safely.',
+      );
+      expect(readFileSync(join(root, 'sources', 'entry', 'late.txt'), 'utf-8')).toBe('keep me');
+
+      rmSync(join(root, 'sources', 'entry', 'late.txt'));
+      removeEmptyPolicyDirectory(entry());
+      expect(existsSync(join(root, 'sources', 'entry'))).toBe(false);
+      removeEmptyPolicyDirectory(entry());
     });
   });
 
