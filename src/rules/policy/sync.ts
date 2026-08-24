@@ -678,7 +678,11 @@ function deleteLocalSourceDirs(
     try {
       // The preflight check ran before the sync, which can await network
       // fetches; files a concurrent process added during that gap must refuse
-      // the delete, not be swept up by it.
+      // the delete, not be swept up by it. A directory that vanished during
+      // the same gap is the requested end state, not a failure.
+      if (!readPolicyDirectoryEntries(getPolicyFilesystemTargetForPath(filesystemScope, dir))) {
+        return [];
+      }
       const staleErrors = getLocalSourceDirDeleteError(configDir, dir, filesystemScope);
       if (staleErrors.length > 0) return staleErrors;
       deleteLocalSourceDir(dir, hooks, filesystemScope);
