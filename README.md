@@ -28,20 +28,6 @@ CC Safety Net is short for Coding CLI Safety Net. It is a PreToolUse hook that b
 
 We built CC Safety Net after an agent [wiped hours of work](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) with one `rm -rf ~/` or `git checkout --`. Instructions did not stop it. Rules in `CLAUDE.md` or `AGENTS.md` can guide an agent, but they cannot enforce a technical limit. CC Safety Net watches relevant tool calls and blocks destructive commands and secret access before they reach the shell. See [What is CC Safety Net](https://ccsafetynet.com/docs/introduction) for the full background.
 
-## What's new in v2.0.0
-
-> [!TIP]
-> **Already running v1?** Run `npx -y cc-safety-net@latest update` to upgrade every installed integration to v2. If you defined custom rules under v1, also read [Upgrading from an older version](#upgrading-from-an-older-version).
-
-- **Evaluation engine.** A canonical command IR, policy snapshots that remain immutable at every nested level, and an ordered guard pipeline now support decision tracing through `explain`.
-- **Secret protection.** Built-in rules block content access to SSH keys, `.env` files, cloud credentials, and coding-CLI credential stores through shell commands and file tools.
-- **Always-on protections.** Every mode blocks recursive deletion of root or home, Git metadata changes to the `.git` control plane, hooks, worktrees, or submodules, and changes to the user policy file. Overrides do not disable these rules.
-- **Safety presets.** The `standard`, `strict`, and `paranoid` levels support per-rule overrides and trusted delete allow-paths. Safety-level and capability environment variables can only raise protection. `CC_SAFETY_NET_WORKTREE` is the one exception. It allows local Git discards in linked worktrees.
-- **Policy GUI.** `cc-safety-net gui` runs a local, token-authenticated editor with a live preset preview.
-- **Universal installer.** Interactive `install` and `uninstall` commands support all twelve coding CLIs. The `update` command updates installed integrations.
-- **Command-decision audit trail.** CC Safety Net records allowed and blocked decisions in local per-project JSONL. It redacts secrets, keeps records for 30 days by default, and shows them through `cc-safety-net logs`.
-- **Threat model.** [SECURITY.md](SECURITY.md) defines the mode contract and resource limits. Its residual-risk registry records decisions for bypass families.
-
 ## Quick start
 
 You need Node.js 18 or higher.
@@ -58,21 +44,7 @@ To update every installed integration:
 npx -y cc-safety-net@latest update
 ```
 
-Keep the `@latest` qualifier. A bare `cc-safety-net` spec can run an older cached
-copy from the npx cache instead of the current release.
-
-To remove integrations interactively:
-
-```bash
-npx -y cc-safety-net uninstall
-```
-
-If you use the CLI often, install it globally to get `ccsn`, a shorter alias for the same commands:
-
-```bash
-npm install -g cc-safety-net
-ccsn doctor
-```
+Keep the `@latest` qualifier; a bare `cc-safety-net` spec can run an older cached copy from the npx cache. `npx -y cc-safety-net uninstall` removes integrations interactively, and `npm install -g cc-safety-net` gives you `ccsn`, a shorter alias for the same commands.
 
 ## Supported coding CLIs
 
@@ -91,9 +63,9 @@ CC Safety Net supports the coding agent CLIs below on Windows, macOS, and Linux.
     <td align="center"><a href="https://ccsafetynet.com/docs/installation#github-copilot-cli-installation"><picture><source media="(prefers-color-scheme: dark)" srcset="./.github/assets/copilot-cli-dark.svg"><img alt="GitHub Copilot CLI" src="./.github/assets/copilot-cli-light.svg" height="32"></picture><br>GitHub Copilot CLI</a></td>
     <td align="center"><a href="https://ccsafetynet.com/docs/installation#grok-build-installation"><picture><source media="(prefers-color-scheme: dark)" srcset="./.github/assets/grok-build-dark.svg"><img alt="Grok Build" src="./.github/assets/grok-build-light.svg" height="32"></picture><br>Grok Build</a></td>
     <td align="center"><a href="https://ccsafetynet.com/docs/installation#hermes-agent-installation"><img alt="Hermes Agent" src="./.github/assets/hermes.png" height="32"><br>Hermes Agent</a></td>
+    <td align="center"><a href="https://ccsafetynet.com/docs/installation#kimi-code-installation"><img alt="Kimi Code" src="./.github/assets/kimi-cli.png" height="32"><br>Kimi Code</a></td>
   </tr>
   <tr>
-    <td align="center"><a href="https://ccsafetynet.com/docs/installation#kimi-code-installation"><img alt="Kimi Code" src="./.github/assets/kimi-cli.png" height="32"><br>Kimi Code</a></td>
     <td align="center"><a href="https://ccsafetynet.com/docs/installation#openclaw-installation"><img alt="OpenClaw" src="./.github/assets/openclaw.png" height="32"><br>OpenClaw</a></td>
     <td align="center"><a href="https://ccsafetynet.com/docs/installation#opencode-installation"><picture><source media="(prefers-color-scheme: dark)" srcset="./.github/assets/opencode-dark.svg"><img alt="OpenCode" src="./.github/assets/opencode-light.svg" height="32"></picture><br>OpenCode</a></td>
     <td align="center"><a href="https://ccsafetynet.com/docs/installation#pi-installation"><picture><source media="(prefers-color-scheme: dark)" srcset="./.github/assets/pi-dark.svg"><img alt="Pi" src="./.github/assets/pi-light.svg" height="32"></picture><br>Pi</a></td>
@@ -143,7 +115,7 @@ npx cc-safety-net logs
 npx cc-safety-net gui
 ```
 
-`doctor`, `explain`, and `logs` support `--json` for machine-readable output. The audit trail stays on your machine. It records command decisions, but it does not record command output or prompts. Invalid configuration never blocks your agent. CC Safety Net drops unverifiable rule sources and reports each degraded state in the next block message, `doctor`, the status line, and the GUI banner.
+`doctor`, `explain`, and `logs` support `--json` for machine-readable output. The audit trail stays on your machine. It records command decisions, but it does not record command output or prompts.
 
 Details: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace) · [Audit Log](https://ccsafetynet.com/docs/reference/audit-log) · [Dashboard](https://ccsafetynet.com/docs/guides/dashboard) · [Configuration Recovery](https://ccsafetynet.com/docs/configuration/recovery).
 
@@ -178,18 +150,10 @@ if (commandIsAllowed('git status', process.cwd())) {
 
 Usage rules:
 
-- Requires Node.js 18 or later and ESM. There is no CommonJS build.
 - `cwd` is required and must be an absolute directory path. It anchors relative command
-  targets and selects the project policy, so the API never defaults to hidden process state.
-- The function reads local policy files, filesystem facts, and `CC_SAFETY_NET_*` environment
-  settings on each call. An invalid `CC_SAFETY_NET_LEVEL` is ignored and reported to stderr.
-  It does not run the command, write audit logs, change configuration, or make network requests.
-- Commands are fully checked, including secret file access performed through commands. The
-  host's own non-shell file tools (read, write, edit, search) are not checked by this function.
+  targets and selects the project policy.
 - A `deny` result means the host must not execute the command. **If `checkCommand` throws,
   do not execute the command either.**
-- `reason` is display text; do not parse or compare it. Use the `kind` field for the
-  decision and treat the optional `ruleId` as diagnostic data only.
 
 ## Limitations
 
@@ -201,11 +165,7 @@ Codex has one integration-specific limit. Its unified exec path is the default o
 
 ## Upgrading from an older version
 
-Upgrade every installed integration to the current release with one command:
-
-```bash
-npx -y cc-safety-net@latest update
-```
+Run the `update` command from [Quick start](#quick-start) to upgrade every installed integration to the current release.
 
 > [!WARNING]
 > If you defined custom rules in a legacy inline config such as `.safety-net.json` or `~/.cc-safety-net/config.json`, CC Safety Net no longer loads those files at runtime. Their rules enforce nothing. Normal use does not show this failure because the commands now run. Run `npx -y cc-safety-net rule migrate` to convert the rules to the rulebook layout. Then run `npx -y cc-safety-net doctor` and confirm that the runtime is `ready`. See the [migration guide](https://ccsafetynet.com/docs/configuration/custom-rules#migrate-legacy-configuration).
@@ -225,12 +185,6 @@ The **[ccsafetynet.com/docs](https://ccsafetynet.com/docs)** site contains the f
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute to the project.
-
-The repository tracks all 14 generated files under `dist/`. They include the library
-bundle and its type declarations, the command-check API entry and its declaration, the CLI
-entrypoint, the shared chunks, the vendored Zod copy,
-and the Pi, Amp, and OpenClaw adapter files. Run `bun run verify:package` and
-`bun run verify:repository-plugin` when changing packaging, integrations, or release automation.
 
 ## License
 
