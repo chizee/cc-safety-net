@@ -2,7 +2,11 @@ import { describe, expect, test } from 'bun:test';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { analyzeCommandWithProgram } from '@/analyzer';
-import { isTmpdirOverriddenToNonTemp as isTmpdirOverriddenWithEnvironment } from '@/analyzer/tmpdir';
+import {
+  isTmpdirOverriddenToNonTemp as isTmpdirOverriddenWithEnvironment,
+  isTrustedTempPath,
+  isTrustedTempRootPath,
+} from '@/analyzer/tmpdir';
 import type { EnvironmentContext } from '@/ir/analysis';
 import { TEST_ENVIRONMENT } from '../helpers/environment';
 import { policySnapshot, testModes } from '../helpers/policy';
@@ -133,6 +137,22 @@ describe('isTmpdirOverriddenToNonTemp', () => {
 
       expect(evaluateInFreshProcess(nativeTmpdir, { environment })).toBe(false);
       expect(evaluateInFreshProcess('/Users', { environment })).toBe(true);
+    },
+  );
+
+  test.skipIf(process.platform !== 'win32')(
+    '[windows] compares native Windows temp paths case-insensitively',
+    () => {
+      const differentlyCasedTmpdir = tmpdir().replace(
+        /^([A-Za-z]):/,
+        (_, drive: string) =>
+          `${drive === drive.toLowerCase() ? drive.toUpperCase() : drive.toLowerCase()}:`,
+      );
+
+      expect(isTrustedTempRootPath(differentlyCasedTmpdir, TEST_ENVIRONMENT)).toBe(true);
+      expect(
+        isTrustedTempPath(join(differentlyCasedTmpdir, 'claude', 'scratchpad'), TEST_ENVIRONMENT),
+      ).toBe(true);
     },
   );
 });

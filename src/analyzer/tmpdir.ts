@@ -53,15 +53,16 @@ export function hasUnsafeTmpdirWordSplitting(
 
 export function isTrustedTempPath(path: string, environment: EnvironmentContext): boolean {
   const normalizedPath = tryResolveExistingPathComponents(path, environment.paths);
-  return (
-    normalizedPath !== null &&
-    trustedTempRoots(environment).some((root) => isPathOrSubpath(normalizedPath, root))
-  );
+  if (normalizedPath === null) return false;
+  return trustedTempRoots(environment).some((root) => isPathOrSubpath(normalizedPath, root));
 }
 
 export function isTrustedTempRootPath(path: string, environment: EnvironmentContext): boolean {
   const normalizedPath = tryResolveExistingPathComponents(path, environment.paths);
-  return normalizedPath !== null && trustedTempRoots(environment).includes(normalizedPath);
+  if (normalizedPath === null) return false;
+  return trustedTempRoots(environment).some(
+    (root) => normalizePathForComparison(root) === normalizePathForComparison(normalizedPath),
+  );
 }
 
 // Resolving the temp roots costs a realpath per component, and the guard asks for them
@@ -148,10 +149,18 @@ function tryResolveExistingPathComponents(path: string, paths: PathResolver): st
  *       isPathOrSubpath("/tmp-malicious", "/tmp") → false
  */
 function isPathOrSubpath(path: string, basePath: string): boolean {
-  if (path === basePath) {
+  const normalizedPath = normalizePathForComparison(path);
+  const normalizedBasePath = normalizePathForComparison(basePath);
+  if (normalizedPath === normalizedBasePath) {
     return true;
   }
   // Ensure basePath ends with the platform separator for proper prefix matching.
-  const baseWithSlash = basePath.endsWith(sep) ? basePath : `${basePath}${sep}`;
-  return path.startsWith(baseWithSlash);
+  const baseWithSlash = normalizedBasePath.endsWith(sep)
+    ? normalizedBasePath
+    : `${normalizedBasePath}${sep}`;
+  return normalizedPath.startsWith(baseWithSlash);
+}
+
+function normalizePathForComparison(path: string): string {
+  return process.platform === 'win32' ? path.toLowerCase() : path;
 }
