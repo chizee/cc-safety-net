@@ -8,6 +8,8 @@ import {
   analyzeRmMatch as analyzeRmMatchWithEnvironment,
 } from '@/analyzer/rm';
 import type { CommandWord } from '@/ir/command';
+import { parseCommand } from '@/parser/command';
+import { projectSegmentWords } from '@/parser/traversal';
 import { TEST_ENVIRONMENT, testEnvironment } from '../helpers/environment.ts';
 import {
   analyzeTestCommand,
@@ -1061,6 +1063,31 @@ describe('analyzeRm Windows path handling', () => {
 
   test.skipIf(!isWindows)('[windows] allows a quoted Windows backslash path within cwd', () => {
     expect(analyzeTestCommand('rm -rf "C:\\Projects\\dist"', { cwd: 'C:\\Projects' })).toBeNull();
+  });
+
+  test.skipIf(!isWindows)(
+    '[windows] tokenizes backslash targets exactly as Git Bash word-splits them',
+    () => {
+      const path = String.raw`C:\Users\PasquAlb\AppData\Local\Temp\claude\scratchpad\eoltest`;
+      [path, `"${path}"`].forEach((spelling) => {
+        const bashWord = Bun.spawnSync(['bash', '-c', `printf '%s' ${spelling}`]).stdout.toString();
+        expect(projectSegmentWords(parseCommand(`rm -rf ${spelling}`))).toEqual([
+          ['rm', '-rf', bashWord],
+        ]);
+      });
+    },
+  );
+
+  test.skipIf(!isWindows)('[windows] allows a quoted backslash path within native temp', () => {
+    const nativeTarget = join(
+      tmpdir(),
+      'claude',
+      'C--Users-PasquAlb',
+      '8d6a8ecf-d281-4d02-9511-b3f31a53e527',
+      'scratchpad',
+      'eoltest',
+    );
+    expect(analyzeTestCommand(`rm -rf "${nativeTarget}"`)).toBeNull();
   });
 
   test('allows relative path with backslash prefix', () => {
