@@ -1014,6 +1014,19 @@ describe('analyzeRm Windows path handling', () => {
     expect(analyzeRm(['rm', '-rf', '/c/Projects/dist'], { cwd: 'C:\\Projects' })).toBeNull();
   });
 
+  test.skipIf(!isWindows)('[windows] allows a lowercase MSYS path within native temp', () => {
+    const nativeTarget = join(
+      tmpdir(),
+      'claude/C--Users-PasquAlb/8d6a8ecf-d281-4d02-9511-b3f31a53e527/scratchpad/eoltest',
+    );
+    const msysTarget = toShellPath(nativeTarget).replace(
+      /^([A-Za-z]):\//,
+      (_, drive: string) => `/${drive.toLowerCase()}/`,
+    );
+
+    expect(analyzeRm(['rm', '-rf', msysTarget])).toBeNull();
+  });
+
   test.skipIf(!isWindows)('[windows] blocks MSYS paths outside cwd', () => {
     expect(analyzeRm(['rm', '-rf', '/c/Other/dist'], { cwd: 'C:\\Projects' })).toContain(
       'rm -rf outside cwd',
