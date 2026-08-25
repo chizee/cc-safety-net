@@ -1,5 +1,4 @@
 import { basename, isAbsolute, normalize, resolve } from 'node:path';
-import { normalizeMsysDrivePath } from '@/analyzer/path';
 import {
   expandSupportedPathEnvironmentVariables,
   type PathCanonicalizationContext,
@@ -8,6 +7,7 @@ import {
 } from '@/analyzer/path-canonicalization';
 import { stripWrappers } from '@/analyzer/wrapper-prelude';
 import { StructuralShellSyntaxLimitError } from '@/guards/semantic-facts';
+import { normalizeMsysDrivePath } from '@/ir/environment';
 import type { ShellSyntaxFacts } from '@/ir/semantic-facts';
 import { getBasename } from '@/parser/shell';
 

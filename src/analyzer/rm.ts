@@ -1,5 +1,4 @@
 import { analysisWordText } from '@/analyzer/command-words';
-import { normalizeMsysDrivePath } from '@/analyzer/path';
 import {
   classifyRecursiveDeleteTarget,
   createRecursiveDeleteTargetContext,
@@ -16,6 +15,7 @@ import {
 } from '@/guards/git-metadata-protection';
 import type { DestructiveCommandRuleMatch } from '@/ir/analysis';
 import type { CommandWord } from '@/ir/command';
+import { normalizeMsysDrivePath } from '@/ir/environment';
 import type { EffectivePolicy } from '@/ir/policy';
 import {
   type DestructiveCommandRulePolicy,

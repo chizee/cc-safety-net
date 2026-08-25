@@ -21,9 +21,17 @@ export const processPathResolver: PathResolver = {
   },
 };
 
+export function normalizeMsysDrivePath(
+  target: string,
+  platform: NodeJS.Platform = process.platform,
+) {
+  if (platform !== 'win32') return target;
+  return target.replace(/^\/([A-Za-z])(?:\/|$)/, '$1:/');
+}
+
 /** The home directory of the current process, for callers that stay ambient by choice. */
 export function processHomeDir(): string {
-  return process.env.HOME || homedir();
+  return normalizeMsysDrivePath(process.env.HOME || homedir());
 }
 
 /** Snapshot the current process state for one analysis run. */

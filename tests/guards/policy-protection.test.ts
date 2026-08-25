@@ -214,10 +214,12 @@ describe('policy config protection', () => {
     () => {
       const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
       const msysSafetyNetHome = toShellPath(safetyNetHome).replace(/^([A-Za-z]):\//, '/$1/');
-      withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
-        expect(
-          findPolicyMutation('Bash', { command: `rm -rf ${msysSafetyNetHome}` }, cwd)?.target,
-        ).toBe(msysSafetyNetHome);
+      [safetyNetHome, msysSafetyNetHome].forEach((configuredHome) => {
+        withEnv({ CC_SAFETY_NET_HOME: configuredHome }, () => {
+          expect(
+            findPolicyMutation('Bash', { command: `rm -rf ${msysSafetyNetHome}` }, cwd)?.target,
+          ).toBe(msysSafetyNetHome);
+        });
       });
     },
   );

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join, toNamespacedPath } from 'node:path';
+import { dirname, join, toNamespacedPath } from 'node:path';
 import { textCommandWords } from '@/analyzer/command-words';
 import {
   type AnalyzeRmOptions,
@@ -1029,6 +1029,21 @@ describe('analyzeRm Windows path handling', () => {
         'root or home directory',
       );
     });
+  });
+
+  test.skipIf(!isWindows)('[windows] blocks an MSYS HOME target as catastrophic', () => {
+    const home = mkdtempSync(join(tmpdir(), 'safety-net-msys-home-'));
+    const msysHome = toShellPath(home).replace(/^([A-Za-z]):\//, '/$1/');
+    try {
+      expect(
+        analyzeRm(['rm', '-rf', msysHome], {
+          cwd: dirname(home),
+          environment: testEnvironment({ HOME: msysHome }),
+        }),
+      ).toContain('root or home directory');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test.skipIf(!isWindows)('[windows] allows a quoted Windows backslash path within cwd', () => {
