@@ -324,7 +324,7 @@ describe('Amp tool.call event', () => {
       expect(result).toEqual({
         action: 'reject-and-continue',
         message: expect.stringContaining(
-          'CC Safety Net could not resolve the requested working directory because it does not exist or is inaccessible. Use an existing accessible working directory, or create this directory from one, then retry the command.',
+          'CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command.',
         ),
       });
       expect(calls).toEqual([]);
