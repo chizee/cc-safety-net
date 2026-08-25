@@ -13,7 +13,7 @@ import {
   getUserRulesConfigPath,
   getUserRulesLockPath,
 } from '@/rules/policy/paths';
-import { withEnv } from '../helpers';
+import { toShellPath, withEnv } from '../helpers';
 
 const COMMAND_TOOL_NAMES = new Set([
   'bash',
@@ -208,6 +208,21 @@ describe('policy config protection', () => {
       }
     });
   });
+
+  test.skipIf(process.platform !== 'win32')(
+    '[windows] blocks an MSYS spelling of the policy directory',
+    () => {
+      const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
+      const msysSafetyNetHome = toShellPath(safetyNetHome).replace(/^([A-Za-z]):\//, '/$1/');
+      [safetyNetHome, msysSafetyNetHome].forEach((configuredHome) => {
+        withEnv({ CC_SAFETY_NET_HOME: configuredHome }, () => {
+          expect(
+            findPolicyMutation('Bash', { command: `rm -rf ${msysSafetyNetHome}` }, cwd)?.target,
+          ).toBe(msysSafetyNetHome);
+        });
+      });
+    },
+  );
 
   test('blocks policy mutations hidden in an env -S split string', () => {
     const safetyNetHome = join(cwd, 'home', '.cc-safety-net');

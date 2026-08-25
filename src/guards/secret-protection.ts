@@ -15,7 +15,7 @@ import {
   projectSensitiveShellText,
   StructuralShellSyntaxLimitError,
 } from '@/guards/semantic-facts';
-import { processPathResolver } from '@/ir/environment';
+import { normalizeMsysDrivePath, processPathResolver } from '@/ir/environment';
 import { createToolInvocation, type ToolRoute } from '@/ir/invocation';
 import type { SecretProtectionConfig } from '@/ir/policy';
 import type { SemanticFactStore, SemanticFacts, ShellSyntaxFacts } from '@/ir/semantic-facts';
@@ -1750,7 +1750,9 @@ function matchesAllowedPath(
   if (!normalized) return false;
   const homeValue = process.env.HOME ?? homedir();
   const resolvedHome = homeValue
-    ? normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget))
+    ? normalizePathText(
+        resolveExistingPath(normalizeMsysDrivePath(homeValue), processPathResolver, budget),
+      )
     : '';
   const home = comparable(resolvedHome);
   const guardHomeValue = process.env.CC_SAFETY_NET_HOME;
@@ -1759,7 +1761,13 @@ function matchesAllowedPath(
   // where candidate normalization already followed the link.
   const guardRoot = comparable(
     guardHomeValue
-      ? normalizePathText(resolveExistingPath(resolve(guardHomeValue), processPathResolver, budget))
+      ? normalizePathText(
+          resolveExistingPath(
+            resolve(normalizeMsysDrivePath(guardHomeValue)),
+            processPathResolver,
+            budget,
+          ),
+        )
       : resolvedHome &&
           normalizePathText(
             resolveExistingPath(`${resolvedHome}/.cc-safety-net`, processPathResolver, budget),
@@ -1873,7 +1881,7 @@ function normalizeUnresolvedHomePath(
   // The home root itself may be reached through a symlinked ancestor (on macOS
   // /var is a link to /private/var), so an absolute candidate is tested against
   // both the canonical and the literal home root before being given up on.
-  const literalHome = normalizePathText(process.env.HOME ?? homedir());
+  const literalHome = normalizePathText(normalizeMsysDrivePath(process.env.HOME ?? homedir()));
   // Windows paths are case-insensitive and agents routinely re-case drive
   // letters, so the roots match case-folded there; POSIX casing is
   // identity-bearing and stays exact.
@@ -1906,9 +1914,13 @@ function normalizeAbsoluteCandidatePath(
 function prepareCandidatePath(target: string, budget: PathCanonicalizationBudget) {
   const homeValue = process.env.HOME ?? homedir();
   const home = homeValue
-    ? normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget))
+    ? normalizePathText(
+        resolveExistingPath(normalizeMsysDrivePath(homeValue), processPathResolver, budget),
+      )
     : '';
-  const normalized = normalizePathText(normalizeFileUriPath(projectSensitiveShellText(target)));
+  const normalized = normalizePathText(
+    normalizeMsysDrivePath(normalizeFileUriPath(projectSensitiveShellText(target))),
+  );
   return { home, normalized };
 }
 

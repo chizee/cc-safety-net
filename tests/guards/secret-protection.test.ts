@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   PATH_CANONICALIZATION_LIMITS,
@@ -25,7 +25,7 @@ import {
   SECRET_PROTECTION_RULE_IDS,
   SECRET_PROTECTION_RULE_METADATA,
 } from '@/rules/secret-protection-rules';
-import { withEnv } from '../helpers.ts';
+import { toShellPath, withEnv } from '../helpers.ts';
 
 const COMMAND_TOOL_NAMES = new Set([
   'bash',
@@ -1656,6 +1656,31 @@ describe('secret protection home-anchored credential locations', () => {
     });
   });
 
+  test.skipIf(process.platform !== 'win32')(
+    '[windows] blocks MSYS spellings of absolute home and credential paths',
+    () => {
+      const home = mkdtempSync(join(tmpdir(), 'secret-protection-msys-home-'));
+      const msysHome = toShellPath(home).replace(/^([A-Za-z]):\//, '/$1/');
+      try {
+        [home, msysHome].forEach((configuredHome) => {
+          withEnv({ HOME: configuredHome }, () => {
+            [undefined, { disabledRules: [], denyPaths: [], allowPaths: [basename(home)] }].forEach(
+              (config) => {
+                expect(
+                  findSensitiveTargetInCommand(`rm -rf ${msysHome}/.ssh`, dirname(home), config, {
+                    strict: false,
+                  })?.ruleId,
+                ).toBe('secret.home.ssh');
+              },
+            );
+          });
+        });
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  );
+
   test('blocks repeated slash home credential paths', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');
 
@@ -2658,6 +2683,27 @@ describe('secret protection home rules survive a symlinked credential directory'
     },
   );
 
+  test.skipIf(process.platform !== 'win32')(
+    '[windows] blocks a native credential path under an MSYS symlinked HOME',
+    () => {
+      const realHome = homeWithSymlinkedCredentials();
+      const linkParent = mkdtempSync(join(tmpdir(), 'secret-protection-msys-link-home-'));
+      const home = join(linkParent, 'home');
+      symlinkSync(realHome, home, 'dir');
+      const msysHome = toShellPath(home).replace(/^([A-Za-z]):\//, '/$1/');
+      try {
+        withEnv({ HOME: msysHome }, () => {
+          expect(
+            findSensitivePathTarget([join(home, '.ssh', 'config')], dirname(home))?.ruleId,
+          ).toBe('secret.home.ssh');
+        });
+      } finally {
+        rmSync(linkParent, { recursive: true, force: true });
+        rmSync(realHome, { recursive: true, force: true });
+      }
+    },
+  );
+
   test('a real (unlinked) home directory keeps working', () => {
     const home = mkdtempSync(join(tmpdir(), 'secret-protection-realhome-'));
     try {
@@ -2946,6 +2992,27 @@ describe('secret protection allow paths', () => {
       rmSync(guardParent, { recursive: true, force: true });
     }
   });
+
+  test.skipIf(process.platform !== 'win32')(
+    '[windows] an MSYS guard root cannot be exempted by its native parent',
+    () => {
+      const home = mkdtempSync(join(tmpdir(), 'secret-protection-allow-msys-home-'));
+      const guardParent = mkdtempSync(join(tmpdir(), 'secret-protection-msys-guard-parent-'));
+      const guardHome = join(guardParent, 'config');
+      const msysGuardHome = toShellPath(guardHome).replace(/^([A-Za-z]):\//, '/$1/');
+      try {
+        withEnv({ HOME: home, CC_SAFETY_NET_HOME: msysGuardHome }, () => {
+          const config = { disabledRules: [], denyPaths: [], allowPaths: [guardParent] };
+          expect(
+            findSensitivePathTarget([join(guardHome, 'credentials')], home, config)?.ruleId,
+          ).toBe('secret.basename.credentials');
+        });
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+        rmSync(guardParent, { recursive: true, force: true });
+      }
+    },
+  );
 
   test('matching is case-insensitive like every other secret rule', () => {
     const config = { disabledRules: [], denyPaths: [], allowPaths: ['.ENV.TEST'] };

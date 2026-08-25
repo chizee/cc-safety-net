@@ -15,6 +15,7 @@ import {
 } from '@/guards/git-metadata-protection';
 import type { DestructiveCommandRuleMatch } from '@/ir/analysis';
 import type { CommandWord } from '@/ir/command';
+import { normalizeMsysDrivePath } from '@/ir/environment';
 import type { EffectivePolicy } from '@/ir/policy';
 import {
   type DestructiveCommandRulePolicy,
@@ -65,6 +66,7 @@ export function analyzeRmMatch(
     }
 
     for (const expandedTarget of facts.expandedTargets ?? [target.text]) {
+      const nativeTarget = normalizeMsysDrivePath(expandedTarget);
       const classificationOptions = {
         targetIsLiteral: facts.expandedTargets !== undefined || facts.targetIsLiteral,
         tmpdirWordSplittingProtected: facts.tmpdirWordSplittingProtected,
@@ -73,7 +75,7 @@ export function analyzeRmMatch(
         !recursive &&
         ctx.resolvedCwd &&
         isProtectedGitDeleteTarget(
-          expandedTarget,
+          nativeTarget,
           ctx.resolvedCwd,
           ctx.protectedGitMetadata,
           recursive,
@@ -84,7 +86,7 @@ export function analyzeRmMatch(
       }
       if (recursive && !recursiveForce) {
         const classification = classifyRecursiveDeleteTarget(
-          expandedTarget,
+          nativeTarget,
           ctx,
           classificationOptions,
         );
@@ -98,7 +100,7 @@ export function analyzeRmMatch(
       }
       if (!recursiveForce) continue;
       for (const classification of orderedTargetClassifications(
-        expandedTarget,
+        nativeTarget,
         ctx,
         classificationOptions,
       )) {

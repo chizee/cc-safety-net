@@ -7,6 +7,7 @@ import {
 } from '@/analyzer/path-canonicalization';
 import { stripWrappers } from '@/analyzer/wrapper-prelude';
 import { StructuralShellSyntaxLimitError } from '@/guards/semantic-facts';
+import { normalizeMsysDrivePath } from '@/ir/environment';
 import type { ShellSyntaxFacts } from '@/ir/semantic-facts';
 import { getBasename } from '@/parser/shell';
 
@@ -103,7 +104,8 @@ function lexicallyNormalizeCandidate(
   if (!unix) return '';
   const expanded =
     unix === '~' ? home : unix.startsWith('~/') ? resolve(home, unix.slice(2)) : unix;
-  return normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded));
+  const nativeTarget = normalizeMsysDrivePath(expanded);
+  return normalize(isAbsolute(nativeTarget) ? nativeTarget : resolve(cwd, nativeTarget));
 }
 
 export function normalizeProtectedPathCandidate(

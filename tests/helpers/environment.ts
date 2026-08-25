@@ -1,6 +1,6 @@
 import { homedir, tmpdir } from 'node:os';
 import type { EnvironmentContext } from '@/ir/analysis';
-import { processPathResolver } from '@/ir/environment';
+import { normalizeMsysDrivePath, processPathResolver } from '@/ir/environment';
 
 /**
  * Process state for analysis tests: an empty env map, so developer-machine variables
@@ -22,6 +22,6 @@ export function testEnvironment(env: Record<string, string>): EnvironmentContext
   return {
     ...TEST_ENVIRONMENT,
     env: new Map(Object.entries(env)),
-    home: env.HOME || TEST_ENVIRONMENT.home,
+    home: normalizeMsysDrivePath(env.HOME || TEST_ENVIRONMENT.home),
   };
 }

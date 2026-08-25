@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { normalizeMsysDrivePath } from '@/ir/environment';
 import {
   bindPolicyFilesystemScope,
   getPolicyFilesystemTargetForPath,
@@ -73,7 +74,7 @@ export function getUserRulesDir(options?: RulesPolicyOptions): string {
 
 function getUserSafetyNetHome(): string {
   const home = process.env[CC_SAFETY_NET_HOME];
-  return home ? resolve(home) : join(homedir(), SAFETY_NET_DIR);
+  return home ? resolve(normalizeMsysDrivePath(home)) : join(homedir(), SAFETY_NET_DIR);
 }
 
 export function getUserRulesConfigPath(options?: RulesPolicyOptions): string {
