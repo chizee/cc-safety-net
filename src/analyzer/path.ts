@@ -1,6 +1,14 @@
 import { dirname, isAbsolute, parse as parsePath, sep } from 'node:path';
 import type { PathResolver } from '@/ir/analysis';
 
+export function normalizeMsysDrivePath(
+  target: string,
+  platform: NodeJS.Platform = process.platform,
+) {
+  if (platform !== 'win32') return target;
+  return target.replace(/^\/([A-Za-z])(?:\/|$)/, '$1:/');
+}
+
 export function isUnsupportedWindowsNamespacePath(
   target: string,
   platform: NodeJS.Platform = process.platform,

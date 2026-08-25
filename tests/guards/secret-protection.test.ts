@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   PATH_CANONICALIZATION_LIMITS,
@@ -25,7 +25,7 @@ import {
   SECRET_PROTECTION_RULE_IDS,
   SECRET_PROTECTION_RULE_METADATA,
 } from '@/rules/secret-protection-rules';
-import { withEnv } from '../helpers.ts';
+import { toShellPath, withEnv } from '../helpers.ts';
 
 const COMMAND_TOOL_NAMES = new Set([
   'bash',
@@ -1655,6 +1655,25 @@ describe('secret protection home-anchored credential locations', () => {
       }
     });
   });
+
+  test.skipIf(process.platform !== 'win32')(
+    '[windows] blocks an MSYS spelling of an absolute home credential path',
+    () => {
+      const home = mkdtempSync(join(tmpdir(), 'secret-protection-msys-home-'));
+      const msysHome = toShellPath(home).replace(/^([A-Za-z]):\//, '/$1/');
+      try {
+        withEnv({ HOME: home }, () => {
+          expect(
+            findSensitiveTargetInCommand(`rm -rf ${msysHome}/.ssh`, dirname(home), undefined, {
+              strict: false,
+            })?.ruleId,
+          ).toBe('secret.home.ssh');
+        });
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  );
 
   test('blocks repeated slash home credential paths', () => {
     const cwd = join(tmpdir(), 'secret-protection-project');

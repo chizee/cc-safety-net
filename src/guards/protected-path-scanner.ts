@@ -1,4 +1,5 @@
 import { basename, isAbsolute, normalize, resolve } from 'node:path';
+import { normalizeMsysDrivePath } from '@/analyzer/path';
 import {
   expandSupportedPathEnvironmentVariables,
   type PathCanonicalizationContext,
@@ -103,7 +104,8 @@ function lexicallyNormalizeCandidate(
   if (!unix) return '';
   const expanded =
     unix === '~' ? home : unix.startsWith('~/') ? resolve(home, unix.slice(2)) : unix;
-  return normalize(isAbsolute(expanded) ? expanded : resolve(cwd, expanded));
+  const nativeTarget = normalizeMsysDrivePath(expanded);
+  return normalize(isAbsolute(nativeTarget) ? nativeTarget : resolve(cwd, nativeTarget));
 }
 
 export function normalizeProtectedPathCandidate(

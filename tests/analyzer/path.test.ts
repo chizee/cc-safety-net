@@ -1,7 +1,28 @@
 import { describe, expect, test } from 'bun:test';
 import { toNamespacedPath } from 'node:path';
-import { isUnsupportedWindowsNamespacePath, resolveChdirTarget } from '@/analyzer/path';
+import {
+  isUnsupportedWindowsNamespacePath,
+  normalizeMsysDrivePath,
+  resolveChdirTarget,
+} from '@/analyzer/path';
 import { processPathResolver } from '@/ir/environment';
+
+describe('MSYS drive path normalization', () => {
+  test.each([
+    ['/c/Projects', 'c:/Projects'],
+    ['/C', 'C:/'],
+    ['/tmp/cache', '/tmp/cache'],
+    ['/code/cache', '/code/cache'],
+    ['//server/share', '//server/share'],
+    ['C:/Projects', 'C:/Projects'],
+  ])('normalizes Windows paths without changing POSIX or namespace paths: %p', (path, expected) => {
+    expect(normalizeMsysDrivePath(path, 'win32')).toBe(expected);
+  });
+
+  test('does not normalize MSYS paths on other platforms', () => {
+    expect(normalizeMsysDrivePath('/c/Projects', 'linux')).toBe('/c/Projects');
+  });
+});
 
 describe('Windows namespace path detection', () => {
   test.each([

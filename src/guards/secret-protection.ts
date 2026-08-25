@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, posix, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AWK_INTERPRETERS, extractAwkSystemCommands } from '@/analyzer/awk';
+import { normalizeMsysDrivePath } from '@/analyzer/path';
 import {
   createPathCanonicalizationBudget,
   type PathCanonicalizationBudget,
@@ -1908,7 +1909,9 @@ function prepareCandidatePath(target: string, budget: PathCanonicalizationBudget
   const home = homeValue
     ? normalizePathText(resolveExistingPath(homeValue, processPathResolver, budget))
     : '';
-  const normalized = normalizePathText(normalizeFileUriPath(projectSensitiveShellText(target)));
+  const normalized = normalizePathText(
+    normalizeMsysDrivePath(normalizeFileUriPath(projectSensitiveShellText(target))),
+  );
   return { home, normalized };
 }
 
