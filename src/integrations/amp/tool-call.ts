@@ -126,12 +126,18 @@ function getAmpToolInvocation(
       ? resolveCanonicalCwd(shell.command.dir, workspaceRoot)
       : workspaceRoot;
   if (!executionCwd) {
-    return malformedAmpToolCall(
-      workspaceRoot,
-      toolCall.tool,
-      shell.command.command,
-      shell.command.dir,
-    );
+    return {
+      malformed: true,
+      denial: {
+        reason:
+          'CC Safety Net could not resolve the requested working directory because it does not exist or is inaccessible. Use an existing accessible working directory, or create this directory from one, then retry the command.',
+        intent: 'use_alternative',
+        command: shell.command.command,
+        segment: shell.command.dir,
+        toolName: toolCall.tool,
+      },
+      cwd: workspaceRoot,
+    };
   }
 
   return invocationDomain.createToolInvocation(

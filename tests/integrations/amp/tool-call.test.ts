@@ -312,12 +312,30 @@ describe('Amp tool.call event', () => {
     });
   });
 
-  test('fails closed when the dir cannot be canonicalized', () => {
+  test('reports how to recover when the working directory cannot be canonicalized', () => {
     withTempDir((dir) => {
-      expect(handleAmpToolCall(shellEvent('git status', 'missing'), ampApi(dir))).toEqual({
+      const command = 'amp clone user-skills ampcode.com-user-skills';
+      const missing = join(dir, 'missing');
+      const calls: AnalyzeCall[] = [];
+      const result = createAmpToolCallHandler({
+        guardDependencies: { analyzeCommand: captureAnalyzeCalls(calls) },
+      })(shellEvent(command, missing), ampApi(dir));
+
+      expect(result).toEqual({
         action: 'reject-and-continue',
-        message: expect.stringContaining('CC Safety Net failed closed'),
+        message: expect.stringContaining(
+          'CC Safety Net could not resolve the requested working directory because it does not exist or is inaccessible. Use an existing accessible working directory, or create this directory from one, then retry the command.',
+        ),
       });
+      expect(calls).toEqual([]);
+      expect((result as { message: string }).message).toContain(`Command: ${command}`);
+      expect((result as { message: string }).message).toContain(`Segment: ${missing}`);
+      expect((result as { message: string }).message).toContain(
+        'Continue the task using the safer alternative described above.',
+      );
+      expect((result as { message: string }).message).not.toContain(
+        'command analysis failed unexpectedly',
+      );
     });
   });
 
