@@ -1010,6 +1010,31 @@ describe('analyzeRm Windows path handling', () => {
     expect(analyzeRm(['rm', '-rf', 'C:\\Projects\\dist'], { cwd: 'C:\\Projects' })).toBeNull();
   });
 
+  test.skipIf(!isWindows)('allows an MSYS drive path within cwd', () => {
+    expect(analyzeRm(['rm', '-rf', '/c/Projects/dist'], { cwd: 'C:\\Projects' })).toBeNull();
+  });
+
+  test.skipIf(!isWindows)('blocks MSYS paths outside cwd', () => {
+    expect(analyzeRm(['rm', '-rf', '/c/Other/dist'], { cwd: 'C:\\Projects' })).toContain(
+      'rm -rf outside cwd',
+    );
+    expect(analyzeRm(['rm', '-rf', '/d/Projects/dist'], { cwd: 'C:\\Projects' })).toContain(
+      'rm -rf outside cwd',
+    );
+  });
+
+  test.skipIf(!isWindows)('blocks MSYS drive root targets as catastrophic', () => {
+    ['/c', '/c/', '/c/*'].forEach((target) => {
+      expect(analyzeRm(['rm', '-rf', target], { cwd: 'C:\\Projects' })).toContain(
+        'root or home directory',
+      );
+    });
+  });
+
+  test.skipIf(!isWindows)('allows a quoted Windows backslash path within cwd', () => {
+    expect(analyzeTestCommand('rm -rf "C:\\Projects\\dist"', { cwd: 'C:\\Projects' })).toBeNull();
+  });
+
   test('allows relative path with backslash prefix', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'safety-net-win-'));
     try {

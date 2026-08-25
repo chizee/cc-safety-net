@@ -65,6 +65,12 @@ export function analyzeRmMatch(
     }
 
     for (const expandedTarget of facts.expandedTargets ?? [target.text]) {
+      // Git Bash/MSYS spells drive paths as /c/..., which Windows path APIs otherwise
+      // interpret as C:\c\... instead of C:\....
+      const nativeTarget =
+        process.platform === 'win32'
+          ? expandedTarget.replace(/^\/([A-Za-z])(?:\/|$)/, '$1:/')
+          : expandedTarget;
       const classificationOptions = {
         targetIsLiteral: facts.expandedTargets !== undefined || facts.targetIsLiteral,
         tmpdirWordSplittingProtected: facts.tmpdirWordSplittingProtected,
@@ -73,7 +79,7 @@ export function analyzeRmMatch(
         !recursive &&
         ctx.resolvedCwd &&
         isProtectedGitDeleteTarget(
-          expandedTarget,
+          nativeTarget,
           ctx.resolvedCwd,
           ctx.protectedGitMetadata,
           recursive,
@@ -84,7 +90,7 @@ export function analyzeRmMatch(
       }
       if (recursive && !recursiveForce) {
         const classification = classifyRecursiveDeleteTarget(
-          expandedTarget,
+          nativeTarget,
           ctx,
           classificationOptions,
         );
@@ -98,7 +104,7 @@ export function analyzeRmMatch(
       }
       if (!recursiveForce) continue;
       for (const classification of orderedTargetClassifications(
-        expandedTarget,
+        nativeTarget,
         ctx,
         classificationOptions,
       )) {
