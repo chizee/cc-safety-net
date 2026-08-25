@@ -69,6 +69,8 @@ function createRepository(root: string) {
     root,
     'clone',
     '-c',
+    'commit.gpgsign=false',
+    '-c',
     'user.name=Release Test',
     '-c',
     'user.email=release@example.com',
