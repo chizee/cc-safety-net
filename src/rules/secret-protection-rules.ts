@@ -350,6 +350,25 @@ export const SECRET_CODING_CLI_RULES = [
     label: 'Cursor CLI config',
     paths: ['~/.cursor/mcp.json', '<project>/.cursor/mcp.json'],
   },
+  {
+    id: 'secret.cli.grok-build',
+    category: 'Coding CLI credential',
+    label: 'Grok Build credentials',
+    paths: ['~/.grok/auth.json', '~/.grok/mcp_credentials.json'],
+  },
+  {
+    id: 'secret.cli.grok-build.config',
+    category: 'Coding CLI config',
+    label: 'Grok Build config',
+    paths: [
+      '~/.grok/config.toml',
+      '~/.grok/managed_config.toml',
+      '~/.grok/requirements.toml',
+      '<project>/.grok/config.toml',
+      '/etc/grok/managed_config.toml',
+      '/etc/grok/requirements.toml',
+    ],
+  },
 ] as const satisfies readonly SecretProtectionCodingCliRule[];
 
 const SECRET_VARIANT_PREFIXES = [

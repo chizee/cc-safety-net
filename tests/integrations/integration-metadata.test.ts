@@ -16,6 +16,7 @@ describe('integration metadata', () => {
       'Cursor',
       'Gemini CLI',
       'GitHub Copilot CLI',
+      'Grok Build',
       'Hermes Agent',
       'Kimi Code',
       'OpenClaw',
@@ -33,6 +34,7 @@ describe('integration metadata', () => {
       'cursor',
       'gemini-cli',
       'copilot-cli',
+      'grok-build',
       'hermes-agent',
       'kimi-code',
       'openclaw',
@@ -48,6 +50,7 @@ describe('integration metadata', () => {
       'cursor',
       'gemini-cli',
       'copilot-cli',
+      'grok-build',
       'hermes-agent',
       'kimi-code',
     ]);
@@ -57,12 +60,14 @@ describe('integration metadata', () => {
       ['-cu', '--cursor'],
       ['-gc', '--gemini-cli'],
       ['-cp', '--copilot-cli'],
+      ['-gb', '--grok-build'],
       ['-ha', '--hermes-agent'],
       ['-kc', '--kimi-code'],
     ]);
     expect(runtimeHookIntegrationMetadata.map((integration) => integration.legacyFlags)).toEqual([
       [],
       ['--claude-code'],
+      [],
       [],
       [],
       [],
@@ -79,6 +84,7 @@ describe('integration metadata', () => {
       ['-cp', '--copilot-cli'],
       [],
       [],
+      [],
     ]);
   });
 
@@ -89,6 +95,7 @@ describe('integration metadata', () => {
       'Cursor',
       'Gemini CLI',
       'GitHub Copilot CLI',
+      'Grok Build',
       'Hermes Agent',
       'Kimi Code',
     ]);
@@ -104,6 +111,7 @@ describe('integration metadata', () => {
       'cursor',
       'gemini-cli',
       'copilot-cli',
+      'grok-build',
       'hermes-agent',
       'kimi-code',
       'openclaw',

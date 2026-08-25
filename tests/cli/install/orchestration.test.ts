@@ -22,6 +22,7 @@ const PROBED_CLIS = [
   'copilot',
   'cursor',
   'gemini',
+  'grok',
   'hermes',
   'kimi',
   'openclaw',

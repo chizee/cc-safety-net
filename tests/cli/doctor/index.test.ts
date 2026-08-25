@@ -55,6 +55,7 @@ function mockHealthyDoctorHost(cwd: string) {
       CC_SAFETY_NET_HOME: `${cwd}/safety-net`,
       PATH: '',
       COPILOT_HOME: `${cwd}/copilot`,
+      GROK_HOME: `${cwd}/grok`,
       KIMI_CODE_HOME: `${cwd}/kimi`,
     },
     restore: () => {
@@ -99,6 +100,7 @@ describe('doctor report verification ownership', () => {
             HOME: cwd,
             PATH: '',
             COPILOT_HOME: `${cwd}/copilot`,
+            GROK_HOME: `${cwd}/grok`,
             KIMI_CODE_HOME: `${cwd}/kimi`,
           },
           () => runDoctor({ cwd, json: true, skipUpdateCheck: true }),
@@ -133,6 +135,7 @@ describe('doctor report verification ownership', () => {
           { platform: 'cursor', inspectionStatus: 'not-applicable' },
           { platform: 'gemini-cli', inspectionStatus: 'not-applicable' },
           { platform: 'copilot-cli', inspectionStatus: 'not-applicable' },
+          { platform: 'grok-build', inspectionStatus: 'not-applicable' },
           { platform: 'hermes-agent', inspectionStatus: 'not-applicable' },
           { platform: 'kimi-code', inspectionStatus: 'not-applicable' },
           { platform: 'openclaw', inspectionStatus: 'not-applicable' },

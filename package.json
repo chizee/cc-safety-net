@@ -106,6 +106,8 @@
     "security",
     "pi-package",
     "cursor",
-    "amp"
+    "amp",
+    "grok",
+    "grok-build"
   ]
 }

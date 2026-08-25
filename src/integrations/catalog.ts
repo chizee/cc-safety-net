@@ -105,17 +105,34 @@ const catalog = [
     },
   },
   {
-    id: 'hermes-agent',
-    displayName: 'Hermes Agent',
+    id: 'grok-build',
+    displayName: 'Grok Build',
     doctorOrder: 8,
     runtime: {
       order: 6,
+      flags: ['-gb', '--grok-build'],
+      description: 'Run as Grok Build PreToolUse hook',
+      legacyTopLevelFlags: [],
+    },
+    install: {
+      order: 8,
+      flag: '--grok-build',
+      artifactKind: 'hook config',
+      probeCommand: ['grok', '--version'],
+    },
+  },
+  {
+    id: 'hermes-agent',
+    displayName: 'Hermes Agent',
+    doctorOrder: 9,
+    runtime: {
+      order: 7,
       flags: ['-ha', '--hermes-agent'],
       description: 'Run as Hermes Agent pre_tool_call hook',
       legacyTopLevelFlags: [],
     },
     install: {
-      order: 8,
+      order: 9,
       flag: '--hermes-agent',
       artifactKind: 'plugin',
       probeCommand: ['hermes', '--version'],
@@ -124,15 +141,15 @@ const catalog = [
   {
     id: 'kimi-code',
     displayName: 'Kimi Code',
-    doctorOrder: 9,
+    doctorOrder: 10,
     runtime: {
-      order: 7,
+      order: 8,
       flags: ['-kc', '--kimi-code'],
       description: 'Run as Kimi Code PreToolUse hook',
       legacyTopLevelFlags: [],
     },
     install: {
-      order: 9,
+      order: 10,
       flag: '--kimi-code',
       artifactKind: 'hook config',
       probeCommand: ['kimi', '--version'],
@@ -141,9 +158,9 @@ const catalog = [
   {
     id: 'openclaw',
     displayName: 'OpenClaw',
-    doctorOrder: 10,
+    doctorOrder: 11,
     install: {
-      order: 10,
+      order: 11,
       flag: '--openclaw',
       artifactKind: 'plugin',
       probeCommand: ['openclaw', '--version'],
@@ -152,9 +169,9 @@ const catalog = [
   {
     id: 'opencode',
     displayName: 'OpenCode',
-    doctorOrder: 11,
+    doctorOrder: 12,
     install: {
-      order: 11,
+      order: 12,
       flag: '--opencode',
       artifactKind: 'plugin',
       probeCommand: ['opencode', '--version'],
@@ -163,9 +180,9 @@ const catalog = [
   {
     id: 'pi',
     displayName: 'Pi',
-    doctorOrder: 12,
+    doctorOrder: 13,
     install: {
-      order: 12,
+      order: 13,
       flag: '--pi',
       artifactKind: 'package',
       probeCommand: ['pi', '--version'],

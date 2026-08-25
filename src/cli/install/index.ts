@@ -35,6 +35,7 @@ import { installCursor, uninstallCursor } from '@/integrations/cursor/install';
 import { detectAllHooks } from '@/integrations/detect';
 import type { UpdateInfo } from '@/integrations/doctor-types';
 import { detectGeminiCLI } from '@/integrations/gemini-cli/detect';
+import { installGrokBuild, uninstallGrokBuild } from '@/integrations/grok-build/install';
 import { HERMES_AGENT_PLUGIN_NAME } from '@/integrations/hermes-agent/artifact';
 import { isHermesAgentPluginEnabled } from '@/integrations/hermes-agent/detect';
 import {
@@ -83,7 +84,10 @@ import {
 import { getPiSettingsPath, isPiSafetyNetPackageSource } from '@/integrations/pi/detect';
 import { defaultVersionFetcher, type VersionFetcher } from '@/integrations/system-info';
 
-type ConfigInstallTarget = Extract<InstallTarget, 'antigravity-cli' | 'kimi-code' | 'cursor'>;
+type ConfigInstallTarget = Extract<
+  InstallTarget,
+  'antigravity-cli' | 'grok-build' | 'kimi-code' | 'cursor'
+>;
 // Integrations whose install writes a managed artifact directly instead of driving a host CLI.
 type ManagedArtifactTarget = Extract<InstallTarget, 'amp' | 'hermes-agent'>;
 type NativeInstallTarget = Exclude<InstallTarget, ConfigInstallTarget | ManagedArtifactTarget>;
@@ -151,6 +155,7 @@ const NATIVE_UPDATE_TARGETS = new Set<InstallTarget>([
 const NPX_CACHE_TARGETS = new Set<InstallTarget>([
   'antigravity-cli',
   'cursor',
+  'grok-build',
   'hermes-agent',
   'kimi-code',
 ]);
@@ -553,6 +558,7 @@ function uninstallOpenCodeTarget(homeDir: string): string {
 const CONFIG_INSTALLS = {
   'antigravity-cli': { install: installAntigravityCli, uninstall: uninstallAntigravityCli },
   cursor: { install: installCursor, uninstall: uninstallCursor },
+  'grok-build': { install: installGrokBuild, uninstall: uninstallGrokBuild },
   'kimi-code': { install: installKimiCode, uninstall: uninstallKimiCode },
 } satisfies Record<ConfigInstallTarget, Record<InstallAction, (homeDir: string) => InstallResult>>;
 
@@ -692,6 +698,11 @@ const INSTALL_OPERATIONS = {
     install: (homeDir: string, updating?: boolean) =>
       installNativeTarget('gemini-cli', homeDir, updating),
     uninstall: () => uninstallNativeTarget('gemini-cli'),
+  },
+  'grok-build': {
+    install: (homeDir: string, updating?: boolean) =>
+      runConfigInstallTarget('install', 'grok-build', homeDir, updating),
+    uninstall: (homeDir: string) => runConfigInstallTarget('uninstall', 'grok-build', homeDir),
   },
   'hermes-agent': {
     install: (homeDir: string, updating?: boolean) => {

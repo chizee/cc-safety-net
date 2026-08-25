@@ -99,12 +99,31 @@ const adapters = [
       tool_name: 'Shell',
       tool_input: { command },
     }),
-    // Cursor is the one adapter that emits a decision on allow too, so silence
-    // cannot stand in for permission the way it does for the others.
+    // Cursor and Grok Build emit a decision on allow too, so silence cannot stand
+    // in for permission the way it does for the others.
     isAllowOutput: (output: Record<string, unknown>) => output.permission === 'allow',
     denyReason: (output: Record<string, unknown>) => {
       expect(output.permission).toBe('deny');
       return String(output.user_message);
+    },
+  },
+  {
+    agent: 'grok-build',
+    flag: '-gb',
+    commandInput: (command: string, cwd: string, _home: string, sessionId: string) => ({
+      hookEventName: 'pre_tool_use',
+      sessionId,
+      cwd,
+      workspaceRoot: cwd,
+      toolName: 'run_terminal_command',
+      toolUseId: `${sessionId}-tool-call`,
+      toolInput: { command },
+      toolInputTruncated: false,
+    }),
+    isAllowOutput: (output: Record<string, unknown>) => output.decision === 'allow',
+    denyReason: (output: Record<string, unknown>) => {
+      expect(output.decision).toBe('deny');
+      return String(output.reason);
     },
   },
 ] as const;
