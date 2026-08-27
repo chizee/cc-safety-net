@@ -602,7 +602,8 @@ describe('built Pi extension protection contract', () => {
       expect(hostResult(results, 0)).toMatchObject({
         eventNames: ['tool_call'],
         commandNames: ['cc-safety-net'],
-        commandDescription: 'Manage CC Safety Net rulebooks',
+        commandDescription:
+          'Operate CC Safety Net: explain blocks, rules, integrations, diagnostics',
         sentMessages: [
           {
             content: expect.stringContaining('## User request\n\nblock git reset'),

@@ -119,6 +119,20 @@ npx cc-safety-net gui
 
 Details: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace) · [Audit Log](https://ccsafetynet.com/docs/reference/audit-log) · [Dashboard](https://ccsafetynet.com/docs/guides/dashboard) · [Configuration Recovery](https://ccsafetynet.com/docs/configuration/recovery).
 
+## The /cc-safety-net skill
+
+The plugin ships a skill that turns your coding agent into a CC Safety Net operator. It never triggers on its own; you invoke it by typing `/cc-safety-net` in the agent (Claude Code lists it under its plugin namespace as `cc-safety-net:cc-safety-net`; Pi and OpenCode register it as a built-in `/cc-safety-net` command).
+
+Reach for it when:
+
+- A command was just refused with `BLOCKED by CC Safety Net` and you want the step-by-step reason.
+- A block looks wrong and you want it triaged: reproduce the decision, fix the responsible custom rule, or report a built-in false positive.
+- You want custom blocking rules written, edited, or migrated for you.
+- You want CC Safety Net installed into, updated in, or removed from another agent CLI.
+- A rule you added does not fire, or you want to confirm protection is active.
+
+Anything you type after the command becomes the request, e.g. `/cc-safety-net why was my last git command blocked` or `/cc-safety-net block terraform destroy in this project`.
+
 ## Library API
 
 Node.js hosts that need an in-process allow or deny decision can call the command-check
