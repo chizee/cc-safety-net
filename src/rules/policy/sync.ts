@@ -192,18 +192,17 @@ async function syncRulesConfigInternal(
     const resolutions = await mapRulebookSources<string, SourceResolution>(
       selectedSpecs.specs,
       options.refresh
-        ? async (spec) => {
-            try {
-              return { ok: true, item: await resolveSpec(spec) };
-            } catch (error) {
-              if (isRuleSyncResourceLimitError(error)) throw error;
-              return {
-                ok: false,
-                spec,
-                message: error instanceof Error ? error.message : String(error),
-              };
-            }
-          }
+        ? (spec) =>
+            resolveSpec(spec)
+              .then((item) => ({ ok: true as const, item }))
+              .catch((error: unknown) => {
+                if (isRuleSyncResourceLimitError(error)) throw error;
+                return {
+                  ok: false as const,
+                  spec,
+                  message: error instanceof Error ? error.message : String(error),
+                };
+              })
         : async (spec) => ({ ok: true, item: await resolveSpec(spec) }),
       operation,
     );
@@ -211,9 +210,9 @@ async function syncRulesConfigInternal(
     const resolved = resolutions
       .filter((item): item is Extract<SourceResolution, { ok: true }> => item.ok)
       .map((item) => preserveDisplayRef(item.item, previousLock, discoveredDisplayRefs));
-    for (const item of resolved) {
+    resolved.forEach((item) => {
       writeCache(item.content, item.entry, scope.configDir, options, scope.filesystemScope);
-    }
+    });
     const entries =
       options.only || options.refresh
         ? mergeSelectedLockEntries(config, previousLock, resolved)

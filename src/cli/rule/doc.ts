@@ -138,7 +138,7 @@ Version 2 replaces \`subcommand\` and \`block_args\` with an exact-token \`match
 ### Matching Behavior (\`rulebook_version\` 2)
 
 - **Command**: Normalized to lowercase basename, as in version 1.
-- **Command path**: After recognized global options and their values are skipped, the next command words must equal \`command_path\` exactly. AWS and gcloud value-taking global options are built in; Terraform's \`-chdir=dir\` is \`=\`-joined and is skipped with its own token.
+- **Command path**: After recognized global options and their values are skipped, the next command words must equal \`command_path\` exactly. AWS, gcloud, and Azure CLI value-taking global options are built in; Terraform's \`-chdir=dir\` is \`=\`-joined and is skipped with its own token.
 - **Unrecognized options**: A token starting with \`-\` that is not a recognized global option is skipped without consuming a value, so an unlisted value-taking option with a separate value (\`--newflag value\`) makes the rule miss. This fails open deliberately; document such gaps in the rulebook.
 - **\`any_args\`**: At least one listed token must appear literally among the arguments.
 - **\`exclude_args\`**: Any listed token appearing literally among the arguments prevents the match, which is how a safe preview such as \`aws s3 rm --dryrun\` stays allowed.

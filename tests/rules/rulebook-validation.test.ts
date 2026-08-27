@@ -73,6 +73,17 @@ describe('validateRulebook rulebook_version 2', () => {
     ]);
   });
 
+  test('rejects version 1 matching fields', () => {
+    const withLegacyField = (field: Record<string, unknown>) =>
+      v2Rulebook({ name: 'legacy-field', match: { command_path: ['destroy'] }, ...field });
+    expect(v2Errors(withLegacyField({ subcommand: 'destroy' }))).toEqual([
+      'rules[0].subcommand: not supported in rulebook_version 2',
+    ]);
+    expect(v2Errors(withLegacyField({ block_args: ['destroy'] }))).toEqual([
+      'rules[0].block_args: not supported in rulebook_version 2',
+    ]);
+  });
+
   test('keeps the shared rulebook cross-checks for version 2 rules', () => {
     expect(
       v2Errors({

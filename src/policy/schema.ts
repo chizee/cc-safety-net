@@ -458,7 +458,11 @@ function createSchemas() {
       .array(
         customRuleObjectSchema('rulebook')
           .omit({ subcommand: true, block_args: true })
-          .extend({ match: V2MatchSchema }),
+          .extend({
+            match: V2MatchSchema,
+            subcommand: z.never({ error: 'not supported in rulebook_version 2' }).optional(),
+            block_args: z.never({ error: 'not supported in rulebook_version 2' }).optional(),
+          }),
         { error: 'required array' },
       )
       .check(alwaysRun(refineDuplicateRuleNames)),
