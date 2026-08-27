@@ -34,6 +34,9 @@ const gcloudInstancesDelete = v2Rule('block-gcloud-instances-delete', 'gcloud', 
 const gcloudBetaInstancesDelete = v2Rule('block-gcloud-beta-instances-delete', 'gcloud', {
   command_path: ['beta', 'compute', 'instances', 'delete'],
 });
+const azGroupDelete = v2Rule('block-az-group-delete', 'az', {
+  command_path: ['group', 'delete'],
+});
 
 describe('rulebook v2 command_path matching', () => {
   test('matches the command path and ignores other paths of the same command', () => {
@@ -62,6 +65,27 @@ describe('rulebook v2 command_path matching', () => {
         [awsTerminateInstances],
       ),
     ).toBe('custom.block-aws-terminate-instances');
+  });
+
+  test('skips recognized az global options and their values before the path', () => {
+    expect(
+      matchedId(
+        ['az', '--subscription', 'prod', 'group', 'delete', '--name', 'rg'],
+        [azGroupDelete],
+      ),
+    ).toBe('custom.block-az-group-delete');
+    expect(matchedId(['az', '-o', 'json', 'group', 'delete'], [azGroupDelete])).toBe(
+      'custom.block-az-group-delete',
+    );
+    expect(matchedId(['az', '--output', 'json', 'group', 'delete'], [azGroupDelete])).toBe(
+      'custom.block-az-group-delete',
+    );
+    expect(matchedId(['az', '--query', 'name', 'group', 'delete'], [azGroupDelete])).toBe(
+      'custom.block-az-group-delete',
+    );
+    expect(
+      matchedId(['az', '--subscription', 'prod', 'group', 'list'], [azGroupDelete]),
+    ).toBeNull();
   });
 
   test('skips a recognized global option placed between path words', () => {

@@ -29,6 +29,10 @@ const GCLOUD_GLOBAL_OPTIONS_WITH_VALUES = new Set([
   '--verbosity',
 ]);
 
+// The remaining documented az global arguments (--debug, --help, --only-show-errors,
+// --verbose) take no value.
+const AZ_GLOBAL_OPTIONS_WITH_VALUES = new Set(['-o', '--output', '--query', '--subscription']);
+
 const EMPTY_GLOBAL_OPTIONS_WITH_VALUES = new Set<string>();
 
 // Terraform has no entry on purpose: its only global option, `-chdir=DIR`, is `=`-joined
@@ -36,5 +40,6 @@ const EMPTY_GLOBAL_OPTIONS_WITH_VALUES = new Set<string>();
 export function getMatchGlobalOptionsWithValues(command: string): ReadonlySet<string> {
   if (command === 'aws') return AWS_GLOBAL_OPTIONS_WITH_VALUES;
   if (command === 'gcloud') return GCLOUD_GLOBAL_OPTIONS_WITH_VALUES;
+  if (command === 'az') return AZ_GLOBAL_OPTIONS_WITH_VALUES;
   return EMPTY_GLOBAL_OPTIONS_WITH_VALUES;
 }
