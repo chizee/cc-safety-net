@@ -6,7 +6,9 @@ import {
   RULEBOOK_VALIDATION_TRUNCATED,
 } from '@/rules/rulebook-limits';
 
-function emptyRulebook(input: Partial<Rulebook> = {}): Rulebook {
+type RulebookV1 = Extract<Rulebook, { rulebook_version: 1 }>;
+
+function emptyRulebook(input: Partial<RulebookV1> = {}): RulebookV1 {
   return {
     rulebook_version: 1,
     name: 'project-rules',
@@ -15,6 +17,16 @@ function emptyRulebook(input: Partial<Rulebook> = {}): Rulebook {
     rules: [],
     tests: [],
     ...input,
+  };
+}
+
+function v2Rulebook(match: Record<string, unknown>) {
+  return {
+    rulebook_version: 2,
+    name: 'infra-rules',
+    version: '1.0.0',
+    allowed_commands: ['terraform'],
+    rules: [{ name: 'block-terraform', command: 'terraform', match, reason: 'Ask first.' }],
   };
 }
 
@@ -214,6 +226,40 @@ describe('rulebook acceptance limits', () => {
         }),
       ).errors,
     ).toEqual([RULEBOOK_LIMIT_ERROR]);
+  });
+
+  test('bounds rulebook_version 2 match token lists with the block argument budgets', () => {
+    expect(validateRulebook(v2Rulebook({ command_path: ['destroy'] })).errors).toEqual([]);
+    expect(
+      validateRulebook(
+        v2Rulebook({
+          command_path: Array(RULEBOOK_LIMITS.maxBlockArgsPerRule + 1).fill('destroy'),
+        }),
+      ).errors,
+    ).toEqual([RULEBOOK_LIMIT_ERROR]);
+    expect(
+      validateRulebook(
+        v2Rulebook({
+          command_path: ['destroy'],
+          any_args: ['x'.repeat(RULEBOOK_LIMITS.maxStringCodeUnits + 1)],
+        }),
+      ).errors,
+    ).toEqual([RULEBOOK_LIMIT_ERROR]);
+
+    const matchRules = Array.from(
+      { length: RULEBOOK_LIMITS.maxTotalBlockArgs / RULEBOOK_LIMITS.maxBlockArgsPerRule },
+      (_, index) => ({
+        name: `rule-${index}`,
+        command: 'terraform',
+        match: { command_path: Array(RULEBOOK_LIMITS.maxBlockArgsPerRule).fill('destroy') },
+        reason: 'Ask first.',
+      }),
+    );
+    const v2Base = v2Rulebook({ command_path: ['destroy'] });
+    expect(validateRulebook({ ...v2Base, rules: matchRules }).errors).toEqual([]);
+    expect(validateRulebook({ ...v2Base, rules: [...matchRules, ...v2Base.rules] }).errors).toEqual(
+      [RULEBOOK_LIMIT_ERROR],
+    );
   });
 
   test('retains 64 detailed diagnostics and appends one fixed marker on the 65th', () => {

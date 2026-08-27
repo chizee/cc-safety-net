@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { assertValidRulebook, type Rulebook } from '@/rules/rulebook';
+import { evaluateRulebookFixtures } from '@/rules/rulebook-fixtures';
 import {
   bindPolicyFilesystemScope,
   getPolicyFilesystemTargetForPath,
@@ -161,7 +162,7 @@ function resolveLocalRulebook(
   const path = getLocalRulebookPath(configDir, spec);
   const content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, path));
   if (content === null) throw new Error(`Rulebook source not found: ${spec}`);
-  const rulebook = assertValidRulebook(
+  const rulebook = assertValidSyncedRulebook(
     parseRulebookJson(content, 'Invalid local rulebook source.'),
   );
   if (rulebook.name !== spec) {
@@ -197,7 +198,7 @@ async function resolveGitHubRulebook(
     throw new Error(`Failed to fetch ${spec}: GitHub raw returned ${rawResponse.status}`);
   }
   const content = rawResource.content;
-  const rulebook = assertValidRulebook(
+  const rulebook = assertValidSyncedRulebook(
     parseRulebookJson(content, 'Invalid GitHub rulebook response.'),
   );
   if (rulebook.name !== parsed.name) {
@@ -263,6 +264,19 @@ async function fetchLockedGitHubRulebook(
     throw new Error(`locked GitHub digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
   }
   return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
+}
+
+/**
+ * Validation for a freshly resolved rulebook. Fixtures run here only: a locked rulebook was
+ * fixture-checked when it was first resolved, so reusing it never re-evaluates them.
+ */
+function assertValidSyncedRulebook(value: unknown): Rulebook {
+  const rulebook = assertValidRulebook(value);
+  const failures = evaluateRulebookFixtures(rulebook);
+  if (failures.length > 0) {
+    throw new Error(failures.join('; '));
+  }
+  return rulebook;
 }
 
 function assertRulebookMatchesLockEntry(content: string, entry: GitHubRulebookLockEntry): Rulebook {

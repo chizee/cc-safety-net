@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runRuleCommand } from '@/cli/rule';
 import * as systemInfo from '@/integrations/system-info';
+import * as sync from '@/rules/policy/sync';
 import { captureConsoleOutput, runCCSafetyNetCli, withEnv, withTempDir } from '../../helpers';
 import { writeProjectRuleConfig } from '../../helpers/rulebook';
 
@@ -62,6 +63,35 @@ describe('rule update notice', () => {
         },
       );
     });
+  });
+});
+
+describe('rule update refresh', () => {
+  test('update re-resolves remote refs while sync reuses the locked commit', async () => {
+    const syncRulesConfig = spyOn(sync, 'syncRulesConfig').mockResolvedValue({
+      ok: true,
+      errors: [],
+      warnings: [],
+      entries: [],
+    });
+    try {
+      await captureRuleCommand(['update']);
+      expect(syncRulesConfig).toHaveBeenLastCalledWith(
+        expect.objectContaining({ refresh: true, only: undefined }),
+      );
+
+      await captureRuleCommand(['update', 'alpha']);
+      expect(syncRulesConfig).toHaveBeenLastCalledWith(
+        expect.objectContaining({ refresh: true, only: 'alpha' }),
+      );
+
+      await captureRuleCommand(['sync']);
+      expect(syncRulesConfig).toHaveBeenLastCalledWith(
+        expect.objectContaining({ refresh: false, only: undefined }),
+      );
+    } finally {
+      syncRulesConfig.mockRestore();
+    }
   });
 });
 

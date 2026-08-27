@@ -265,7 +265,7 @@ export function loadScopePolicy(
     claimedRulebookNames.add(rulebook.name);
     return [
       {
-        rules: rulebook.rules.map((rule) => ({ ...rule, name: `${rulebook.name}/${rule.name}` })),
+        rules: toPolicyRules(rulebook),
         rulebook: {
           source,
           spec: entry.spec,
@@ -287,6 +287,28 @@ export function loadScopePolicy(
     warnings,
     canValidateOverrides: errors.length === 0,
   };
+}
+
+/**
+ * Version 2 rules carry a match contract instead of block arguments; version 1 rules keep
+ * theirs and drop any stray `match` key so a loose rulebook cannot opt into v2 matching.
+ */
+function toPolicyRules(rulebook: Rulebook): CustomRule[] {
+  if (rulebook.rulebook_version === 2) {
+    return rulebook.rules.map((rule) => ({
+      name: `${rulebook.name}/${rule.name}`,
+      command: rule.command,
+      block_args: [],
+      match: rule.match,
+      reason: rule.reason,
+      intent: rule.intent,
+    }));
+  }
+  return rulebook.rules.map((rule) => ({
+    ...rule,
+    name: `${rulebook.name}/${rule.name}`,
+    match: undefined,
+  }));
 }
 
 function loadLockedRulebook(

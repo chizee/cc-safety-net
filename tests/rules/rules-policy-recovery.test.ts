@@ -1980,7 +1980,7 @@ describe('rules policy recovery coverage', () => {
       );
       writeFileSync(join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json'), '{}');
       expect((await syncRulesConfig({ cwd: tempDir })).errors[0]).toContain(
-        'rulebook_version must be 1',
+        'rulebook_version must be 1 or 2',
       );
 
       writeRulebook(join(userConfigDir, 'shared', 'rulebook.json'), 'shared');

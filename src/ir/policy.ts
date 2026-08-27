@@ -1,5 +1,15 @@
 import type { BlockIntent } from './decision.js';
 
+/** Exact-token matching contract for rulebook_version 2 rules. */
+export interface CustomRuleMatch {
+  /** Command words that must follow the command, after global options are skipped */
+  readonly command_path: readonly string[];
+  /** At least one of these exact argument tokens must be present */
+  readonly any_args?: readonly string[];
+  /** Any of these exact argument tokens prevents the match */
+  readonly exclude_args?: readonly string[];
+}
+
 /** Custom blocking rule definition. */
 export interface CustomRule {
   /** Unique identifier for the rule */
@@ -10,6 +20,8 @@ export interface CustomRule {
   subcommand?: string;
   /** Arguments that trigger the block */
   block_args: string[];
+  /** Rulebook v2 matching contract; v1 rules leave it unset */
+  match?: CustomRuleMatch;
   /** Message shown when blocked */
   reason: string;
   /** Optional agent behavior intent for the block message footer */
@@ -75,6 +87,7 @@ export type PolicyRule = {
   readonly command: string;
   readonly subcommand?: string;
   readonly block_args: readonly string[];
+  readonly match?: CustomRuleMatch;
   readonly reason: string;
   readonly intent?: BlockIntent;
 };

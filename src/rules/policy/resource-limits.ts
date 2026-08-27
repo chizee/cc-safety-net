@@ -42,6 +42,11 @@ export function createRuleSyncOperation(resolveUrl?: (url: string) => string): R
   };
 }
 
+/** Budget exhaustion is an operation-wide failure, not one source's failure. */
+export function isRuleSyncResourceLimitError(error: unknown): boolean {
+  return error instanceof Error && error.message === RULE_SYNC_RESOURCE_LIMIT_ERROR;
+}
+
 export function reserveGitHubRequest(budget: RuleSyncResourceBudget): void {
   if (budget.requests >= budget.maxRequests) throw new Error(RULE_SYNC_RESOURCE_LIMIT_ERROR);
   budget.requests++;

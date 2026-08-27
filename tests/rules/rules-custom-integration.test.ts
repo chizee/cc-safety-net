@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { syncRulesConfig } from '@/rules/policy';
+import { loadRulesPolicy, syncRulesConfig } from '@/rules/policy';
 import { analyzeTestCommand as analyzeCommand, loadTestPolicy } from '../helpers/policy';
 
 async function writeConfig(
@@ -30,6 +30,42 @@ async function writeConfig(
         expect: 'blocked',
         rule: rule.name,
       })),
+    }),
+    'utf-8',
+  );
+  expect((await syncRulesConfig({ cwd: dir })).ok).toBe(true);
+}
+
+async function writeV2Config(dir: string, overrides: Record<string, unknown> = {}) {
+  mkdirSync(join(dir, '.cc-safety-net/rules/infra-rules'), { recursive: true });
+  writeFileSync(
+    join(dir, '.cc-safety-net/rules/rule.json'),
+    JSON.stringify({ version: 1, rules: ['infra-rules'], overrides }),
+    'utf-8',
+  );
+  writeFileSync(
+    join(dir, '.cc-safety-net/rules/infra-rules/rulebook.json'),
+    JSON.stringify({
+      rulebook_version: 2,
+      name: 'infra-rules',
+      version: '1.0.0',
+      allowed_commands: ['gcloud'],
+      rules: [
+        {
+          name: 'block-gcloud-instances-delete',
+          command: 'gcloud',
+          match: { command_path: ['compute', 'instances', 'delete'] },
+          reason: 'Ask before deleting instances.',
+        },
+      ],
+      tests: [
+        {
+          command: 'gcloud --project prod compute instances delete vm',
+          expect: 'blocked',
+          rule: 'block-gcloud-instances-delete',
+        },
+        { command: 'gcloud compute instances create delete', expect: 'allowed' },
+      ],
     }),
     'utf-8',
   );
@@ -282,6 +318,36 @@ describe('custom rules integration', () => {
       ],
     });
     assertBlocked('parallel curl ::: url1 url2', '[project-rules/block-parallel-curl]', tempDir);
+  });
+
+  test('version 2 rulebook blocks its command path and allows a lookalike', async () => {
+    await writeV2Config(tempDir);
+    assertBlocked(
+      'gcloud --project prod compute instances delete vm',
+      '[infra-rules/block-gcloud-instances-delete] Ask before deleting instances.',
+      tempDir,
+    );
+    assertAllowed('gcloud compute instances create delete', tempDir);
+  });
+
+  test('version 2 rules load with their match contract and honour overrides', async () => {
+    await writeV2Config(tempDir);
+    expect(loadRulesPolicy({ cwd: tempDir }).rules).toEqual([
+      {
+        name: 'infra-rules/block-gcloud-instances-delete',
+        command: 'gcloud',
+        block_args: [],
+        match: { command_path: ['compute', 'instances', 'delete'] },
+        reason: 'Ask before deleting instances.',
+        intent: undefined,
+      },
+    ]);
+
+    await writeV2Config(tempDir, {
+      'infra-rules/block-gcloud-instances-delete': 'off',
+    });
+    expect(loadRulesPolicy({ cwd: tempDir }).rules).toEqual([]);
+    assertAllowed('gcloud compute instances delete vm', tempDir);
   });
 
   test('attached option value not false positive', async () => {

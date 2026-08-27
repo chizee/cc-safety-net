@@ -28,6 +28,7 @@ import {
 import { getPolicyPaths } from '@/rules/policy/paths';
 import { NAME_PATTERN } from '@/rules/policy/source-syntax';
 import { assertValidRulebook } from '@/rules/rulebook';
+import { evaluateRulebookFixtures } from '@/rules/rulebook-fixtures';
 
 const VERIFY_HEADER = 'CC Safety Net Config';
 const VERIFY_SEPARATOR = '═'.repeat(VERIFY_HEADER.length);
@@ -301,6 +302,11 @@ function validateGitHubSourceRules(target: PolicyFilesystemTarget): ValidationRe
       const rulebook = assertValidRulebook(parsed);
       if (rulebook.name !== entry.name) {
         errors.push(`rulebook name "${rulebook.name}" must match folder "${entry.name}"`);
+        continue;
+      }
+      const fixtureFailures = evaluateRulebookFixtures(rulebook);
+      if (fixtureFailures.length > 0) {
+        errors.push(...fixtureFailures.map((failure) => `${entry.name}/rulebook.json: ${failure}`));
         continue;
       }
       ruleNames.add(entry.name);

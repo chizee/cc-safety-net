@@ -33,6 +33,7 @@ import {
 } from './resolver';
 import {
   createRuleSyncOperation,
+  isRuleSyncResourceLimitError,
   RULE_SOURCE_LIMIT,
   RULE_SOURCE_LIMIT_ERROR,
   RULE_SYNC_RESOURCE_LIMITS,
@@ -60,6 +61,14 @@ export interface RuleSyncTestHooks {
 interface RemoveRulebookSourceOptions extends SyncRulesConfigOptions {
   deleteSource?: boolean;
 }
+
+interface FailedRulebookSource {
+  ok: false;
+  spec: string;
+  message: string;
+}
+
+type SourceResolution = { ok: true; item: ResolvedRulebook } | FailedRulebookSource;
 
 export async function syncRulesConfig(
   options: SyncRulesConfigOptions = {},
@@ -168,27 +177,47 @@ async function syncRulesConfigInternal(
         entries: [],
       };
     }
-    const resolved = (
-      await mapRulebookSources(
-        selectedSpecs.specs,
-        (spec) =>
-          resolveRulebookSourceForSync(
-            spec,
-            scope.configDir,
-            options,
-            previousLock,
-            scope.filesystemScope,
-            operation,
-          ),
+    const resolveSpec = (spec: string) =>
+      resolveRulebookSourceForSync(
+        spec,
+        scope.configDir,
+        options,
+        previousLock,
+        scope.filesystemScope,
         operation,
-      )
-    ).map((item) => preserveDisplayRef(item, previousLock, discoveredDisplayRefs));
+      );
+    // `rule update` refreshes each selected source independently: a source that fails to fetch
+    // or validate keeps its last good lock entry and cache instead of blocking the sources that
+    // did update. Resource-budget failures stay fatal for the whole operation.
+    const resolutions = await mapRulebookSources<string, SourceResolution>(
+      selectedSpecs.specs,
+      options.refresh
+        ? async (spec) => {
+            try {
+              return { ok: true, item: await resolveSpec(spec) };
+            } catch (error) {
+              if (isRuleSyncResourceLimitError(error)) throw error;
+              return {
+                ok: false,
+                spec,
+                message: error instanceof Error ? error.message : String(error),
+              };
+            }
+          }
+        : async (spec) => ({ ok: true, item: await resolveSpec(spec) }),
+      operation,
+    );
+    const failures = resolutions.filter((item): item is FailedRulebookSource => !item.ok);
+    const resolved = resolutions
+      .filter((item): item is Extract<SourceResolution, { ok: true }> => item.ok)
+      .map((item) => preserveDisplayRef(item.item, previousLock, discoveredDisplayRefs));
     for (const item of resolved) {
       writeCache(item.content, item.entry, scope.configDir, options, scope.filesystemScope);
     }
-    const entries = options.only
-      ? mergeSelectedLockEntries(config, previousLock, resolved)
-      : resolved.map((item) => item.entry);
+    const entries =
+      options.only || options.refresh
+        ? mergeSelectedLockEntries(config, previousLock, resolved)
+        : resolved.map((item) => item.entry);
     lockPublished = true;
     writeJsonAtomic(
       scope.lockTarget,
@@ -207,8 +236,8 @@ async function syncRulesConfigInternal(
       hooks,
     );
     return {
-      ok: true,
-      errors: [],
+      ok: failures.length === 0,
+      errors: failures.map((failure) => `Failed to update ${failure.spec}: ${failure.message}`),
       warnings,
       entries: entries.map((entry) => addRuleCount(entry, ruleCountsBySpec)),
     };
