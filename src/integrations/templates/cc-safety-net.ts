@@ -51,9 +51,12 @@ part of a workflow below.
 
 1. Get the exact blocked command. If the user does not have it, find it with
    \`npx -y cc-safety-net logs\` (narrow with \`--project .\`, \`--agent <name>\`, or \`--since <days>\`).
-2. Run \`npx -y cc-safety-net explain "<command>"\`. Add \`--cwd <path>\` when the decision depends
-   on the working directory. \`explain\` analyzes the string and never executes it, so it is safe
-   to pass any command, including destructive ones.
+2. Pass the exact command to \`npx -y cc-safety-net explain\` as one literal argument. Prefer an
+   argv-capable tool; when invoking through a shell, shell-escape the whole command as one
+   argument. Never interpolate raw command text into double quotes: \`$()\`, backticks, and
+   variables would expand before \`explain\` receives it. Add \`--cwd <path>\` when the decision
+   depends on the working directory. Once received, \`explain\` analyzes the string and never
+   executes it.
 3. Read the trace: how the command was split, which rule matched, and the RESULT status and
    reason. \`explain\` exits 0 for both allowed and blocked verdicts; read the verdict from the
    output, not the exit status.
@@ -69,9 +72,10 @@ part of a workflow below.
    rule (see configure rules), then re-run \`explain\` to confirm the new verdict.
 4. If a built-in rule fired, no rule edit can relax it. Check the reason for a documented escape
    hatch, such as \`CC_SAFETY_NET_WORKTREE=1\` for local git discards in linked worktrees, or
-   \`rule wrapper add <command>\` when a trusted transparent wrapper hid the real command from the
-   analyzer. Otherwise explain the risk the rule guards against and suggest reporting the case
-   at https://github.com/kenryu42/cc-safety-net/issues.
+   \`rule wrapper add\` when a trusted transparent wrapper hid the real command from the analyzer.
+   Pass the wrapper name as a separate argv value, or shell-escape it as one argument. Otherwise
+   explain the risk the rule guards against and suggest reporting the case at
+   https://github.com/kenryu42/cc-safety-net/issues.
 
 ## Configure rules
 
@@ -98,8 +102,9 @@ intent, merge behavior, or target command is unclear.
      current repository.
    - Do not offer to add a GitHub source with \`owner/repo\`; installing rules from a GitHub
      source is outside this workflow.
-   - For transparent wrappers, prefer \`npx -y cc-safety-net rule wrapper add <command>\` over
-     editing \`rule.json\` by hand.
+   - For transparent wrappers, prefer \`npx -y cc-safety-net rule wrapper add\` with the trusted
+     wrapper name passed as a separate argv value, or shell-escaped as one argument, over editing
+     \`rule.json\` by hand.
 6. Preserve unrelated existing rulebook sources, overrides, and rulebooks. Preview proposed JSON
    before writing when creating a new rulebook, merging with existing config, or resolving
    ambiguity.

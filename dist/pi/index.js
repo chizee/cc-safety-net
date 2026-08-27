@@ -1,4 +1,4 @@
-import{a}from"../chunks/index-sds9mtag.js";import{k as u,l as c,m as f,n as C,o as g,p as N}from"../chunks/index-cx378x6c.js";import{Fa as d,_ as p,ja as P,va as y,wb as v,xa as T,za as w}from"../chunks/index-ze2p7e66.js";var D="cc-safety-net",S="Operate CC Safety Net: explain blocks, rules, integrations, diagnostics",I="Help me with CC Safety Net.";function s(o){o.registerCommand(D,{description:S,handler:async(n,e)=>{o.sendUserMessage(h(n),e.isIdle()?void 0:{deliverAs:"followUp"})}})}function h(o){return`${a.slice(a.indexOf("# CC Safety Net")).trimEnd()}
+import{a}from"../chunks/index-zcyny11m.js";import{k as u,l as c,m as f,n as C,o as g,p as N}from"../chunks/index-cx378x6c.js";import{Fa as d,_ as p,ja as P,va as y,wb as v,xa as T,za as w}from"../chunks/index-ze2p7e66.js";var D="cc-safety-net",S="Operate CC Safety Net: explain blocks, rules, integrations, diagnostics",I="Help me with CC Safety Net.";function s(o){o.registerCommand(D,{description:S,handler:async(n,e)=>{o.sendUserMessage(h(n),e.isIdle()?void 0:{deliverAs:"followUp"})}})}function h(o){return`${a.slice(a.indexOf("# CC Safety Net")).trimEnd()}
 
 ## User request
 
