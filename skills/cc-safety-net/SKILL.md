@@ -171,31 +171,32 @@ For questions the CLI output cannot settle, such as why the analyzer treats a co
 certain way or whether a gap is a known limitation, read the source code of the installed
 version.
 
-1. Locate the repository. Plugin installs ship the full repository, and this skill file lives
+1. Get `<version>` from `npx -y cc-safety-net --version`.
+2. Locate the repository. Plugin installs ship the full repository, and this skill file lives
    at `<repo>/skills/cc-safety-net/SKILL.md` inside it, so the repository root is two
-   directories above the skill file. Verify the candidate root: its `package.json` must have
-   `"name": "cc-safety-net"` and a `src/` directory must exist next to it.
-2. If no valid local root exists (skill-only installs, or the guidance arrived without a file
-   path), get `<version>` from `npx -y cc-safety-net --version`, then resolve the immutable commit
-   recorded with that published package using `npm view "cc-safety-net@<version>" gitHead`. Require
-   a 40-character lowercase hexadecimal commit, fetch that exact commit into a reusable temporary
-   directory, and reuse it for later questions:
+   directories above the skill file. Use the candidate only if its `package.json` has
+   `"name": "cc-safety-net"` and version `<version>`, and a `src/` directory exists next to it.
+   If the package version differs, run `doctor` to report the outdated integration, then treat
+   the candidate as unavailable and continue to the next step.
+3. If no matching local root exists (skill-only installs, a mismatched plugin, or guidance
+   without a file path), resolve the immutable commit recorded with the published package using
+   `npm view "cc-safety-net@<version>" gitHead`. Require a 40-character lowercase hexadecimal
+   commit and fetch that exact commit into a fresh owner-only temporary directory:
 
    ```bash
+   set -euo pipefail
    git_head=$(npm view "cc-safety-net@<version>" gitHead)
    [[ $git_head =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid published gitHead" >&2; exit 1; }
-   source_dir="${TMPDIR:-/tmp}/cc-safety-net-v<version>"
-   git init "$source_dir"
-   git -C "$source_dir" fetch --depth 1 https://github.com/kenryu42/cc-safety-net "$git_head"
-   git -C "$source_dir" checkout --detach FETCH_HEAD
+   source_dir=$(mktemp -d "${TMPDIR:-/tmp}/cc-safety-net-v<version>-XXXXXXXX")
+   chmod 700 "$source_dir"
+   git -c init.templateDir= init "$source_dir"
+   git -c core.hooksPath=/dev/null -C "$source_dir" fetch --depth 1 https://github.com/kenryu42/cc-safety-net "$git_head"
+   git -c core.hooksPath=/dev/null -C "$source_dir" checkout --detach "$git_head"
+   [[ $(git -C "$source_dir" rev-parse HEAD) == "$git_head" ]] || { echo "Source checkout mismatch" >&2; exit 1; }
    ```
 
    Never answer from `main`; it can contain unreleased behavior the installed version does not
    have.
-3. Confirm the source matches the runtime: the located `package.json` version must equal
-   `npx -y cc-safety-net --version`. If they differ (an installed plugin can lag npm), answer
-   from the published commit matching `--version` and point the user at `doctor`, which reports
-   outdated integrations.
 4. Read `docs/` first; `residual-risk.md` and `secret-protection-known-limitations.md` exist to
    answer whether something is a known gap. For behavior questions, continue into
    `src/analyzer`, `src/guards`, and `src/rules`.
