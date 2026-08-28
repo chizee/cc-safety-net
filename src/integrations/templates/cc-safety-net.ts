@@ -190,11 +190,14 @@ version.
    git_head=$(npm view "cc-safety-net@<version>" gitHead)
    [[ $git_head =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid published gitHead" >&2; exit 1; }
    source_dir=$(mktemp -d "\${TMPDIR:-/tmp}/cc-safety-net-v<version>-XXXXXXXX")
+   trap 'rm -rf -- "$source_dir"' EXIT
    chmod 700 "$source_dir"
    git -c init.templateDir= init "$source_dir"
    git -c core.hooksPath=/dev/null -C "$source_dir" fetch --depth 1 https://github.com/kenryu42/cc-safety-net "$git_head"
    git -c core.hooksPath=/dev/null -C "$source_dir" checkout --detach "$git_head"
    [[ $(git -C "$source_dir" rev-parse HEAD) == "$git_head" ]] || { echo "Source checkout mismatch" >&2; exit 1; }
+   printf 'Source checkout: %s\\n' "$source_dir"
+   trap - EXIT
    \`\`\`
 
    Never answer from \`main\`; it can contain unreleased behavior the installed version does not
@@ -204,6 +207,7 @@ version.
    \`src/analyzer\`, \`src/guards\`, and \`src/rules\`.
 5. State in the answer which version the source came from. Treat the located source as
    read-only reference; do not edit, build, or run it.
+6. Remove a temporary checkout after the source inspection: \`rm -rf -- "<source_dir>"\`.
 
 ## Safety rules
 

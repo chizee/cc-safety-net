@@ -37,16 +37,16 @@ export function printRuleAddResult(result: AddRulebookSourceResult, source: stri
     console.log(
       `Added ${result.add.added.length} ${result.add.added.length === 1 ? 'rulebook' : 'rulebooks'} from ${result.add.source} at ${result.add.ref}:`,
     );
-    for (const name of result.add.added) console.log(`  - ${name}`);
+    result.add.added.forEach((name) => {
+      console.log(`  - ${name}`);
+    });
   }
   if (result.add.alreadyConfigured.length > 0) {
     console.log(
       `Rulebooks already configured from ${result.add.source} at ${result.add.ref}: ${result.add.alreadyConfigured.join(', ')}`,
     );
   }
-  if (result.add.commits.length === 1) {
-    console.log(`Locked at ${result.add.commits[0]?.slice(0, 7)}.`);
-  } else if (result.add.commits.length > 1) {
+  if (result.add.commits.length > 0) {
     console.log(`Locked at ${result.add.commits.map((commit) => commit.slice(0, 7)).join(', ')}.`);
   }
   printSuccessfulRuleChange(result, 'Rule config synced.');
