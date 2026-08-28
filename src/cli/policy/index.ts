@@ -167,12 +167,14 @@ function writeScopePolicy(
 
 /**
  * The user baseline the effective diff merges against, mirroring the runtime's
- * precedence: the user file, else the embedded snapshot an Amp install ships
- * (`readPolicyConfig` reads the same global), else built-in defaults.
+ * precedence exactly: an existing file wins even when unreadable (the runtime
+ * degrades it to protective defaults), and the embedded snapshot an Amp install
+ * ships (`readPolicyConfig` reads the same global) stands in only when no file
+ * exists at all.
  */
 function readUserBaseline(): GuiPolicy {
-  const raw = readPolicyJson(getUserPolicyPath()).value;
-  if (raw !== undefined) return normalizeGuiPolicy(raw);
+  const path = getUserPolicyPath();
+  if (existsSync(path)) return normalizeGuiPolicy(readPolicyJson(path).value);
   return normalizeGuiPolicy(
     (globalThis as Record<string, unknown>).__CC_SAFETY_NET_EMBEDDED_POLICY__,
   );

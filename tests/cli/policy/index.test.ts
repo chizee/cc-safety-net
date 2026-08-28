@@ -158,6 +158,27 @@ describe('policy check', () => {
     });
   });
 
+  test('a malformed user file falls back to defaults, not the embedded baseline', async () => {
+    await withTempDir('safety-net-policy-check-malformed-user-', async (tempDir) => {
+      const globals = globalThis as Record<string, unknown>;
+      globals.__CC_SAFETY_NET_EMBEDDED_POLICY__ = { version: 1, safety: { level: 'strict' } };
+      try {
+        const home = join(tempDir, 'home');
+        mkdirSync(home, { recursive: true });
+        writeFileSync(join(home, 'policy.json'), '{ not json');
+        const proposal = writeProposal(tempDir, { version: 1, safety: { level: 'strict' } });
+
+        const result = await runPolicyIsolated(tempDir, ['check', proposal]);
+
+        // Runtime treats an unreadable existing file as protective defaults; the
+        // embedded snapshot only stands in when no user file exists at all.
+        expect(result.stdout).toContain('safety.level: standard -> strict');
+      } finally {
+        delete globals.__CC_SAFETY_NET_EMBEDDED_POLICY__;
+      }
+    });
+  });
+
   test('shows inheritance returning when a proposal unsets a project field', async () => {
     await withTempDir('safety-net-policy-check-inherit-', async (tempDir) => {
       writeUserPolicy(tempDir, { version: 1, safety: { level: 'strict' } });
