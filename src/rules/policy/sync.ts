@@ -197,14 +197,15 @@ async function syncRulesConfigInternal(
     // A failing add rolls its config edit back, so vendoring any newly added
     // sibling would strand a file no source claims — and that orphan then trips
     // the unclaimed-file refusal on the next add once upstream content moves.
-    // The same holds when a later write throws mid-sequence: the files already
-    // written for newly added sources are restored before the failure reports.
+    // A write that throws mid-sequence restores every file this run already
+    // replaced: fetch failures keep per-source semantics, but a half-applied
+    // write batch must not stay active under a result that reports failure.
     const written: { target: PolicyFilesystemTarget; previous: string | null }[] = [];
     const changes = runRestoringWrittenOnFailure(written, () =>
       resolved.flatMap((item) =>
         blocked.has(item.spec) || (reported.length > 0 && newlyAdded.has(item.spec))
           ? []
-          : vendorRulebook(item, scope, hooks, newlyAdded.has(item.spec) ? written : undefined),
+          : vendorRulebook(item, scope, hooks, written),
       ),
     );
     return {

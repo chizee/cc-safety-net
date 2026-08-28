@@ -12,7 +12,11 @@ import {
 } from '@/rules/policy';
 import { getProjectRulesLockPath } from '@/rules/policy/paths';
 import { createRuleSyncResourceBudget } from '@/rules/policy/resource-limits';
-import { addRulebookSourceWithHooks, syncRulesConfigWithOperation } from '@/rules/policy/sync';
+import {
+  addRulebookSourceWithHooks,
+  syncRulesConfigWithHooks,
+  syncRulesConfigWithOperation,
+} from '@/rules/policy/sync';
 
 /**
  * Remote rulebooks are vendored files. `rule add` and `rule update` fetch, validate, and write
@@ -298,6 +302,35 @@ describe('remote rulebook vendoring contract', () => {
       expect(readFileSync(vendoredPath(context.tempDir, 'alpha'), 'utf-8')).toBe(stale);
       expect(configuredRules(context.tempDir)).toEqual([]);
     });
+  });
+
+  test('a failed write during update restores the files it already replaced', async () => {
+    await withRemoteRulebooks(
+      'rulebook-update-write-fail',
+      ['owner/repo#main/alpha', 'owner/repo#main/beta'],
+      async (context) => {
+        await syncThenMoveBranch(context, {
+          alpha: rulebookJson('alpha', '2.0.0'),
+          beta: rulebookJson('beta', '2.0.0'),
+        });
+
+        const result = await syncRulesConfigWithHooks(
+          { cwd: context.tempDir, refresh: true },
+          {
+            _testAfterPolicyRename: (path) => {
+              if (path.includes(`${sep}beta${sep}`)) throw new Error('disk full');
+            },
+          },
+        );
+
+        // Fetch failures keep per-source semantics, but a thrown write error
+        // aborts the run; leaving earlier replacements live would activate a
+        // half-applied update that the command just reported as failed.
+        expect(result.ok).toBe(false);
+        expectVendored(context.tempDir, 'alpha', '1.0.0');
+        expectVendored(context.tempDir, 'beta', '1.0.0');
+      },
+    );
   });
 
   test('update names a rule whose content changed under an unchanged name', async () => {

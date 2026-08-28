@@ -92,7 +92,7 @@ export async function runPolicyCommand(
     printPolicyDiff(normalizeGuiPolicy(readPolicyJson(targetPath).value), proposed, true);
   }
   if (!parsed.flags.global) {
-    const user = normalizeGuiPolicy(readPolicyJson(getUserPolicyPath()).value);
+    const user = readUserBaseline();
     console.log('Effective policy (user + project merged):');
     printPolicyDiff(
       mergeProjectPolicy(user, projectPolicyProjection(readPolicyJson(targetPath).value).policy)
@@ -163,6 +163,19 @@ function writeScopePolicy(
         .map((key) => [key, value[key]]),
     ),
   });
+}
+
+/**
+ * The user baseline the effective diff merges against, mirroring the runtime's
+ * precedence: the user file, else the embedded snapshot an Amp install ships
+ * (`readPolicyConfig` reads the same global), else built-in defaults.
+ */
+function readUserBaseline(): GuiPolicy {
+  const raw = readPolicyJson(getUserPolicyPath()).value;
+  if (raw !== undefined) return normalizeGuiPolicy(raw);
+  return normalizeGuiPolicy(
+    (globalThis as Record<string, unknown>).__CC_SAFETY_NET_EMBEDDED_POLICY__,
+  );
 }
 
 /** Reads one policy file's JSON; a non-empty `errors` means the caller must stop. */

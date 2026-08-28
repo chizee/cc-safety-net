@@ -137,6 +137,27 @@ describe('policy check', () => {
     });
   });
 
+  test('the effective diff uses the embedded baseline when no user file exists', async () => {
+    await withTempDir('safety-net-policy-check-embedded-', async (tempDir) => {
+      const globals = globalThis as Record<string, unknown>;
+      globals.__CC_SAFETY_NET_EMBEDDED_POLICY__ = { version: 1, safety: { level: 'strict' } };
+      try {
+        const proposal = writeProposal(tempDir, {
+          version: 1,
+          safety: { level: 'standard' },
+          workflow: { worktree_mode: true },
+        });
+        const result = await runPolicyIsolated(tempDir, ['check', proposal]);
+        // An Amp install runs against the embedded snapshot, so diffing against
+        // plain defaults would hide that this proposal lowers the enforced level.
+        expect(result.stdout).toContain('safety.level: strict -> standard');
+        expect(result.stdout).toContain('workflow.worktree_mode: false -> true');
+      } finally {
+        delete globals.__CC_SAFETY_NET_EMBEDDED_POLICY__;
+      }
+    });
+  });
+
   test('shows inheritance returning when a proposal unsets a project field', async () => {
     await withTempDir('safety-net-policy-check-inherit-', async (tempDir) => {
       writeUserPolicy(tempDir, { version: 1, safety: { level: 'strict' } });

@@ -268,15 +268,17 @@ describe('project policy merge', () => {
     // Normalization fills level "standard" for both an invalid file and a valid one
     // without a safety section; claiming user provenance would tell the reader
     // their file pinned the built-in default.
-    for (const user of ['42', { version: 1 }]) {
-      const merged = await loadMerged({
-        user,
-        project: { version: 1, workflow: { worktree_mode: true } },
-      });
+    await Promise.all(
+      ['42', { version: 1 }].map(async (user) => {
+        const merged = await loadMerged({
+          user,
+          project: { version: 1, workflow: { worktree_mode: true } },
+        });
 
-      expect(merged.safety.level, JSON.stringify(user)).toBe('standard');
-      expect(merged.policyScopes?.levelScope, JSON.stringify(user)).toBe('default');
-    }
+        expect(merged.safety.level, JSON.stringify(user)).toBe('standard');
+        expect(merged.policyScopes?.levelScope, JSON.stringify(user)).toBe('default');
+      }),
+    );
   });
 
   test('an unreadable user policy with a project policy reports salvage, not defaults', async () => {

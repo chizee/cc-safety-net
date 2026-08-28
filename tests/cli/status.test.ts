@@ -172,10 +172,10 @@ describe('status command', () => {
     const output = renderOnTTY(60);
 
     expect(output).toContain('Project policy');
-    for (const line of output.split('\n')) {
+    output.split('\n').forEach((line) => {
       // biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI color codes
       expect(line.replace(/\[[0-9;]*m/g, '').length, line).toBeLessThanOrEqual(60);
-    }
+    });
   });
 
   test('does not tilde-abbreviate a path that merely shares a prefix with home', async () => {
