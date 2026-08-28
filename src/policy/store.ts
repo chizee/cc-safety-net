@@ -260,11 +260,11 @@ export function loadPolicyConfig(options: RulesPolicyOptions = {}): PolicyConfig
     (user.fallback === 'defaults' && merged ? 'salvaged' : user.fallback) ??
     (user.gui ? undefined : projectFile.fallback) ??
     (errors.length > 0 ? 'salvaged' : undefined);
-  // `default` means no user policy supplied a level: the file is absent, or it fell
-  // back to built-in defaults — a normalized default level is not user provenance.
+  // `default` means no user policy supplied a level: the file is absent, invalid,
+  // or simply never set one — a normalized default level is not user provenance.
   const levelScope = project.policy.safety?.level
     ? 'project'
-    : user.policy.safety.level && user.fallback !== 'defaults'
+    : user.levelPresent
       ? 'user'
       : 'default';
   return {
@@ -479,6 +479,8 @@ function readPolicyConfig(path: string): {
   gui?: GuiPolicy;
   errors: string[];
   fallback?: PolicyFallback;
+  /** A valid level the file itself set; normalization fills one either way. */
+  levelPresent?: boolean;
 } {
   const file = readPolicyFile(path);
   if (!file.exists) {
@@ -490,7 +492,12 @@ function readPolicyConfig(path: string): {
     const embedded = (globalThis as Record<string, unknown>).__CC_SAFETY_NET_EMBEDDED_POLICY__;
     if (!isRecord(embedded)) return { policy: createEmptyPolicy(), errors: [] };
     const gui = normalizeGuiPolicy(embedded);
-    return { policy: normalizePolicyConfig(gui), gui, errors: [] };
+    return {
+      policy: normalizePolicyConfig(gui),
+      gui,
+      errors: [],
+      levelPresent: hasOwnSafetyLevel(embedded),
+    };
   }
   if (file.parsed === undefined) {
     return {
@@ -508,7 +515,13 @@ function readPolicyConfig(path: string): {
     gui,
     errors: file.errors,
     ...(file.fallback ? { fallback: file.fallback } : {}),
+    levelPresent: hasOwnSafetyLevel(file.parsed),
   };
+}
+
+function hasOwnSafetyLevel(value: unknown): boolean {
+  const safety = isRecord(value) && isRecord(value.safety) ? value.safety : {};
+  return SAFETY_LEVELS.has(safety.level as string);
 }
 
 // A rule in the default-off tier stays off until an explicit 'on' override opts into it.

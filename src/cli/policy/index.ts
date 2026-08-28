@@ -128,9 +128,14 @@ function confirmApply(
 ): Promise<boolean> {
   const prompt = createInterface({ input, output, terminal: false });
   return new Promise((resolve) => {
+    // EOF (Ctrl-D) closes the stream without ever delivering a line; treat it as
+    // a decline so the command cannot hang on a callback that will never fire.
+    // The answer callback resolves before closing: close() emits synchronously,
+    // and resolving after it would let the decline win over a typed yes.
+    prompt.once('close', () => resolve(false));
     prompt.question(question, (answer) => {
-      prompt.close();
       resolve(/^y(es)?$/i.test(answer.trim()));
+      prompt.close();
     });
   });
 }

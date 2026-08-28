@@ -167,12 +167,13 @@ export async function verifyPackage(): Promise<void> {
       join(directory, '.cc-safety-net', 'rules', 'rule.json'),
       JSON.stringify({ version: 1, rules: ['package-limits'] }),
     );
-    const ruleLimitResult = run(['node', cli, 'rule', 'sync'], directory, [1]);
+    // Rulebooks are live files with no sync step, so `rule verify` is the command
+    // that must fail closed on an over-limit rulebook without echoing its content.
+    const ruleLimitResult = run(['node', cli, 'rule', 'verify'], directory, [1]);
+    const ruleLimitOutput = `${ruleLimitResult.stdout}${ruleLimitResult.stderr}`;
     if (
-      !ruleLimitResult.stderr.includes(
-        "Rulebook exceeds CC Safety Net's safe validation limits.",
-      ) ||
-      ruleLimitResult.stderr.includes('TOPSECRET')
+      !ruleLimitOutput.includes("Rulebook exceeds CC Safety Net's safe validation limits.") ||
+      ruleLimitOutput.includes('TOPSECRET')
     ) {
       throw new Error('Packed CLI did not fail closed on an over-limit rulebook');
     }
@@ -196,20 +197,20 @@ export async function verifyPackage(): Promise<void> {
       `import { writeFileSync } from 'node:fs';\nglobalThis.fetch = () => { writeFileSync(${JSON.stringify(sourceLimitNetworkSentinel)}, 'unexpected'); throw new Error('unexpected package verification network'); };\n`,
     );
     const sourceLimitResult = run(
-      ['node', '--import', pathToFileURL(sourceLimitNetworkGuard).href, cli, 'rule', 'sync'],
+      ['node', '--import', pathToFileURL(sourceLimitNetworkGuard).href, cli, 'rule', 'verify'],
       directory,
       [1],
     );
+    const sourceLimitOutput = `${sourceLimitResult.stdout}${sourceLimitResult.stderr}`;
     if (
-      sourceLimitResult.stderr.toString() !==
-        "Rule config exceeds CC Safety Net's safe source limit.\n" ||
-      sourceLimitResult.stdout.length > 0 ||
+      !sourceLimitOutput.includes("Rule config exceeds CC Safety Net's safe source limit.") ||
+      sourceLimitOutput.includes('TOPSECRET') ||
       readFileSync(sourceLimitSentinel, 'utf8') !== 'unchanged' ||
       existsSync(sourceLimitNetworkSentinel) ||
       existsSync(join(directory, '.cc-safety-net', 'rules', 'rule.lock')) ||
       existsSync(join(directory, '.cc-safety-net', 'cache'))
     ) {
-      throw new Error('Packed CLI did not fail closed before over-limit source synchronization');
+      throw new Error('Packed CLI did not fail closed on an over-limit source config');
     }
     rmSync(sourceLimitConfig);
     for (const args of [['--version'], ['--help']]) {

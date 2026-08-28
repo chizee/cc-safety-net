@@ -206,6 +206,20 @@ describe('policy apply', () => {
     });
   });
 
+  test('closing the input stream declines instead of hanging', async () => {
+    await withTempDir('safety-net-policy-apply-eof-', async (tempDir) => {
+      const proposal = writeProposal(tempDir, STRICT_PROPOSAL);
+      const streams = createPromptStreams();
+      (streams.input as unknown as PassThrough).end();
+
+      const result = await runPolicyIsolated(tempDir, ['apply', proposal], streams);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Cancelled');
+      expect(existsSync(join(tempDir, '.cc-safety-net', 'policy.json'))).toBe(false);
+    });
+  });
+
   test('declining the confirmation cancels without writing and exits 0', async () => {
     await withTempDir('safety-net-policy-apply-decline-', async (tempDir) => {
       const proposal = writeProposal(tempDir, STRICT_PROPOSAL);

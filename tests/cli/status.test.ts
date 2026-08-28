@@ -160,6 +160,24 @@ describe('status command', () => {
     expect(result.output).toContain('Everything configured is active.');
   });
 
+  test('wrapped weakening lines stay inside the render width', async () => {
+    await writeUserPolicy({ version: 1 });
+    await writeProjectPolicy({
+      version: 1,
+      // A path with spaces gives the wrapper real break points; the budget bug
+      // shows as continuation lines two columns past the render width.
+      destructive_command_protection: { allow_paths: [`~/team/${'word '.repeat(25)}end`] },
+    });
+
+    const output = renderOnTTY(60);
+
+    expect(output).toContain('Project policy');
+    for (const line of output.split('\n')) {
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI color codes
+      expect(line.replace(/\[[0-9;]*m/g, '').length, line).toBeLessThanOrEqual(60);
+    }
+  });
+
   test('does not tilde-abbreviate a path that merely shares a prefix with home', async () => {
     await writeUserPolicy({ version: 1 });
     await writeProjectPolicy({ version: 1, workflow: { worktree_mode: true } });

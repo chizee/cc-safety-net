@@ -90,7 +90,9 @@ export function printStatus(): void {
         : [
             '  Project policy',
             ...weakenings.flatMap((weakening) =>
-              wrapReason(weakening, '      ', width - 4).map((line, index) =>
+              // The 6-space continuation indent must come out of the budget, or a
+              // wrapped path line lands past the width and soft-wraps in the terminal.
+              wrapReason(weakening, '      ', width - 6).map((line, index) =>
                 index === 0 ? `    ${line}` : line,
               ),
             ),
