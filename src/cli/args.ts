@@ -15,7 +15,11 @@ const HELP_FLAGS = ['-h', '--help'];
  * with `-`: it reports the missing value instead, so `--cwd --json` cannot silently
  * mean `cwd=--json`.
  */
-export function parseCommandArgs<Flag extends string, Valued extends string>(
+export function parseCommandArgs<
+  Flag extends string,
+  Valued extends string,
+  Listed extends string = never,
+>(
   spec: {
     /** Names the command in error text: `Unknown option for <label>: --x`. */
     label: string;
@@ -23,6 +27,8 @@ export function parseCommandArgs<Flag extends string, Valued extends string>(
     booleans?: Readonly<Record<Flag, readonly string[]>>;
     /** Same, for flags that take the next token as their value. */
     values?: Readonly<Record<Valued, readonly string[]>>;
+    /** Same, for flags that take every following non-option token. */
+    lists?: Readonly<Record<Listed, readonly string[]>>;
     /** `none` rejects positionals, `list` keeps them, `tail` ends option parsing at the first one. */
     positionals?: 'none' | 'list' | 'tail';
   },
@@ -30,11 +36,15 @@ export function parseCommandArgs<Flag extends string, Valued extends string>(
 ) {
   const booleanEntries = Object.entries(spec.booleans ?? {}) as [Flag, readonly string[]][];
   const valueEntries = Object.entries(spec.values ?? {}) as [Valued, readonly string[]][];
+  const listEntries = Object.entries(spec.lists ?? {}) as [Listed, readonly string[]][];
   const flags = Object.fromEntries(booleanEntries.map(([name]) => [name, false])) as Record<
     Flag,
     boolean
   >;
   const values: Partial<Record<Valued, string>> = {};
+  const lists: Record<string, string[]> = Object.fromEntries(
+    listEntries.map(([name]) => [name, []]),
+  );
   const positionals: string[] = [];
   const errors: string[] = [];
   let help = false;
@@ -66,6 +76,22 @@ export function parseCommandArgs<Flag extends string, Valued extends string>(
       consumedIndex = index + 1;
       continue;
     }
+    const listEntry = listEntries.find(([, spellings]) => spellings.includes(arg));
+    if (listEntry) {
+      const remaining = argv.slice(index + 1);
+      const nextOptionIndex = remaining.findIndex((value) => value.startsWith('-'));
+      const listValues = remaining.slice(
+        0,
+        nextOptionIndex === -1 ? remaining.length : nextOptionIndex,
+      );
+      if (listValues.length === 0) {
+        errors.push(`${arg} requires at least one value`);
+        continue;
+      }
+      lists[listEntry[0]] = [...(lists[listEntry[0]] ?? []), ...listValues];
+      consumedIndex = index + listValues.length;
+      continue;
+    }
     if (arg.startsWith('-')) {
       errors.push(`Unknown option for ${spec.label}: ${arg}`);
       continue;
@@ -83,7 +109,7 @@ export function parseCommandArgs<Flag extends string, Valued extends string>(
     );
   }
 
-  return { flags, values, positionals, help, errors };
+  return { flags, values, lists, positionals, help, errors };
 }
 
 /**

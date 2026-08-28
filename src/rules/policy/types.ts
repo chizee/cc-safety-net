@@ -51,11 +51,27 @@ export interface SyncRulesConfigOptions extends RulesPolicyOptions {
   refresh?: boolean;
 }
 
+export interface AddRulebookSourceOptions extends SyncRulesConfigOptions {
+  ref?: string;
+  rulebooks?: readonly string[];
+}
+
 export interface SyncRulesConfigResult {
   ok: boolean;
   errors: string[];
   warnings: string[];
   entries: RulebookLockEntryWithStats[];
+}
+
+export interface AddRulebookSourceResult extends SyncRulesConfigResult {
+  add?: {
+    source: string;
+    ref: string;
+    selected: string[];
+    added: string[];
+    alreadyConfigured: string[];
+    commits: string[];
+  };
 }
 
 export interface LoadedRulebookInfo {

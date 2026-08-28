@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { assertValidRulebook, type Rulebook, validateRulebook } from '@/rules/rulebook';
 
-function rulebook(input: Partial<Rulebook> = {}): Rulebook {
+type RulebookV1 = Extract<Rulebook, { rulebook_version: 1 }>;
+
+function rulebook(input: Partial<RulebookV1> = {}): RulebookV1 {
   return {
     rulebook_version: 1,
     name: 'project-rules',
@@ -56,9 +58,32 @@ describe('rulebook validation', () => {
     ).toEqual([]);
   });
 
+  test('accepts a valid rulebook_version 2 rulebook', () => {
+    expect(
+      validateRulebook({
+        rulebook_version: 2,
+        name: 'infra-rules',
+        version: '1.0.0',
+        allowed_commands: ['terraform'],
+        rules: [
+          {
+            name: 'block-terraform-destroy',
+            command: 'terraform',
+            match: { command_path: ['destroy'], exclude_args: ['-dry-run', '--dry-run'] },
+            reason: 'Review a destroy plan first.',
+            intent: 'use_alternative',
+          },
+        ],
+        tests: [
+          { command: 'terraform destroy', expect: 'blocked', rule: 'block-terraform-destroy' },
+        ],
+      }).errors,
+    ).toEqual([]);
+  });
+
   test('reports schema errors with enough detail to repair the rulebook', () => {
     const result = validateRulebook({
-      rulebook_version: 2,
+      rulebook_version: 3,
       name: 'bad name',
       version: '',
       allowed_commands: ['docker', 'docker', 'bad command'],
@@ -84,7 +109,7 @@ describe('rulebook validation', () => {
       ],
     });
 
-    expect(result.errors).toContain('rulebook_version must be 1');
+    expect(result.errors).toContain('rulebook_version must be 1 or 2');
     expect(result.errors).toContain('name: required string matching rule name pattern');
     expect(result.errors).toContain('version: required non-empty string');
     expect(result.errors).toContain('allowed_commands[1]: duplicate command "docker"');

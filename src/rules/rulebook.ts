@@ -1,4 +1,9 @@
-import { collectCustomRuleNames, formatSchemaIssues, getRulebookSchema } from '@/policy/schema';
+import {
+  collectCustomRuleNames,
+  formatSchemaIssues,
+  getRulebookSchema,
+  getRulebookV2Schema,
+} from '@/policy/schema';
 import type { ValidationResult } from '@/rules/config';
 import {
   isRulebookWithinAcceptanceLimits,
@@ -18,10 +23,15 @@ export function validateRulebook(rulebook: unknown): ValidationResult {
   if (!isRulebookWithinAcceptanceLimits(rulebook)) {
     return { errors: [RULEBOOK_LIMIT_ERROR], ruleNames: new Set() };
   }
-  const parsed = getRulebookSchema().safeParse(rulebook);
+  // An unknown version is reported and then validated against v1, its closest shape.
+  const parsed = (
+    rulebook.rulebook_version === 2 ? getRulebookV2Schema() : getRulebookSchema()
+  ).safeParse(rulebook);
   const errors = [
     // The only rulebook diagnostic that reads as a sentence; the rest are `field: reason`.
-    ...(rulebook.rulebook_version === 1 ? [] : ['rulebook_version must be 1']),
+    ...(rulebook.rulebook_version === 1 || rulebook.rulebook_version === 2
+      ? []
+      : ['rulebook_version must be 1 or 2']),
     ...(parsed.success ? [] : formatSchemaIssues(parsed.error.issues, ': ', ': ')),
   ];
   return {

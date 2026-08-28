@@ -1,6 +1,7 @@
 import type { DestructiveCommandRuleMatch } from '@/ir/analysis';
-import type { PolicyRule } from '@/ir/policy';
+import type { CustomRuleMatch, PolicyRule } from '@/ir/policy';
 import { extractShortOpts, normalizeCommandToken } from '@/parser/shell';
+import { getMatchGlobalOptionsWithValues } from './custom-match-options';
 import { getCustomRuleOptionsWithValues } from './custom-subcommand';
 
 export function checkPolicyRuleMatch(
@@ -19,20 +20,79 @@ export function checkPolicyRuleMatch(
       continue;
     }
 
+    if (rule.match) {
+      if (matchesCustomRuleMatch(command, tokens, rule.match)) {
+        return toRuleMatch(rule);
+      }
+      continue;
+    }
+
     if (!matchesCustomRuleSubcommand(command, tokens, rule.subcommand)) {
       continue;
     }
 
     if (matchesCustomRuleBlockArgs(tokens, new Set(rule.block_args), shortOpts)) {
-      return {
-        id: `custom.${rule.name}`,
-        reason: `[${rule.name}] ${rule.reason}`,
-        intent: rule.intent ?? 'manual_only',
-      };
+      return toRuleMatch(rule);
     }
   }
 
   return null;
+}
+
+function toRuleMatch(rule: PolicyRule): DestructiveCommandRuleMatch {
+  return {
+    id: `custom.${rule.name}`,
+    reason: `[${rule.name}] ${rule.reason}`,
+    intent: rule.intent ?? 'manual_only',
+  };
+}
+
+/**
+ * Rulebook v2 matching: exact tokens only, with no short-option expansion and no
+ * backtracking over an unrecognized option's possible value.
+ */
+function matchesCustomRuleMatch(
+  command: string,
+  tokens: readonly string[],
+  match: CustomRuleMatch,
+): boolean {
+  const args = tokens.slice(1);
+  if (match.exclude_args?.some((arg) => args.includes(arg))) {
+    return false;
+  }
+  if (match.any_args && !match.any_args.some((arg) => args.includes(arg))) {
+    return false;
+  }
+  return matchesCommandPath(args, match.command_path, getMatchGlobalOptionsWithValues(command));
+}
+
+function matchesCommandPath(
+  args: readonly string[],
+  commandPath: readonly string[],
+  optionsWithValues: ReadonlySet<string>,
+): boolean {
+  let pathIndex = 0;
+  let skipNext = false;
+  for (const token of args) {
+    if (pathIndex >= commandPath.length) {
+      return true;
+    }
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    if (token.startsWith('-')) {
+      // An unrecognized option never consumes a value, and an `=`-joined value is part
+      // of its own token; an unlisted value-taking option therefore misses, failing open.
+      skipNext = !token.includes('=') && optionsWithValues.has(token);
+      continue;
+    }
+    if (token !== commandPath[pathIndex]) {
+      return false;
+    }
+    pathIndex++;
+  }
+  return pathIndex >= commandPath.length;
 }
 
 function matchesCommand(command: string, ruleCommand: string): boolean {

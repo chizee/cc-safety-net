@@ -16,8 +16,9 @@ type PiCommandContext = {
 };
 
 const COMMAND_NAME = 'cc-safety-net';
-const COMMAND_DESCRIPTION = 'Manage CC Safety Net rulebooks';
-const DEFAULT_USER_REQUEST = 'Help me configure CC Safety Net.';
+const COMMAND_DESCRIPTION =
+  'Operate CC Safety Net: explain blocks, rules, integrations, diagnostics';
+const DEFAULT_USER_REQUEST = 'Help me with CC Safety Net.';
 
 export function registerBuiltinCommands(pi: PiCommandApi): void {
   pi.registerCommand(COMMAND_NAME, {
@@ -33,5 +34,5 @@ export function registerBuiltinCommands(pi: PiCommandApi): void {
 
 /** @internal - exported for test coverage */
 export function buildSafetyNetCommandPrompt(args: string): string {
-  return `${CC_SAFETY_NET_TEMPLATE.slice(CC_SAFETY_NET_TEMPLATE.indexOf('## Workflow')).trimEnd()}\n\n## User request\n\n${args.trim() || DEFAULT_USER_REQUEST}`;
+  return `${CC_SAFETY_NET_TEMPLATE.slice(CC_SAFETY_NET_TEMPLATE.indexOf('# CC Safety Net')).trimEnd()}\n\n## User request\n\n${args.trim() || DEFAULT_USER_REQUEST}`;
 }

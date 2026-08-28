@@ -45,8 +45,11 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 ## Rulebook Sources
 
 - Local sources are bare rulebook names such as \`project-rules\`; the rulebook file is \`.cc-safety-net/rules/project-rules/rulebook.json\`.
-- GitHub sources use \`owner/repo#ref/<rulebook-name>\`.
-- GitHub refs must be one path segment, such as a tag, SHA, or branch name without \`/\`.
+- Run \`cc-safety-net rule add owner/repo\` to add every rulebook currently present on the repository's default branch.
+- Use \`--only\` to select one or more rulebooks while preserving their order: \`cc-safety-net rule add owner/repo --only aws gcloud\`.
+- Use \`--ref\` to select a branch, tag, or commit instead of the default branch: \`cc-safety-net rule add owner/repo --ref v2 --only aws\`.
+- GitHub sources are stored in canonical form as \`owner/repo#ref/<rulebook-name>\`. That form remains valid in \`rule.json\` and as direct CLI input.
+- GitHub refs may contain \`/\`-separated path segments, such as \`feature/rulebook-v2\`.
 - The GitHub source name, the repository directory name, and the rulebook \`name\` must match exactly.
 - Rulebook source strings must be unique in a config.
 
@@ -87,7 +90,7 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 
 | Field | Required | Constraints |
 |-------|----------|-------------|
-| \`rulebook_version\` | Yes | Must be \`1\` |
+| \`rulebook_version\` | Yes | Must be \`1\` or \`2\` |
 | \`name\` | Yes | \`^[a-zA-Z][a-zA-Z0-9_-]{0,63}$\` |
 | \`version\` | Yes | Non-empty string |
 | \`description\` | No | Free text; not type-checked at runtime |
@@ -107,6 +110,44 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 | \`block_args\` | Yes | Non-empty array of non-empty strings |
 | \`reason\` | Yes | Non-empty string, max 256 chars |
 
+### Rule Fields (\`rulebook_version\` 2)
+
+Version 2 replaces \`subcommand\` and \`block_args\` with an exact-token \`match\` object. Version 1 rulebooks keep their fields and their behavior; a client that does not support version 2 rejects the rulebook instead of applying broader version 1 semantics.
+
+\`\`\`json
+{
+  "name": "block-terraform-apply-destroy",
+  "command": "terraform",
+  "match": {
+    "command_path": ["apply"],
+    "any_args": ["-destroy", "--destroy"]
+  },
+  "reason": "Review a destroy plan first with 'terraform plan -destroy'.",
+  "intent": "use_alternative"
+}
+\`\`\`
+
+| Field | Required | Constraints |
+|-------|----------|-------------|
+| \`name\` | Yes | Same as version 1 |
+| \`command\` | Yes | Same as version 1 |
+| \`match.command_path\` | Yes | Non-empty array of non-empty command words |
+| \`match.any_args\` | No | Non-empty array of unique non-empty argument tokens |
+| \`match.exclude_args\` | No | Non-empty array of unique non-empty argument tokens |
+| \`intent\` | No | Same as version 1 |
+| \`reason\` | Yes | Same as version 1 |
+
+### Matching Behavior (\`rulebook_version\` 2)
+
+- **Command**: Normalized to lowercase basename, as in version 1.
+- **Command path**: After recognized global options and their values are skipped, the next command words must equal \`command_path\` exactly. AWS, gcloud, and Azure CLI value-taking global options are built in; Terraform's \`-chdir=dir\` is \`=\`-joined and is skipped with its own token.
+- **Unrecognized options**: A token starting with \`-\` that is not a recognized global option is skipped without consuming a value, so an unlisted value-taking option with a separate value (\`--newflag value\`) makes the rule miss. This fails open deliberately; document such gaps in the rulebook.
+- **\`any_args\`**: At least one listed token must appear literally among the arguments.
+- **\`exclude_args\`**: Any listed token appearing literally among the arguments prevents the match, which is how a safe preview such as \`aws s3 rm --dryrun\` stays allowed.
+- **No short-option expansion**: Arguments compare as exact tokens, so list every accepted spelling (\`"-destroy"\` and \`"--destroy"\`).
+- **Literal and case-sensitive**: No regex, glob, or substring matching. The first matching rule wins.
+- Release channels are separate rules: \`gcloud beta compute instances delete\` needs its own \`command_path\`.
+
 ### Test Fixture Fields
 
 | Field | Required | Constraints |
@@ -115,9 +156,11 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 | \`expect\` | Yes | \`"blocked"\` or \`"allowed"\` |
 | \`rule\` | Required for blocked fixtures | Rule name expected to block the command |
 
-Fixtures are optional documentation of intended behavior. Fixtures are shape-validated only; CC Safety Net does not execute them.
+Fixtures are optional documentation of intended behavior. Version 1 fixtures are shape-validated only. Version 2 fixtures are evaluated against the rulebook's own rules during \`rule sync\` and \`rule verify\`; a failing fixture rejects that source before its lock entry is written. CC Safety Net never executes fixture commands; they are analyzer inputs only.
 
 ## Matching Behavior
+
+The subcommand, argument, and option rules below describe \`rulebook_version\` 1 rules; version 2 rules match as described in Matching Behavior (\`rulebook_version\` 2). Execution order and transparent wrappers apply to both.
 
 - **Command**: Normalized to lowercase basename with any trailing \`.exe\` removed (\`/usr/bin/git\` → \`git\`).
 - **Subcommand**: The first command token after recognized Git and Docker global options and their values; \`--\` ends option parsing. An unrecognized option without \`=\` may consume the following token as its value.
@@ -132,10 +175,11 @@ Fixtures are optional documentation of intended behavior. Fixtures are shape-val
 1. Run \`cc-safety-net rule init\` or create \`rule.json\` manually.
 2. Optionally run \`cc-safety-net rule init --example\` to create an inactive example rulebook.
 3. Use \`cc-safety-net rule wrapper add rtk\` for trusted transparent wrappers.
-4. Run \`cc-safety-net rule add <source>\` after creating or choosing a rulebook source; it adds the source and syncs it.
+4. Run \`cc-safety-net rule add <source>\` after creating or choosing a rulebook source; add \`--only <rulebook...>\` or \`--ref <ref>\` for repository selection. The command adds the selected sources and syncs them.
 5. Run \`cc-safety-net rule sync\` after manual \`rule.json\` changes or local rulebook edits.
-6. Run \`cc-safety-net rule verify\` to validate config, lock/cache state, local rulebooks, and shareable GitHub-source rulebook directories in the current repository (it does not fetch remote content).
-7. Run \`cc-safety-net rule list\` to inspect active rulebooks and transparent wrappers.
+6. Run \`cc-safety-net rule update [source]\` to re-resolve remote branch or tag refs to their latest commit; \`cc-safety-net rule sync\` keeps reusing the locked commit. A source with an ordinary update failure keeps its last good lock entry and cache while the other selected sources still update. Resource-limit failures remain fatal for the whole update.
+7. Run \`cc-safety-net rule verify\` to validate config, lock/cache state, local rulebooks, and shareable GitHub-source rulebook directories in the current repository (it does not fetch remote content).
+8. Run \`cc-safety-net rule list\` to inspect active rulebooks and transparent wrappers.
 
 An edited or invalid local rulebook keeps its last synced, digest-verified cached version enforced until \`cc-safety-net rule sync\` validates the edit. A missing lock entry or cache, a cache digest mismatch, or an invalid cached rulebook makes that source inactive; a missing lockfile or an unreadable or invalid \`rule.json\` makes every source in its scope inactive. Inactive sources stop applying their rules while other custom rules and all built-in protections stay active. Repair the reported condition, then run \`cc-safety-net rule sync\`. Run \`cc-safety-net status\` to see degraded sources.
 `;

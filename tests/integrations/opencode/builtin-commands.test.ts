@@ -11,7 +11,7 @@ function normalizeNewlines(value: string): string {
 describe('builtin OpenCode commands', () => {
   test('uses the shared cc-safety-net workflow as the command template', () => {
     expect(loadBuiltinCommands()['cc-safety-net']?.template).toBe(
-      CC_SAFETY_NET_TEMPLATE.slice(CC_SAFETY_NET_TEMPLATE.indexOf('## Workflow')),
+      CC_SAFETY_NET_TEMPLATE.slice(CC_SAFETY_NET_TEMPLATE.indexOf('# CC Safety Net')),
     );
   });
 
@@ -19,16 +19,14 @@ describe('builtin OpenCode commands', () => {
     const skill = readFileSync(join(process.cwd(), 'skills/cc-safety-net/SKILL.md'), 'utf-8');
 
     expect(CC_SAFETY_NET_TEMPLATE.trimStart()).toBe(
-      normalizeNewlines(skill.slice(skill.indexOf('## Workflow'))),
+      normalizeNewlines(skill.slice(skill.indexOf('# CC Safety Net'))),
     );
   });
 
   test('keeps the cc-safety-net skill manual and doc-driven', () => {
     const skill = readFileSync(join(process.cwd(), 'skills/cc-safety-net/SKILL.md'), 'utf-8');
 
-    expect(skill).toContain(
-      'description: Configure CC Safety Net rulebooks for user, project, or shareable GitHub scope.',
-    );
+    expect(skill).toContain('disable-model-invocation: true');
     expect(skill).toContain('npx -y cc-safety-net rule doc');
     expect(skill).not.toContain('**STRICT**');
   });

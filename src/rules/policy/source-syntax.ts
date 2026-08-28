@@ -6,7 +6,7 @@ export const GITHUB_RULEBOOK_SOURCE_FORMAT = 'owner/repo#ref/<rulebook-name>';
 
 const GITHUB_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/;
 const GITHUB_REPOSITORY_SOURCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]+$/;
-const GITHUB_REF_PATTERN = /^[A-Za-z0-9._-]+$/;
+const GITHUB_REF_PATTERN = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/;
 const RULES_DIR_RE = RULES_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const RULEBOOK_FILE_RE = RULEBOOK_FILE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -47,11 +47,16 @@ export function parseGitHubSource(spec: string): ParsedGitHubSource {
   if (!match?.[1] || !match[2] || !match[3]) {
     throw new Error(`Invalid GitHub rulebook source: ${spec}`);
   }
-  const [ref, name, ...extraParts] = match[3].split('/');
-  if (!ref || !GITHUB_REF_PATTERN.test(ref)) {
-    throw new Error(`GitHub rulebook refs must be a single path segment: ${spec}`);
+  const separator = match[3].lastIndexOf('/');
+  if (separator < 1) {
+    throw new Error(`GitHub rulebook sources must be ${GITHUB_RULEBOOK_SOURCE_FORMAT}: ${spec}`);
   }
-  if (!name || extraParts.length > 0 || !NAME_PATTERN.test(name)) {
+  const ref = match[3].slice(0, separator);
+  const name = match[3].slice(separator + 1);
+  if (!ref || !GITHUB_REF_PATTERN.test(ref)) {
+    throw new Error(`GitHub rulebook refs must use valid path segments: ${spec}`);
+  }
+  if (!name || !NAME_PATTERN.test(name)) {
     throw new Error(`GitHub rulebook sources must be ${GITHUB_RULEBOOK_SOURCE_FORMAT}: ${spec}`);
   }
   return {
@@ -65,6 +70,10 @@ export function parseGitHubSource(spec: string): ParsedGitHubSource {
 
 export function isGitHubRepositorySource(source: string): boolean {
   return GITHUB_REPOSITORY_SOURCE_RE.test(source);
+}
+
+export function isGitHubRef(ref: string): boolean {
+  return GITHUB_REF_PATTERN.test(ref);
 }
 
 export function isGitHubRulebookSource(source: string): boolean {

@@ -66,16 +66,28 @@ export function isRulebookWithinAcceptanceLimits(rulebook: Record<string, unknow
       ) {
         return false;
       }
-      if (!Array.isArray(candidate.block_args)) continue;
-      if (
-        candidate.block_args.length > RULEBOOK_LIMITS.maxBlockArgsPerRule ||
-        candidate.block_args.length > remainingBlockArgs
-      ) {
-        return false;
-      }
-      remainingBlockArgs -= candidate.block_args.length;
-      for (const blockArg of candidate.block_args) {
-        if (!acceptString(blockArg)) return false;
+      // A version 2 rule spends the same budget on its match token lists.
+      const match =
+        candidate.match && typeof candidate.match === 'object'
+          ? (candidate.match as Record<string, unknown>)
+          : {};
+      for (const tokens of [
+        candidate.block_args,
+        match.command_path,
+        match.any_args,
+        match.exclude_args,
+      ]) {
+        if (!Array.isArray(tokens)) continue;
+        if (
+          tokens.length > RULEBOOK_LIMITS.maxBlockArgsPerRule ||
+          tokens.length > remainingBlockArgs
+        ) {
+          return false;
+        }
+        remainingBlockArgs -= tokens.length;
+        for (const token of tokens) {
+          if (!acceptString(token)) return false;
+        }
       }
     }
   }

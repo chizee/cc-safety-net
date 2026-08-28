@@ -266,6 +266,8 @@ function mockGitHubRepoRulebooksFetch(
       case 'https://api.github.com/repos/owner/repo':
         return new Response(JSON.stringify({ default_branch: 'main' }));
       case 'https://api.github.com/repos/owner/repo/commits/main':
+      case 'https://api.github.com/repos/owner/repo/commits/v2':
+      case 'https://api.github.com/repos/owner/repo/commits/feature%2Fv2':
       case 'https://api.github.com/repos/owner/repo/commits/abc123':
         return new Response(JSON.stringify({ sha: 'abc123' }));
     }
@@ -712,9 +714,12 @@ describe('rules policy recovery coverage', () => {
       expect(getRulebookSourceSyntaxError('bad:source')).toContain('Local rulebook sources');
       expect(getRulebookSourceSyntaxError('project-rules')).toBeNull();
       expect(getRulebookSourceSyntaxError('owner/repo#bad@/name')).toContain(
-        'refs must be a single path segment',
+        'refs must use valid path segments',
       );
-      expect(getRulebookSourceSyntaxError('owner/repo#main/bad/name')).toContain(
+      expect(getRulebookSourceSyntaxError('owner/repo#main//name')).toContain(
+        'refs must use valid path segments',
+      );
+      expect(getRulebookSourceSyntaxError('owner/repo#main')).toContain(
         'GitHub rulebook sources must be',
       );
       expect(isGitHubRepositorySource('owner/repo')).toBe(true);
@@ -724,6 +729,13 @@ describe('rules policy recovery coverage', () => {
         owner: 'owner',
         repo: 'repo',
         ref: 'main',
+        path: '.cc-safety-net/rules/project-rules/rulebook.json',
+        name: 'project-rules',
+      });
+      expect(parseGitHubSource('owner/repo#feature/v2/project-rules')).toEqual({
+        owner: 'owner',
+        repo: 'repo',
+        ref: 'feature/v2',
         path: '.cc-safety-net/rules/project-rules/rulebook.json',
         name: 'project-rules',
       });
@@ -774,6 +786,9 @@ describe('rules policy recovery coverage', () => {
         ok: true,
         specs: ['owner/repo#main/alpha'],
       });
+      expect(
+        getRemoveMatches(['owner/repo#feature/v2/alpha'], null, 'owner/repo#feature/v2'),
+      ).toEqual({ ok: true, specs: ['owner/repo#feature/v2/alpha'] });
       expect(getRemoveMatches(['owner/repo#main/alpha'], null, 'owner/repo')).toEqual({
         ok: true,
         specs: ['owner/repo#main/alpha'],
@@ -1480,6 +1495,7 @@ describe('rules policy recovery coverage', () => {
   // one must surface the source-specific error, never a raw TypeError.
   test.each([
     [{ '/repos/owner/repo': { default_branch: 123 } }, 'missing default branch'],
+    [{ '/repos/owner/repo': { default_branch: 'feature//v2' } }, 'invalid default branch'],
     [
       { '/repos/owner/repo': { default_branch: 'main' }, '/commits/main': { sha: { n: 1 } } },
       'Failed to resolve commit for owner/repo',
@@ -1752,7 +1768,7 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
-  test('discovers GitHub rulebooks, preserves display refs, and supports partial sync', async () => {
+  test('discovers GitHub rulebooks, stores the default branch, and supports partial sync', async () => {
     const tempDir = makeTempDir('rules-policy-github-success');
     const originalFetch = globalThis.fetch;
     const alphaRulebook = rulebookJson('alpha');
@@ -1769,17 +1785,22 @@ describe('rules policy recovery coverage', () => {
 
       const added = await addRulebookSource('owner/repo', { cwd: tempDir });
       expect(added.ok).toBe(true);
-      expect(await discoverGitHubRepositoryRulebooks('owner/repo')).toEqual([
-        { spec: 'owner/repo#abc123/alpha', display_ref: 'main' },
-      ]);
+      expect(await discoverGitHubRepositoryRulebooks('owner/repo')).toEqual({
+        source: 'owner/repo',
+        owner: 'owner',
+        repo: 'repo',
+        ref: 'main',
+        commit: 'abc123',
+        names: ['alpha'],
+      });
       expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([
-        'owner/repo#abc123/alpha',
+        'owner/repo#main/alpha',
       ]);
       expect(
         readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.transparent_wrappers,
       ).toEqual(['rtk']);
       expect(getRulesConfigSourceDisplayMap(getProjectRulesConfigPath(tempDir))).toEqual(
-        new Map([['owner/repo#abc123/alpha', 'owner/repo#main/alpha']]),
+        new Map([['owner/repo#main/alpha', 'owner/repo#main/alpha']]),
       );
 
       const syncedFromCache = await syncRulesConfig({
@@ -1793,7 +1814,7 @@ describe('rules policy recovery coverage', () => {
       expect(
         (
           await resolveRulebookSourceForSync(
-            'owner/repo#abc123/alpha',
+            'owner/repo#main/alpha',
             getProjectRulesDir(tempDir),
             {},
             { version: 1, rulebooks: [locked] },
@@ -1801,16 +1822,16 @@ describe('rules policy recovery coverage', () => {
         ).entry,
       ).toEqual(locked);
       expect(
-        (await resolveRulebookSource('owner/repo#abc123/alpha', getProjectRulesDir(tempDir), {}))
+        (await resolveRulebookSource('owner/repo#main/alpha', getProjectRulesDir(tempDir), {}))
           .entry.kind,
       ).toBe('github');
       expect(
         getRemoveMatches(
-          ['owner/repo#abc123/alpha'],
+          ['owner/repo#main/alpha'],
           readLockfile(getProjectRulesLockPath(tempDir)).lock,
           'owner/repo',
         ),
-      ).toEqual({ ok: true, specs: ['owner/repo#abc123/alpha'] });
+      ).toEqual({ ok: true, specs: ['owner/repo#main/alpha'] });
       expect(
         getRemoveMatches(
           ['owner/repo#abc123/alpha', 'owner/repo#def456/beta'],
@@ -1818,6 +1839,115 @@ describe('rules policy recovery coverage', () => {
           'owner/repo',
         ),
       ).toEqual(expect.objectContaining({ ok: false }));
+    } finally {
+      globalThis.fetch = originalFetch;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('selects repository rulebooks in request order from an explicit ref', async () => {
+    const tempDir = makeTempDir('rules-policy-github-selection');
+    const originalFetch = globalThis.fetch;
+
+    try {
+      globalThis.fetch = mockGitHubRepoRulebooksFetch({
+        alpha: rulebookJson('alpha'),
+        beta: rulebookJson('beta'),
+      });
+
+      const result = await addRulebookSource('owner/repo', {
+        cwd: tempDir,
+        ref: 'feature/v2',
+        rulebooks: ['beta', 'alpha', 'beta'],
+      });
+
+      expect(result.ok).toBe(true);
+      expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([
+        'owner/repo#feature/v2/beta',
+        'owner/repo#feature/v2/alpha',
+      ]);
+      expect(result.add).toEqual({
+        source: 'owner/repo',
+        ref: 'feature/v2',
+        selected: ['beta', 'alpha'],
+        added: ['beta', 'alpha'],
+        alreadyConfigured: [],
+        commits: ['abc123'],
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects a missing repository selection before changing config or lock state', async () => {
+    const tempDir = makeTempDir('rules-policy-github-selection-missing');
+    const originalFetch = globalThis.fetch;
+    const configPath = getProjectRulesConfigPath(tempDir);
+    const config = '{"version":1,"rules":[],"overrides":{}}\n';
+
+    try {
+      mkdirSync(dirname(configPath), { recursive: true });
+      writeFileSync(configPath, config);
+      globalThis.fetch = mockGitHubRepoRulebooksFetch({
+        alpha: rulebookJson('alpha'),
+        beta: rulebookJson('beta'),
+      });
+
+      const result = await addRulebookSource('owner/repo', {
+        cwd: tempDir,
+        rulebooks: ['alpha', 'missing'],
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.errors).toEqual([
+        'Rulebooks not found in owner/repo at main: missing\nAvailable rulebooks: alpha, beta',
+      ]);
+      expect(readFileSync(configPath, 'utf-8')).toBe(config);
+      expect(existsSync(getProjectRulesLockPath(tempDir))).toBe(false);
+      expect(existsSync(join(tempDir, '.cc-safety-net', 'cache'))).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('keeps an existing snapshot source idempotent under repository selection', async () => {
+    const tempDir = makeTempDir('rules-policy-github-selection-snapshot');
+    const originalFetch = globalThis.fetch;
+    const configPath = getProjectRulesConfigPath(tempDir);
+    const lockPath = getProjectRulesLockPath(tempDir);
+
+    try {
+      writeDefaultRulesConfig(configPath, ['owner/repo#abc123/alpha']);
+      globalThis.fetch = mockGitHubRepoRulebooksFetch({ alpha: rulebookJson('alpha') });
+      expect((await syncRulesConfig({ cwd: tempDir })).ok).toBe(true);
+      const lock = JSON.parse(readFileSync(lockPath, 'utf-8')) as {
+        rulebooks: Array<Record<string, unknown>>;
+      };
+      writeFileSync(
+        lockPath,
+        JSON.stringify({
+          ...lock,
+          rulebooks: lock.rulebooks.map((entry) => ({ ...entry, display_ref: 'main' })),
+        }),
+      );
+
+      const result = await addRulebookSource('owner/repo', {
+        cwd: tempDir,
+        rulebooks: ['alpha'],
+      });
+
+      expect(result.ok).toBe(true);
+      expect(readRulesConfig(configPath).config?.rules).toEqual(['owner/repo#abc123/alpha']);
+      expect(result.add).toEqual({
+        source: 'owner/repo',
+        ref: 'main',
+        selected: ['alpha'],
+        added: [],
+        alreadyConfigured: ['alpha'],
+        commits: ['abc123'],
+      });
     } finally {
       globalThis.fetch = originalFetch;
       rmSync(tempDir, { recursive: true, force: true });
@@ -1872,7 +2002,7 @@ describe('rules policy recovery coverage', () => {
       });
       expect(existsSync(betaCachePath)).toBe(true);
 
-      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['owner/repo#abc123/alpha']);
+      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['owner/repo#main/alpha']);
       expect((await syncRulesConfig({ cwd: tempDir })).ok).toBe(true);
       expect(existsSync(betaCachePath)).toBe(false);
     } finally {
@@ -1980,7 +2110,7 @@ describe('rules policy recovery coverage', () => {
       );
       writeFileSync(join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json'), '{}');
       expect((await syncRulesConfig({ cwd: tempDir })).errors[0]).toContain(
-        'rulebook_version must be 1',
+        'rulebook_version must be 1 or 2',
       );
 
       writeRulebook(join(userConfigDir, 'shared', 'rulebook.json'), 'shared');

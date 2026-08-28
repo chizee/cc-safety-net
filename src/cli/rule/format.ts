@@ -1,4 +1,5 @@
 import {
+  type AddRulebookSourceResult,
   getRulebookDisplaySource,
   type LoadedRulesPolicy,
   type RulebookLockEntryWithStats,
@@ -19,8 +20,43 @@ export function printRuleChangeResult(
     return;
   }
   printResultWarnings(result);
+  printSuccessfulRuleChange(result, action);
+}
+
+export function printRuleAddResult(result: AddRulebookSourceResult, source: string): void {
+  if (!result.add) {
+    printRuleChangeResult(result, `Added rulebook source: ${source}`);
+    return;
+  }
+  if (!result.ok) {
+    printResultErrors(result);
+    return;
+  }
+  printResultWarnings(result);
+  if (result.add.added.length > 0) {
+    console.log(
+      `Added ${result.add.added.length} ${result.add.added.length === 1 ? 'rulebook' : 'rulebooks'} from ${result.add.source} at ${result.add.ref}:`,
+    );
+    result.add.added.forEach((name) => {
+      console.log(`  - ${name}`);
+    });
+  }
+  if (result.add.alreadyConfigured.length > 0) {
+    console.log(
+      `Rulebooks already configured from ${result.add.source} at ${result.add.ref}: ${result.add.alreadyConfigured.join(', ')}`,
+    );
+  }
+  if (result.add.commits.length > 0) {
+    console.log(`Locked at ${result.add.commits.map((commit) => commit.slice(0, 7)).join(', ')}.`);
+  }
+  printSuccessfulRuleChange(result, 'Rule config synced.');
+}
+
+function printSuccessfulRuleChange(
+  result: { entries: RulebookLockEntryWithStats[] },
+  action: string,
+): void {
   console.log(action);
-  console.log('Rule config synced.');
   console.log('');
   printActiveRulebookSummary(result.entries);
 }

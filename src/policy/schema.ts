@@ -256,16 +256,33 @@ function createSchemas() {
       })
       .optional(),
   });
+  const refineDuplicateRuleNames = (rules: unknown[], context: Zod.core.$RefinementCtx) => {
+    if (!Array.isArray(rules)) return;
+    const names = new Set<string>();
+    rules.forEach((rule, index) => {
+      const name = isRecord(rule) ? rule.name : undefined;
+      if (typeof name !== 'string') return;
+      if (names.has(name.toLowerCase())) {
+        context.addIssue({
+          code: 'custom',
+          message: `duplicate rule name "${name}"`,
+          path: [index, 'name'],
+        });
+        return;
+      }
+      names.add(name.toLowerCase());
+    });
+  };
   // Legacy configs and rulebooks accept the same custom rules but word each failure
   // differently, so every message names both wordings.
-  const customRulesSchema = (style: 'legacy' | 'rulebook') => {
+  const customRuleObjectSchema = (style: 'legacy' | 'rulebook') => {
     const say = (legacy: string, rulebook: string) => (style === 'legacy' ? legacy : rulebook);
     const commandPatternError = say(
       'must match pattern (letters, numbers, hyphens, underscores)',
       'must match command pattern',
     );
     const reasonError = `required non-empty string up to ${MAX_REASON_LENGTH} characters`;
-    const CustomRuleSchema = z.looseObject(
+    return z.looseObject(
       {
         name: z
           .string({ error: 'required string' })
@@ -308,26 +325,13 @@ function createSchemas() {
       },
       { error: 'must be an object' },
     );
-    return z.array(CustomRuleSchema, { error: say('must be an array', 'required array') }).check(
-      alwaysRun<unknown[]>((rules, context) => {
-        if (!Array.isArray(rules)) return;
-        const names = new Set<string>();
-        rules.forEach((rule, index) => {
-          const name = isRecord(rule) ? rule.name : undefined;
-          if (typeof name !== 'string') return;
-          if (names.has(name.toLowerCase())) {
-            context.addIssue({
-              code: 'custom',
-              message: `duplicate rule name "${name}"`,
-              path: [index, 'name'],
-            });
-            return;
-          }
-          names.add(name.toLowerCase());
-        });
-      }),
-    );
   };
+  const customRulesSchema = (style: 'legacy' | 'rulebook') =>
+    z
+      .array(customRuleObjectSchema(style), {
+        error: style === 'legacy' ? 'must be an array' : 'required array',
+      })
+      .check(alwaysRun(refineDuplicateRuleNames));
   const LegacyConfigSchema = z.looseObject({
     version: z.literal(1),
     rules: customRulesSchema('legacy').optional(),
@@ -355,76 +359,114 @@ function createSchemas() {
         });
       }),
     );
-  const RulebookSchema = z
-    .looseObject({
-      name: z.string({ error: rulebookNameError }).regex(NAME_PATTERN, rulebookNameError),
-      version: z
-        .string({ error: 'required non-empty string' })
-        .refine((version) => version !== '', { error: 'required non-empty string' }),
-      allowed_commands: z
-        .array(
-          z
-            .string({ error: 'must match command pattern' })
-            .regex(COMMAND_PATTERN, 'must match command pattern'),
-          { error: 'required array' },
-        )
-        .check(
-          alwaysRun<unknown[]>((commands, context) => {
-            if (!Array.isArray(commands)) return;
-            const seen = new Set<string>();
-            commands.forEach((command, index) => {
-              if (typeof command !== 'string' || !COMMAND_PATTERN.test(command)) return;
-              if (seen.has(command)) {
-                context.addIssue({
-                  code: 'custom',
-                  message: `duplicate command "${command}"`,
-                  path: [index],
-                });
-                return;
-              }
-              seen.add(command);
-            });
-          }),
+  const refineRulebook = (rulebook: Record<string, unknown>, context: Zod.core.$RefinementCtx) => {
+    if (!isRecord(rulebook)) return;
+    const declared = new Set(collectCustomRuleNames(rulebook));
+    if (Array.isArray(rulebook.tests)) {
+      const blocked = new Set(
+        rulebook.tests.flatMap((fixture) =>
+          isRecord(fixture) && fixture.expect === 'blocked' && typeof fixture.rule === 'string'
+            ? [fixture.rule]
+            : [],
         ),
-      rules: customRulesSchema('rulebook'),
-      tests: z.array(RulebookFixtureSchema, { error: 'must be an array if provided' }).optional(),
-    })
-    .check(
-      alwaysRun<Record<string, unknown>>((rulebook, context) => {
-        if (!isRecord(rulebook)) return;
-        const declared = new Set(collectCustomRuleNames(rulebook));
-        if (Array.isArray(rulebook.tests)) {
-          const blocked = new Set(
-            rulebook.tests.flatMap((fixture) =>
-              isRecord(fixture) && fixture.expect === 'blocked' && typeof fixture.rule === 'string'
-                ? [fixture.rule]
-                : [],
-            ),
-          );
-          for (const rule of blocked) {
-            if (declared.has(rule)) continue;
-            context.addIssue({
-              code: 'custom',
-              message: `blocked fixture references unknown rule "${rule}"`,
-              path: ['tests'],
-            });
-          }
-        }
-        if (!Array.isArray(rulebook.allowed_commands) || !Array.isArray(rulebook.rules)) return;
-        const allowed = new Set(
-          rulebook.allowed_commands.filter((command) => typeof command === 'string'),
-        );
-        rulebook.rules.forEach((rule, index) => {
-          const command = isRecord(rule) ? rule.command : undefined;
-          if (typeof command !== 'string' || allowed.has(command)) return;
-          context.addIssue({
-            code: 'custom',
-            message: `"${command}" must be listed in allowed_commands`,
-            path: ['rules', index, 'command'],
-          });
+      );
+      for (const rule of blocked) {
+        if (declared.has(rule)) continue;
+        context.addIssue({
+          code: 'custom',
+          message: `blocked fixture references unknown rule "${rule}"`,
+          path: ['tests'],
         });
-      }),
+      }
+    }
+    if (!Array.isArray(rulebook.allowed_commands) || !Array.isArray(rulebook.rules)) return;
+    const allowed = new Set(
+      rulebook.allowed_commands.filter((command) => typeof command === 'string'),
     );
+    rulebook.rules.forEach((rule, index) => {
+      const command = isRecord(rule) ? rule.command : undefined;
+      if (typeof command !== 'string' || allowed.has(command)) return;
+      context.addIssue({
+        code: 'custom',
+        message: `"${command}" must be listed in allowed_commands`,
+        path: ['rules', index, 'command'],
+      });
+    });
+  };
+  // Each rulebook version validates the same envelope around its own rule shape.
+  const rulebookObjectSchema = (rules: Zod.ZodType) =>
+    z
+      .looseObject({
+        name: z.string({ error: rulebookNameError }).regex(NAME_PATTERN, rulebookNameError),
+        version: z
+          .string({ error: 'required non-empty string' })
+          .refine((version) => version !== '', { error: 'required non-empty string' }),
+        allowed_commands: z
+          .array(
+            z
+              .string({ error: 'must match command pattern' })
+              .regex(COMMAND_PATTERN, 'must match command pattern'),
+            { error: 'required array' },
+          )
+          .check(
+            alwaysRun<unknown[]>((commands, context) => {
+              if (!Array.isArray(commands)) return;
+              const seen = new Set<string>();
+              commands.forEach((command, index) => {
+                if (typeof command !== 'string' || !COMMAND_PATTERN.test(command)) return;
+                if (seen.has(command)) {
+                  context.addIssue({
+                    code: 'custom',
+                    message: `duplicate command "${command}"`,
+                    path: [index],
+                  });
+                  return;
+                }
+                seen.add(command);
+              });
+            }),
+          ),
+        rules,
+        tests: z.array(RulebookFixtureSchema, { error: 'must be an array if provided' }).optional(),
+      })
+      .check(alwaysRun(refineRulebook));
+  const RulebookSchema = rulebookObjectSchema(customRulesSchema('rulebook'));
+  // Rulebook v2 matches exact tokens only, so every match field is a literal token list.
+  const nonEmptyTokenSchema = z
+    .string({ error: 'must be a non-empty string' })
+    .refine((token) => token !== '', { error: 'must be a non-empty string' });
+  const tokenListError = 'must be a non-empty array of unique non-empty strings';
+  const commandPathError = 'required non-empty array of non-empty strings';
+  const tokenListSchema = z
+    .array(nonEmptyTokenSchema, { error: tokenListError })
+    .refine((tokens) => tokens.length > 0, { error: tokenListError })
+    .refine((tokens) => new Set(tokens).size === tokens.length, {
+      error: 'must not contain duplicate values',
+    });
+  const V2MatchSchema = z.looseObject(
+    {
+      command_path: z
+        .array(nonEmptyTokenSchema, { error: commandPathError })
+        .refine((path) => path.length > 0, { error: commandPathError }),
+      any_args: tokenListSchema.optional(),
+      exclude_args: tokenListSchema.optional(),
+    },
+    { error: 'required object' },
+  );
+  const RulebookV2Schema = rulebookObjectSchema(
+    z
+      .array(
+        customRuleObjectSchema('rulebook')
+          .omit({ subcommand: true, block_args: true })
+          .extend({
+            match: V2MatchSchema,
+            subcommand: z.never({ error: 'not supported in rulebook_version 2' }).optional(),
+            block_args: z.never({ error: 'not supported in rulebook_version 2' }).optional(),
+          }),
+        { error: 'required array' },
+      )
+      .check(alwaysRun(refineDuplicateRuleNames)),
+  );
   const requiredLockString = z
     .string({ error: 'required string' })
     .refine((value) => value.trim() !== '', { error: 'required string' });
@@ -483,6 +525,7 @@ function createSchemas() {
     UserPolicySchema,
     LegacyConfigSchema,
     RulebookSchema,
+    RulebookV2Schema,
     RulesLockfileSchema,
   };
 }
@@ -507,6 +550,10 @@ export function getLegacyConfigSchema() {
 
 export function getRulebookSchema() {
   return getSchemas().RulebookSchema;
+}
+
+export function getRulebookV2Schema() {
+  return getSchemas().RulebookV2Schema;
 }
 
 export function getRulesLockfileSchema() {

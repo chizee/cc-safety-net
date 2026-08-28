@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runRuleCommand } from '@/cli/rule';
 import * as systemInfo from '@/integrations/system-info';
+import * as sync from '@/rules/policy/sync';
 import { captureConsoleOutput, runCCSafetyNetCli, withEnv, withTempDir } from '../../helpers';
 import { writeProjectRuleConfig } from '../../helpers/rulebook';
 
@@ -65,6 +66,56 @@ describe('rule update notice', () => {
   });
 });
 
+describe('rule update refresh', () => {
+  test('update re-resolves remote refs while sync reuses the locked commit', async () => {
+    const syncRulesConfig = spyOn(sync, 'syncRulesConfig').mockResolvedValue({
+      ok: true,
+      errors: [],
+      warnings: [],
+      entries: [],
+    });
+    try {
+      await captureRuleCommand(['update']);
+      expect(syncRulesConfig).toHaveBeenLastCalledWith(
+        expect.objectContaining({ refresh: true, only: undefined }),
+      );
+
+      await captureRuleCommand(['update', 'alpha']);
+      expect(syncRulesConfig).toHaveBeenLastCalledWith(
+        expect.objectContaining({ refresh: true, only: 'alpha' }),
+      );
+
+      await captureRuleCommand(['sync']);
+      expect(syncRulesConfig).toHaveBeenLastCalledWith(
+        expect.objectContaining({ refresh: false, only: undefined }),
+      );
+    } finally {
+      syncRulesConfig.mockRestore();
+    }
+  });
+
+  test.each([
+    'sync',
+    'update',
+  ])('%s --check reports a check without claiming a sync', async (command) => {
+    const syncRulesConfig = spyOn(sync, 'syncRulesConfig').mockResolvedValue({
+      ok: true,
+      errors: [],
+      warnings: [],
+      entries: [],
+    });
+    try {
+      const result = await captureRuleCommand([command, '--check']);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Rule config checked.');
+      expect(result.stdout).not.toContain('Rule config synced.');
+    } finally {
+      syncRulesConfig.mockRestore();
+    }
+  });
+});
+
 describe('rule leaf help', () => {
   test('renders migrate help, not generic rule help', async () => {
     const result = await captureRuleCommand(['migrate', '--help']);
@@ -75,6 +126,16 @@ describe('rule leaf help', () => {
     expect(result.output).toContain('Migrate legacy inline rules');
     expect(result.output).not.toContain('SUBCOMMANDS:');
     expect(result.output).not.toContain('Print the rulebook authoring guide');
+  });
+
+  test('renders repository selection options for rule add help', async () => {
+    const result = await captureRuleCommand(['add', '--help']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain('cc-safety-net rule add <source>');
+    expect(result.output).toContain('--ref <ref>');
+    expect(result.output).toContain('--only <rulebook...>');
+    expect(result.output).toContain('rule add acme/safety-rules --only aws gcloud');
   });
 
   test('renders wrapper list help, not the first wrapper leaf', async () => {
@@ -121,6 +182,42 @@ describe('rule leaf help', () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('cc-safety-net rule migrate');
     expect(result.output).not.toContain('Print the rulebook authoring guide');
+  });
+});
+
+describe('rule add repository flags', () => {
+  test('requires the repository before a variadic selection', async () => {
+    const result = await captureRuleCommand(['add', '--only', 'aws', 'owner/repo']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('rule add requires owner/repo before --only');
+  });
+
+  test('rejects repository flags for local and canonical sources', async () => {
+    const local = await captureRuleCommand(['add', 'project-rules', '--only', 'aws']);
+    const canonical = await captureRuleCommand(['add', 'owner/repo#main/aws', '--ref', 'v2']);
+
+    expect(local.stderr).toContain('--only can only select rulebooks from an owner/repo source');
+    expect(canonical.stderr).toContain(
+      '--ref can only select a ref for an owner/repo source: owner/repo#main/aws',
+    );
+  });
+
+  test('rejects missing and invalid repository flag values', async () => {
+    const missingOnly = await captureRuleCommand(['add', 'owner/repo', '--only', '--global']);
+    const invalidRef = await captureRuleCommand(['add', 'owner/repo', '--ref', 'feature//v2']);
+    const invalidName = await captureRuleCommand(['add', 'owner/repo', '--only', 'bad/name']);
+
+    expect(missingOnly.stderr).toContain('--only requires at least one value');
+    expect(invalidRef.stderr).toContain('--ref must use valid path segments: feature//v2');
+    expect(invalidName.stderr).toContain('Invalid rulebook names: bad/name');
+  });
+
+  test('rejects add-only options on other rule commands', async () => {
+    const result = await captureRuleCommand(['update', 'aws', '--only', 'gcloud']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('Unknown option for rule update: --only');
   });
 });
 

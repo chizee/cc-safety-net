@@ -142,6 +142,30 @@ describe('rule verify GitHub source rules', () => {
       expect(output).toContain('rules: required array');
     });
   });
+
+  test('runs rulebook_version 2 fixtures and reports the ones that fail', async () => {
+    await withTempDir('safety-net-rule-verify-v2-fixtures-', (tempDir) => {
+      const rulesDir = join(tempDir, '.cc-safety-net', 'rules');
+      writeV2Rulebook(join(rulesDir, 'good-book', 'rulebook.json'), 'good-book', [
+        { command: 'terraform destroy', expect: 'blocked', rule: 'block-terraform-destroy' },
+        { command: 'terraform plan', expect: 'allowed' },
+      ]);
+
+      const passing = captureOutput(() => runVerify(tempDir));
+      expect(passing.exitCode).toBe(0);
+      expect(passing.output).toContain('1. good-book');
+
+      writeV2Rulebook(join(rulesDir, 'bad-book', 'rulebook.json'), 'bad-book', [
+        { command: 'terraform plan', expect: 'blocked', rule: 'block-terraform-destroy' },
+      ]);
+
+      const output = expectInvalidRulesDir(tempDir, rulesDir);
+
+      expect(output).toContain(
+        'bad-book/rulebook.json: tests[0]: expected "block-terraform-destroy" to block "terraform plan" but no rule matched',
+      );
+    });
+  });
 });
 
 describe('rule verify legacy project config', () => {
@@ -290,6 +314,32 @@ function expectNoConfigsFound(result: { exitCode: number; output: string }): voi
   expect(result.output).not.toContain('GitHub source rules');
   expect(result.output).not.toContain('All configs valid.');
   expect(result.output).not.toContain('Config validation failed.');
+}
+
+function writeV2Rulebook(
+  path: string,
+  name: string,
+  tests: Array<{ command: string; expect: 'blocked' | 'allowed'; rule?: string }>,
+): void {
+  mkdirSync(join(path, '..'), { recursive: true });
+  writeFileSync(
+    path,
+    JSON.stringify({
+      rulebook_version: 2,
+      name,
+      version: '1.0.0',
+      allowed_commands: ['terraform'],
+      rules: [
+        {
+          name: 'block-terraform-destroy',
+          command: 'terraform',
+          match: { command_path: ['destroy'] },
+          reason: 'Ask before destroying infrastructure.',
+        },
+      ],
+      tests,
+    }),
+  );
 }
 
 function writeRulesConfig(path: string, rules: string[]): void {

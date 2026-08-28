@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { assertValidRulebook, type Rulebook } from '@/rules/rulebook';
+import { evaluateRulebookFixtures } from '@/rules/rulebook-fixtures';
 import {
   bindPolicyFilesystemScope,
   getPolicyFilesystemTargetForPath,
@@ -26,6 +27,8 @@ import {
   assertBareRulebookName,
   GITHUB_RULEBOOK_PATH_RE,
   getRulebookLockEntrySourceIdentityError,
+  isGitHubRef,
+  isGitHubRepositorySource,
   isGitHubRulebookSource,
   parseGitHubSource,
 } from './sources';
@@ -43,9 +46,13 @@ export interface ResolvedRulebook {
   content: string;
 }
 
-export interface DiscoveredRulebookSource {
-  spec: string;
-  display_ref?: string;
+export interface DiscoveredGitHubRepository {
+  source: string;
+  owner: string;
+  repo: string;
+  ref: string;
+  commit: string;
+  names: string[];
 }
 
 type GitHubResourceKind = 'metadata' | 'commit' | 'tree' | 'raw';
@@ -96,12 +103,58 @@ export async function resolveRulebookSourceForSync(
 
 export async function discoverGitHubRepositoryRulebooks(
   source: string,
-  operation: RuleSyncOperation = createRuleSyncOperation(),
-): Promise<DiscoveredRulebookSource[]> {
+  options: { ref?: string; operation?: RuleSyncOperation } = {},
+): Promise<DiscoveredGitHubRepository> {
+  if (!isGitHubRepositorySource(source)) {
+    throw new Error(`Invalid GitHub repository source: ${source}`);
+  }
   const [owner, repo] = source.split('/');
   if (!owner || !repo) {
     throw new Error(`Invalid GitHub repository source: ${source}`);
   }
+  if (options.ref !== undefined && !isGitHubRef(options.ref)) {
+    throw new Error(`GitHub rulebook refs must use valid path segments: ${options.ref}`);
+  }
+  const operation = options.operation ?? createRuleSyncOperation();
+  const ref = options.ref ?? (await getGitHubDefaultBranch(owner, repo, source, operation));
+  const commit = await resolveGitHubCommit(owner, repo, ref, source, operation);
+  const treeResource = await fetchRuleSyncResource(
+    `https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`,
+    'tree',
+    operation,
+  );
+  const treeResponse = treeResource.response;
+  if (!treeResponse.ok) {
+    throw new Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
+  }
+  const treeJson = JSON.parse(treeResource.content) as { tree?: unknown } | null;
+  if (!Array.isArray(treeJson?.tree)) {
+    throw new Error(`Failed to inspect ${source}: unexpected GitHub tree response`);
+  }
+  const entries: unknown[] = treeJson.tree;
+  const names = [
+    ...new Set(
+      entries.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') return [];
+        const record = entry as { path?: unknown; type?: unknown };
+        if (record.type !== 'blob' || typeof record.path !== 'string') return [];
+        const match = record.path.match(GITHUB_RULEBOOK_PATH_RE);
+        return match?.[1] ? [match[1]] : [];
+      }),
+    ),
+  ].sort();
+  if (names.length === 0) {
+    throw new Error(`No rulebooks found in ${source} under ${RULES_DIR}/`);
+  }
+  return { source, owner, repo, ref, commit, names };
+}
+
+async function getGitHubDefaultBranch(
+  owner: string,
+  repo: string,
+  source: string,
+  operation: RuleSyncOperation,
+): Promise<string> {
   const metadataResource = await fetchRuleSyncResource(
     `https://api.github.com/repos/${owner}/${repo}`,
     'metadata',
@@ -118,37 +171,10 @@ export async function discoverGitHubRepositoryRulebooks(
   if (typeof defaultBranch !== 'string' || defaultBranch === '') {
     throw new Error(`Failed to inspect ${source}: missing default branch`);
   }
-  const commit = await resolveGitHubCommit(owner, repo, defaultBranch, source, operation);
-  const treeResource = await fetchRuleSyncResource(
-    `https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`,
-    'tree',
-    operation,
-  );
-  const treeResponse = treeResource.response;
-  if (!treeResponse.ok) {
-    throw new Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
+  if (!isGitHubRef(defaultBranch)) {
+    throw new Error(`GitHub returned an invalid default branch: ${defaultBranch}`);
   }
-  const treeJson = JSON.parse(treeResource.content) as { tree?: unknown } | null;
-  if (!Array.isArray(treeJson?.tree)) {
-    throw new Error(`Failed to inspect ${source}: unexpected GitHub tree response`);
-  }
-  const entries: unknown[] = treeJson.tree;
-  const names = entries
-    .flatMap((entry) => {
-      if (!entry || typeof entry !== 'object') return [];
-      const record = entry as { path?: unknown; type?: unknown };
-      if (record.type !== 'blob' || typeof record.path !== 'string') return [];
-      const match = record.path.match(GITHUB_RULEBOOK_PATH_RE);
-      return match?.[1] ? [match[1]] : [];
-    })
-    .sort();
-  if (names.length === 0) {
-    throw new Error(`No rulebooks found in ${source} under ${RULES_DIR}/`);
-  }
-  return names.map((name) => ({
-    spec: `${owner}/${repo}#${commit}/${name}`,
-    display_ref: defaultBranch,
-  }));
+  return defaultBranch;
 }
 
 function resolveLocalRulebook(
@@ -161,7 +187,7 @@ function resolveLocalRulebook(
   const path = getLocalRulebookPath(configDir, spec);
   const content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, path));
   if (content === null) throw new Error(`Rulebook source not found: ${spec}`);
-  const rulebook = assertValidRulebook(
+  const rulebook = assertValidSyncedRulebook(
     parseRulebookJson(content, 'Invalid local rulebook source.'),
   );
   if (rulebook.name !== spec) {
@@ -197,7 +223,7 @@ async function resolveGitHubRulebook(
     throw new Error(`Failed to fetch ${spec}: GitHub raw returned ${rawResponse.status}`);
   }
   const content = rawResource.content;
-  const rulebook = assertValidRulebook(
+  const rulebook = assertValidSyncedRulebook(
     parseRulebookJson(content, 'Invalid GitHub rulebook response.'),
   );
   if (rulebook.name !== parsed.name) {
@@ -263,6 +289,19 @@ async function fetchLockedGitHubRulebook(
     throw new Error(`locked GitHub digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
   }
   return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
+}
+
+/**
+ * Validation for a freshly resolved rulebook. Fixtures run here only: a locked rulebook was
+ * fixture-checked when it was first resolved, so reusing it never re-evaluates them.
+ */
+function assertValidSyncedRulebook(value: unknown): Rulebook {
+  const rulebook = assertValidRulebook(value);
+  const failures = evaluateRulebookFixtures(rulebook);
+  if (failures.length > 0) {
+    throw new Error(failures.join('; '));
+  }
+  return rulebook;
 }
 
 function assertRulebookMatchesLockEntry(content: string, entry: GitHubRulebookLockEntry): Rulebook {

@@ -17,14 +17,16 @@ describe('Pi built-in commands', () => {
 
     registerBuiltinCommands(pi);
 
-    expect(pi.commands['cc-safety-net']?.description).toBe('Manage CC Safety Net rulebooks');
+    expect(pi.commands['cc-safety-net']?.description).toBe(
+      'Operate CC Safety Net: explain blocks, rules, integrations, diagnostics',
+    );
   });
 
   test('uses the cc-safety-net skill workflow as the command prompt', () => {
     const skill = readFileSync(join(process.cwd(), 'skills/cc-safety-net/SKILL.md'), 'utf-8');
 
     expect(buildSafetyNetCommandPrompt('add a project rule')).toContain(
-      normalizeNewlines(skill.slice(skill.indexOf('## Workflow'))),
+      normalizeNewlines(skill.slice(skill.indexOf('# CC Safety Net'))),
     );
   });
 
@@ -36,7 +38,7 @@ describe('Pi built-in commands', () => {
 
   test('uses a generic user request when no arguments are provided', () => {
     expect(buildSafetyNetCommandPrompt('   ')).toContain(
-      '## User request\n\nHelp me configure CC Safety Net.',
+      '## User request\n\nHelp me with CC Safety Net.',
     );
   });
 
@@ -74,7 +76,9 @@ describe('Pi built-in commands', () => {
     ccSafetyNetPiExtension(pi);
 
     expect(pi.events.map((event) => event.name)).toEqual(['tool_call']);
-    expect(pi.commands['cc-safety-net']?.description).toBe('Manage CC Safety Net rulebooks');
+    expect(pi.commands['cc-safety-net']?.description).toBe(
+      'Operate CC Safety Net: explain blocks, rules, integrations, diagnostics',
+    );
   });
 });
 
