@@ -108,6 +108,9 @@ intent, merge behavior, or target command is unclear.
      current repository.
    - Do not offer to add a GitHub source with `owner/repo`; installing rules from a GitHub
      source is outside this workflow.
+   - If the user explicitly asks to install existing GitHub rulebooks instead of authoring them,
+     use `npx -y cc-safety-net rule add owner/repo --only <rulebook...>`; omit `--only` only
+     when they want every rulebook, and add `--ref <ref>` only when they name a non-default ref.
    - For transparent wrappers, prefer `npx -y cc-safety-net rule wrapper add` with the trusted
      wrapper name passed as a separate argv value, or shell-escaped as one argument, over editing
      `rule.json` by hand.

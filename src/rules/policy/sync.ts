@@ -26,7 +26,7 @@ import {
   type ScopePaths,
 } from './paths';
 import {
-  type DiscoveredRulebookSource,
+  type DiscoveredGitHubRepository,
   discoverGitHubRepositoryRulebooks,
   type ResolvedRulebook,
   resolveRulebookSourceForSync,
@@ -42,6 +42,8 @@ import {
 import { getRulesConfigRuntimeErrorsForConfig, loadScopePolicy } from './scope-policy';
 import { getRemoveMatches, getSelectedUpdateSpecs, isGitHubRepositorySource } from './sources';
 import type {
+  AddRulebookSourceOptions,
+  AddRulebookSourceResult,
   RulebookLockEntry,
   RulebookLockEntryWithStats,
   RulesConfig,
@@ -254,29 +256,29 @@ async function syncRulesConfigInternal(
 
 export async function addRulebookSource(
   source: string,
-  options: SyncRulesConfigOptions = {},
-): Promise<SyncRulesConfigResult> {
-  return addRulebookSourceInternal(source, projectSyncOptions(options), createRuleSyncOperation());
+  options: AddRulebookSourceOptions = {},
+): Promise<AddRulebookSourceResult> {
+  return addRulebookSourceInternal(source, projectAddOptions(options), createRuleSyncOperation());
 }
 
 /** @internal Adds a source with an explicit operation for deterministic transport tests. */
 export async function addRulebookSourceWithOperation(
   source: string,
-  options: SyncRulesConfigOptions,
+  options: AddRulebookSourceOptions,
   operation: RuleSyncOperation,
-): Promise<SyncRulesConfigResult> {
-  return addRulebookSourceInternal(source, projectSyncOptions(options), operation);
+): Promise<AddRulebookSourceResult> {
+  return addRulebookSourceInternal(source, projectAddOptions(options), operation);
 }
 
 /** @internal Adds a source with explicit fault hooks. */
 export async function addRulebookSourceWithHooks(
   source: string,
-  options: SyncRulesConfigOptions,
+  options: AddRulebookSourceOptions,
   hooks: RuleSyncTestHooks,
-): Promise<SyncRulesConfigResult> {
+): Promise<AddRulebookSourceResult> {
   return addRulebookSourceInternal(
     source,
-    projectSyncOptions(options),
+    projectAddOptions(options),
     createRuleSyncOperation(),
     hooks,
   );
@@ -284,10 +286,10 @@ export async function addRulebookSourceWithHooks(
 
 async function addRulebookSourceInternal(
   source: string,
-  options: SyncRulesConfigOptions,
+  options: AddRulebookSourceOptions,
   operation: RuleSyncOperation,
   hooks: RuleSyncTestHooks = {},
-): Promise<SyncRulesConfigResult> {
+): Promise<AddRulebookSourceResult> {
   let configSnapshot: { target: PolicyFilesystemTarget; content: string | null } | null = null;
   let configWriteArmed = false;
   try {
@@ -297,11 +299,25 @@ async function addRulebookSourceInternal(
     const scopeConfig = readScopeRulesConfig(scope.configTarget);
     if (!scopeConfig.ok) return scopeConfig.result;
     const config = scopeConfig.config;
-    const discoveredSources: DiscoveredRulebookSource[] = isGitHubRepositorySource(source)
-      ? await discoverGitHubRepositoryRulebooks(source, operation)
-      : [{ spec: source }];
-    const sources = discoveredSources.map((item) => item.spec);
-    const nextRules = [...new Set([...config.rules, ...sources])];
+    const repositorySource = isGitHubRepositorySource(source);
+    assertRepositoryAddOptions(source, options, repositorySource);
+    const repository = repositorySource
+      ? await discoverGitHubRepositoryRulebooks(source, { ref: options.ref, operation })
+      : null;
+    const selectedNames = repository
+      ? selectRepositoryRulebooks(repository, options.rulebooks)
+      : [];
+    const lockResult = repository ? readLockfile(scope.lockTarget) : null;
+    const existingLock = lockResult?.errors.length === 0 ? lockResult.lock : null;
+    const selectedSpecs = repository
+      ? selectedNames.map(
+          (name) =>
+            getConfiguredRepositorySpec(config.rules, existingLock, repository, name) ??
+            `${source}#${repository.ref}/${name}`,
+        )
+      : [source];
+    const sources = selectedSpecs.filter((spec) => !config.rules.includes(spec));
+    const nextRules = [...config.rules, ...sources];
     if (nextRules.length > RULE_SOURCE_LIMIT) return sourceLimitResult();
     if (nextRules.length !== config.rules.length) {
       configWriteArmed = true;
@@ -317,18 +333,34 @@ async function addRulebookSourceInternal(
         hooks._testAfterPolicyRename,
       );
     }
-    const result = await syncRulesConfigInternal(
-      options,
-      operation,
-      new Map(
-        discoveredSources
-          .filter((item): item is Required<DiscoveredRulebookSource> => !!item.display_ref)
-          .map((item) => [item.spec, item.display_ref]),
-      ),
-      hooks,
-    );
+    const result = await syncRulesConfigInternal(options, operation, undefined, hooks);
     if (!result.ok) restoreConfig(scope.configTarget, before);
-    return result;
+    if (!result.ok || !repository) return result;
+    const added = selectedNames.filter((_, index) => sources.includes(selectedSpecs[index] ?? ''));
+    return {
+      ...result,
+      add: {
+        source,
+        ref: repository.ref,
+        selected: selectedNames,
+        added,
+        alreadyConfigured: selectedNames.filter((name) => !added.includes(name)),
+        commits: [
+          ...new Set(
+            result.entries
+              .filter(
+                (entry) =>
+                  entry.kind === 'github' &&
+                  entry.owner === repository.owner &&
+                  entry.repo === repository.repo &&
+                  selectedNames.includes(entry.name) &&
+                  (entry.display_ref ?? entry.ref) === repository.ref,
+              )
+              .map((entry) => (entry.kind === 'github' ? entry.commit : '')),
+          ),
+        ],
+      },
+    };
   } catch (error) {
     if (configWriteArmed && configSnapshot) {
       try {
@@ -339,6 +371,61 @@ async function addRulebookSourceInternal(
     }
     return failWithError(error);
   }
+}
+
+function assertRepositoryAddOptions(
+  source: string,
+  options: AddRulebookSourceOptions,
+  repositorySource: boolean,
+): void {
+  if (!repositorySource && options.rulebooks !== undefined) {
+    throw new Error('--only can only select rulebooks from an owner/repo source');
+  }
+  if (!repositorySource && options.ref) {
+    throw new Error(`--ref can only select a ref for an owner/repo source: ${source}`);
+  }
+  if (options.rulebooks?.length === 0) {
+    throw new Error('--only requires at least one rulebook name');
+  }
+  const invalidNames = options.rulebooks?.filter((name) => !NAME_PATTERN.test(name)) ?? [];
+  if (invalidNames.length > 0) {
+    throw new Error(`Invalid rulebook names: ${invalidNames.join(', ')}`);
+  }
+}
+
+function selectRepositoryRulebooks(
+  repository: DiscoveredGitHubRepository,
+  requested: readonly string[] | undefined,
+): string[] {
+  const selected = requested ? [...new Set(requested)] : repository.names;
+  const missing = selected.filter((name) => !repository.names.includes(name));
+  if (missing.length > 0) {
+    throw new Error(
+      `Rulebooks not found in ${repository.source} at ${repository.ref}: ${missing.join(', ')}\nAvailable rulebooks: ${repository.names.join(', ')}`,
+    );
+  }
+  return selected;
+}
+
+function getConfiguredRepositorySpec(
+  configured: string[],
+  lock: RulesLockfile | null,
+  repository: DiscoveredGitHubRepository,
+  name: string,
+): string | undefined {
+  const canonical = `${repository.source}#${repository.ref}/${name}`;
+  if (configured.includes(canonical)) return canonical;
+  const entries = new Map(lock?.rulebooks.map((entry) => [entry.spec, entry]) ?? []);
+  return configured.find((spec) => {
+    const entry = entries.get(spec);
+    return (
+      entry?.kind === 'github' &&
+      entry.owner === repository.owner &&
+      entry.repo === repository.repo &&
+      entry.name === name &&
+      (entry.display_ref ?? entry.ref) === repository.ref
+    );
+  });
 }
 
 /** @internal Maps rulebook sources with bounded fanout and ordered results. */
@@ -391,6 +478,14 @@ function projectSyncOptions(options: SyncRulesConfigOptions): SyncRulesConfigOpt
     check: options.check,
     only: options.only,
     refresh: options.refresh,
+  };
+}
+
+function projectAddOptions(options: AddRulebookSourceOptions): AddRulebookSourceOptions {
+  return {
+    ...projectSyncOptions(options),
+    ref: options.ref,
+    rulebooks: options.rulebooks,
   };
 }
 

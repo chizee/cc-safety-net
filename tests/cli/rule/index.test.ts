@@ -107,6 +107,16 @@ describe('rule leaf help', () => {
     expect(result.output).not.toContain('Print the rulebook authoring guide');
   });
 
+  test('renders repository selection options for rule add help', async () => {
+    const result = await captureRuleCommand(['add', '--help']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain('cc-safety-net rule add <source>');
+    expect(result.output).toContain('--ref <ref>');
+    expect(result.output).toContain('--only <rulebook...>');
+    expect(result.output).toContain('rule add acme/safety-rules --only aws gcloud');
+  });
+
   test('renders wrapper list help, not the first wrapper leaf', async () => {
     const result = await captureRuleCommand(['wrapper', 'list', '--help']);
 
@@ -151,6 +161,42 @@ describe('rule leaf help', () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('cc-safety-net rule migrate');
     expect(result.output).not.toContain('Print the rulebook authoring guide');
+  });
+});
+
+describe('rule add repository flags', () => {
+  test('requires the repository before a variadic selection', async () => {
+    const result = await captureRuleCommand(['add', '--only', 'aws', 'owner/repo']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('rule add requires owner/repo before --only');
+  });
+
+  test('rejects repository flags for local and canonical sources', async () => {
+    const local = await captureRuleCommand(['add', 'project-rules', '--only', 'aws']);
+    const canonical = await captureRuleCommand(['add', 'owner/repo#main/aws', '--ref', 'v2']);
+
+    expect(local.stderr).toContain('--only can only select rulebooks from an owner/repo source');
+    expect(canonical.stderr).toContain(
+      '--ref can only select a ref for an owner/repo source: owner/repo#main/aws',
+    );
+  });
+
+  test('rejects missing and invalid repository flag values', async () => {
+    const missingOnly = await captureRuleCommand(['add', 'owner/repo', '--only', '--global']);
+    const invalidRef = await captureRuleCommand(['add', 'owner/repo', '--ref', 'feature/v2']);
+    const invalidName = await captureRuleCommand(['add', 'owner/repo', '--only', 'bad/name']);
+
+    expect(missingOnly.stderr).toContain('--only requires at least one value');
+    expect(invalidRef.stderr).toContain('--ref must be a single path segment: feature/v2');
+    expect(invalidName.stderr).toContain('Invalid rulebook names: bad/name');
+  });
+
+  test('rejects add-only options on other rule commands', async () => {
+    const result = await captureRuleCommand(['update', 'aws', '--only', 'gcloud']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('Unknown option for rule update: --only');
   });
 });
 

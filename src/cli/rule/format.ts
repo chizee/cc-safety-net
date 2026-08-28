@@ -1,4 +1,5 @@
 import {
+  type AddRulebookSourceResult,
   getRulebookDisplaySource,
   type LoadedRulesPolicy,
   type RulebookLockEntryWithStats,
@@ -20,6 +21,39 @@ export function printRuleChangeResult(
   }
   printResultWarnings(result);
   console.log(action);
+  printSuccessfulRuleChange(result);
+}
+
+export function printRuleAddResult(result: AddRulebookSourceResult, source: string): void {
+  if (!result.add) {
+    printRuleChangeResult(result, `Added rulebook source: ${source}`);
+    return;
+  }
+  if (!result.ok) {
+    printResultErrors(result);
+    return;
+  }
+  printResultWarnings(result);
+  if (result.add.added.length > 0) {
+    console.log(
+      `Added ${result.add.added.length} ${result.add.added.length === 1 ? 'rulebook' : 'rulebooks'} from ${result.add.source} at ${result.add.ref}:`,
+    );
+    for (const name of result.add.added) console.log(`  - ${name}`);
+  }
+  if (result.add.alreadyConfigured.length > 0) {
+    console.log(
+      `Rulebooks already configured from ${result.add.source} at ${result.add.ref}: ${result.add.alreadyConfigured.join(', ')}`,
+    );
+  }
+  if (result.add.commits.length === 1) {
+    console.log(`Locked at ${result.add.commits[0]?.slice(0, 7)}.`);
+  } else if (result.add.commits.length > 1) {
+    console.log(`Locked at ${result.add.commits.map((commit) => commit.slice(0, 7)).join(', ')}.`);
+  }
+  printSuccessfulRuleChange(result);
+}
+
+function printSuccessfulRuleChange(result: { entries: RulebookLockEntryWithStats[] }): void {
   console.log('Rule config synced.');
   console.log('');
   printActiveRulebookSummary(result.entries);

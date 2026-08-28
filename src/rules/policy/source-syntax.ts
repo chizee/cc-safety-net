@@ -67,6 +67,10 @@ export function isGitHubRepositorySource(source: string): boolean {
   return GITHUB_REPOSITORY_SOURCE_RE.test(source);
 }
 
+export function isGitHubRef(ref: string): boolean {
+  return GITHUB_REF_PATTERN.test(ref);
+}
+
 export function isGitHubRulebookSource(source: string): boolean {
   return GITHUB_SOURCE_RE.test(source);
 }

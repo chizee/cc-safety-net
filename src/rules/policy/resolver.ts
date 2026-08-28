@@ -27,6 +27,8 @@ import {
   assertBareRulebookName,
   GITHUB_RULEBOOK_PATH_RE,
   getRulebookLockEntrySourceIdentityError,
+  isGitHubRef,
+  isGitHubRepositorySource,
   isGitHubRulebookSource,
   parseGitHubSource,
 } from './sources';
@@ -44,9 +46,13 @@ export interface ResolvedRulebook {
   content: string;
 }
 
-export interface DiscoveredRulebookSource {
-  spec: string;
-  display_ref?: string;
+export interface DiscoveredGitHubRepository {
+  source: string;
+  owner: string;
+  repo: string;
+  ref: string;
+  commit: string;
+  names: string[];
 }
 
 type GitHubResourceKind = 'metadata' | 'commit' | 'tree' | 'raw';
@@ -97,12 +103,58 @@ export async function resolveRulebookSourceForSync(
 
 export async function discoverGitHubRepositoryRulebooks(
   source: string,
-  operation: RuleSyncOperation = createRuleSyncOperation(),
-): Promise<DiscoveredRulebookSource[]> {
+  options: { ref?: string; operation?: RuleSyncOperation } = {},
+): Promise<DiscoveredGitHubRepository> {
+  if (!isGitHubRepositorySource(source)) {
+    throw new Error(`Invalid GitHub repository source: ${source}`);
+  }
   const [owner, repo] = source.split('/');
   if (!owner || !repo) {
     throw new Error(`Invalid GitHub repository source: ${source}`);
   }
+  if (options.ref !== undefined && !isGitHubRef(options.ref)) {
+    throw new Error(`GitHub rulebook refs must be a single path segment: ${options.ref}`);
+  }
+  const operation = options.operation ?? createRuleSyncOperation();
+  const ref = options.ref ?? (await getGitHubDefaultBranch(owner, repo, source, operation));
+  const commit = await resolveGitHubCommit(owner, repo, ref, source, operation);
+  const treeResource = await fetchRuleSyncResource(
+    `https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`,
+    'tree',
+    operation,
+  );
+  const treeResponse = treeResource.response;
+  if (!treeResponse.ok) {
+    throw new Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
+  }
+  const treeJson = JSON.parse(treeResource.content) as { tree?: unknown } | null;
+  if (!Array.isArray(treeJson?.tree)) {
+    throw new Error(`Failed to inspect ${source}: unexpected GitHub tree response`);
+  }
+  const entries: unknown[] = treeJson.tree;
+  const names = [
+    ...new Set(
+      entries.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') return [];
+        const record = entry as { path?: unknown; type?: unknown };
+        if (record.type !== 'blob' || typeof record.path !== 'string') return [];
+        const match = record.path.match(GITHUB_RULEBOOK_PATH_RE);
+        return match?.[1] ? [match[1]] : [];
+      }),
+    ),
+  ].sort();
+  if (names.length === 0) {
+    throw new Error(`No rulebooks found in ${source} under ${RULES_DIR}/`);
+  }
+  return { source, owner, repo, ref, commit, names };
+}
+
+async function getGitHubDefaultBranch(
+  owner: string,
+  repo: string,
+  source: string,
+  operation: RuleSyncOperation,
+): Promise<string> {
   const metadataResource = await fetchRuleSyncResource(
     `https://api.github.com/repos/${owner}/${repo}`,
     'metadata',
@@ -119,37 +171,10 @@ export async function discoverGitHubRepositoryRulebooks(
   if (typeof defaultBranch !== 'string' || defaultBranch === '') {
     throw new Error(`Failed to inspect ${source}: missing default branch`);
   }
-  const commit = await resolveGitHubCommit(owner, repo, defaultBranch, source, operation);
-  const treeResource = await fetchRuleSyncResource(
-    `https://api.github.com/repos/${owner}/${repo}/git/trees/${commit}?recursive=1`,
-    'tree',
-    operation,
-  );
-  const treeResponse = treeResource.response;
-  if (!treeResponse.ok) {
-    throw new Error(`Failed to inspect ${source}: GitHub tree returned ${treeResponse.status}`);
+  if (!isGitHubRef(defaultBranch)) {
+    throw new Error(`GitHub default branch must be a single path segment: ${defaultBranch}`);
   }
-  const treeJson = JSON.parse(treeResource.content) as { tree?: unknown } | null;
-  if (!Array.isArray(treeJson?.tree)) {
-    throw new Error(`Failed to inspect ${source}: unexpected GitHub tree response`);
-  }
-  const entries: unknown[] = treeJson.tree;
-  const names = entries
-    .flatMap((entry) => {
-      if (!entry || typeof entry !== 'object') return [];
-      const record = entry as { path?: unknown; type?: unknown };
-      if (record.type !== 'blob' || typeof record.path !== 'string') return [];
-      const match = record.path.match(GITHUB_RULEBOOK_PATH_RE);
-      return match?.[1] ? [match[1]] : [];
-    })
-    .sort();
-  if (names.length === 0) {
-    throw new Error(`No rulebooks found in ${source} under ${RULES_DIR}/`);
-  }
-  return names.map((name) => ({
-    spec: `${owner}/${repo}#${commit}/${name}`,
-    display_ref: defaultBranch,
-  }));
+  return defaultBranch;
 }
 
 function resolveLocalRulebook(

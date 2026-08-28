@@ -23,6 +23,7 @@ export {
 } from './scope-policy';
 export { addRulebookSource, removeRulebookSource, syncRulesConfig } from './sync';
 export type {
+  AddRulebookSourceResult,
   LoadedRulesPolicy,
   RulebookLockEntryWithStats,
   RuleOverride,

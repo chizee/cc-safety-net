@@ -45,8 +45,10 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 ## Rulebook Sources
 
 - Local sources are bare rulebook names such as \`project-rules\`; the rulebook file is \`.cc-safety-net/rules/project-rules/rulebook.json\`.
-- GitHub sources use \`owner/repo#ref/<rulebook-name>\`.
-- \`cc-safety-net rule add owner/repo\` (a bare repository, without \`#ref/<rulebook-name>\`) is a snapshot install: it discovers every rulebook at the repository default branch and records each one as an individual commit-pinned source. \`cc-safety-net rule update\` re-locks those pinned sources to the same commit; add \`owner/repo#ref/<rulebook-name>\` sources individually to follow a branch or tag.
+- Run \`cc-safety-net rule add owner/repo\` to add every rulebook currently present on the repository's default branch.
+- Use \`--only\` to select one or more rulebooks while preserving their order: \`cc-safety-net rule add owner/repo --only aws gcloud\`.
+- Use \`--ref\` to select a branch, tag, or commit instead of the default branch: \`cc-safety-net rule add owner/repo --ref v2 --only aws\`.
+- GitHub sources are stored in canonical form as \`owner/repo#ref/<rulebook-name>\`. That form remains valid in \`rule.json\` and as direct CLI input.
 - GitHub refs must be one path segment, such as a tag, SHA, or branch name without \`/\`.
 - The GitHub source name, the repository directory name, and the rulebook \`name\` must match exactly.
 - Rulebook source strings must be unique in a config.
@@ -173,7 +175,7 @@ The subcommand, argument, and option rules below describe \`rulebook_version\` 1
 1. Run \`cc-safety-net rule init\` or create \`rule.json\` manually.
 2. Optionally run \`cc-safety-net rule init --example\` to create an inactive example rulebook.
 3. Use \`cc-safety-net rule wrapper add rtk\` for trusted transparent wrappers.
-4. Run \`cc-safety-net rule add <source>\` after creating or choosing a rulebook source; it adds the source and syncs it.
+4. Run \`cc-safety-net rule add <source>\` after creating or choosing a rulebook source; add \`--only <rulebook...>\` or \`--ref <ref>\` for repository selection. The command adds the selected sources and syncs them.
 5. Run \`cc-safety-net rule sync\` after manual \`rule.json\` changes or local rulebook edits.
 6. Run \`cc-safety-net rule update [source]\` to re-resolve remote branch or tag refs to their latest commit; \`cc-safety-net rule sync\` keeps reusing the locked commit. A source that fails an update keeps its last good lock entry and cache while the other selected sources still update.
 7. Run \`cc-safety-net rule verify\` to validate config, lock/cache state, local rulebooks, and shareable GitHub-source rulebook directories in the current repository (it does not fetch remote content).

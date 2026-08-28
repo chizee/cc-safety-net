@@ -3,6 +3,7 @@ import {
   assertBareRulebookName,
   GITHUB_RULEBOOK_PATH_RE,
   getRulebookSourceSyntaxError,
+  isGitHubRef,
   isGitHubRepositorySource,
   isGitHubRulebookSource,
   NAME_PATTERN,
@@ -14,6 +15,7 @@ export {
   assertBareRulebookName,
   GITHUB_RULEBOOK_PATH_RE,
   isGitHubRepositorySource,
+  isGitHubRef,
   isGitHubRulebookSource,
   parseGitHubSource,
 };

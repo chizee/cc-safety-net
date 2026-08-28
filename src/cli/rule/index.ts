@@ -1,9 +1,9 @@
 import { join } from 'node:path';
 import { parseCommandArgs } from '@/cli/args';
-import { ruleCommand } from '@/cli/commands/rule';
+import { ruleAddExamples, ruleAddOptions, ruleCommand } from '@/cli/commands/rule';
 import { printCommandHelp } from '@/cli/help';
 import { RULE_DOC } from '@/cli/rule/doc';
-import { printRuleChangeResult, printRulesListReport } from '@/cli/rule/format';
+import { printRuleAddResult, printRuleChangeResult, printRulesListReport } from '@/cli/rule/format';
 import { runRulesMigrate } from '@/cli/rule/migrate';
 import { getUpdateNotice } from '@/cli/rule/update-notice';
 import { runRulesVerify } from '@/cli/rule/verify';
@@ -27,6 +27,7 @@ import {
   readPolicyFile,
 } from '@/rules/policy/filesystem';
 import { getPolicyPaths, getRulebookCacheRoot, getScopePaths } from '@/rules/policy/paths';
+import { isGitHubRef, isGitHubRepositorySource, NAME_PATTERN } from '@/rules/policy/source-syntax';
 
 interface RuleFlags {
   global: boolean;
@@ -34,6 +35,8 @@ interface RuleFlags {
   cleanup: boolean;
   deleteSource: boolean;
   example: boolean;
+  ref?: string;
+  only: string[];
   help: boolean;
   positionals: string[];
   errors: string[];
@@ -112,8 +115,12 @@ async function runRuleCommandInternal(args: readonly string[]): Promise<number> 
       console.error('rule add requires a source');
       return 1;
     }
-    const result = await addRulebookSource(value, options);
-    printRuleChangeResult(result, `Added rulebook source: ${value}`);
+    const result = await addRulebookSource(value, {
+      ...options,
+      ref: flags.ref,
+      rulebooks: flags.only.length > 0 ? flags.only : undefined,
+    });
+    printRuleAddResult(result, value);
     return result.ok ? 0 : 1;
   }
 
@@ -201,7 +208,8 @@ function getRuleHelpCommand(positionals: string[]) {
     name: `rule ${positionals[0]}`,
     description: leaf.description,
     usage: `rule ${leaf.usage}`,
-    options: [],
+    options: positionals[0] === 'add' ? ruleAddOptions : [],
+    examples: positionals[0] === 'add' ? ruleAddExamples : undefined,
   };
 }
 
@@ -216,12 +224,16 @@ function parseRuleFlags(args: readonly string[]): RuleFlags {
         deleteSource: ['--delete-source'],
         example: ['--example'],
       },
+      values: { ref: ['--ref'] },
+      lists: { only: ['--only'] },
       positionals: 'list',
     },
     args,
   );
   const flags: RuleFlags = {
     ...parsed.flags,
+    ref: parsed.values.ref,
+    only: parsed.lists.only ?? [],
     help: parsed.help,
     positionals: parsed.positionals,
     errors: parsed.errors,
@@ -249,6 +261,13 @@ function validateRuleFlags(flags: RuleFlags): void {
   if (flags.example && subcommand !== 'init') {
     flags.errors.push(unknownRuleOption(subcommand, '--example'));
   }
+  if (flags.ref && subcommand !== 'add') {
+    flags.errors.push(unknownRuleOption(subcommand, '--ref'));
+  }
+  if (flags.only.length > 0 && subcommand !== 'add') {
+    flags.errors.push(unknownRuleOption(subcommand, '--only'));
+  }
+  if (subcommand === 'add') validateRuleAddFlags(flags);
   if (subcommand === 'migrate') {
     if (flags.global) flags.errors.push(unknownRuleOption(subcommand, '--global'));
     if (flags.check) flags.errors.push(unknownRuleOption(subcommand, '--check'));
@@ -262,6 +281,31 @@ function validateRuleFlags(flags: RuleFlags): void {
   }
   if (subcommand === 'list' && flags.global) {
     flags.errors.push('Unknown option for rule list: --global');
+  }
+}
+
+function validateRuleAddFlags(flags: RuleFlags): void {
+  const source = flags.positionals[1];
+  if (!source && flags.only.length > 0) {
+    flags.errors.push('rule add requires owner/repo before --only');
+    return;
+  }
+  if (!source) return;
+  if ((flags.ref || flags.only.length > 0) && !isGitHubRepositorySource(source)) {
+    if (flags.ref) {
+      flags.errors.push(`--ref can only select a ref for an owner/repo source: ${source}`);
+    }
+    if (flags.only.length > 0) {
+      flags.errors.push('--only can only select rulebooks from an owner/repo source');
+    }
+    return;
+  }
+  if (flags.ref && !isGitHubRef(flags.ref)) {
+    flags.errors.push(`--ref must be a single path segment: ${flags.ref}`);
+  }
+  const invalidNames = flags.only.filter((name) => !NAME_PATTERN.test(name));
+  if (invalidNames.length > 0) {
+    flags.errors.push(`Invalid rulebook names: ${invalidNames.join(', ')}`);
   }
 }
 
