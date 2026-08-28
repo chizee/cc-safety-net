@@ -21,6 +21,7 @@ import {
 import { getDoctorPosture } from '@/cli/doctor/posture';
 import { checkForUpdates } from '@/cli/doctor/updates';
 import { printInstallBanner } from '@/cli/install/banner';
+import { findRuleV2Leftovers } from '@/cli/rule/sync-migrate';
 import { resolveAfterOptionalBanner } from '@/cli/startup/banner';
 import {
   describeConfigState,
@@ -79,6 +80,7 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
   const modes = getCCSafetyNetEnvModes(policy);
   const ruleStates = resolveEffectiveDestructiveCommandRules(policy, modes.capabilities);
   const activity = getActivitySummary(7);
+  const v2Leftovers = findRuleV2Leftovers(cwd);
   const update = options.skipUpdateCheck
     ? {
         currentVersion: getPackageVersion(),
@@ -114,7 +116,9 @@ async function collectDoctorReport(options: DoctorOptions): Promise<DoctorReport
         stored: Object.keys(policy.destructiveCommandRuleOverrides).length,
         effective: Object.values(ruleStates).filter((state) => state.changesInherited).length,
       },
+      ...(snapshot.policyScopes ? { policyScopes: snapshot.policyScopes } : {}),
     },
+    ...(v2Leftovers.length > 0 ? { v2Leftovers } : {}),
     posture: getDoctorPosture(configInfo.userConfig.path),
     activity,
     update,

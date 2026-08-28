@@ -101,11 +101,7 @@ async function migrateRulesScope(options: MigrateRulesScopeOptions): Promise<boo
   );
   const rulebookPath = join(dirname(options.configPath), rulebookName, 'rulebook.json');
   const rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath);
-  const snapshots = [
-    snapshotFile(scope.configTarget),
-    snapshotFile(rulebookTarget),
-    snapshotFile(scope.lockTarget),
-  ];
+  const snapshots = [snapshotFile(scope.configTarget), snapshotFile(rulebookTarget)];
 
   const result = await writeAndSyncMigratedRulebook(
     options,

@@ -446,6 +446,37 @@ describe('formatEffectiveSafetySection', () => {
     expect(output).toContain('fail_closed');
     expect(output).toContain('env CC_SAFETY_NET_STRICT');
   });
+
+  // Which scope supplied the preset, and what the project scope relaxed, are
+  // facts about the merge result; doctor reports them, nothing gates on them.
+  test('names the scope supplying the preset and lists the project weakenings', () => {
+    const base = createDoctorReport();
+    const output = formatEffectiveSafetySection(
+      createDoctorReport({
+        effectiveSafety: {
+          ...base.effectiveSafety,
+          policyScopes: {
+            levelScope: 'project',
+            weakenings: [
+              'project policy lowers level: strict -> standard',
+              'project policy disables rule git.reset-hard',
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(output).toContain('Selected preset: standard (project policy)');
+    expect(output).toContain('project policy lowers level: strict -> standard');
+    expect(output).toContain('project policy disables rule git.reset-hard');
+  });
+
+  test('leaves the preset line unqualified when no project policy was read', () => {
+    const output = formatEffectiveSafetySection(createDoctorReport());
+
+    expect(output).toContain('Selected preset: standard\n');
+    expect(output).not.toContain('project policy');
+  });
 });
 
 describe('formatActivitySection', () => {

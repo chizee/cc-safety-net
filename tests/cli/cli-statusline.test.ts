@@ -196,6 +196,52 @@ describe('statusline command', () => {
     );
   });
 
+  // The statusline is the one surface a non-engineer teammate always sees, so a
+  // project policy that relaxes protection gets one glyph there.
+  test('marks a project policy that weakens protection after the level emoji', async () => {
+    const project = join(tempDir, 'project');
+    await mkdir(join(project, '.cc-safety-net'), { recursive: true });
+    await writeFile(
+      join(tempDir, 'policy.json'),
+      JSON.stringify({ version: 1, safety: { level: 'strict' } }),
+    );
+    await writeFile(
+      join(project, '.cc-safety-net', 'policy.json'),
+      JSON.stringify({ version: 1, safety: { level: 'standard' } }),
+    );
+    const originalCwd = process.cwd();
+    process.chdir(project);
+
+    try {
+      await expectStatusline(
+        { CLAUDE_SETTINGS_PATH: enabledSettingsPath, CC_SAFETY_NET_HOME: tempDir },
+        '🛡️ CC Safety Net ✅🔻',
+      );
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  test('keeps the statusline unmarked for a project policy that weakens nothing', async () => {
+    const project = join(tempDir, 'strict-project');
+    await mkdir(join(project, '.cc-safety-net'), { recursive: true });
+    await writeFile(
+      join(project, '.cc-safety-net', 'policy.json'),
+      JSON.stringify({ version: 1, safety: { level: 'strict' } }),
+    );
+    const originalCwd = process.cwd();
+    process.chdir(project);
+
+    try {
+      await expectStatusline(
+        { CLAUDE_SETTINGS_PATH: enabledSettingsPath, CC_SAFETY_NET_HOME: tempDir },
+        '🛡️ CC Safety Net 🔒',
+      );
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
   test('prefixes piped text', async () => {
     const result = await runStatuslineWithStdin('upstream context', {
       CLAUDE_SETTINGS_PATH: enabledSettingsPath,

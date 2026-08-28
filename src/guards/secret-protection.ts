@@ -9,6 +9,7 @@ import {
   resolveExistingPath,
 } from '@/analyzer/path-canonicalization';
 import { extractXargsChildCommandWithInfo } from '@/analyzer/xargs';
+import { safetyNetSubcommandIndex } from '@/guards/safety-net-invocation';
 import {
   createSemanticFacts,
   getCommandSyntaxFact,
@@ -147,15 +148,6 @@ const INLINE_ACCESS_IDENTIFIER_PARTS = new Set([
   'zip',
 ]);
 const CODE_EVAL_FLAGS = new Set(['-c', '-e', '-r', '-E', '--eval', '--exec']);
-const CC_SAFETY_NET_ENTRYPOINTS = new Set([
-  'src/cli/cc-safety-net.ts',
-  'dist/bin/cc-safety-net.js',
-]);
-// Both published bin names, the runners that resolve a package by name, and the
-// runtimes that execute an entrypoint file (directly or via `run`).
-const CC_SAFETY_NET_BIN_NAMES = new Set(['cc-safety-net', 'ccsn']);
-const PACKAGE_RUNNERS = new Set(['bunx', 'npx', 'pnpx']);
-const SCRIPT_RUNTIMES = new Set(['bun', 'node']);
 const INTERPRETERS_BY_CLUSTERED_CODE_EVAL_FLAG = new Map([
   ['c', new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'python'])],
   ['e', new Set(['node', 'deno', 'bun', 'ruby', 'perl', 'rscript', 'osascript'])],
@@ -494,50 +486,18 @@ function extractSegmentPathTargets(
 }
 
 /**
- * How many tokens precede `explain`, or null when this is not a safety-net
- * explain invocation. Every form the documentation prints is recognized —
- * `bunx cc-safety-net explain ...` and `bun run <entrypoint> explain ...`
- * included — because explain only ANALYSES the command it is handed and never
- * opens it, so a form that is not recognized blocks on its own argument.
+ * The paths a safety-net `explain` invocation really touches, or null when the
+ * segment is not one. `explain` only ANALYSES the command it is handed and never
+ * opens it, so its command argument is inert data; a form that is not recognized
+ * keeps being inspected and blocks on its own argument.
  */
-function safetyNetExplainPrefixLength(command: string, tokens: readonly string[]): number | null {
-  if (CC_SAFETY_NET_BIN_NAMES.has(command)) {
-    return tokens[0] === 'explain' ? 0 : null;
-  }
-  if (PACKAGE_RUNNERS.has(command)) {
-    // The install docs print `npx -y cc-safety-net`, so the consent flag is
-    // part of a documented form. Only that flag is skipped: any other option
-    // changes what the runner resolves and keeps the arguments inspected.
-    const skip = tokens[0] === '-y' || tokens[0] === '--yes' ? 1 : 0;
-    // Exact names only: the runner resolves its target by the token as written,
-    // so `@scope/cc-safety-net` or a path ending in the bin name is a DIFFERENT
-    // program that must keep its arguments inspected.
-    return CC_SAFETY_NET_BIN_NAMES.has(tokens[skip] ?? '') && tokens[skip + 1] === 'explain'
-      ? skip + 1
-      : null;
-  }
-  if (SCRIPT_RUNTIMES.has(command)) {
-    if (isSafetyNetEntrypoint(tokens[0]) && tokens[1] === 'explain') return 1;
-    // Only bun has a `run` subcommand; `node run ...` executes a local script
-    // named `run`, so its arguments must keep being inspected.
-    if (
-      command === 'bun' &&
-      tokens[0] === 'run' &&
-      isSafetyNetEntrypoint(tokens[1]) &&
-      tokens[2] === 'explain'
-    )
-      return 2;
-  }
-  return null;
-}
-
 function extractSafetyNetExplainPathTargets(
   executable: string,
   command: string,
   tokens: readonly string[],
 ): string[] | null {
-  const prefixLength = safetyNetExplainPrefixLength(command, tokens);
-  if (prefixLength === null) return null;
+  const prefixLength = safetyNetSubcommandIndex(command, tokens);
+  if (prefixLength === null || tokens[prefixLength] !== 'explain') return null;
 
   const targets = [executable, ...tokens.slice(0, prefixLength)];
   const args = tokens.slice(prefixLength + 1);
@@ -553,13 +513,6 @@ function extractSafetyNetExplainPathTargets(
     return targets;
   }
   return targets;
-}
-
-function isSafetyNetEntrypoint(value: string | undefined): boolean {
-  const normalized = value?.replaceAll('\\', '/');
-  return [...CC_SAFETY_NET_ENTRYPOINTS].some(
-    (entrypoint) => normalized === entrypoint || normalized?.endsWith(`/${entrypoint}`),
-  );
 }
 
 function extractPipeCarrierPathTargets(

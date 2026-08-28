@@ -1,30 +1,18 @@
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 import { NAME_PATTERN } from '@/rules/policy/source-syntax';
 import { readRulesConfig, readScopeRulesConfig, writeJsonAtomic } from './config-file';
 import {
   getPolicyFilesystemTargetForPath,
-  isSamePolicyFilesystemTarget,
   PolicyFilesystemError,
   type PolicyFilesystemScope,
   type PolicyFilesystemTarget,
   readPolicyDirectoryEntries,
   readPolicyFile,
   removeEmptyPolicyDirectory,
-  removePolicyDirectory,
   removePolicyFile,
-  validatePolicyDirectoryRemoval,
   writePolicyFileAtomic,
 } from './filesystem';
-import { readLockfile } from './lockfile';
-import {
-  getRulebookCacheOptions,
-  getRulebookCachePath,
-  getRulebookCacheRoot,
-  getScopePaths,
-  RULE_SYNC_COMMAND,
-  RULEBOOK_FILE,
-  type ScopePaths,
-} from './paths';
+import { getLocalRulebookPath, getScopePaths, RULEBOOK_FILE, type ScopePaths } from './paths';
 import {
   type DiscoveredGitHubRepository,
   discoverGitHubRepositoryRulebooks,
@@ -39,16 +27,23 @@ import {
   RULE_SYNC_RESOURCE_LIMITS,
   type RuleSyncOperation,
 } from './resource-limits';
-import { getRulesConfigRuntimeErrorsForConfig, loadScopePolicy } from './scope-policy';
-import { getRemoveMatches, getSelectedUpdateSpecs, isGitHubRepositorySource } from './sources';
+import {
+  getRulebookNameForSpec,
+  getRulesConfigRuntimeErrorsForConfig,
+  loadScopePolicy,
+  validateRulebookContent,
+} from './scope-policy';
+import {
+  getRemoveMatches,
+  getSelectedUpdateSpecs,
+  isGitHubRepositorySource,
+  isGitHubRulebookSource,
+} from './sources';
 import type {
+  ActiveRulebookSummary,
   AddRulebookSourceOptions,
   AddRulebookSourceResult,
-  RulebookLockEntry,
-  RulebookLockEntryWithStats,
   RulesConfig,
-  RulesLockfile,
-  RulesPolicyOptions,
   SyncRulesConfigOptions,
   SyncRulesConfigResult,
 } from './types';
@@ -56,7 +51,6 @@ import type {
 /** @internal */
 export interface RuleSyncTestHooks {
   _testDeleteLocalSourceDir?: (dir: string) => void;
-  _testPruneRulebookCacheDir?: (dir: string) => void;
   _testAfterPolicyRename?: (path: string) => void;
 }
 
@@ -99,13 +93,13 @@ export async function syncRulesConfigWithHooks(
   const projected = projectSyncOptions(options);
   return verifyRuntimeRulesPolicy(
     projected,
-    await syncRulesConfigInternal(projected, createRuleSyncOperation(), undefined, hooks),
+    await syncRulesConfigInternal(projected, createRuleSyncOperation(), hooks),
   );
 }
 
 /**
- * Publishing a lock does not prove the synchronized scope loads cleanly: an unknown override key
- * only appears once the policy is reloaded the way the guard loads it.
+ * Validating each source does not prove the synchronized scope loads cleanly: an unknown override
+ * key only appears once the policy is reloaded the way the guard loads it.
  * Report what that reload finds instead of reporting success while the runtime state stays degraded.
  * The reload covers the scope being synchronized, so diagnostics owned by the other scope are left
  * alone: this run cannot repair them, and failing on them would break synchronizing one scope while
@@ -120,14 +114,7 @@ function verifyRuntimeRulesPolicy(
   if (!result.ok) return result;
   const scope = getScopePaths(options);
   const remaining = [
-    ...new Set(
-      getRulesConfigRuntimeErrorsForConfig(
-        scope.configPath,
-        scope.lockPath,
-        options,
-        scope.filesystemScope,
-      ),
-    ),
+    ...new Set(getRulesConfigRuntimeErrorsForConfig(scope.configPath, scope.filesystemScope)),
   ];
   if (remaining.length === 0) return result;
   return { ok: false, errors: remaining, warnings: result.warnings, entries: result.entries };
@@ -136,11 +123,10 @@ function verifyRuntimeRulesPolicy(
 async function syncRulesConfigInternal(
   options: SyncRulesConfigOptions,
   operation: RuleSyncOperation,
-  discoveredDisplayRefs?: Map<string, string>,
   hooks: RuleSyncTestHooks = {},
+  forceRefetch: ReadonlySet<string> = new Set(),
+  newlyAdded: ReadonlySet<string> = new Set(),
 ): Promise<SyncRulesConfigResult> {
-  let lockSnapshot: { target: PolicyFilesystemTarget; content: string | null } | null = null;
-  let lockPublished = false;
   try {
     const scope = getScopePaths(options);
     const scopeConfig = readScopeRulesConfig(scope.configTarget);
@@ -150,49 +136,34 @@ async function syncRulesConfigInternal(
     if (options.check) {
       return checkRulesConfig(config, scope, options);
     }
-    lockSnapshot = { target: scope.lockTarget, content: readPolicyFile(scope.lockTarget) };
-
-    const existingLockResult = readLockfile(scope.lockTarget);
-    if (existingLockResult.errors.some((error) => error.startsWith('Unable to access '))) {
-      return {
-        ok: false,
-        errors: existingLockResult.errors,
-        warnings: [],
-        entries: [],
-      };
-    }
-    if (options.only && existingLockResult.errors.length > 0) {
-      return { ok: false, errors: existingLockResult.errors, warnings: [], entries: [] };
-    }
-    const previousLock = existingLockResult.errors.length > 0 ? null : existingLockResult.lock;
     const selectedSpecs = options.only
-      ? getSelectedUpdateSpecs(config, previousLock, options.only)
+      ? getSelectedUpdateSpecs(config, options.only)
       : { ok: true as const, specs: config.rules };
     if (!selectedSpecs.ok) {
       return selectedSpecs.result;
     }
-    if (options.only && !previousLock && selectedSpecs.specs.length < config.rules.length) {
-      return {
-        ok: false,
-        errors: [`No lockfile available for partial update; run ${RULE_SYNC_COMMAND}`],
-        warnings: [],
-        entries: [],
-      };
-    }
+    // Every configured source is resolved so the report covers the whole scope; only the
+    // selected ones re-fetch, and everything else reads the file already on disk. A newly
+    // added source always re-fetches: a leftover vendored file under the same name would
+    // otherwise be activated under the new spec without ever being fetched or validated.
+    const refetched = new Set([...(options.refresh ? selectedSpecs.specs : []), ...forceRefetch]);
     const resolveSpec = (spec: string) =>
       resolveRulebookSourceForSync(
         spec,
         scope.configDir,
         options,
-        previousLock,
         scope.filesystemScope,
         operation,
+        refetched.has(spec),
+        // A selective update must not fetch its unselected siblings; every other
+        // run may vendor a missing source so the whole scope converges.
+        !options.refresh || refetched.has(spec),
       );
     // `rule update` refreshes each selected source independently: a source that fails to fetch
-    // or validate keeps its last good lock entry and cache instead of blocking the sources that
-    // did update. Resource-budget failures stay fatal for the whole operation.
+    // or validate keeps its vendored copy instead of blocking the sources that did update.
+    // Resource-budget failures stay fatal for the whole operation.
     const resolutions = await mapRulebookSources<string, SourceResolution>(
-      selectedSpecs.specs,
+      config.rules,
       options.refresh
         ? (spec) =>
             resolveSpec(spec)
@@ -211,47 +182,149 @@ async function syncRulesConfigInternal(
     const failures = resolutions.filter((item): item is FailedRulebookSource => !item.ok);
     const resolved = resolutions
       .filter((item): item is Extract<SourceResolution, { ok: true }> => item.ok)
-      .map((item) => preserveDisplayRef(item.item, previousLock, discoveredDisplayRefs));
-    resolved.forEach((item) => {
-      writeCache(item.content, item.entry, scope.configDir, options, scope.filesystemScope);
-    });
-    const entries =
-      options.only || options.refresh
-        ? mergeSelectedLockEntries(config, previousLock, resolved)
-        : resolved.map((item) => item.entry);
-    lockPublished = true;
-    writeJsonAtomic(
-      scope.lockTarget,
-      { version: 1, rulebooks: entries },
-      undefined,
-      hooks._testAfterPolicyRename,
-    );
-    const ruleCountsBySpec = new Map(
-      resolved.map((item) => [item.entry.spec, item.rulebook.rules.length]),
-    );
-    const warnings = pruneUnreferencedRulebookCaches(
-      entries,
-      scope.configDir,
-      options,
-      scope.filesystemScope,
-      hooks,
+      .map((item) => item.item);
+    // A rulebook name is a file path, so two sources claiming one name vendor into the same
+    // file: writing would destroy the other source's active rulebook, which no later restore
+    // brings back. Refuse the write instead and name both sources. Names that differ only in
+    // case collide too, because a case-insensitive filesystem maps them to the same file.
+    const collisions = resolved.flatMap((item) => getNameCollisionFailure(item, config.rules));
+    // A file already sitting at a newly added source's target has unknown provenance —
+    // a hand-authored rulebook that was never listed in rule.json. Overwriting it is
+    // unrecoverable data loss, so the add refuses instead.
+    const unclaimed = resolved.flatMap((item) => getUnclaimedFileFailure(item, newlyAdded, scope));
+    const blocked = new Set([...collisions, ...unclaimed].map((failure) => failure.spec));
+    const reported = [...failures, ...collisions, ...unclaimed];
+    // A failing add rolls its config edit back, so vendoring any newly added
+    // sibling would strand a file no source claims — and that orphan then trips
+    // the unclaimed-file refusal on the next add once upstream content moves.
+    // The same holds when a later write throws mid-sequence: the files already
+    // written for newly added sources are restored before the failure reports.
+    const written: { target: PolicyFilesystemTarget; previous: string | null }[] = [];
+    const changes = runRestoringWrittenOnFailure(written, () =>
+      resolved.flatMap((item) =>
+        blocked.has(item.spec) || (reported.length > 0 && newlyAdded.has(item.spec))
+          ? []
+          : vendorRulebook(item, scope, hooks, newlyAdded.has(item.spec) ? written : undefined),
+      ),
     );
     return {
-      ok: failures.length === 0,
-      errors: failures.map((failure) => `Failed to update ${failure.spec}: ${failure.message}`),
-      warnings,
-      entries: entries.map((entry) => addRuleCount(entry, ruleCountsBySpec)),
+      ok: reported.length === 0,
+      errors: reported.map((failure) => `Failed to update ${failure.spec}: ${failure.message}`),
+      warnings: [],
+      entries: resolved.map(summarizeRulebook),
+      changes,
     };
   } catch (error) {
-    if (lockPublished && lockSnapshot) {
-      try {
-        restoreConfig(lockSnapshot.target, lockSnapshot.content);
-      } catch (rollbackError) {
-        return failWithError(rollbackError);
-      }
-    }
     return failWithError(error);
   }
+}
+
+function getNameCollisionFailure(
+  item: ResolvedRulebook,
+  configured: readonly string[],
+): FailedRulebookSource[] {
+  if (!isGitHubRulebookSource(item.spec)) return [];
+  const name = getRulebookNameForSpec(item.spec);
+  const others = configured.filter(
+    (spec) =>
+      spec !== item.spec && getRulebookNameForSpec(spec).toLowerCase() === name.toLowerCase(),
+  );
+  if (others.length === 0) return [];
+  return [
+    {
+      ok: false,
+      spec: item.spec,
+      message: `rulebook name "${name}" is also claimed by ${others.join(', ')}; rename one of them`,
+    },
+  ];
+}
+
+function getUnclaimedFileFailure(
+  item: ResolvedRulebook,
+  newlyAdded: ReadonlySet<string>,
+  scope: ScopePaths,
+): FailedRulebookSource[] {
+  if (!newlyAdded.has(item.spec) || !isGitHubRulebookSource(item.spec)) return [];
+  const path = getLocalRulebookPath(scope.configDir, item.rulebook.name);
+  const previous = readPolicyFile(getPolicyFilesystemTargetForPath(scope.filesystemScope, path));
+  if (previous === null || previous === item.content) return [];
+  return [
+    {
+      ok: false,
+      spec: item.spec,
+      message: `${path} already exists and no configured source claims it; remove or rename the file, then re-run rule add`,
+    },
+  ];
+}
+
+/**
+ * A remote rulebook becomes a file in the repository, next to the local ones: the fetched bytes
+ * are written verbatim so the diff a reviewer sees is the rulebook itself, and every later load
+ * reads that file instead of the network.
+ */
+function vendorRulebook(
+  item: ResolvedRulebook,
+  scope: ScopePaths,
+  hooks: RuleSyncTestHooks,
+  written?: { target: PolicyFilesystemTarget; previous: string | null }[],
+): string[] {
+  if (!isGitHubRulebookSource(item.spec)) return [];
+  const path = getLocalRulebookPath(scope.configDir, item.rulebook.name);
+  const target = getPolicyFilesystemTargetForPath(scope.filesystemScope, path);
+  const previous = readPolicyFile(target);
+  if (previous === item.content) return [];
+  written?.push({ target, previous });
+  writePolicyFileAtomic(target, item.content, undefined, hooks._testAfterPolicyRename);
+  return describeVendoredChange(item, previous);
+}
+
+/** Restores the recorded writes when the wrapped vendoring throws, then rethrows. */
+function runRestoringWrittenOnFailure<T>(
+  written: readonly { target: PolicyFilesystemTarget; previous: string | null }[],
+  run: () => T,
+): T {
+  try {
+    return run();
+  } catch (error) {
+    for (const entry of [...written].reverse()) {
+      if (entry.previous === null) {
+        removePolicyFile(entry.target);
+        continue;
+      }
+      writePolicyFileAtomic(entry.target, entry.previous);
+    }
+    throw error;
+  }
+}
+
+function describeVendoredChange(item: ResolvedRulebook, previous: string | null): string[] {
+  if (previous === null) return [`Vendored ${item.spec} (${item.rulebook.version})`];
+  const validated = validateRulebookContent(previous);
+  const before = 'problem' in validated ? null : validated.rulebook;
+  const beforeRules = new Map(before?.rules.map((rule) => [rule.name, JSON.stringify(rule)]) ?? []);
+  const afterRules = new Set(item.rulebook.rules.map((rule) => rule.name));
+  return [
+    `Updated ${item.spec} (${before?.version ?? 'unreadable'} -> ${item.rulebook.version})`,
+    ...[...afterRules].filter((name) => !beforeRules.has(name)).map((name) => `  + ${name}`),
+    ...[...beforeRules.keys()].filter((name) => !afterRules.has(name)).map((name) => `  - ${name}`),
+    // A changed matcher or reason under an unchanged name is what the reviewer of
+    // an update most needs to see; name sets alone would show nothing.
+    ...item.rulebook.rules
+      .filter((rule) => {
+        const existing = beforeRules.get(rule.name);
+        return existing !== undefined && existing !== JSON.stringify(rule);
+      })
+      .map((rule) => `  ~ ${rule.name}`),
+  ];
+}
+
+function summarizeRulebook(item: ResolvedRulebook): ActiveRulebookSummary {
+  return {
+    spec: item.spec,
+    name: item.rulebook.name,
+    version: item.rulebook.version,
+    ruleCount: item.rulebook.rules.length,
+  };
 }
 
 export async function addRulebookSource(
@@ -307,12 +380,10 @@ async function addRulebookSourceInternal(
     const selectedNames = repository
       ? selectRepositoryRulebooks(repository, options.rulebooks)
       : [];
-    const lockResult = repository ? readLockfile(scope.lockTarget) : null;
-    const existingLock = lockResult?.errors.length === 0 ? lockResult.lock : null;
     const selectedSpecs = repository
       ? selectedNames.map(
           (name) =>
-            getConfiguredRepositorySpec(config.rules, existingLock, repository, name) ??
+            getConfiguredRepositorySpec(config.rules, repository, name) ??
             `${source}#${repository.ref}/${name}`,
         )
       : [source];
@@ -333,7 +404,13 @@ async function addRulebookSourceInternal(
         hooks._testAfterPolicyRename,
       );
     }
-    const result = await syncRulesConfigInternal(options, operation, undefined, hooks);
+    const result = await syncRulesConfigInternal(
+      options,
+      operation,
+      hooks,
+      new Set(sources),
+      new Set(sources),
+    );
     if (!result.ok) restoreConfig(scope.configTarget, before);
     if (!result.ok || !repository) return result;
     const added = selectedNames.filter((_, index) => sources.includes(selectedSpecs[index] ?? ''));
@@ -345,20 +422,10 @@ async function addRulebookSourceInternal(
         selected: selectedNames,
         added,
         alreadyConfigured: selectedNames.filter((name) => !added.includes(name)),
-        commits: [
-          ...new Set(
-            result.entries
-              .filter(
-                (entry) =>
-                  entry.kind === 'github' &&
-                  entry.owner === repository.owner &&
-                  entry.repo === repository.repo &&
-                  selectedNames.includes(entry.name) &&
-                  (entry.display_ref ?? entry.ref) === repository.ref,
-              )
-              .map((entry) => (entry.kind === 'github' ? entry.commit : '')),
-          ),
-        ],
+        // Discovery resolved the ref once, so every rulebook this add vendored came
+        // from that single commit. An idempotent re-add vendors nothing, and naming
+        // the advanced commit would describe content the files do not contain.
+        commits: sources.length > 0 ? [repository.commit] : [],
       },
     };
   } catch (error) {
@@ -407,25 +474,19 @@ function selectRepositoryRulebooks(
   return selected;
 }
 
+/**
+ * The same rulebook can already be configured under a spec pinned at the very commit this ref
+ * resolves to; adding it again must reuse that spec rather than configure the rulebook twice.
+ */
 function getConfiguredRepositorySpec(
   configured: string[],
-  lock: RulesLockfile | null,
   repository: DiscoveredGitHubRepository,
   name: string,
 ): string | undefined {
   const canonical = `${repository.source}#${repository.ref}/${name}`;
   if (configured.includes(canonical)) return canonical;
-  const entries = new Map(lock?.rulebooks.map((entry) => [entry.spec, entry]) ?? []);
-  return configured.find((spec) => {
-    const entry = entries.get(spec);
-    return (
-      entry?.kind === 'github' &&
-      entry.owner === repository.owner &&
-      entry.repo === repository.repo &&
-      entry.name === name &&
-      (entry.display_ref ?? entry.ref) === repository.ref
-    );
-  });
+  const pinned = `${repository.source}#${repository.commit}/${name}`;
+  return configured.find((spec) => spec === pinned);
 }
 
 /** @internal Maps rulebook sources with bounded fanout and ordered results. */
@@ -470,7 +531,6 @@ function sourceLimitResult(): SyncRulesConfigResult {
 function projectSyncOptions(options: SyncRulesConfigOptions): SyncRulesConfigOptions {
   return {
     cwd: options.cwd,
-    cacheConfigDir: options.cacheConfigDir,
     userConfigDir: options.userConfigDir,
     userConfigPath: options.userConfigPath,
     projectConfigPath: options.projectConfigPath,
@@ -535,19 +595,10 @@ async function removeRulebookSourceInternal(
       entries: [],
     };
   }
-  const lockResult = readLockfile(scope.lockTarget);
-  if (lockResult.errors.length > 0) {
-    return { ok: false, errors: lockResult.errors, warnings: [], entries: [] };
-  }
-  const matches = getRemoveMatches(loaded.config.rules, lockResult.lock, match);
+  const matches = getRemoveMatches(loaded.config.rules, match);
   if (!matches.ok) return matches.result;
   const sourceDirs = options.deleteSource
-    ? getLocalSourceDirsForDelete(
-        scope.configDir,
-        matches.specs,
-        lockResult.lock,
-        scope.filesystemScope,
-      )
+    ? getLocalSourceDirsForDelete(scope.configDir, matches.specs, scope.filesystemScope)
     : { ok: true as const, dirs: [] };
   if (!sourceDirs.ok) return sourceDirs.result;
   const before = readPolicyFile(scope.configTarget);
@@ -568,30 +619,15 @@ async function removeRulebookSourceInternal(
     restoreConfig(scope.configTarget, before);
     throw error;
   }
-  const result = await syncRulesConfigInternal(
-    options,
-    createRuleSyncOperation(),
-    undefined,
-    hooks,
-  );
+  const result = await syncRulesConfigInternal(options, createRuleSyncOperation(), hooks);
   if (!result.ok) {
     restoreConfig(scope.configTarget, before);
     return result;
   }
-  const deleteResult = deleteLocalSourceDirs(
-    scope.configDir,
-    sourceDirs.dirs,
-    hooks,
-    scope.filesystemScope,
-  );
+  const deleteResult = deleteLocalSourceDirs(sourceDirs.dirs, hooks, scope.filesystemScope);
   if (!deleteResult.ok) {
     restoreConfig(scope.configTarget, before);
-    const rollback = await syncRulesConfigInternal(
-      options,
-      createRuleSyncOperation(),
-      undefined,
-      hooks,
-    );
+    const rollback = await syncRulesConfigInternal(options, createRuleSyncOperation(), hooks);
     if (!rollback.ok) {
       return {
         ok: false,
@@ -612,9 +648,7 @@ async function checkRulesConfig(
 ): Promise<SyncRulesConfigResult> {
   const result = loadScopePolicy(
     config,
-    scope.lockPath,
     scope.configDir,
-    options,
     options.global ? 'user' : 'project',
     scope.filesystemScope,
   );
@@ -626,149 +660,33 @@ async function checkRulesConfig(
   };
 }
 
-function preserveDisplayRef(
-  item: ResolvedRulebook,
-  previousLock: RulesLockfile | null,
-  discoveredDisplayRefs?: Map<string, string>,
-): ResolvedRulebook {
-  const previousEntry = previousLock?.rulebooks.find(
-    (entry) => entry.spec === item.entry.spec && entry.kind === 'github',
-  );
-  const displayRef =
-    discoveredDisplayRefs?.get(item.entry.spec) ??
-    (previousEntry?.kind === 'github' ? previousEntry.display_ref : undefined);
-  if (!displayRef || item.entry.kind !== 'github') return item;
-  return { ...item, entry: { ...item.entry, display_ref: displayRef } };
-}
-
-function mergeSelectedLockEntries(
-  config: RulesConfig,
-  previousLock: RulesLockfile | null,
-  resolved: ResolvedRulebook[],
-): RulebookLockEntry[] {
-  const configuredSpecs = new Set(config.rules);
-  const previousSpecs = new Set(previousLock?.rulebooks.map((entry) => entry.spec) ?? []);
-  const resolvedBySpec = new Map(resolved.map((item) => [item.entry.spec, item.entry]));
-  return [
-    ...(previousLock?.rulebooks.filter((entry) => configuredSpecs.has(entry.spec)) ?? []).map(
-      (entry) => resolvedBySpec.get(entry.spec) ?? entry,
-    ),
-    ...resolved.filter((item) => !previousSpecs.has(item.entry.spec)).map((item) => item.entry),
-  ];
-}
-
-function addRuleCount(
-  entry: RulebookLockEntry,
-  ruleCountsBySpec: Map<string, number>,
-): RulebookLockEntryWithStats {
-  return {
-    ...entry,
-    ruleCount: ruleCountsBySpec.get(entry.spec),
-  };
-}
-
-function writeCache(
-  content: string,
-  entry: RulebookLockEntry,
-  configDir: string,
-  options: RulesPolicyOptions,
-  filesystemScope: PolicyFilesystemScope,
-): void {
-  const path = getRulebookCachePath(entry, getRulebookCacheOptions(configDir, options));
-  writePolicyFileAtomic(getPolicyFilesystemTargetForPath(filesystemScope, path), content);
-}
-
-function pruneUnreferencedRulebookCaches(
-  entries: RulebookLockEntry[],
-  configDir: string,
-  options: RulesPolicyOptions,
-  filesystemScope: PolicyFilesystemScope,
-  hooks: RuleSyncTestHooks,
-): string[] {
-  const cacheOptions = getRulebookCacheOptions(configDir, options);
-  const cacheRoot = getRulebookCacheRoot(cacheOptions);
-  const cacheRootTarget = getPolicyFilesystemTargetForPath(filesystemScope, cacheRoot);
-  const cacheEntries = readPolicyDirectoryEntries(cacheRootTarget);
-  if (!cacheEntries) return [];
-
-  const keepTargets = entries.map((entry) =>
-    getPolicyFilesystemTargetForPath(filesystemScope, getRulebookCachePath(entry, cacheOptions)),
-  );
-
-  const pruneTargets = cacheEntries
-    .filter((entry) => entry.kind === 'directory')
-    .map((entry) => ({
-      directory: getPolicyFilesystemTargetForPath(filesystemScope, join(cacheRoot, entry.name)),
-      identity: getPolicyFilesystemTargetForPath(
-        filesystemScope,
-        join(cacheRoot, entry.name, RULEBOOK_FILE),
-      ),
-    }))
-    .filter(
-      (candidate) =>
-        !keepTargets.some((target) => isSamePolicyFilesystemTarget(candidate.identity, target)),
-    )
-    .map((candidate) => candidate.directory);
-  for (const target of pruneTargets) validatePolicyDirectoryRemoval(target);
-
-  return pruneTargets.flatMap((target) => {
-    try {
-      pruneRulebookCacheDir(target, hooks);
-      return [];
-    } catch {
-      return ['Unable to prune rules policy cache safely.'];
-    }
-  });
-}
-
 function getLocalSourceDirsForDelete(
   configDir: string,
   specs: string[],
-  lock: RulesLockfile | null,
   filesystemScope: PolicyFilesystemScope,
 ): { ok: true; dirs: string[] } | { ok: false; result: SyncRulesConfigResult } {
-  const entriesBySpec = new Map(lock?.rulebooks.map((entry) => [entry.spec, entry]) ?? []);
-  const errors = specs.flatMap((spec) => {
-    const entry = entriesBySpec.get(spec);
-    if (!entry) {
-      return NAME_PATTERN.test(spec)
-        ? []
-        : ['--delete-source can only delete local rulebook sources'];
-    }
-    return entry.kind === 'local-directory'
-      ? []
-      : ['--delete-source can only delete local rulebook sources'];
-  });
-  const dirs = specs.map((spec) => {
-    const entry = entriesBySpec.get(spec);
-    return join(configDir, entry?.kind === 'local-directory' ? entry.path : spec);
-  });
+  // A bare name is the whole identity of a local source, and it is also its directory.
+  const errors = specs.flatMap((spec) =>
+    NAME_PATTERN.test(spec) ? [] : ['--delete-source can only delete local rulebook sources'],
+  );
+  const dirs = specs.map((spec) => join(configDir, spec));
   const dirErrors =
     errors.length > 0
       ? []
-      : dirs.flatMap((dir) => getLocalSourceDirDeleteError(configDir, dir, filesystemScope));
+      : dirs.flatMap((dir) => getLocalSourceDirDeleteError(dir, filesystemScope));
   const allErrors = [...errors, ...dirErrors];
   return allErrors.length > 0
     ? { ok: false, result: { ok: false, errors: allErrors, warnings: [], entries: [] } }
     : { ok: true, dirs };
 }
 
+// The caller only reaches here with a bare-name spec, so the directory is a single child of
+// the config dir by construction: there is no path to resolve and nowhere to escape to.
 function getLocalSourceDirDeleteError(
-  configDir: string,
   dir: string,
   filesystemScope: PolicyFilesystemScope,
 ): string[] {
-  const resolvedConfigDir = resolve(configDir);
   const resolvedDir = resolve(dir);
-  const relativeDir = relative(resolvedConfigDir, resolvedDir);
-  if (
-    relativeDir === '' ||
-    relativeDir === '..' ||
-    relativeDir.startsWith(`..${sep}`) ||
-    isAbsolute(relativeDir)
-  ) {
-    return [`Refusing to delete local rulebook source outside ${configDir}: ${dir}`];
-  }
   const target = getPolicyFilesystemTargetForPath(filesystemScope, resolvedDir);
   const entries = readPolicyDirectoryEntries(target);
   if (!entries) return [`Local rulebook source directory not found: ${dir}`];
@@ -792,7 +710,6 @@ function getLocalSourceDirDeleteError(
 // validation and GitHub multi-matches are refused by the local-only check, so
 // a failed delete never leaves other requested source dirs partially removed.
 function deleteLocalSourceDirs(
-  configDir: string,
   dirs: string[],
   hooks: RuleSyncTestHooks,
   filesystemScope: PolicyFilesystemScope,
@@ -806,7 +723,7 @@ function deleteLocalSourceDirs(
       if (!readPolicyDirectoryEntries(getPolicyFilesystemTargetForPath(filesystemScope, dir))) {
         return [];
       }
-      const staleErrors = getLocalSourceDirDeleteError(configDir, dir, filesystemScope);
+      const staleErrors = getLocalSourceDirDeleteError(dir, filesystemScope);
       if (staleErrors.length > 0) return staleErrors;
       deleteLocalSourceDir(dir, hooks, filesystemScope);
       return [];
@@ -819,14 +736,6 @@ function deleteLocalSourceDirs(
   return errors.length > 0
     ? { ok: false, result: { ok: false, errors, warnings: [], entries: [] } }
     : { ok: true };
-}
-
-function pruneRulebookCacheDir(target: PolicyFilesystemTarget, hooks: RuleSyncTestHooks): void {
-  if (hooks._testPruneRulebookCacheDir) {
-    hooks._testPruneRulebookCacheDir(target.path);
-    return;
-  }
-  removePolicyDirectory(target);
 }
 
 function deleteLocalSourceDir(

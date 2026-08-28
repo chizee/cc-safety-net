@@ -8,23 +8,14 @@ import {
   isSamePolicyFilesystemTarget,
   PolicyFilesystemError,
   type PolicyFilesystemScope,
-  type PolicyFilesystemTarget,
   readPolicyFile,
 } from './filesystem';
-import { readLockfile } from './lockfile';
-import {
-  getPolicyPaths,
-  getRulebookCacheOptions,
-  getRulebookCachePath,
-  getRulebookDisplaySource,
-  getRulesLockPathForConfigPath,
-  RULE_SYNC_COMMAND,
-} from './paths';
-import { sha256Digest } from './resolver';
+import { getLocalRulebookPath, getPolicyPaths, RULE_UPDATE_COMMAND } from './paths';
+import { isGitHubRulebookSource, parseGitHubSource } from './source-syntax';
 import type {
+  ActiveRulebookSummary,
   LoadedRulebookInfo,
   LoadedRulesPolicy,
-  RulebookLockEntry,
   RuleOverride,
   RulesConfig,
   RulesPolicyOptions,
@@ -33,7 +24,7 @@ import type {
 interface ScopePolicy {
   rules: CustomRule[];
   rulebooks: LoadedRulebookInfo[];
-  entries: RulebookLockEntry[];
+  entries: ActiveRulebookSummary[];
   knownRuleIds: Set<string>;
   errors: string[];
   warnings: string[];
@@ -67,9 +58,7 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
   const userPolicy = user.config
     ? loadScopePolicy(
         user.config,
-        paths.userLockPath,
         dirname(paths.userConfigPath),
-        options,
         'user',
         paths.userScope,
         claimedRulebookNames,
@@ -78,9 +67,7 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
   const projectPolicy = project.config
     ? loadScopePolicy(
         project.config,
-        paths.projectLockPath,
         dirname(paths.projectConfigPath),
-        options,
         'project',
         paths.projectScope,
         claimedRulebookNames,
@@ -130,33 +117,11 @@ export function loadRulesPolicy(options: RulesPolicyOptions = {}): LoadedRulesPo
   };
 }
 
-export function getRulesConfigSourceDisplayMap(
-  configPath: string,
-  filesystemScope?: PolicyFilesystemScope,
-): Map<string, string> {
-  const scope =
-    filesystemScope ?? bindPolicyFilesystemScope(dirname(dirname(configPath)), 'rules policy');
-  const config = readRulesConfig(getPolicyFilesystemTargetForPath(scope, configPath)).config;
-  const lock = readLockfile(
-    getPolicyFilesystemTargetForPath(scope, getRulesLockPathForConfigPath(configPath)),
-  ).lock;
-  if (!config || !lock) return new Map();
-
-  const configuredSources = new Set(config.rules);
-  return new Map(
-    lock.rulebooks
-      .filter((entry) => configuredSources.has(entry.spec))
-      .map((entry) => [entry.spec, getRulebookDisplaySource(entry)]),
-  );
-}
-
 export function getRulesConfigRuntimeErrorsForConfig(
   configPath: string,
-  lockPath: string,
-  options: RulesPolicyOptions,
   filesystemScope?: PolicyFilesystemScope,
 ): string[] {
-  const loaded = loadScopePolicyForConfig(configPath, lockPath, options, filesystemScope);
+  const loaded = loadScopePolicyForConfig(configPath, filesystemScope);
   if (!loaded) return [];
   return [
     ...loaded.scope.errors,
@@ -168,19 +133,15 @@ export function getRulesConfigRuntimeErrorsForConfig(
 /** @internal - exported for test coverage */
 export function getUnknownOverrideErrorsForConfig(
   configPath: string,
-  lockPath: string,
-  options: RulesPolicyOptions,
   filesystemScope?: PolicyFilesystemScope,
 ): string[] {
-  const loaded = loadScopePolicyForConfig(configPath, lockPath, options, filesystemScope);
+  const loaded = loadScopePolicyForConfig(configPath, filesystemScope);
   if (!loaded) return [];
   return getUnknownOverrideErrorsForScope(loaded.config, loaded.scope, configPath);
 }
 
 function loadScopePolicyForConfig(
   configPath: string,
-  lockPath: string,
-  options: RulesPolicyOptions,
   filesystemScope?: PolicyFilesystemScope,
 ): { config: RulesConfig; scope: ScopePolicy } | null {
   const scope =
@@ -191,7 +152,7 @@ function loadScopePolicyForConfig(
   }
   return {
     config,
-    scope: loadScopePolicy(config, lockPath, dirname(configPath), options, 'project', scope),
+    scope: loadScopePolicy(config, dirname(configPath), 'project', scope),
   };
 }
 
@@ -207,9 +168,7 @@ function getUnknownOverrideErrorsForScope(
 
 export function loadScopePolicy(
   config: RulesConfig,
-  lockPath: string,
   configDir: string,
-  options: RulesPolicyOptions,
   source: 'user' | 'project',
   filesystemScope: PolicyFilesystemScope = bindPolicyFilesystemScope(
     dirname(dirname(configDir)),
@@ -217,38 +176,10 @@ export function loadScopePolicy(
   ),
   claimedRulebookNames: Set<string> = new Set(),
 ): ScopePolicy {
-  let lockTarget: PolicyFilesystemTarget;
-  try {
-    lockTarget = getPolicyFilesystemTargetForPath(filesystemScope, lockPath);
-  } catch (error) {
-    if (error instanceof PolicyFilesystemError) {
-      return { ...emptyScopePolicy(), errors: [error.message], canValidateOverrides: false };
-    }
-    throw error;
-  }
-  const lockResult = readLockfile(lockTarget);
-  if (lockResult.errors.length > 0) {
-    return { ...emptyScopePolicy(), errors: lockResult.errors, canValidateOverrides: false };
-  }
-  const lock = lockResult.lock;
-  if (!lock && config.rules.length > 0) {
-    return {
-      ...emptyScopePolicy(),
-      errors: [`missing lockfile ${lockPath}; run ${RULE_SYNC_COMMAND}`],
-      canValidateOverrides: false,
-    };
-  }
-  const entries = lock?.rulebooks ?? [];
-  const entriesBySpec = new Map(entries.map((entry) => [entry.spec, entry]));
   const errors: string[] = [];
   const warnings: string[] = [];
   const loaded = config.rules.flatMap((spec) => {
-    const entry = entriesBySpec.get(spec);
-    if (!entry) {
-      errors.push(`missing lock entry for ${spec}; run ${RULE_SYNC_COMMAND}`);
-      return [];
-    }
-    const loadedRulebook = loadLockedRulebook(entry, configDir, options, filesystemScope);
+    const loadedRulebook = loadRulebookForSpec(spec, configDir, filesystemScope);
     if (loadedRulebook.errors.length > 0 || !loadedRulebook.rulebook) {
       errors.push(...loadedRulebook.errors);
       return [];
@@ -258,7 +189,7 @@ export function loadScopePolicy(
     // the later rulebook contributes nothing rather than shadowing its rules.
     if (claimedRulebookNames.has(rulebook.name)) {
       warnings.push(
-        `duplicate active rulebook name "${rulebook.name}" for ${spec}; keeping the first and ignoring this one, so its rules are not active; rename one of them, then run ${RULE_SYNC_COMMAND}`,
+        `duplicate active rulebook name "${rulebook.name}" for ${spec}; keeping the first and ignoring this one, so its rules are not active; rename one of them in its rulebook file and in the rules config that lists it`,
       );
       return [];
     }
@@ -268,7 +199,7 @@ export function loadScopePolicy(
         rules: toPolicyRules(rulebook),
         rulebook: {
           source,
-          spec: entry.spec,
+          spec,
           name: rulebook.name,
           version: rulebook.version,
           rules: rulebook.rules.map((rule) => `${rulebook.name}/${rule.name}`),
@@ -281,7 +212,12 @@ export function loadScopePolicy(
   return {
     rules,
     rulebooks: loaded.map((item) => item.rulebook),
-    entries,
+    entries: loaded.map((item) => ({
+      spec: item.rulebook.spec,
+      name: item.rulebook.name,
+      version: item.rulebook.version,
+      ruleCount: item.rulebook.rules.length,
+    })),
     knownRuleIds: new Set(rules.map((rule) => rule.name)),
     errors,
     warnings,
@@ -311,52 +247,86 @@ function toPolicyRules(rulebook: Rulebook): CustomRule[] {
   }));
 }
 
-function loadLockedRulebook(
-  entry: RulebookLockEntry,
+/**
+ * Every source is a live file: a local rulebook is authored in place and a remote one is
+ * vendored by `rule add` or `rule update`, so both load from `rules/<name>/rulebook.json` with
+ * no lock entry or cached copy in between. The validation is the one a cached rulebook already
+ * went through, moved to the source file.
+ */
+function loadRulebookForSpec(
+  spec: string,
   configDir: string,
-  options: RulesPolicyOptions,
   filesystemScope: PolicyFilesystemScope,
 ): { rulebook: Rulebook | null; errors: string[] } {
-  const cachePath = getRulebookCachePath(entry, getRulebookCacheOptions(configDir, options));
-  let cacheContent: string | null;
-  try {
-    cacheContent = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, cachePath));
-  } catch (error) {
-    if (error instanceof PolicyFilesystemError) {
-      return { rulebook: null, errors: [error.message] };
-    }
-    throw error;
-  }
-  if (cacheContent === null) {
+  const name = getRulebookNameForSpec(spec);
+  const path = getLocalRulebookPath(configDir, name);
+  const file = readRulebookFile(path, filesystemScope);
+  if ('error' in file) return { rulebook: null, errors: [file.error] };
+  if (file.content === null) {
     return {
       rulebook: null,
-      errors: [`missing cache entry for ${entry.spec}; run ${RULE_SYNC_COMMAND}`],
+      errors: [`missing rulebook file ${path} for ${spec}; ${getMissingRulebookRepair(spec)}`],
     };
   }
-
-  if (sha256Digest(cacheContent) !== entry.digest) {
+  const validated = validateRulebookContent(file.content);
+  if ('problem' in validated) {
     return {
       rulebook: null,
-      errors: [`cache digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`],
+      errors: [`invalid rulebook ${path}: ${validated.problem}; fix that file`],
     };
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(cacheContent) as unknown;
-  } catch {
-    return { rulebook: null, errors: [`invalid cached rulebook for ${entry.spec}`] };
-  }
-  try {
-    assertValidRulebook(parsed);
-  } catch (error) {
+  // The source name is the rulebook's identity: rule ids are `<name>/<rule>`, so a
+  // name that drifts from its source silently renames every rule the overrides in
+  // `rule.json` refer to.
+  if (validated.rulebook.name !== name) {
     return {
       rulebook: null,
       errors: [
-        `invalid cached rulebook for ${entry.spec}: ${error instanceof Error ? error.message : 'invalid rulebook'}`,
+        `rulebook name "${validated.rulebook.name}" in ${path} must match source "${spec}"; fix that file`,
       ],
     };
   }
-  return { rulebook: parsed as Rulebook, errors: [] };
+  return { rulebook: validated.rulebook, errors: [] };
+}
+
+/** The rulebook name a source claims, which is also the directory its rulebook file lives in. */
+export function getRulebookNameForSpec(spec: string): string {
+  return isGitHubRulebookSource(spec) ? parseGitHubSource(spec).name : spec;
+}
+
+function getMissingRulebookRepair(spec: string): string {
+  return isGitHubRulebookSource(spec)
+    ? `run ${RULE_UPDATE_COMMAND} to vendor ${spec}`
+    : 'create that file or remove that source from the rules config';
+}
+
+function readRulebookFile(
+  path: string,
+  filesystemScope: PolicyFilesystemScope,
+): { content: string | null } | { error: string } {
+  try {
+    return { content: readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, path)) };
+  } catch (error) {
+    if (error instanceof PolicyFilesystemError) return { error: error.message };
+    throw error;
+  }
+}
+
+/** Schema validation only; fixtures stay with `rule verify`, so loading is a pure read. */
+export function validateRulebookContent(
+  content: string,
+): { rulebook: Rulebook } | { problem: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content) as unknown;
+  } catch {
+    return { problem: 'Invalid JSON' };
+  }
+  try {
+    return { rulebook: assertValidRulebook(parsed) };
+  } catch (error) {
+    return { problem: error instanceof Error ? error.message : 'invalid rulebook' };
+  }
 }
 
 function mergeTransparentWrappers(
@@ -431,8 +401,6 @@ function invalidLoadedRulesPolicy(
     warnings: [],
     userConfigPath: paths.userConfigPath,
     projectConfigPath: paths.projectConfigPath,
-    userLockPath: paths.userLockPath,
-    projectLockPath: paths.projectLockPath,
   };
 }
 

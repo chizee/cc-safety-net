@@ -4,6 +4,7 @@ import { guiCommand } from './gui';
 import { hookCommand } from './hook';
 import { installCommand, uninstallCommand, updateCommand } from './install';
 import { logsCommand } from './logs';
+import { policyCommand } from './policy';
 import { ruleCommand } from './rule';
 import { statusCommand } from './status';
 import { statuslineCommand } from './statusline';
@@ -21,6 +22,7 @@ export const commands = [
   logsCommand,
   explainCommand,
   ruleCommand,
+  policyCommand,
   installCommand,
   updateCommand,
   uninstallCommand,

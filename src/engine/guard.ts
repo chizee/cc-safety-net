@@ -12,6 +12,10 @@ import {
   resolveProtectedGitMetadata,
 } from '@/guards/git-metadata-protection';
 import {
+  findPolicyApplyInvocationInSemanticFacts,
+  REASON_POLICY_APPLY_PROTECTION,
+} from '@/guards/policy-apply-protection';
+import {
   findPolicyConfigMutationTargetInSemanticFacts,
   REASON_POLICY_CONFIG_PROTECTION,
 } from '@/guards/policy-protection';
@@ -155,6 +159,22 @@ export function evaluateGuard(
         reason: REASON_POLICY_CONFIG_PROTECTION,
         intent: 'hard_stop',
         evidence: [{ kind: 'command', command: displayCommand, segment: policyTarget.target }],
+      },
+    };
+  }
+
+  const policyApplyTarget = callDependency('policy-protection', command, () =>
+    findPolicyApplyInvocationInSemanticFacts(facts),
+  );
+  if (policyApplyTarget) {
+    const displayCommand = command ?? policyApplyTarget.target;
+    return {
+      stage: 'policy-protection',
+      decision: {
+        kind: 'deny',
+        reason: REASON_POLICY_APPLY_PROTECTION,
+        intent: 'hard_stop',
+        evidence: [{ kind: 'command', command: displayCommand, segment: policyApplyTarget.target }],
       },
     };
   }

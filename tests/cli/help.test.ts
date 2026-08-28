@@ -66,6 +66,7 @@ COMMANDS:
   cc-safety-net logs [options]               Browse audit log entries recorded by hooks
   cc-safety-net explain [options] <command>  Show step-by-step analysis trace of how a command would be analyzed
   cc-safety-net rule <subcommand>            Manage CC Safety Net rule config and rulebook sources
+  cc-safety-net policy <subcommand>          Check and apply project or user policy proposals
   cc-safety-net install [TARGET_FLAG]        Install CC Safety Net into a coding agent CLI
   cc-safety-net update                       Update every installed CC Safety Net integration to the latest version
   cc-safety-net uninstall [TARGET_FLAG]      Uninstall CC Safety Net from a coding agent CLI
@@ -184,6 +185,17 @@ Documentation:        https://ccsafetynet.com/docs
       expect(output).toContain('verify');
       expect(output).toContain('--delete-source');
       expect(output).not.toContain('explain -- <command>');
+    });
+
+    test('policy command prints its subcommands and scope flag', () => {
+      const cmd = findCommand('policy');
+      if (!cmd) throw new Error('policy command not found');
+      const { output } = captureOutput(() => printCommandHelp(cmd));
+      expect(output).toContain('SUBCOMMANDS:');
+      expect(output).toContain('check <file>');
+      expect(output).toContain('apply <file>');
+      expect(output).toContain('-g, --global');
+      expect(output).not.toContain('--yes');
     });
 
     test('hook command prints platform flags', () => {

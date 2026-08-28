@@ -1,19 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { printRuleAddResult } from '@/cli/rule/format';
-import type { AddRulebookSourceResult } from '@/rules/policy';
+import { printRuleAddResult, printRuleChangeResult, printRulesListReport } from '@/cli/rule/format';
+import type { AddRulebookSourceResult, LoadedRulesPolicy } from '@/rules/policy';
 import { captureConsoleOutput } from '../../helpers';
 
 const entry = {
   spec: 'owner/repo#main/aws',
-  kind: 'github' as const,
-  owner: 'owner',
-  repo: 'repo',
-  ref: 'main',
-  commit: 'abcdef1234567890',
-  path: '.cc-safety-net/rules/aws/rulebook.json',
   name: 'aws',
   version: '1.0.0',
-  digest: `sha256:${'a'.repeat(64)}`,
   ruleCount: 2,
 };
 
@@ -42,8 +35,9 @@ describe('rule add output', () => {
 
     expect(output.stdout).toContain('Added 1 rulebook from owner/repo at main:');
     expect(output.stdout).toContain('  - aws');
-    expect(output.stdout).toContain('Locked at abcdef1.');
+    expect(output.stdout).toContain('Vendored at abcdef1.');
     expect(output.stdout).toContain('Rule config synced.');
+    expect(output.stdout).toContain('    Source: owner/repo#main/aws');
   });
 
   test('describes an idempotent repository add without claiming another addition', async () => {
@@ -53,5 +47,55 @@ describe('rule add output', () => {
 
     expect(output.stdout).toContain('Rulebooks already configured from owner/repo at main: aws');
     expect(output.stdout).not.toContain('Added 1 rulebook');
+  });
+});
+
+describe('rule update output', () => {
+  test('prints what vendoring changed above the summary', async () => {
+    const output = await captureConsoleOutput(() =>
+      printRuleChangeResult(
+        {
+          ok: true,
+          errors: [],
+          warnings: [],
+          changes: ['Updated owner/repo#main/aws (1.0.0 -> 2.0.0)', '  + aws/block-delete'],
+          entries: [entry],
+        },
+        'Rule config synced.',
+      ),
+    );
+
+    expect(output.stdout.slice(0, 3)).toEqual([
+      'Updated owner/repo#main/aws (1.0.0 -> 2.0.0)',
+      '  + aws/block-delete',
+      'Rule config synced.',
+    ]);
+  });
+});
+
+describe('rule list output', () => {
+  test('shows each source as the spec configured in rule.json', async () => {
+    const output = await captureConsoleOutput(() =>
+      printRulesListReport({
+        rules: [],
+        transparent_wrappers: [],
+        rulebooks: [
+          {
+            source: 'project',
+            spec: 'owner/repo#main/aws',
+            name: 'aws',
+            version: '1.0.0',
+            rules: [],
+          },
+        ],
+        errors: [],
+        warnings: [],
+        userConfigPath: '/user/rule.json',
+        projectConfigPath: '/project/rule.json',
+      } satisfies LoadedRulesPolicy),
+    );
+
+    expect(output.stdout).toContain('  - [project] aws 1.0.0');
+    expect(output.stdout).toContain('      Source: owner/repo#main/aws');
   });
 });

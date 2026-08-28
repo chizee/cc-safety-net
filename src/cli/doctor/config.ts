@@ -7,9 +7,7 @@ import {
   getPolicyPaths,
   getProjectRulesConfigPath,
   getRulesConfigRuntimeErrorsForConfig,
-  getRulesLockPathForConfigPath,
   getUserRulesConfigPath,
-  getUserRulesLockPath,
   loadRulesPolicy,
   PolicyFilesystemError,
   type PolicyFilesystemScope,
@@ -35,8 +33,6 @@ export interface ConfigInfoOptions {
 
 function getConfigSourceInfo(
   path: string,
-  lockPath: string,
-  userConfigDir: string,
   target: PolicyFilesystemTarget,
   filesystemScope: PolicyFilesystemScope,
 ): ConfigSourceInfo {
@@ -46,9 +42,7 @@ function getConfigSourceInfo(
       return { path, exists: false, valid: false, ruleCount: 0 };
     }
     validation = validateRulesConfigFile(target);
-    validation.errors.push(
-      ...getRulesConfigRuntimeErrorsForConfig(path, lockPath, { userConfigDir }, filesystemScope),
-    );
+    validation.errors.push(...getRulesConfigRuntimeErrorsForConfig(path, filesystemScope));
   } catch (error) {
     if (!(error instanceof PolicyFilesystemError)) throw error;
     validation = { errors: [error.message], ruleNames: new Set<string>() };
@@ -97,20 +91,8 @@ export function getConfigInfo(cwd: string, options?: ConfigInfoOptions): ConfigI
   );
 
   return {
-    userConfig: getConfigSourceInfo(
-      userPath,
-      getUserRulesLockPath({ userConfigPath: userPath }),
-      userConfigDir,
-      paths.userConfigTarget,
-      paths.userScope,
-    ),
-    projectConfig: getConfigSourceInfo(
-      projectPath,
-      getRulesLockPathForConfigPath(projectPath),
-      userConfigDir,
-      paths.projectConfigTarget,
-      paths.projectScope,
-    ),
+    userConfig: getConfigSourceInfo(userPath, paths.userConfigTarget, paths.userScope),
+    projectConfig: getConfigSourceInfo(projectPath, paths.projectConfigTarget, paths.projectScope),
     effectiveRules: policy.rules.map((rule) =>
       toEffectiveRule(rule, rulebookSources.get(rule.name) ?? 'project'),
     ),

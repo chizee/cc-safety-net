@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { assertValidRulebook, type Rulebook } from '@/rules/rulebook';
 import { evaluateRulebookFixtures } from '@/rules/rulebook-fixtures';
 import {
@@ -8,13 +7,7 @@ import {
   type PolicyFilesystemScope,
   readPolicyFile,
 } from './filesystem';
-import {
-  getRulebookCacheOptions,
-  getRulebookCachePath,
-  RULE_SYNC_COMMAND,
-  RULEBOOK_FILE,
-  RULES_DIR,
-} from './paths';
+import { getLocalRulebookPath, RULES_DIR } from './paths';
 import {
   createRuleSyncOperation,
   createRuleSyncResourceBudget,
@@ -26,22 +19,15 @@ import {
 import {
   assertBareRulebookName,
   GITHUB_RULEBOOK_PATH_RE,
-  getRulebookLockEntrySourceIdentityError,
   isGitHubRef,
   isGitHubRepositorySource,
   isGitHubRulebookSource,
   parseGitHubSource,
 } from './sources';
-import type {
-  GitHubRulebookLockEntry,
-  RulebookLockEntry,
-  RulesLockfile,
-  RulesPolicyOptions,
-  SyncRulesConfigOptions,
-} from './types';
+import type { RulesPolicyOptions, SyncRulesConfigOptions } from './types';
 
 export interface ResolvedRulebook {
-  entry: RulebookLockEntry;
+  spec: string;
   rulebook: Rulebook;
   content: string;
 }
@@ -83,22 +69,53 @@ export async function resolveRulebookSource(
   return resolveLocalRulebook(spec, configDir, options, filesystemScope);
 }
 
+/**
+ * Fetching is deliberate: a remote source is re-fetched only when the caller asks for it
+ * (`rule update`) or when nothing is vendored yet. Every other run reads the vendored file, so
+ * no machine other than the one that ran `add` or `update` ever touches the network.
+ * In non-refresh runs the nothing-vendored fallback covers unselected sources on purpose: the
+ * post-sync runtime verification requires the whole scope to load cleanly, so skipping a
+ * missing sibling would fail unrelated commands instead of healing them. A selective
+ * `rule update <source>` is the exception — its unselected siblings must stay off the
+ * network entirely, so a missing one is reported rather than fetched.
+ */
 export async function resolveRulebookSourceForSync(
   spec: string,
   configDir: string,
   options: SyncRulesConfigOptions,
-  previousLock: RulesLockfile | null,
-  filesystemScope?: PolicyFilesystemScope,
-  operation: RuleSyncOperation = createRuleSyncOperation(),
+  filesystemScope: PolicyFilesystemScope | undefined,
+  operation: RuleSyncOperation,
+  refetch: boolean,
+  fetchWhenMissing: boolean,
 ): Promise<ResolvedRulebook> {
-  if (!isGitHubRulebookSource(spec) || options.refresh) {
+  if (!isGitHubRulebookSource(spec)) {
     return resolveRulebookSource(spec, configDir, options, filesystemScope, operation);
   }
-  const locked = previousLock?.rulebooks.find((entry) => entry.spec === spec);
-  if (!locked || locked.kind !== 'github') {
-    return resolveRulebookSource(spec, configDir, options, filesystemScope, operation);
+  const vendored = refetch ? null : readVendoredRulebook(spec, configDir, filesystemScope);
+  if (vendored) return vendored;
+  if (!refetch && !fetchWhenMissing) {
+    throw new Error(`${spec} is not vendored; run rule update ${spec} to vendor it`);
   }
-  return readLockedGitHubRulebook(locked, configDir, options, filesystemScope, operation);
+  return resolveRulebookSource(spec, configDir, options, filesystemScope, operation);
+}
+
+function readVendoredRulebook(
+  spec: string,
+  configDir: string,
+  filesystemScope: PolicyFilesystemScope = bindPolicyFilesystemScope(
+    dirname(dirname(configDir)),
+    'rules policy',
+  ),
+): ResolvedRulebook | null {
+  const parsed = parseGitHubSource(spec);
+  const path = getLocalRulebookPath(configDir, parsed.name);
+  const content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, path));
+  if (content === null) return null;
+  const rulebook = assertValidRulebook(parseRulebookJson(content, `Invalid rulebook ${path}.`));
+  if (rulebook.name !== parsed.name) {
+    throw new Error(`rulebook name "${rulebook.name}" in ${path} must match "${parsed.name}"`);
+  }
+  return { spec, rulebook, content };
 }
 
 export async function discoverGitHubRepositoryRulebooks(
@@ -193,18 +210,7 @@ function resolveLocalRulebook(
   if (rulebook.name !== spec) {
     throw new Error(`rulebook name "${rulebook.name}" must match local source "${spec}"`);
   }
-  return {
-    rulebook,
-    content,
-    entry: {
-      spec,
-      kind: 'local-directory',
-      path: spec,
-      name: rulebook.name,
-      version: rulebook.version,
-      digest: sha256Digest(content),
-    },
-  };
+  return { spec, rulebook, content };
 }
 
 async function resolveGitHubRulebook(
@@ -229,85 +235,18 @@ async function resolveGitHubRulebook(
   if (rulebook.name !== parsed.name) {
     throw new Error(`rulebook name "${rulebook.name}" must match GitHub source "${parsed.name}"`);
   }
-  return {
-    rulebook,
-    content,
-    entry: {
-      spec,
-      kind: 'github',
-      owner: parsed.owner,
-      repo: parsed.repo,
-      ref: parsed.ref,
-      commit,
-      path: parsed.path,
-      name: rulebook.name,
-      version: rulebook.version,
-      digest: sha256Digest(content),
-    },
-  };
-}
-
-async function readLockedGitHubRulebook(
-  entry: GitHubRulebookLockEntry,
-  configDir: string,
-  options: RulesPolicyOptions,
-  filesystemScope: PolicyFilesystemScope = bindPolicyFilesystemScope(
-    dirname(dirname(configDir)),
-    'rules policy',
-  ),
-  operation: RuleSyncOperation,
-): Promise<ResolvedRulebook> {
-  const identityError = getRulebookLockEntrySourceIdentityError(entry);
-  if (identityError) {
-    throw new Error(`${identityError}; run ${RULE_SYNC_COMMAND}`);
-  }
-  const cachePath = getRulebookCachePath(entry, getRulebookCacheOptions(configDir, options));
-  const content = readPolicyFile(getPolicyFilesystemTargetForPath(filesystemScope, cachePath));
-  if (content !== null) {
-    if (sha256Digest(content) === entry.digest) {
-      return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
-    }
-  }
-  return fetchLockedGitHubRulebook(entry, operation);
-}
-
-async function fetchLockedGitHubRulebook(
-  entry: GitHubRulebookLockEntry,
-  operation: RuleSyncOperation,
-): Promise<ResolvedRulebook> {
-  const rawResource = await fetchRuleSyncResource(
-    `https://raw.githubusercontent.com/${entry.owner}/${entry.repo}/${entry.commit}/${entry.path}`,
-    'raw',
-    operation,
-  );
-  const rawResponse = rawResource.response;
-  if (!rawResponse.ok) {
-    throw new Error(`Failed to restore ${entry.spec}: GitHub raw returned ${rawResponse.status}`);
-  }
-  const content = rawResource.content;
-  if (sha256Digest(content) !== entry.digest) {
-    throw new Error(`locked GitHub digest mismatch for ${entry.spec}; run ${RULE_SYNC_COMMAND}`);
-  }
-  return { entry, rulebook: assertRulebookMatchesLockEntry(content, entry), content };
+  return { spec, rulebook, content };
 }
 
 /**
- * Validation for a freshly resolved rulebook. Fixtures run here only: a locked rulebook was
- * fixture-checked when it was first resolved, so reusing it never re-evaluates them.
+ * Validation for freshly fetched or authored content. Fixtures run here only: a rulebook already
+ * vendored on disk was fixture-checked when it was fetched, so reading it never re-evaluates them.
  */
 function assertValidSyncedRulebook(value: unknown): Rulebook {
   const rulebook = assertValidRulebook(value);
   const failures = evaluateRulebookFixtures(rulebook);
   if (failures.length > 0) {
     throw new Error(failures.join('; '));
-  }
-  return rulebook;
-}
-
-function assertRulebookMatchesLockEntry(content: string, entry: GitHubRulebookLockEntry): Rulebook {
-  const rulebook = assertValidRulebook(parseRulebookJson(content, 'Invalid cached rulebook.'));
-  if (rulebook.name !== entry.name) {
-    throw new Error(`rulebook name "${rulebook.name}" must match lock entry "${entry.name}"`);
   }
   return rulebook;
 }
@@ -455,12 +394,4 @@ function safelyCancelGitHubResponse(cancel: () => unknown): void {
   try {
     Promise.resolve(cancel()).catch(() => {});
   } catch {}
-}
-
-function getLocalRulebookPath(configDir: string, name: string): string {
-  return join(configDir, name, RULEBOOK_FILE);
-}
-
-export function sha256Digest(content: string): string {
-  return `sha256:${createHash('sha256').update(content).digest('hex')}`;
 }

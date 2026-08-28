@@ -1,25 +1,21 @@
 import { describe, expect, mock, test } from 'bun:test';
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   addRulebookSource,
   getProjectRulesConfigPath,
   getProjectRulesDir,
-  getRulebookDisplaySource,
   getRulesConfigRuntimeErrorsForConfig,
-  getRulesConfigSourceDisplayMap,
   getRulesLockPathForConfigPath,
   getUserRulesConfigPath,
   getUserRulesDir,
@@ -32,14 +28,13 @@ import {
   writeStarterRulebook,
 } from '@/rules/policy';
 import { createAtomicTempPath, validateRulesConfig } from '@/rules/policy/config-file';
-import { readLockfile } from '@/rules/policy/lockfile';
-import { getProjectRulesLockPath, getRulebookCachePath } from '@/rules/policy/paths';
+import { getProjectRulesLockPath } from '@/rules/policy/paths';
 import {
   discoverGitHubRepositoryRulebooks,
   resolveRulebookSource,
   resolveRulebookSourceForSync,
-  sha256Digest,
 } from '@/rules/policy/resolver';
+import { createRuleSyncOperation } from '@/rules/policy/resource-limits';
 import { getUnknownOverrideErrorsForConfig } from '@/rules/policy/scope-policy';
 import {
   assertBareRulebookName,
@@ -55,7 +50,7 @@ import {
   removeRulebookSourceWithHooks,
   syncRulesConfigWithHooks,
 } from '@/rules/policy/sync';
-import type { LoadedRulesPolicy, RulebookLockEntry, RulesLockfile } from '@/rules/policy/types';
+import type { LoadedRulesPolicy } from '@/rules/policy/types';
 import { RULEBOOK_LIMIT_ERROR, RULEBOOK_LIMITS } from '@/rules/rulebook-limits';
 import type { TestPolicyInput } from '../helpers/policy';
 import { analyzeTestCommand as analyzeCommand } from '../helpers/policy';
@@ -68,22 +63,9 @@ type RemoveRulebookSourceRenameFaultOptions = NonNullable<
 > & {
   _testAfterPolicyRename: (path: string) => void;
 };
-type SyncRulesConfigTestOptions = NonNullable<Parameters<typeof syncRulesConfig>[0]> & {
-  _testPruneRulebookCacheDir: (dir: string) => void;
-};
 type PolicyRenameFaultOptions = NonNullable<Parameters<typeof syncRulesConfig>[0]> & {
   _testAfterPolicyRename: (path: string) => void;
 };
-
-const CASE_INSENSITIVE_TEMP_FILESYSTEM = (() => {
-  const dir = mkdtempSync(join(tmpdir(), 'rules-policy-case-probe-'));
-  try {
-    writeFileSync(join(dir, 'probe'), 'probe');
-    return existsSync(join(dir, 'PROBE'));
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-})();
 
 function loadedRulesTestPolicy(policy: LoadedRulesPolicy): TestPolicyInput {
   if (policy.errors.length === 0) {
@@ -154,9 +136,21 @@ function writeProjectRulebook(tempDir: string, name = 'project-rules') {
   return path;
 }
 
+/** Where a vendored remote rulebook lands: the same home a local source has. */
+function vendoredRulebookPath(tempDir: string, name: string): string {
+  return join(getProjectRulesDir(tempDir), name, 'rulebook.json');
+}
+
 function writeProjectRulebookConfig(tempDir: string): void {
   writeProjectRulebook(tempDir);
   writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['project-rules']);
+}
+
+/** A synced project scope, answering with the path of its live rulebook file. */
+async function syncProjectScope(tempDir: string, userConfigDir: string): Promise<string> {
+  writeProjectRulebookConfig(tempDir);
+  expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
+  return join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json');
 }
 
 function writeProjectConfigOnly(tempDir: string): void {
@@ -166,15 +160,9 @@ function writeProjectConfigOnly(tempDir: string): void {
 
 async function prepareProjectRulesSnapshot(tempDir: string, userConfigDir: string) {
   const configPath = getProjectRulesConfigPath(tempDir);
-  const lockPath = getProjectRulesLockPath(tempDir);
   writeProjectRulebookConfig(tempDir);
   expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
-  return {
-    configPath,
-    lockPath,
-    configBytes: readFileSync(configPath, 'utf-8'),
-    lockBytes: readFileSync(lockPath, 'utf-8'),
-  };
+  return { configPath, configBytes: readFileSync(configPath, 'utf-8') };
 }
 
 function expectPolicySnapshotRestored(
@@ -186,7 +174,6 @@ function expectPolicySnapshotRestored(
   expect(result.ok).toBe(false);
   expect(result.errors).toEqual(['Unable to access project policy filesystem safely.']);
   expect(readFileSync(snapshot.configPath, 'utf-8')).toBe(snapshot.configBytes);
-  expect(readFileSync(snapshot.lockPath, 'utf-8')).toBe(snapshot.lockBytes);
   expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toEqual([]);
 }
 
@@ -346,41 +333,43 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
-  test('sync rejects linked lock and cache targets without changing sentinels', async () => {
-    const tempDir = makeTempDir('rules-policy-linked-sync-write');
+  test('vendoring refuses a linked target and reports a post-rename fault', async () => {
+    const tempDir = makeTempDir('rules-policy-vendor-write-faults');
     const userConfigDir = join(tempDir, 'user', 'rules');
-    const outsideLock = join(tempDir, 'TOPSECRET-lock');
-    const outsideCache = makeTempDir('rules-policy-linked-cache-outside');
+    const outside = join(tempDir, 'TOPSECRET-vendor-target');
+    const vendored = vendoredRulebookPath(tempDir, 'alpha');
+    const originalFetch = globalThis.fetch;
     try {
-      writeProjectRulebookConfig(tempDir);
-      writeFileSync(outsideLock, 'TOPSECRET lock sentinel', 'utf-8');
-      symlinkSync(outsideLock, getProjectRulesLockPath(tempDir));
+      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['owner/repo#main/alpha']);
+      writeFileSync(outside, 'TOPSECRET vendor sentinel', 'utf-8');
+      mkdirSync(dirname(vendored), { recursive: true });
+      symlinkSync(outside, vendored);
+      globalThis.fetch = mockGitHubRepoRulebooksFetch({ alpha: rulebookJson('alpha') });
 
-      const linkedLock = await syncRulesConfig({ cwd: tempDir, userConfigDir });
-      expect(linkedLock.ok).toBe(false);
-      expect(linkedLock.errors).toEqual(['Unable to access project policy filesystem safely.']);
-      expect(readFileSync(outsideLock, 'utf-8')).toBe('TOPSECRET lock sentinel');
+      const linked = await syncRulesConfig({ cwd: tempDir, userConfigDir });
+      expect(linked.ok).toBe(false);
+      expect(linked.errors).toEqual(['Unable to access project policy filesystem safely.']);
+      expect(readFileSync(outside, 'utf-8')).toBe('TOPSECRET vendor sentinel');
 
-      rmSync(getProjectRulesLockPath(tempDir));
-      rmSync(join(tempDir, '.cc-safety-net', 'cache'), { recursive: true, force: true });
-      mkdirSync(join(tempDir, '.cc-safety-net'), { recursive: true });
-      writeFileSync(join(outsideCache, 'sentinel'), 'TOPSECRET cache sentinel', 'utf-8');
-      symlinkSync(outsideCache, join(tempDir, '.cc-safety-net', 'cache'), 'dir');
+      rmSync(vendored);
+      const fault = {
+        cwd: tempDir,
+        userConfigDir,
+        _testAfterPolicyRename: (path: string) => {
+          if (path === vendored) throw new Error('post-rename vendor fault');
+        },
+      } satisfies PolicyRenameFaultOptions;
 
-      const linkedCache = await syncRulesConfig({ cwd: tempDir, userConfigDir });
-      expect(linkedCache.ok).toBe(false);
-      expect(linkedCache.errors).toEqual(['Unable to access project policy filesystem safely.']);
-      expect(readFileSync(join(outsideCache, 'sentinel'), 'utf-8')).toBe(
-        'TOPSECRET cache sentinel',
-      );
-      expect(readdirSync(outsideCache)).toEqual(['sentinel']);
+      const renamed = await syncRulesConfigWithHooks(fault, fault);
+      expect(renamed.ok).toBe(false);
+      expect(renamed.errors).toEqual(['Unable to access project policy filesystem safely.']);
     } finally {
+      globalThis.fetch = originalFetch;
       rmSync(tempDir, { recursive: true, force: true });
-      rmSync(outsideCache, { recursive: true, force: true });
     }
   });
 
-  test('sync rejects linked local sources and linked cache children with fixed failures', async () => {
+  test('sync rejects a linked local rulebook source with a fixed failure', async () => {
     const tempDir = makeTempDir('rules-policy-linked-source-sync');
     const userConfigDir = join(tempDir, 'user', 'rules');
     const outside = join(tempDir, 'TOPSECRET-source');
@@ -394,67 +383,8 @@ describe('rules policy recovery coverage', () => {
       expect(linkedSource.ok).toBe(false);
       expect(linkedSource.errors).toEqual(['Unable to access project policy filesystem safely.']);
       expect(JSON.stringify(linkedSource)).not.toContain('TOPSECRET');
-
-      rmSync(getProjectRulesDir(tempDir), { recursive: true, force: true });
-      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir));
-      const stale = join(tempDir, '.cc-safety-net', 'cache', 'rulebooks', 'stale');
-      mkdirSync(stale, { recursive: true });
-      symlinkSync(outside, join(stale, 'linked'));
-
-      const linkedCacheChild = await syncRulesConfig({ cwd: tempDir, userConfigDir });
-      expect(linkedCacheChild.ok).toBe(false);
-      expect(linkedCacheChild.errors).toEqual([
-        'Unable to access project policy filesystem safely.',
-      ]);
       expect(existsSync(getProjectRulesLockPath(tempDir))).toBe(false);
-      expect(existsSync(join(stale, 'linked'))).toBe(true);
       expect(readFileSync(outside, 'utf-8')).toBe('TOPSECRET unexpected parser payload');
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test('remove restores exact config and lock bytes when cache pruning fails after publication', async () => {
-    const tempDir = makeTempDir('rules-policy-remove-lock-rollback');
-    const userConfigDir = join(tempDir, 'user', 'rules');
-    const outside = makeTempDir('rules-policy-remove-lock-rollback-outside');
-    try {
-      const snapshot = await prepareProjectRulesSnapshot(tempDir, userConfigDir);
-      const stale = join(tempDir, '.cc-safety-net', 'cache', 'rulebooks', 'stale');
-      mkdirSync(stale, { recursive: true });
-      writeFileSync(join(outside, 'sentinel'), 'TOPSECRET');
-      symlinkSync(outside, join(stale, 'linked'), 'dir');
-
-      const result = await removeRulebookSource('project-rules', {
-        cwd: tempDir,
-        userConfigDir,
-      });
-
-      expectPolicySnapshotRestored(result, snapshot, tempDir, userConfigDir);
-      expect(readFileSync(join(outside, 'sentinel'), 'utf-8')).toBe('TOPSECRET');
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-      rmSync(outside, { recursive: true, force: true });
-    }
-  });
-
-  test('post-rename lock failure restores exact prior lock bytes', async () => {
-    const tempDir = makeTempDir('rules-policy-lock-post-rename');
-    const userConfigDir = join(tempDir, 'user', 'rules');
-    try {
-      const snapshot = await prepareProjectRulesSnapshot(tempDir, userConfigDir);
-      writeRulebook(join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json'));
-      const options = {
-        cwd: tempDir,
-        userConfigDir,
-        _testAfterPolicyRename: (path: string) => {
-          if (path === snapshot.lockPath) throw new Error('post-rename lock fault');
-        },
-      } satisfies PolicyRenameFaultOptions;
-
-      const result = await syncRulesConfigWithHooks(options, options);
-
-      expectPolicySnapshotRestored(result, snapshot, tempDir, userConfigDir);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -489,65 +419,6 @@ describe('rules policy recovery coverage', () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
-
-  test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
-    'keeps the new config and lock active when stale cache removal partially fails',
-    async () => {
-      const tempDir = makeTempDir('rules-policy-partial-prune');
-      const userConfigDir = join(tempDir, 'user', 'rules');
-      const stale = join(tempDir, '.cc-safety-net', 'cache', 'rulebooks', 'stale');
-      try {
-        writeProjectRulebookConfig(tempDir);
-        expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
-        mkdirSync(join(stale, 'child'), { recursive: true });
-        writeFileSync(join(stale, 'child', 'entry'), 'stale');
-        chmodSync(stale, 0o500);
-
-        const result = await removeRulebookSource('project-rules', {
-          cwd: tempDir,
-          userConfigDir,
-        });
-
-        expect(result.ok).toBe(true);
-        expect(result.warnings).toEqual(['Unable to prune rules policy cache safely.']);
-        expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([]);
-        expect(readLockfile(getProjectRulesLockPath(tempDir)).lock?.rulebooks).toEqual([]);
-        expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toEqual([]);
-      } finally {
-        chmodSync(stale, 0o700);
-        rmSync(tempDir, { recursive: true, force: true });
-      }
-    },
-  );
-
-  test.skipIf(!CASE_INSENSITIVE_TEMP_FILESYSTEM)(
-    'keeps an active cache whose directory spelling differs only by case',
-    async () => {
-      const tempDir = makeTempDir('rules-policy-cache-case');
-      const userConfigDir = join(tempDir, 'user', 'rules');
-      try {
-        writeProjectRulebookConfig(tempDir);
-        expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
-        const entry = readLockfile(getProjectRulesLockPath(tempDir)).lock?.rulebooks[0];
-        if (!entry) throw new Error('missing lock entry');
-        const cacheDir = dirname(
-          getRulebookCachePath(entry, { cacheConfigDir: getProjectRulesDir(tempDir) }),
-        );
-        const caseVariant = join(dirname(cacheDir), basename(cacheDir).toUpperCase());
-        const intermediate = `${cacheDir}-rename`;
-        renameSync(cacheDir, intermediate);
-        renameSync(intermediate, caseVariant);
-
-        const result = await syncRulesConfig({ cwd: tempDir, userConfigDir });
-
-        expect(result.ok).toBe(true);
-        expect(existsSync(caseVariant)).toBe(true);
-        expect(loadRulesPolicy({ cwd: tempDir, userConfigDir }).errors).toEqual([]);
-      } finally {
-        rmSync(tempDir, { recursive: true, force: true });
-      }
-    },
-  );
 
   test('global sync uses the user filesystem capability and attribution', async () => {
     const tempDir = makeTempDir('rules-policy-global-check-scope');
@@ -661,55 +532,11 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
-  test('parses lockfiles, paths, source syntax, and match helpers', () => {
+  test('resolves paths, source syntax, and match helpers with no lockfile', () => {
     const tempDir = makeTempDir('rules-policy-lock');
-    const lockPath = join(tempDir, 'rule.lock');
-    const githubEntry = {
-      spec: 'owner/repo#main/project-rules',
-      kind: 'github' as const,
-      owner: 'owner',
-      repo: 'repo',
-      ref: 'main',
-      commit: 'abc123',
-      path: '.cc-safety-net/rules/project-rules/rulebook.json',
-      name: 'project-rules',
-      version: '1.0.0',
-      digest: 'sha256:'.padEnd(71, 'a'),
-      display_ref: 'feature',
-    };
 
     try {
-      expect(readLockfile(lockPath)).toEqual({ lock: null, errors: [] });
-      writeFileSync(lockPath, '[]', 'utf-8');
-      expect(readLockfile(lockPath).errors[0]).toContain('malformed lockfile');
-      writeFileSync(lockPath, JSON.stringify({ version: 1, rulebooks: [{ kind: 'bad' }] }));
-      expect(readLockfile(lockPath).errors).toContain(
-        `${lockPath}: rulebooks[0].kind: unknown kind "bad"`,
-      );
-      writeFileSync(
-        lockPath,
-        JSON.stringify({
-          version: 1,
-          rulebooks: [{ ...githubEntry, spec: ' ', name: ' ', path: ' ' }],
-        }),
-      );
-      expect(readLockfile(lockPath).errors).toEqual(
-        expect.arrayContaining([
-          `${lockPath}: rulebooks[0].spec: required string`,
-          `${lockPath}: rulebooks[0].name: required string`,
-          `${lockPath}: rulebooks[0].path: required string`,
-        ]),
-      );
-      writeFileSync(lockPath, JSON.stringify({ version: 1, rulebooks: [githubEntry] }));
-      expect(readLockfile(lockPath).lock?.rulebooks[0]).toEqual(githubEntry);
-      expect(getRulebookDisplaySource(githubEntry)).toBe('owner/repo#feature/project-rules');
-      expect(getRulebookCachePath(githubEntry, { cacheConfigDir: tempDir })).toContain(
-        'owner-repo-feature-project-rules',
-      );
       expect(getProjectRulesDir(tempDir)).toBe(join(tempDir, '.cc-safety-net', 'rules'));
-      expect(
-        getRulebookCachePath(githubEntry, { cacheConfigDir: getProjectRulesDir(tempDir) }),
-      ).toContain(join(tempDir, '.cc-safety-net', 'cache', 'rulebooks'));
 
       expect(getRulebookSourceSyntaxError('bad:source')).toContain('Local rulebook sources');
       expect(getRulebookSourceSyntaxError('project-rules')).toBeNull();
@@ -741,31 +568,9 @@ describe('rules policy recovery coverage', () => {
       });
       expect(() => parseGitHubSource('github:owner/repo#main/project-rules')).toThrow();
 
-      const lock: RulesLockfile = {
-        version: 1,
-        rulebooks: [
-          {
-            spec: 'one',
-            kind: 'local-directory',
-            path: 'one',
-            name: 'shared',
-            version: '1',
-            digest: githubEntry.digest,
-          },
-          {
-            spec: 'two',
-            kind: 'local-directory',
-            path: 'two',
-            name: 'shared',
-            version: '1',
-            digest: githubEntry.digest,
-          },
-        ],
-      };
       expect(
         getSelectedUpdateSpecs(
           { version: 1, rules: ['one'], overrides: {}, transparent_wrappers: [] },
-          null,
           'one',
         ),
       ).toEqual({
@@ -775,26 +580,31 @@ describe('rules policy recovery coverage', () => {
       expect(
         getSelectedUpdateSpecs(
           { version: 1, rules: ['one'], overrides: {}, transparent_wrappers: [] },
-          null,
           'missing',
         ),
       ).toEqual(expect.objectContaining({ ok: false }));
-      expect(getRemoveMatches(['one', 'two'], lock, 'shared')).toEqual(
+      // With the lock gone, the name a source matches by is the one its spec carries.
+      expect(getRemoveMatches(['owner/repo#main/alpha'], 'alpha')).toEqual({
+        ok: true,
+        specs: ['owner/repo#main/alpha'],
+      });
+      expect(getRemoveMatches(['owner/repo#main/alpha', 'other/repo#main/alpha'], 'alpha')).toEqual(
         expect.objectContaining({ ok: false }),
       );
-      expect(getRemoveMatches(['owner/repo#main/alpha'], null, 'owner/repo#main')).toEqual({
+      expect(getRemoveMatches(['owner/repo#main/alpha'], 'owner/repo#main')).toEqual({
+        ok: true,
+        specs: ['owner/repo#main/alpha'],
+      });
+      expect(getRemoveMatches(['owner/repo#feature/v2/alpha'], 'owner/repo#feature/v2')).toEqual({
+        ok: true,
+        specs: ['owner/repo#feature/v2/alpha'],
+      });
+      expect(getRemoveMatches(['owner/repo#main/alpha'], 'owner/repo')).toEqual({
         ok: true,
         specs: ['owner/repo#main/alpha'],
       });
       expect(
-        getRemoveMatches(['owner/repo#feature/v2/alpha'], null, 'owner/repo#feature/v2'),
-      ).toEqual({ ok: true, specs: ['owner/repo#feature/v2/alpha'] });
-      expect(getRemoveMatches(['owner/repo#main/alpha'], null, 'owner/repo')).toEqual({
-        ok: true,
-        specs: ['owner/repo#main/alpha'],
-      });
-      expect(
-        getRemoveMatches(['owner/repo#main/alpha', 'owner/repo#dev/beta'], null, 'owner/repo'),
+        getRemoveMatches(['owner/repo#main/alpha', 'owner/repo#dev/beta'], 'owner/repo'),
       ).toEqual(expect.objectContaining({ ok: false }));
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
@@ -812,15 +622,12 @@ describe('rules policy recovery coverage', () => {
       const synced = await syncRulesConfig({ cwd: tempDir, userConfigDir });
       expect(synced.ok).toBe(true);
       expect(synced.entries[0]?.ruleCount).toBe(1);
-      expect(existsSync(getProjectRulesLockPath(tempDir))).toBe(true);
+      expect(existsSync(getProjectRulesLockPath(tempDir))).toBe(false);
 
       const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
       expect(policy.errors).toEqual([]);
       expect(policy.rules[0]?.name).toBe('project-rules/block-docker-prune');
       expect(loadedRulesTestPolicy(policy).rules).toHaveLength(1);
-      expect(getRulesConfigSourceDisplayMap(getProjectRulesConfigPath(tempDir))).toEqual(
-        new Map([['project-rules', 'project-rules']]),
-      );
 
       writeFileSync(
         getProjectRulesConfigPath(tempDir),
@@ -831,36 +638,18 @@ describe('rules policy recovery coverage', () => {
           transparent_wrappers: ['rtk'],
         }),
       );
-      expect(
-        getUnknownOverrideErrorsForConfig(
-          getProjectRulesConfigPath(tempDir),
-          getProjectRulesLockPath(tempDir),
-          {
-            userConfigDir,
-          },
-        ),
-      ).toEqual([
+      expect(getUnknownOverrideErrorsForConfig(getProjectRulesConfigPath(tempDir))).toEqual([
         unknownOverrideWarning('project-rules/missing', getProjectRulesConfigPath(tempDir)),
       ]);
 
-      const cachePath = getRulebookCachePath(synced.entries[0] as RulebookLockEntry, {
-        cacheConfigDir: getProjectRulesDir(tempDir),
-        userConfigDir,
-      });
-      rmSync(cachePath, { force: true });
-      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir, check: true })).ok).toBe(false);
-      expect(
-        getRulesConfigRuntimeErrorsForConfig(
-          getProjectRulesConfigPath(tempDir),
-          getProjectRulesLockPath(tempDir),
-          {
-            userConfigDir,
-          },
-        )[0],
-      ).toContain('missing cache entry');
+      // A local source loads from its own file, so nothing but the stale override
+      // above degrades the runtime.
+      expect(getRulesConfigRuntimeErrorsForConfig(getProjectRulesConfigPath(tempDir))).toEqual([
+        unknownOverrideWarning('project-rules/missing', getProjectRulesConfigPath(tempDir)),
+      ]);
 
-      // Restoring the cache is not enough to report success: the stale override
-      // above still degrades the runtime, so sync reports what remains.
+      // Syncing again is not enough to report success: the stale override above
+      // still degrades the runtime, so sync reports what remains.
       const rebuilt = await syncRulesConfig({ cwd: tempDir, userConfigDir });
       expect(rebuilt.ok).toBe(false);
       expect(rebuilt.errors).toEqual([
@@ -916,12 +705,8 @@ describe('rules policy recovery coverage', () => {
       expect(userSynced.entries.map((entry) => entry.name)).toEqual(['user-rules']);
       expect(projectSynced.ok).toBe(true);
       expect(projectSynced.entries.map((entry) => entry.name)).toEqual(['project-rules']);
-      expect(
-        readLockfile(getRulesLockPathForConfigPath(userConfigPath)).lock?.rulebooks,
-      ).toHaveLength(1);
-      expect(
-        readLockfile(getRulesLockPathForConfigPath(projectConfigPath)).lock?.rulebooks,
-      ).toHaveLength(1);
+      expect(existsSync(getRulesLockPathForConfigPath(userConfigPath))).toBe(false);
+      expect(existsSync(getRulesLockPathForConfigPath(projectConfigPath))).toBe(false);
       expect(existsSync(getUserRulesConfigPath({ userConfigPath }))).toBe(false);
       expect(existsSync(getProjectRulesConfigPath(tempDir))).toBe(false);
     } finally {
@@ -969,7 +754,7 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
-  test('keeps sibling rulebooks active while one local source drifts', async () => {
+  test('keeps sibling rulebooks active while one local source is edited', async () => {
     const tempDir = makeTempDir('rules-policy-drift-containment');
     const userConfigDir = join(tempDir, 'user');
 
@@ -994,107 +779,66 @@ describe('rules policy recovery coverage', () => {
         'project-rules/block-docker-prune',
         'other-rules/block-docker-prune',
       ]);
-      // The pending local edit is not active: the digest-verified cache answers.
+      // The edited source is live on the next load, and its sibling is untouched.
       expect(
         analyzeCommand('docker system prune', {
           cwd: tempDir,
           config: loadedRulesTestPolicy(policy),
         })?.reason,
-      ).toBe('[project-rules/block-docker-prune] Use targeted cleanup.');
+      ).toBe('[project-rules/block-docker-prune] Pending local edit.');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
-  test('rejects lock entries that rebind configured source identity', () => {
+  test('refuses a rulebook whose name rebinds its configured source', () => {
     const tempDir = makeTempDir('rules-policy-lock-identity');
     const userConfigDir = join(tempDir, 'user');
 
     try {
-      const localContent = rulebookJson('other-rules');
-      const localEntry = {
-        spec: 'project-rules',
-        kind: 'local-directory' as const,
-        path: 'other-rules',
-        name: 'other-rules',
-        version: '1.0.0',
-        digest: sha256Digest(localContent),
-      };
+      // A local source: the file in `project-rules/` calls itself something else, so every
+      // rule id it defines would land under a name the config never configured.
       writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['project-rules']);
       writeRulebook(
-        join(getProjectRulesDir(tempDir), 'other-rules', 'rulebook.json'),
+        join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json'),
         'other-rules',
       );
-      mkdirSync(
-        dirname(
-          getRulebookCachePath(localEntry, {
-            cacheConfigDir: getProjectRulesDir(tempDir),
-            userConfigDir,
-          }),
-        ),
-        { recursive: true },
-      );
-      writeFileSync(
-        getRulebookCachePath(localEntry, {
-          cacheConfigDir: getProjectRulesDir(tempDir),
-          userConfigDir,
-        }),
-        localContent,
-        'utf-8',
-      );
+      // A leftover lock entry claiming the rebinding is legitimate changes nothing.
       writeFileSync(
         getProjectRulesLockPath(tempDir),
-        JSON.stringify({ version: 1, rulebooks: [localEntry] }),
+        JSON.stringify({
+          version: 1,
+          rulebooks: [
+            {
+              spec: 'project-rules',
+              kind: 'local-directory',
+              path: 'other-rules',
+              name: 'other-rules',
+              version: '1.0.0',
+              digest: 'sha256:'.padEnd(71, 'a'),
+            },
+          ],
+        }),
       );
 
       const localPolicy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
 
       expect(localPolicy.rules).toEqual([]);
       expect(localPolicy.errors).toEqual(
-        expect.arrayContaining([expect.stringContaining('does not match local source identity')]),
+        expect.arrayContaining([expect.stringContaining('must match source "project-rules"')]),
       );
 
-      const githubContent = rulebookJson('beta');
-      const githubEntry = {
-        spec: 'owner/repo#main/alpha',
-        kind: 'github' as const,
-        owner: 'attacker',
-        repo: 'repo',
-        ref: 'main',
-        commit: 'abc123',
-        path: '.cc-safety-net/rules/beta/rulebook.json',
-        name: 'beta',
-        version: '1.0.0',
-        digest: sha256Digest(githubContent),
-      };
+      // A vendored remote source: same rebinding, same refusal.
       writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['owner/repo#main/alpha']);
-      mkdirSync(
-        dirname(
-          getRulebookCachePath(githubEntry, {
-            cacheConfigDir: getProjectRulesDir(tempDir),
-            userConfigDir,
-          }),
-        ),
-        { recursive: true },
-      );
-      writeFileSync(
-        getRulebookCachePath(githubEntry, {
-          cacheConfigDir: getProjectRulesDir(tempDir),
-          userConfigDir,
-        }),
-        githubContent,
-        'utf-8',
-      );
-      writeFileSync(
-        getProjectRulesLockPath(tempDir),
-        JSON.stringify({ version: 1, rulebooks: [githubEntry] }),
-      );
+      writeRulebook(join(getProjectRulesDir(tempDir), 'alpha', 'rulebook.json'), 'beta');
 
       const githubPolicy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
 
       expect(githubPolicy.rules).toEqual([]);
       expect(githubPolicy.errors).toEqual(
-        expect.arrayContaining([expect.stringContaining('does not match GitHub source identity')]),
+        expect.arrayContaining([
+          expect.stringContaining('must match source "owner/repo#main/alpha"'),
+        ]),
       );
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
@@ -1214,13 +958,9 @@ describe('rules policy recovery coverage', () => {
       writeProjectRulebookConfig(tempDir);
       const synced = await syncRulesConfig({ cwd: tempDir });
       expect(synced.ok).toBe(true);
-      const cachePath = getRulebookCachePath(synced.entries[0] as RulebookLockEntry, {
-        cacheConfigDir: getProjectRulesDir(tempDir),
-      });
-      expect(existsSync(cachePath)).toBe(true);
+      expect(existsSync(join(tempDir, '.cc-safety-net', 'cache'))).toBe(false);
 
       await expectProjectRulesDeleteSourceRemoved(tempDir);
-      expect(readdirSync(join(tempDir, '.cc-safety-net', 'cache', 'rulebooks'))).toEqual([]);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -1326,7 +1066,7 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
-  test('restores config and lock when delete-source fails after preflight', async () => {
+  test('restores the config when delete-source fails after preflight', async () => {
     const tempDir = makeTempDir('rules-policy-remove-delete-source-failure');
 
     try {
@@ -1347,7 +1087,7 @@ describe('rules policy recovery coverage', () => {
       expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([
         'project-rules',
       ]);
-      expect(readLockfile(getProjectRulesLockPath(tempDir)).lock?.rulebooks).toHaveLength(1);
+      expect(loadRulesPolicy({ cwd: tempDir }).errors).toEqual([]);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -1384,29 +1124,6 @@ describe('rules policy recovery coverage', () => {
         });
       },
       'Unable to access project policy filesystem safely.',
-    );
-    await expectProjectRulesDeleteSourcePreflightError(
-      'rules-policy-remove-delete-source-outside',
-      (tempDir) => {
-        writeProjectRulebookConfig(tempDir);
-        writeFileSync(
-          getProjectRulesLockPath(tempDir),
-          JSON.stringify({
-            version: 1,
-            rulebooks: [
-              {
-                spec: 'project-rules',
-                kind: 'local-directory',
-                path: '../outside',
-                name: 'project-rules',
-                version: '1.0.0',
-                digest: 'sha256:'.padEnd(71, 'a'),
-              },
-            ],
-          }),
-        );
-      },
-      'outside',
     );
   });
 
@@ -1551,7 +1268,7 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
-  test('rejects over-limit local rulebooks before cache or lock publication', async () => {
+  test('rejects over-limit local rulebooks before publishing anything', async () => {
     const tempDir = makeTempDir('rules-policy-rulebook-limits');
     const source = join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json');
     try {
@@ -1571,28 +1288,11 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
-  test('fails closed on a digest-valid over-limit cached rulebook', async () => {
+  test('fails closed on an over-limit rulebook file', async () => {
     const tempDir = makeTempDir('rules-policy-cached-rulebook-limits');
     const userConfigDir = join(tempDir, 'user');
     try {
-      writeProjectRulebookConfig(tempDir);
-      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
-      const originalEntry = readLockfile(getProjectRulesLockPath(tempDir)).lock?.rulebooks[0];
-      if (!originalEntry) throw new Error('missing local lock entry');
-
-      const content = overLimitRulebookJson();
-      const entry = { ...originalEntry, digest: sha256Digest(content) };
-      const cachePath = getRulebookCachePath(entry, {
-        cacheConfigDir: getProjectRulesDir(tempDir),
-        userConfigDir,
-      });
-      mkdirSync(dirname(cachePath), { recursive: true });
-      writeFileSync(cachePath, content);
-      writeFileSync(join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json'), content);
-      writeFileSync(
-        getProjectRulesLockPath(tempDir),
-        JSON.stringify({ version: 1, rulebooks: [entry] }),
-      );
+      writeFileSync(await syncProjectScope(tempDir, userConfigDir), overLimitRulebookJson());
 
       const policy = loadRulesPolicy({ cwd: tempDir, userConfigDir });
       expect(policy.rules).toEqual([]);
@@ -1653,18 +1353,6 @@ describe('rules policy recovery coverage', () => {
   test('covers resolver error paths for local and GitHub sources', async () => {
     const tempDir = makeTempDir('rules-policy-resolver-errors');
     const originalFetch = globalThis.fetch;
-    const locked = {
-      spec: 'owner/repo#main/alpha',
-      kind: 'github' as const,
-      owner: 'owner',
-      repo: 'repo',
-      ref: 'main',
-      commit: 'abc123',
-      path: '.cc-safety-net/rules/alpha/rulebook.json',
-      name: 'alpha',
-      version: '1.0.0',
-      digest: 'sha256:'.padEnd(71, '0'),
-    };
 
     try {
       await expect(resolveRulebookSource('bad:source', tempDir, {})).rejects.toThrow(
@@ -1718,50 +1406,39 @@ describe('rules policy recovery coverage', () => {
         'must match GitHub source',
       );
 
-      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
-        const url = String(input);
-        if (url.includes('raw.githubusercontent.com')) {
-          return new Response(rulebookJson('alpha'));
-        }
-        return new Response('', { status: 404 });
-      }) as unknown as typeof fetch;
+      // A vendored file whose rulebook renamed itself is refused, not loaded...
+      mkdirSync(join(tempDir, 'alpha'), { recursive: true });
+      writeFileSync(join(tempDir, 'alpha', 'rulebook.json'), rulebookJson('other'), 'utf-8');
       await expect(
         resolveRulebookSourceForSync(
           'owner/repo#main/alpha',
           tempDir,
           {},
-          {
-            version: 1,
-            rulebooks: [locked],
-          },
+          undefined,
+          createRuleSyncOperation(),
+          false,
+          true,
         ),
-      ).rejects.toThrow('locked GitHub digest mismatch');
+      ).rejects.toThrow('must match "alpha"');
 
-      const mismatchedContent = rulebookJson('beta');
-      const mismatchedLocked = {
-        ...locked,
-        owner: 'attacker',
-        path: '.cc-safety-net/rules/beta/rulebook.json',
-        name: 'beta',
-        digest: sha256Digest(mismatchedContent),
-      };
-      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
-        const url = String(input);
-        return url.includes('raw.githubusercontent.com/attacker/repo/abc123/')
-          ? new Response(mismatchedContent)
-          : new Response('', { status: 404 });
+      // ...and a valid one resolves without touching the network at all.
+      writeFileSync(join(tempDir, 'alpha', 'rulebook.json'), rulebookJson('alpha'), 'utf-8');
+      globalThis.fetch = (async () => {
+        throw new Error('the vendored file must not be fetched');
       }) as unknown as typeof fetch;
-      await expect(
-        resolveRulebookSourceForSync(
-          'owner/repo#main/alpha',
-          tempDir,
-          {},
-          {
-            version: 1,
-            rulebooks: [mismatchedLocked],
-          },
-        ),
-      ).rejects.toThrow('does not match GitHub source identity');
+      expect(
+        (
+          await resolveRulebookSourceForSync(
+            'owner/repo#main/alpha',
+            tempDir,
+            {},
+            undefined,
+            createRuleSyncOperation(),
+            false,
+            true,
+          )
+        ).rulebook.name,
+      ).toBe('alpha');
     } finally {
       globalThis.fetch = originalFetch;
       rmSync(tempDir, { recursive: true, force: true });
@@ -1799,45 +1476,35 @@ describe('rules policy recovery coverage', () => {
       expect(
         readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.transparent_wrappers,
       ).toEqual(['rtk']);
-      expect(getRulesConfigSourceDisplayMap(getProjectRulesConfigPath(tempDir))).toEqual(
-        new Map([['owner/repo#main/alpha', 'owner/repo#main/alpha']]),
-      );
+      expect(readFileSync(vendoredRulebookPath(tempDir, 'alpha'), 'utf-8')).toBe(alphaRulebook);
+      expect(existsSync(getProjectRulesLockPath(tempDir))).toBe(false);
 
-      const syncedFromCache = await syncRulesConfig({
-        cwd: tempDir,
-        only: 'alpha',
-      });
-      expect(syncedFromCache.ok).toBe(true);
-      expect(syncedFromCache.entries[0]?.kind).toBe('github');
-      const locked = readLockfile(getProjectRulesLockPath(tempDir)).lock?.rulebooks[0];
-      if (!locked || locked.kind !== 'github') throw new Error('missing GitHub lock entry');
+      const syncedFromVendor = await syncRulesConfig({ cwd: tempDir, only: 'alpha' });
+      expect(syncedFromVendor.ok).toBe(true);
+      expect(syncedFromVendor.entries[0]?.spec).toBe('owner/repo#main/alpha');
       expect(
         (
           await resolveRulebookSourceForSync(
             'owner/repo#main/alpha',
             getProjectRulesDir(tempDir),
             {},
-            { version: 1, rulebooks: [locked] },
+            undefined,
+            createRuleSyncOperation(),
+            false,
+            true,
           )
-        ).entry,
-      ).toEqual(locked);
+        ).content,
+      ).toBe(alphaRulebook);
       expect(
         (await resolveRulebookSource('owner/repo#main/alpha', getProjectRulesDir(tempDir), {}))
-          .entry.kind,
-      ).toBe('github');
+          .spec,
+      ).toBe('owner/repo#main/alpha');
+      expect(getRemoveMatches(['owner/repo#main/alpha'], 'owner/repo')).toEqual({
+        ok: true,
+        specs: ['owner/repo#main/alpha'],
+      });
       expect(
-        getRemoveMatches(
-          ['owner/repo#main/alpha'],
-          readLockfile(getProjectRulesLockPath(tempDir)).lock,
-          'owner/repo',
-        ),
-      ).toEqual({ ok: true, specs: ['owner/repo#main/alpha'] });
-      expect(
-        getRemoveMatches(
-          ['owner/repo#abc123/alpha', 'owner/repo#def456/beta'],
-          readLockfile(getProjectRulesLockPath(tempDir)).lock,
-          'owner/repo',
-        ),
+        getRemoveMatches(['owner/repo#abc123/alpha', 'owner/repo#def456/beta'], 'owner/repo'),
       ).toEqual(expect.objectContaining({ ok: false }));
     } finally {
       globalThis.fetch = originalFetch;
@@ -1912,26 +1579,17 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
-  test('keeps an existing snapshot source idempotent under repository selection', async () => {
+  test('keeps a commit-pinned source idempotent under repository selection', async () => {
     const tempDir = makeTempDir('rules-policy-github-selection-snapshot');
     const originalFetch = globalThis.fetch;
     const configPath = getProjectRulesConfigPath(tempDir);
-    const lockPath = getProjectRulesLockPath(tempDir);
 
     try {
+      // The configured spec pins the very commit `main` resolves to, so re-adding the
+      // repository must reuse it instead of configuring the same rulebook twice.
       writeDefaultRulesConfig(configPath, ['owner/repo#abc123/alpha']);
       globalThis.fetch = mockGitHubRepoRulebooksFetch({ alpha: rulebookJson('alpha') });
       expect((await syncRulesConfig({ cwd: tempDir })).ok).toBe(true);
-      const lock = JSON.parse(readFileSync(lockPath, 'utf-8')) as {
-        rulebooks: Array<Record<string, unknown>>;
-      };
-      writeFileSync(
-        lockPath,
-        JSON.stringify({
-          ...lock,
-          rulebooks: lock.rulebooks.map((entry) => ({ ...entry, display_ref: 'main' })),
-        }),
-      );
 
       const result = await addRulebookSource('owner/repo', {
         cwd: tempDir,
@@ -1946,7 +1604,8 @@ describe('rules policy recovery coverage', () => {
         selected: ['alpha'],
         added: [],
         alreadyConfigured: ['alpha'],
-        commits: ['abc123'],
+        // Nothing was vendored, so no commit is claimed for the existing files.
+        commits: [],
       });
     } finally {
       globalThis.fetch = originalFetch;
@@ -1954,122 +1613,17 @@ describe('rules policy recovery coverage', () => {
     }
   });
 
-  test('prunes unreferenced local rulebook caches on sync', async () => {
-    const tempDir = makeTempDir('rules-policy-prune-local');
-
-    try {
-      writeProjectRulebook(tempDir, 'project-rules');
-      writeProjectRulebook(tempDir, 'extra-rules');
-      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['project-rules', 'extra-rules']);
-      expect((await syncRulesConfig({ cwd: tempDir })).ok).toBe(true);
-      const initialLock = readLockfile(getProjectRulesLockPath(tempDir)).lock;
-      if (!initialLock) throw new Error('missing lockfile');
-      const extraEntry = initialLock.rulebooks.find((entry) => entry.name === 'extra-rules');
-      if (!extraEntry) throw new Error('missing extra-rules entry');
-      const extraCachePath = getRulebookCachePath(extraEntry, {
-        cacheConfigDir: getProjectRulesDir(tempDir),
-      });
-      expect(existsSync(extraCachePath)).toBe(true);
-
-      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['project-rules']);
-      expect((await syncRulesConfig({ cwd: tempDir })).ok).toBe(true);
-      expect(existsSync(extraCachePath)).toBe(false);
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test('prunes unreferenced GitHub rulebook caches on sync', async () => {
-    const tempDir = makeTempDir('rules-policy-prune-github');
-    const originalFetch = globalThis.fetch;
-
-    try {
-      globalThis.fetch = mockGitHubRepoRulebooksFetch({
-        alpha: rulebookJson('alpha'),
-        beta: rulebookJson('beta'),
-      });
-
-      const added = await addRulebookSource('owner/repo', { cwd: tempDir });
-      expect(added.ok).toBe(true);
-      const initialLock = readLockfile(getProjectRulesLockPath(tempDir)).lock;
-      if (!initialLock) throw new Error('missing lockfile');
-      const betaEntry = initialLock.rulebooks.find(
-        (entry) => entry.kind === 'github' && entry.name === 'beta',
-      );
-      if (!betaEntry) throw new Error('missing beta entry');
-      const betaCachePath = getRulebookCachePath(betaEntry, {
-        cacheConfigDir: getProjectRulesDir(tempDir),
-      });
-      expect(existsSync(betaCachePath)).toBe(true);
-
-      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['owner/repo#main/alpha']);
-      expect((await syncRulesConfig({ cwd: tempDir })).ok).toBe(true);
-      expect(existsSync(betaCachePath)).toBe(false);
-    } finally {
-      globalThis.fetch = originalFetch;
-      rmSync(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test('continues sync when cache pruning fails', async () => {
-    const tempDir = makeTempDir('rules-policy-prune-warn');
-
-    const cacheDir = join(dirname(getProjectRulesDir(tempDir)), 'cache', 'rulebooks', 'stale');
-    try {
-      writeProjectRulebook(tempDir, 'project-rules');
-      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['project-rules']);
-      expect((await syncRulesConfig({ cwd: tempDir })).ok).toBe(true);
-
-      mkdirSync(cacheDir, { recursive: true });
-      writeFileSync(join(cacheDir, 'rulebook.json'), '{}', 'utf-8');
-      const options = {
-        cwd: tempDir,
-        _testPruneRulebookCacheDir: () => {
-          throw new Error('prune failed');
-        },
-      } satisfies SyncRulesConfigTestOptions;
-      const synced = await syncRulesConfigWithHooks(options, options);
-      expect(synced.ok).toBe(true);
-      expect(synced.warnings.length).toBeGreaterThan(0);
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test('covers lock validation, duplicate names, and sync rollback branches', async () => {
+  test('covers source validation, duplicate names, and sync rollback branches', async () => {
     const tempDir = makeTempDir('rules-policy-validation');
     const userConfigDir = join(tempDir, 'user');
-    const localEntry = {
-      spec: 'project-rules',
-      kind: 'local-directory' as const,
-      path: 'project-rules',
-      name: 'project-rules',
-      version: '1.0.0',
-      digest: 'sha256:'.padEnd(71, 'a'),
-    };
 
     try {
       writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['project-rules']);
-      writeFileSync(
-        getProjectRulesLockPath(tempDir),
-        JSON.stringify({ version: 1, rulebooks: [localEntry] }),
-      );
       expect((await syncRulesConfig({ cwd: tempDir, only: 'missing' })).errors[0]).toContain(
         'No configured rulebook matches missing',
       );
       expect((await syncRulesConfig({ cwd: tempDir, only: 'project-rules' })).errors[0]).toContain(
         'Rulebook source not found',
-      );
-
-      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['owner/repo#main/alpha']);
-      writeFileSync(getProjectRulesLockPath(tempDir), '{not json', 'utf-8');
-      expect(
-        (await removeRulebookSource('alpha', { cwd: tempDir, userConfigDir })).errors[0],
-      ).toContain('malformed lockfile');
-      writeDefaultRulesConfig(getProjectRulesConfigPath(tempDir), ['project-rules']);
-      writeFileSync(
-        getProjectRulesLockPath(tempDir),
-        JSON.stringify({ version: 1, rulebooks: [localEntry] }),
       );
 
       writeRulebook(
@@ -2084,30 +1638,11 @@ describe('rules policy recovery coverage', () => {
       ]);
 
       writeProjectRulebook(tempDir);
-      expect((await syncRulesConfig({ cwd: tempDir })).ok).toBe(true);
-      const syncedEntry = readLockfile(getProjectRulesLockPath(tempDir)).lock?.rulebooks[0];
-      if (!syncedEntry || syncedEntry.kind !== 'local-directory') {
-        throw new Error('missing local lock entry');
-      }
-      expect(
-        sha256Digest(
-          readFileSync(
-            join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json'),
-            'utf-8',
-          ),
-        ),
-      ).toBe(syncedEntry.digest);
-      writeFileSync(
-        getProjectRulesLockPath(tempDir),
-        JSON.stringify({ version: 1, rulebooks: [{ ...syncedEntry, path: '../outside' }] }),
-      );
-      expect((await syncRulesConfig({ cwd: tempDir, check: true })).errors).toEqual(
-        expect.arrayContaining([expect.stringContaining('does not match local source identity')]),
-      );
-      writeFileSync(
-        getProjectRulesLockPath(tempDir),
-        JSON.stringify({ version: 1, rulebooks: [syncedEntry] }),
-      );
+      const synced = await syncRulesConfig({ cwd: tempDir, check: true });
+      expect(synced.ok).toBe(true);
+      expect(synced.entries).toEqual([
+        { spec: 'project-rules', name: 'project-rules', version: '1.0.0', ruleCount: 1 },
+      ]);
       writeFileSync(join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json'), '{}');
       expect((await syncRulesConfig({ cwd: tempDir })).errors[0]).toContain(
         'rulebook_version must be 1 or 2',
@@ -2206,10 +1741,8 @@ describe('rules policy recovery coverage', () => {
     const userConfigDir = join(tempDir, 'user');
 
     try {
-      writeProjectRulebookConfig(tempDir);
-      expect((await syncRulesConfig({ cwd: tempDir, userConfigDir })).ok).toBe(true);
       writeFileSync(
-        join(getProjectRulesDir(tempDir), 'project-rules', 'rulebook.json'),
+        await syncProjectScope(tempDir, userConfigDir),
         rulebookJson().replace('Use targeted cleanup.', 'Promoted by sync.'),
         'utf-8',
       );

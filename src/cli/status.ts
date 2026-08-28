@@ -1,9 +1,11 @@
 import { homedir } from 'node:os';
+import { sep } from 'node:path';
 import { wrapReason } from '@/cli/explain/format-helpers';
 import { isPluginEnabled } from '@/cli/statusline';
 import { colors } from '@/cli/utils/colors';
 import {
   getCCSafetyNetEnvModes,
+  getProjectPolicyPath,
   getUserPolicyPath,
   loadPolicySnapshot,
   resolveEffectiveDestructiveCommandRules,
@@ -40,8 +42,16 @@ export function printStatus(): void {
   const hasEffectiveRuleCustomization = Object.values(
     resolveEffectiveDestructiveCommandRules(policy, modes.capabilities),
   ).some((rule) => rule.changesInherited);
-  const policyPath = getUserPolicyPath();
+  // A separator-delimited prefix only: `/Users/alice-work` merely shares a raw
+  // string prefix with home `/Users/alice` and must not display as `~-work`.
+  const shorten = (path: string) =>
+    path === homedir() || path.startsWith(`${homedir()}${sep}`)
+      ? `~${path.slice(homedir().length)}`
+      : path;
   const paintVerdict = { ready: colors.green, degraded: colors.yellow }[snapshot.state];
+  // Present only when a project policy file was read, so its absence is the
+  // signal that the user file is the whole configuration.
+  const weakenings = snapshot.policyScopes?.weakenings ?? [];
 
   // Ordinary snapshot diagnostics, led by the Claude Code bullet when the plugin is off.
   const issues = [
@@ -69,12 +79,23 @@ export function printStatus(): void {
           : modes.effectiveLevel,
       ),
       row('Rules', policy.rules.length === 0 ? 'none active' : `${policy.rules.length} active`),
-      row(
-        'Policy',
-        policyPath.startsWith(homedir()) ? `~${policyPath.slice(homedir().length)}` : policyPath,
-      ),
+      row('Policy', shorten(getUserPolicyPath())),
+      ...(snapshot.policyScopes ? [row('Project', shorten(getProjectPolicyPath()))] : []),
       ...(modes.worktreeMode ? [row('Worktree', 'relaxations active')] : []),
       '',
+      // What the project scope relaxed is in force, not missing, so it is its own
+      // block instead of a "Not active" bullet.
+      ...(weakenings.length === 0
+        ? []
+        : [
+            '  Project policy',
+            ...weakenings.flatMap((weakening) =>
+              wrapReason(weakening, '      ', width - 4).map((line, index) =>
+                index === 0 ? `    ${line}` : line,
+              ),
+            ),
+            '',
+          ]),
       ...(issues.length === 0
         ? ['  Everything configured is active.']
         : [

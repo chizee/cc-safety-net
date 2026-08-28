@@ -8,7 +8,7 @@ import {
   type PolicyFilesystemTarget,
 } from './filesystem';
 import { RULEBOOK_FILE, RULES_DIR } from './source-syntax';
-import type { RulebookLockEntry, RulesPolicyOptions, SyncRulesConfigOptions } from './types';
+import type { RulesPolicyOptions, SyncRulesConfigOptions } from './types';
 
 /** Compatibility re-exports for existing direct module consumers. */
 export { RULEBOOK_FILE, RULES_DIR };
@@ -19,30 +19,27 @@ const RULES_CONFIG_FILE = 'rule.json';
 /** Lives here rather than in core/policy so audit retention can resolve the
  *  policy path without importing the module that reads retention back. */
 export const POLICY_FILE = 'policy.json';
+/** Retired in version 3: kept only so the migration command can find and prune it. */
 const RULES_LOCK_FILE = 'rule.lock';
 const LEGACY_RULES_CONFIG_FILE = 'config.json';
 const SAFETY_NET_DIR = '.cc-safety-net';
 const RULES_SUBDIR = 'rules';
-const CACHE_SUBDIR = 'cache';
 const CC_SAFETY_NET_HOME = 'CC_SAFETY_NET_HOME';
-export const RULE_SYNC_COMMAND = '`cc-safety-net rule sync`';
+export const RULE_UPDATE_COMMAND = '`cc-safety-net rule update`';
 
 export interface PolicyPaths {
   userConfigPath: string;
   projectConfigPath: string;
-  userLockPath: string;
-  projectLockPath: string;
   userScope: PolicyFilesystemScope;
   projectScope: PolicyFilesystemScope;
   userConfigTarget: PolicyFilesystemTarget;
   projectConfigTarget: PolicyFilesystemTarget;
-  userLockTarget: PolicyFilesystemTarget;
-  projectLockTarget: PolicyFilesystemTarget;
 }
 
 export interface ScopePaths {
   configDir: string;
   configPath: string;
+  /** The retired v2 lockfile, carried only so the migration command can prune it. */
   lockPath: string;
   filesystemScope: PolicyFilesystemScope;
   configTarget: PolicyFilesystemTarget;
@@ -63,6 +60,12 @@ export function getProjectRulesLockPath(cwd?: string): string {
   return join(getProjectRulesDir(cwd), RULES_LOCK_FILE);
 }
 
+/** Project twin of `getUserPolicyPath`, resolved from the same project directory
+ *  the rules scope uses so the two scopes never disagree about the project. */
+export function getProjectPolicyPath(cwd?: string): string {
+  return join(resolve(cwd ?? process.cwd()), SAFETY_NET_DIR, POLICY_FILE);
+}
+
 export function getUserRulesDir(options?: RulesPolicyOptions): string {
   return (
     options?.userConfigDir ??
@@ -81,10 +84,12 @@ export function getUserRulesConfigPath(options?: RulesPolicyOptions): string {
   return join(getUserRulesDir(options), RULES_CONFIG_FILE);
 }
 
+/** @internal Where a v2 install published its lockfile; kept for reading those leftovers. */
 export function getUserRulesLockPath(options?: RulesPolicyOptions): string {
   return join(getUserRulesDir(options), RULES_LOCK_FILE);
 }
 
+/** @internal Where a v2 install published its lockfile; kept for reading those leftovers. */
 export function getRulesLockPathForConfigPath(configPath: string): string {
   return join(dirname(configPath), RULES_LOCK_FILE);
 }
@@ -105,20 +110,10 @@ export function getPolicyPaths(options: RulesPolicyOptions): PolicyPaths {
   return {
     userConfigPath,
     projectConfigPath,
-    userLockPath: getRulesLockPathForConfigPath(userConfigPath),
-    projectLockPath: getRulesLockPathForConfigPath(projectConfigPath),
     userScope,
     projectScope,
     userConfigTarget: getPolicyFilesystemTargetForPath(userScope, userConfigPath),
     projectConfigTarget: getPolicyFilesystemTargetForPath(projectScope, projectConfigPath),
-    userLockTarget: getPolicyFilesystemTargetForPath(
-      userScope,
-      getRulesLockPathForConfigPath(userConfigPath),
-    ),
-    projectLockTarget: getPolicyFilesystemTargetForPath(
-      projectScope,
-      getRulesLockPathForConfigPath(projectConfigPath),
-    ),
   };
 }
 
@@ -163,66 +158,7 @@ function getProjectPolicyFilesystemScope(
   return bindPolicyFilesystemScope(dirname(dirname(absoluteConfigPath)), 'project policy');
 }
 
-export function getRulebookDisplaySource(entry: RulebookLockEntry): string {
-  if (entry.kind === 'github' && entry.display_ref) {
-    return `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}`;
-  }
-  return entry.spec;
-}
-
-export function getRulebookCachePath(
-  entry: RulebookLockEntry,
-  options?: RulesPolicyOptions,
-): string {
-  const digestHex = entry.digest.startsWith('sha256:') ? entry.digest.slice(7) : entry.digest;
-  return join(
-    getRulesCacheDir(options),
-    'rulebooks',
-    `${getRulebookCacheSlug(entry)}--${digestHex.slice(0, 12)}`,
-    RULEBOOK_FILE,
-  );
-}
-
-export function getRulebookCacheRoot(options?: RulesPolicyOptions): string {
-  return join(getRulesCacheDir(options), 'rulebooks');
-}
-
-/** Builds cache lookup options without forwarding unknown caller fields. */
-export function getRulebookCacheOptions(
-  configDir: string,
-  options: RulesPolicyOptions,
-): SyncRulesConfigOptions {
-  const syncOptions = options as SyncRulesConfigOptions;
-  return {
-    cacheConfigDir: configDir,
-    cwd: options.cwd,
-    global: syncOptions.global,
-  };
-}
-
-function getRulebookCacheSlug(entry: RulebookLockEntry): string {
-  const source =
-    entry.kind === 'github' && entry.display_ref
-      ? `${entry.owner}/${entry.repo}#${entry.display_ref}/${entry.name}`
-      : entry.spec;
-  return (
-    source
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'rulebook'
-  );
-}
-
-function getRulesCacheDir(options?: RulesPolicyOptions): string {
-  const configDir = options?.cacheConfigDir ?? getUserRulesDir(options);
-  const syncOptions = options as SyncRulesConfigOptions | undefined;
-  if (
-    syncOptions &&
-    !syncOptions.global &&
-    syncOptions.cwd &&
-    resolve(configDir) === resolve(syncOptions.cwd)
-  ) {
-    return join(resolve(syncOptions.cwd), SAFETY_NET_DIR, CACHE_SUBDIR);
-  }
-  return join(dirname(configDir), CACHE_SUBDIR);
+/** Where a local source's live rulebook lives, relative to its scope config. */
+export function getLocalRulebookPath(configDir: string, name: string): string {
+  return join(configDir, name, RULEBOOK_FILE);
 }

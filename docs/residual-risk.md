@@ -39,7 +39,11 @@ All command examples are analyzer input strings only. Do not execute them in a s
 5. Review confirms the registry entry and this document stay synchronized before the
    classification is complete.
 
-RR-1 through RR-10 are immutable legacy records. Automated adjudication starts at RR-11.
+RR-1 through RR-10 are immutable legacy records; `automated_from` marks that boundary. Entries
+after RR-10 are adjudicated in one of two ways: `"kind": "automated"`, a classified finding that
+carries a strict or paranoid fail-closed fixture, or `"kind": "design"`, a residual an adjudicated
+design document accepted, whose `sources` cite that document and whose `strict_fixture` is `null`
+because no analyzer input can fail closed on it.
 
 Automated entries use this shape; the candidate identifies the adjudicated finding and the
 evidence must cite existing repository files:
@@ -194,3 +198,61 @@ Standard intentionally allows standalone metadata checks while keeping content a
 strict and paranoid block metadata-only discovery.
 
 Adjudicated 2026-07-22. Source: `SECURITY.md` safety-preset contract.
+
+### RR-11: Adversarial Repo-Delivered Configuration
+
+A cloned repository ships `.cc-safety-net/policy.json` or custom rules that weaken protection
+relative to the user's own policy, and social-engineers the clone. The project policy is honored as
+written, loosenings included, because within a team the committed file is the leader's legitimate
+artifact and git is its delivery mechanism, not an attack channel. Distinguishing a leader's file
+from a hostile one needs a trust gesture per repository, which was rejected: it defends against an
+adversary CC Safety Net does not claim to stop, since a hostile agent can uninstall the tool
+outright. `CC_SAFETY_NET_LEVEL` still raises the level for a session and is never lowered by a
+project file, and every weakening is displayed in `status`, `doctor`, the statusline, and the GUI.
+
+Adjudicated 2026-08-28. Sources: `TEAM-POLICY-DESIGN.md` threat model adjudication;
+`TEAM-POLICY-DESIGN.md` rejected alternatives (trust-gated weakening).
+
+### RR-12: Project Policy Guard Best-Effort Gaps
+
+The guard on `<project>/.cc-safety-net/policy.json` inherits the user-scope gaps: heredoc bodies,
+brace groups, and writes laundered through `git` are not recognized as mutations of the protected
+file. The guard exists for the mistake model, a helpful agent routing around a block, and that
+agent writes the file plainly. Closing the gaps means the exact-shell-emulation work already
+refused in RR-5 through RR-9, on a file whose deliberate-attack case is RR-11 and therefore out of
+scope. The complete mitigation is filesystem permissions.
+
+The `policy apply` invocation block carries the same standard: it recognizes the documented
+runner forms (direct bins, `npx`/`bunx`/`pnpx`, `dlx` and `exec` subcommands, runtime
+entrypoints, versioned specs, interleaved options) but does not emulate every package runner's
+full option grammar, and an unrecognized spelling passes the guard. The backstop is the command
+itself: `policy apply` refuses to run without an interactive terminal, so an invocation that
+slips past the guard still cannot apply silently.
+
+Adjudicated 2026-08-28. Sources: `TEAM-POLICY-DESIGN.md` guard extension; `SECURITY.md`
+policy-file protection non-goals.
+
+### RR-13: Live Rulebook Files Lose Edit-Pending Enforcement
+
+Rulebooks are read from their files on every tool call, so an accidentally corrupted or deleted
+`rulebook.json` drops that source's rules fail-open instead of keeping the last validated version
+enforced, which is what the retired lock and cache provided. The loss is bounded to custom rules:
+built-in protections and the effective policy are untouched, other sources stay active, and the
+condition is named with its file in block messages, `status`, the statusline, and `doctor`. Keeping
+the old behavior meant keeping a digest over co-located data that anything able to corrupt the
+rulebook could regenerate beside it. Deliberate removal of a project rule was already accepted by
+the threat model as weakening relative to team intent but never below the user baseline.
+
+Adjudicated 2026-08-28. Sources: `TEAM-POLICY-DESIGN.md` live-loading; `TEAM-POLICY-DESIGN.md`
+accepted residuals.
+
+### RR-14: Vendored Rulebook Drift Until Update
+
+`rule add` and `rule update` write the fetched rulebook into `<rulebook-name>/rulebook.json`, and
+nothing re-fetches afterwards. A vendored file edited locally, or an upstream repository that moves
+on, drifts until someone runs `rule update`. This is the price of the offline runtime contract:
+members never fetch, so a clone is protected with no network access and no per-repo command. Drift
+is visible where it matters, in the vendored file's own git history and in the diff `rule update`
+prints before overwriting.
+
+Adjudicated 2026-08-28. Source: `TEAM-POLICY-DESIGN.md` vendoring remote sources.

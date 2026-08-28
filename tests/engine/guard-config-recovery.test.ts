@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { evaluateGuard, type GuardEvaluation, type GuardStage } from '@/engine/guard';
 import { REASON_GIT_METADATA_PROTECTION } from '@/guards/git-metadata-protection';
@@ -19,7 +19,7 @@ import {
   writeDefaultRulesConfig,
   writeStarterRulebook,
 } from '@/rules/policy';
-import { withTempDir } from '../helpers';
+import { withTempDir, writeVendoredGitHubRulebookPolicy } from '../helpers';
 
 /**
  * Every configuration failure against the guard.
@@ -55,8 +55,8 @@ interface FailureRow {
   breakConfig: (fixture: Fixture) => Promise<void> | void;
   token: (fixture: Fixture) => string;
   /**
-   * What happens to the custom rule the fixture synced. Omitted when the row
-   * never gets as far as a synced rulebook, so there is none to account for.
+   * What happens to the custom rule the fixture configured. Omitted when the row
+   * never gets as far as an active rulebook, so there is none to account for.
    */
   customRule?: 'enforced' | 'dropped';
 }
@@ -136,73 +136,92 @@ function expectUsableRuntime(fixture: Fixture): void {
   expectAllowed(evaluatePath(fixture, 'Write', fixture.scratchPath), 'non-command');
 }
 
+function localRulebookPath(fixture: Fixture, name: string): string {
+  return join(fixture.projectRulesDir, name, 'rulebook.json');
+}
+
 function writeProjectRulebook(fixture: Fixture, name = 'project-rules'): void {
   mkdirSync(join(fixture.projectRulesDir, name), { recursive: true });
-  writeStarterRulebook(join(fixture.projectRulesDir, name, 'rulebook.json'), name);
+  writeStarterRulebook(localRulebookPath(fixture, name), name);
+}
+
+/** A local rulebook is live, so configuring it is all the enforcement it needs. */
+function writeProjectRulebookSource(fixture: Fixture): void {
+  writeProjectRulebook(fixture);
+  writeDefaultRulesConfig(fixture.projectConfigPath, ['project-rules']);
 }
 
 async function syncProjectRulebook(fixture: Fixture): Promise<void> {
-  writeProjectRulebook(fixture);
-  writeDefaultRulesConfig(fixture.projectConfigPath, ['project-rules']);
+  writeProjectRulebookSource(fixture);
   await syncRulesConfig({ cwd: fixture.cwd, userConfigDir: fixture.userConfigDir });
 }
 
-/** Keeps the rulebook valid while changing its bytes, so only the digest drifts. */
-function rewriteRulebookReason(path: string): void {
-  writeFileSync(
-    path,
-    readFileSync(path, 'utf-8').replace(CUSTOM_RULE_REASON, 'Prune specific images.'),
+/** The remote-source fixture: a configured spec plus the rulebook `rule add` vendored. */
+function writeVendoredRemoteRulebook(fixture: Fixture): void {
+  writeVendoredGitHubRulebookPolicy(
+    fixture.cwd,
+    JSON.stringify({
+      rulebook_version: 1,
+      name: 'policy',
+      version: '1.0.0',
+      allowed_commands: ['docker'],
+      rules: [
+        {
+          name: 'block-docker-system-prune',
+          command: 'docker',
+          subcommand: 'system',
+          block_args: ['prune'],
+          reason: CUSTOM_RULE_REASON,
+        },
+      ],
+      tests: [
+        { command: CUSTOM_RULE_COMMAND, expect: 'blocked', rule: 'block-docker-system-prune' },
+      ],
+    }),
   );
-}
-
-function cachedRulebookPath(fixture: Fixture): string {
-  const root = join(fixture.cwd, '.cc-safety-net', 'cache', 'rulebooks');
-  const entries = readdirSync(root);
-  expect(entries).toHaveLength(1);
-  return join(root, entries[0] ?? '', 'rulebook.json');
 }
 
 /** Failures whose source has no verified version left, so the source is dropped. */
 const DROPPED_SOURCE_ROWS: [string, FailureRow][] = [
   [
-    'missing project rule lockfile',
+    'missing local rulebook file',
     {
-      breakConfig: (fixture) => {
-        writeProjectRulebook(fixture);
-        writeDefaultRulesConfig(fixture.projectConfigPath, ['project-rules']);
-      },
-      token: (fixture) => `missing lockfile ${fixture.projectLockPath}`,
+      breakConfig: (fixture) =>
+        writeDefaultRulesConfig(fixture.projectConfigPath, ['project-rules']),
+      token: (fixture) =>
+        `missing rulebook file ${localRulebookPath(fixture, 'project-rules')} for project-rules`,
     },
   ],
   [
-    'missing lock entry for a newly configured source',
+    'invalid local rulebook file for a second source',
     {
-      prepare: syncProjectRulebook,
+      prepare: writeProjectRulebookSource,
       breakConfig: (fixture) => {
-        writeProjectRulebook(fixture, 'extra-rules');
+        mkdirSync(join(fixture.projectRulesDir, 'extra-rules'), { recursive: true });
+        writeFileSync(localRulebookPath(fixture, 'extra-rules'), '{ "rulebook_version": 1,');
         writeDefaultRulesConfig(fixture.projectConfigPath, ['project-rules', 'extra-rules']);
       },
-      token: () => 'missing lock entry for extra-rules',
-      // Only the unsynchronized source is dropped; the verified one is untouched.
+      token: (fixture) => `invalid rulebook ${localRulebookPath(fixture, 'extra-rules')}`,
+      // Only the unreadable source is dropped; the readable one is untouched.
       customRule: 'enforced',
     },
   ],
   [
-    'missing rulebook cache entry',
+    'unvendored remote source',
     {
-      prepare: syncProjectRulebook,
-      breakConfig: (fixture) =>
-        rmSync(join(fixture.cwd, '.cc-safety-net', 'cache'), { recursive: true, force: true }),
-      token: () => 'missing cache entry for project-rules',
+      prepare: writeVendoredRemoteRulebook,
+      breakConfig: (fixture) => rmSync(localRulebookPath(fixture, 'policy')),
+      token: () => 'run `cc-safety-net rule update` to vendor owner/repo#main/policy',
       customRule: 'dropped',
     },
   ],
   [
-    'cache digest mismatch',
+    'vendored rulebook renaming itself',
     {
-      prepare: syncProjectRulebook,
-      breakConfig: (fixture) => rewriteRulebookReason(cachedRulebookPath(fixture)),
-      token: () => 'cache digest mismatch for project-rules',
+      prepare: writeVendoredRemoteRulebook,
+      breakConfig: (fixture) =>
+        writeStarterRulebook(localRulebookPath(fixture, 'policy'), 'renamed'),
+      token: () => 'must match source "owner/repo#main/policy"',
       customRule: 'dropped',
     },
   ],
@@ -500,7 +519,7 @@ describe('configuration recovery', () => {
   // Transparent wrappers are the one part of rule configuration that widens what
   // built-in analysis can see, so where they survive is worth pinning exactly.
   test('a dropped rulebook keeps the scope transparent wrappers', async () => {
-    await withTempDir('cc-safety-net-config-recovery-wrapper-', async (cwd) => {
+    await withTempDir('cc-safety-net-config-recovery-wrapper-', (cwd) => {
       const fixture = createFixture(cwd);
       writeProjectRulebook(fixture);
       writeFileSync(
@@ -513,10 +532,10 @@ describe('configuration recovery', () => {
         }),
       );
       expect(
-        (await syncRulesConfig({ cwd: fixture.cwd, userConfigDir: fixture.userConfigDir })).ok,
-      ).toBeTrue();
+        loadPolicySnapshot({ cwd, userConfigDir: fixture.userConfigDir }).policy.rules,
+      ).toHaveLength(1);
 
-      rmSync(join(cwd, '.cc-safety-net', 'cache'), { recursive: true, force: true });
+      writeFileSync(localRulebookPath(fixture, 'project-rules'), '{ "rulebook_version": 1,');
       const snapshot = loadPolicySnapshot({ cwd, userConfigDir: fixture.userConfigDir });
 
       // The rulebook is dropped, but wrappers come from rule.json, which still reads.

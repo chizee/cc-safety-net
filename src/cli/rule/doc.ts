@@ -4,11 +4,13 @@ Agent reference for generating CC Safety Net rulebook configuration.
 
 ## Config Locations
 
-| Scope | Config path | Rulebook path | Cache path | Priority |
-|-------|-------------|---------------|------------|----------|
-| User | \`~/.cc-safety-net/rules/rule.json\` | \`~/.cc-safety-net/rules/<rulebook-name>/rulebook.json\` | \`~/.cc-safety-net/cache/rulebooks/\` | First |
-| Project | \`.cc-safety-net/rules/rule.json\` | \`.cc-safety-net/rules/<rulebook-name>/rulebook.json\` | \`.cc-safety-net/cache/rulebooks/\` | Second |
-| GitHub source | Listed in a local \`rule.json\` | \`.cc-safety-net/rules/<rulebook-name>/rulebook.json\` in the source repository | Consumer local cache | Source order |
+| Scope | Config path | Rulebook path | Priority |
+|-------|-------------|---------------|----------|
+| User | \`~/.cc-safety-net/rules/rule.json\` | \`~/.cc-safety-net/rules/<rulebook-name>/rulebook.json\` | First |
+| Project | \`.cc-safety-net/rules/rule.json\` | \`.cc-safety-net/rules/<rulebook-name>/rulebook.json\` | Second |
+| GitHub source | Listed in a local \`rule.json\` | Vendored into the consumer's \`<rulebook-name>/rulebook.json\` by \`rule add\` | Source order |
+
+Every rulebook is a live file: the runtime reads it on each tool call, so an edit applies to the next command with no publishing step.
 
 User scope is evaluated before project scope; within a scope, sources apply in \`rules\` array order. A duplicate active rulebook name keeps the first claim and ignores the later rulebook with a warning, so a user-scoped name shadows a project-scoped one.
 
@@ -37,7 +39,7 @@ Legacy inline \`.safety-net.json\` and \`~/.cc-safety-net/config.json\` files ar
 - \`rules\`: Optional array of rulebook source strings. Missing \`rules\` is treated as \`[]\`.
 - \`overrides\`: Optional object keyed by \`<rulebook-name>/<rule-name>\`.
 - \`overrides\` values are either \`"off"\` to disable a rule or an object with a required \`reason\` (replacement block reason) and an optional \`intent\` (one of \`hard_stop\`, \`use_alternative\`, \`scope_down\`, \`manual_only\`, \`stop_and_explain\`).
-- A project override cannot target a user-scoped rule: only that override is ignored, the user rule keeps its configured state, and \`rule sync\`/\`rule verify\` report the diagnostic as a failure.
+- A project override cannot target a user-scoped rule: only that override is ignored, the user rule keeps its configured state, and \`rule verify\` reports the diagnostic as a failure.
 - \`transparent_wrappers\`: Optional array of command names that transparently execute a visible child command.
 - Transparent wrappers have no built-in defaults. Configure only wrappers you intentionally trust, such as \`"rtk"\`.
 - Use \`cc-safety-net rule wrapper add rtk\` to configure RTK without manually editing \`rule.json\`.
@@ -156,7 +158,7 @@ Version 2 replaces \`subcommand\` and \`block_args\` with an exact-token \`match
 | \`expect\` | Yes | \`"blocked"\` or \`"allowed"\` |
 | \`rule\` | Required for blocked fixtures | Rule name expected to block the command |
 
-Fixtures are optional documentation of intended behavior. Version 1 fixtures are shape-validated only. Version 2 fixtures are evaluated against the rulebook's own rules during \`rule sync\` and \`rule verify\`; a failing fixture rejects that source before its lock entry is written. CC Safety Net never executes fixture commands; they are analyzer inputs only.
+Fixtures are optional documentation of intended behavior. Version 1 fixtures are shape-validated only. Version 2 fixtures are evaluated against the rulebook's own rules when a source is fetched by \`rule add\` or \`rule update\`, and by \`rule verify\`; a failing fixture rejects that source before it is written. Loading a rulebook does not re-evaluate fixtures. CC Safety Net never executes fixture commands; they are analyzer inputs only.
 
 ## Matching Behavior
 
@@ -176,10 +178,10 @@ The subcommand, argument, and option rules below describe \`rulebook_version\` 1
 2. Optionally run \`cc-safety-net rule init --example\` to create an inactive example rulebook.
 3. Use \`cc-safety-net rule wrapper add rtk\` for trusted transparent wrappers.
 4. Run \`cc-safety-net rule add <source>\` after creating or choosing a rulebook source; add \`--only <rulebook...>\` or \`--ref <ref>\` for repository selection. The command adds the selected sources and syncs them.
-5. Run \`cc-safety-net rule sync\` after manual \`rule.json\` changes or local rulebook edits.
-6. Run \`cc-safety-net rule update [source]\` to re-resolve remote branch or tag refs to their latest commit; \`cc-safety-net rule sync\` keeps reusing the locked commit. A source with an ordinary update failure keeps its last good lock entry and cache while the other selected sources still update. Resource-limit failures remain fatal for the whole update.
-7. Run \`cc-safety-net rule verify\` to validate config, lock/cache state, local rulebooks, and shareable GitHub-source rulebook directories in the current repository (it does not fetch remote content).
+5. Edit a local rulebook whenever you like: the edit is enforced on the next command, so there is nothing to run afterwards.
+6. Run \`cc-safety-net rule update [source]\` to re-fetch remote sources and rewrite the vendored copies; the command prints what changed. A source with an ordinary update failure keeps its vendored copy while the other selected sources still update. Resource-limit failures remain fatal for the whole update.
+7. Run \`cc-safety-net rule verify\` to validate config, local rulebooks, and shareable GitHub-source rulebook directories in the current repository (it does not fetch remote content).
 8. Run \`cc-safety-net rule list\` to inspect active rulebooks and transparent wrappers.
 
-An edited or invalid local rulebook keeps its last synced, digest-verified cached version enforced until \`cc-safety-net rule sync\` validates the edit. A missing lock entry or cache, a cache digest mismatch, or an invalid cached rulebook makes that source inactive; a missing lockfile or an unreadable or invalid \`rule.json\` makes every source in its scope inactive. Inactive sources stop applying their rules while other custom rules and all built-in protections stay active. Repair the reported condition, then run \`cc-safety-net rule sync\`. Run \`cc-safety-net status\` to see degraded sources.
+A missing or invalid rulebook file makes that source inactive, and an unreadable or invalid \`rule.json\` makes every source in its scope inactive. Inactive sources stop applying their rules while other custom rules and all built-in protections stay active. Fix the file named in the diagnostic, or run \`cc-safety-net rule update\` when a remote source has not been vendored yet. Run \`cc-safety-net status\` to see degraded sources.
 `;

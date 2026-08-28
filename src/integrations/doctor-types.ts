@@ -9,6 +9,7 @@ import type {
   DestructiveCommandRuleOverride,
   EffectiveSafetyCapabilities,
   EffectiveSafetyLevel,
+  PolicyScopes,
 } from '@/ir/policy';
 
 /** Hook platform identifiers */
@@ -76,6 +77,9 @@ interface EffectiveSafetyInfo {
   capabilities: EffectiveSafetyCapabilities;
   ruleOverrides: Readonly<Record<string, DestructiveCommandRuleOverride>>;
   weakenedRuleOverrides: string[];
+  /** Set only when a project policy file was read: which scope supplied the
+   *  preset, and what the project scope relaxed. */
+  policyScopes?: PolicyScopes;
   ruleCounts: {
     stored: number;
     effective: number;
@@ -167,6 +171,8 @@ export interface DoctorReport {
   shadowedRules: ShadowedRule[];
   environment: EnvVarInfo[];
   effectiveSafety: EffectiveSafetyInfo;
+  /** Lock and cache files a version 2 install left behind, present only when some exist. */
+  v2Leftovers?: readonly string[];
   posture: DoctorPosture;
   findings: DoctorFinding[];
   activity: ActivitySummary;

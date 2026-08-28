@@ -6,6 +6,7 @@ import type {
   EffectiveSafetyCapabilities,
   EffectiveSafetyLevel,
   PolicySafetyLevel,
+  PolicyScopes,
   PolicySnapshot,
 } from './policy.js';
 
@@ -35,6 +36,9 @@ export interface ExplainResult {
   configValid: boolean;
   effectiveLevel: EffectiveSafetyLevel;
   selectedPreset: PolicySafetyLevel;
+  /** Which scope supplied `selectedPreset`, set only when a project policy file
+   *  was read. The per-field deltas belong to `status` and `doctor`. */
+  safetyPresetScope?: PolicyScopes['levelScope'];
   effectiveCapabilities: EffectiveSafetyCapabilities;
   destructiveCommandRuleOverrides: Readonly<Record<string, DestructiveCommandRuleOverride>>;
   ruleActivation?: EffectiveDestructiveCommandRuleState & { id: string };

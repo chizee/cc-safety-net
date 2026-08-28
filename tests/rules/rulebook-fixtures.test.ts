@@ -5,7 +5,7 @@ import { loadRulesPolicy, syncRulesConfig } from '@/rules/policy';
 import { getProjectRulesLockPath } from '@/rules/policy/paths';
 import { evaluateRulebookFixtures } from '@/rules/rulebook-fixtures';
 import type { Rulebook } from '@/rules/rulebook-types';
-import { withTempDir, writeLockedGitHubRulebookPolicy } from '../helpers';
+import { withTempDir, writeVendoredGitHubRulebookPolicy } from '../helpers';
 
 type RulebookV2 = Extract<Rulebook, { rulebook_version: 2 }>;
 
@@ -194,7 +194,7 @@ describe('rulebook v2 fixture enforcement', () => {
 
   test('keeps a locked rulebook active at runtime without evaluating its fixtures', async () => {
     await withTempDir('safety-net-rulebook-fixture-runtime-', (tempDir) => {
-      writeLockedGitHubRulebookPolicy(
+      writeVendoredGitHubRulebookPolicy(
         tempDir,
         JSON.stringify(
           v2Rulebook(

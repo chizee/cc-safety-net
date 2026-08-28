@@ -15,6 +15,10 @@ import {
   resolveProtectedGitMetadata,
 } from '@/guards/git-metadata-protection';
 import {
+  findPolicyApplyInvocationInSemanticFacts,
+  REASON_POLICY_APPLY_PROTECTION,
+} from '@/guards/policy-apply-protection';
+import {
   findPolicyConfigMutationTargetInSemanticFacts,
   REASON_POLICY_CONFIG_PROTECTION,
 } from '@/guards/policy-protection';
@@ -43,6 +47,9 @@ export function explainCommand(command: string, options?: ExplainOptions): Expla
   const configuration = {
     effectiveLevel: context.effectiveLevel,
     selectedPreset: analyzeOptions.policySnapshot.policy.safety.level ?? 'standard',
+    ...(analyzeOptions.policySnapshot.policyScopes
+      ? { safetyPresetScope: analyzeOptions.policySnapshot.policyScopes.levelScope }
+      : {}),
     effectiveCapabilities: context.effectiveCapabilities,
     destructiveCommandRuleOverrides:
       analyzeOptions.policySnapshot.policy.destructiveCommandRuleOverrides,
@@ -226,6 +233,14 @@ function findPreAnalysisBlock(command: string, options: AnalyzeInput) {
       target: policyTarget.target,
       ruleId: 'policy-protection',
       rule: 'policy-protection:findPolicyConfigMutationTargetInSemanticFacts',
+    };
+  const policyApplyTarget = findPolicyApplyInvocationInSemanticFacts(facts);
+  if (policyApplyTarget)
+    return {
+      reason: REASON_POLICY_APPLY_PROTECTION,
+      target: policyApplyTarget.target,
+      ruleId: 'policy-apply-protection',
+      rule: 'policy-apply-protection:findPolicyApplyInvocationInSemanticFacts',
     };
   const gitMetadataTarget = findGitMetadataMutationTargetInSemanticFacts(
     facts,

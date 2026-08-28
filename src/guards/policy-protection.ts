@@ -1,4 +1,4 @@
-import { basename, dirname } from 'node:path';
+import { dirname } from 'node:path';
 import { textCommandWords } from '@/analyzer/command-words';
 import { findExecRmDeletesFoundPaths, findHasDelete, getFindStartingPoints } from '@/analyzer/find';
 import {
@@ -23,6 +23,7 @@ import type { SemanticFacts, ShellSyntaxFacts } from '@/ir/semantic-facts';
 import { getBasename } from '@/parser/shell';
 import { isReadOnlyTool } from '@/parser/tool-input';
 import { getUserPolicyPath } from '@/policy/store';
+import { getProjectPolicyPath, POLICY_FILE } from '@/rules/policy/paths';
 
 export const REASON_POLICY_CONFIG_PROTECTION =
   'This path contains the protected policy config and you must not modify or delete it.';
@@ -49,8 +50,8 @@ type PolicyConfigTarget = {
 };
 
 type PolicyPathIdentity = {
-  readonly file: string;
-  readonly directoryAndAncestors: ReadonlySet<string>;
+  readonly files: ReadonlySet<string>;
+  readonly directoriesAndAncestors: ReadonlySet<string>;
 };
 
 /** @internal */
@@ -69,7 +70,7 @@ export function findPolicyConfigMutationTargetInSemanticFacts(
   facts: SemanticFacts,
 ): PolicyConfigTarget | null {
   const context = createPathCanonicalizationContext(createProcessEnvironment());
-  const identity = createPolicyPathIdentity(facts.invocation.context.executionCwd, context);
+  const identity = createPolicyPathIdentity(facts.invocation.context, context);
   if (facts.invocation.route.kind === 'patch') {
     return findPolicyConfigMutationTargetInPaths(
       facts.paths,
@@ -267,18 +268,29 @@ function extractDirectPathCandidates(value: string): readonly string[] {
     : [cleaned, cleaned.slice(separator + 1)];
 }
 
+/** Both scopes are protected unconditionally: an unguarded project file the agent can
+ *  create is exactly the two-tool-call bypass the user-scope guard already closes.
+ *  The project chain stops at its own `.cc-safety-net` directory. Walking further up
+ *  would claim the cwd and every ancestor, which is the target surface of the
+ *  destructive-command rules; this guard runs first, so that would permanently replace
+ *  their specific reasons (`rm -rf .`, `find . -delete`) with this generic one. */
 function createPolicyPathIdentity(
-  cwd: string,
+  toolContext: ToolCallContext,
   context: PathCanonicalizationContext,
 ): PolicyPathIdentity {
-  const file = normalizeProtectedPathCandidate(getUserPolicyPath(), cwd, context);
-  const directory = dirname(file);
-  const directoryAndAncestors = new Set<string>();
-  for (let current = directory; ; current = dirname(current)) {
-    directoryAndAncestors.add(comparePath(current));
+  const normalize = (path: string) =>
+    comparePath(normalizeProtectedPathCandidate(path, toolContext.executionCwd, context));
+  const userFile = normalize(getUserPolicyPath());
+  const projectFiles = [
+    normalize(getProjectPolicyPath(toolContext.executionCwd)),
+    normalize(getProjectPolicyPath(toolContext.configCwd)),
+  ];
+  const directoriesAndAncestors = new Set(projectFiles.map((file) => dirname(file)));
+  for (let current = dirname(userFile); ; current = dirname(current)) {
+    directoriesAndAncestors.add(current);
     if (dirname(current) === current) break;
   }
-  return { file: comparePath(file), directoryAndAncestors };
+  return { files: new Set([userFile, ...projectFiles]), directoriesAndAncestors };
 }
 
 function isPolicyFile(
@@ -291,9 +303,9 @@ function isPolicyFile(
     target,
     cwd,
     context,
-    (name) => comparePath(name) === basename(identity.file),
+    (name) => comparePath(name) === POLICY_FILE,
   );
-  return resolved !== null && comparePath(resolved) === identity.file;
+  return resolved !== null && identity.files.has(comparePath(resolved));
 }
 
 function isPolicyDirectoryOrAncestor(
@@ -302,7 +314,7 @@ function isPolicyDirectoryOrAncestor(
   identity: PolicyPathIdentity,
   context: PathCanonicalizationContext,
 ): boolean {
-  return identity.directoryAndAncestors.has(
+  return identity.directoriesAndAncestors.has(
     comparePath(normalizeProtectedPathCandidate(target, cwd, context)),
   );
 }
@@ -314,7 +326,7 @@ function isPolicyFileOrDirectorySource(
   context: PathCanonicalizationContext,
 ): boolean {
   const normalized = comparePath(normalizeProtectedPathCandidate(target, cwd, context));
-  return normalized === identity.file || identity.directoryAndAncestors.has(normalized);
+  return identity.files.has(normalized) || identity.directoriesAndAncestors.has(normalized);
 }
 
 function comparePath(path: string): string {

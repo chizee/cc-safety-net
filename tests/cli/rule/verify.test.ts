@@ -9,7 +9,7 @@ const SCHEMA_URL =
   'https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json';
 
 describe('rule verify runtime errors', () => {
-  test('reports missing lockfile for an unsynced user config', async () => {
+  test('reports an unvendored remote source in the user config', async () => {
     await withTempDir('safety-net-rule-verify-user-unsynced-', (tempDir) => {
       const userConfig = join(tempDir, 'user', 'rules', 'rule.json');
       writeRulesConfig(userConfig, ['owner/repo#main/policy']);
@@ -19,14 +19,16 @@ describe('rule verify runtime errors', () => {
       expect(result.exitCode).toBe(1);
       expect(result.output).toContain(`✗ User config: ${userConfig}`);
       expect(result.output).toContain(
-        `1. missing lockfile ${join(tempDir, 'user', 'rules', 'rule.lock')}`,
+        `1. missing rulebook file ${join(tempDir, 'user', 'rules', 'policy', 'rulebook.json')} for owner/repo#main/policy`,
       );
-      expect(result.output).toContain('2. run `cc-safety-net rule sync`');
+      expect(result.output).toContain(
+        '2. run `cc-safety-net rule update` to vendor owner/repo#main/policy',
+      );
       expect(result.output).toContain('Config validation failed.');
     });
   });
 
-  test('reports missing lockfile for an unsynced project config', async () => {
+  test('reports an unvendored remote source in the project config', async () => {
     await withTempDir('safety-net-rule-verify-project-unsynced-', (tempDir) => {
       const projectConfig = join(tempDir, 'project', 'rules', 'rule.json');
       writeRulesConfig(projectConfig, ['owner/repo#main/policy']);
@@ -36,9 +38,11 @@ describe('rule verify runtime errors', () => {
       expect(result.exitCode).toBe(1);
       expect(result.output).toContain(`✗ Project config: ${projectConfig}`);
       expect(result.output).toContain(
-        `1. missing lockfile ${join(tempDir, 'project', 'rules', 'rule.lock')}`,
+        `1. missing rulebook file ${join(tempDir, 'project', 'rules', 'policy', 'rulebook.json')} for owner/repo#main/policy`,
       );
-      expect(result.output).toContain('2. run `cc-safety-net rule sync`');
+      expect(result.output).toContain(
+        '2. run `cc-safety-net rule update` to vendor owner/repo#main/policy',
+      );
       expect(result.output).toContain('Config validation failed.');
     });
   });

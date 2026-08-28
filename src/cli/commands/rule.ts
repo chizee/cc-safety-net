@@ -8,7 +8,6 @@ export const ruleAddOptions = [
     description: 'Add only these repository rulebooks',
   },
   { flags: '-g, --global', description: 'Use user-scope rule config' },
-  { flags: '--check', description: 'Check without changing lock/cache state' },
   { flags: '-h, --help', description: 'Show this help' },
 ];
 
@@ -30,8 +29,8 @@ export const ruleCommand = {
       description: 'Add rulebook sources and sync',
     },
     { usage: 'remove <source>', description: 'Remove a rulebook source and sync' },
-    { usage: 'update [source]', description: 'Refresh rulebook lock/cache state' },
-    { usage: 'sync', description: 'Sync configured rulebooks' },
+    { usage: 'update [source]', description: 'Re-fetch and vendor remote rulebooks' },
+    { usage: 'sync', description: 'Deprecated: migrate lock and cache leftovers' },
     { usage: 'list', description: 'List active rulebooks' },
     { usage: 'wrapper add <command>', description: 'Trust a transparent command wrapper' },
     { usage: 'wrapper remove <command>', description: 'Remove a transparent command wrapper' },
@@ -42,7 +41,6 @@ export const ruleCommand = {
   ],
   options: [
     { flags: '-g, --global', description: 'Use user-scope rule config' },
-    { flags: '--check', description: 'Check without changing lock/cache state' },
     { flags: '--cleanup', description: 'Delete legacy files after rule migrate verifies them' },
     { flags: '--delete-source', description: 'Delete clean local source directory on remove' },
     { flags: '--example', description: 'Create an inactive example rulebook with rule init' },
@@ -54,7 +52,7 @@ export const ruleCommand = {
     'cc-safety-net rule init --example',
     'cc-safety-net rule wrapper add rtk',
     ...ruleAddExamples,
-    'cc-safety-net rule sync',
+    'cc-safety-net rule update',
     'cc-safety-net rule migrate --cleanup',
     'cc-safety-net rule verify',
   ],

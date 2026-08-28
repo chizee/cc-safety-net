@@ -2,6 +2,7 @@ import type {
   ConfigStateInfo,
   CustomRuleMetadata,
   EffectivePolicy,
+  PolicyScopes,
   PolicySnapshot,
 } from '@/ir/policy';
 import { loadPolicyConfig } from '@/policy/store';
@@ -11,8 +12,8 @@ import type { LoadedRulesPolicy, RulesPolicyOptions } from '@/rules/policy/types
 export type PolicySnapshotOptions = RulesPolicyOptions;
 
 /**
- * Loads the effective runtime policy from local configuration, lockfiles, and
- * verified rulebook cache entries. This function performs no writes, network
+ * Loads the effective runtime policy from the user and project policy files and
+ * each scope's live rulebook files. This function performs no writes, network
  * requests, or in-memory caching.
  */
 export function loadPolicySnapshot(options: PolicySnapshotOptions = {}): PolicySnapshot {
@@ -61,7 +62,12 @@ export function loadPolicySnapshot(options: PolicySnapshotOptions = {}): PolicyS
       }),
     ),
   );
-  return createPolicySnapshot(policy, getSnapshotFailure(rules, userPolicy), ruleMetadata);
+  return createPolicySnapshot(
+    policy,
+    getSnapshotFailure(rules, userPolicy),
+    ruleMetadata,
+    userPolicy.policyScopes,
+  );
 }
 
 /**
@@ -128,14 +134,17 @@ export function createPolicySnapshot(
   policy: EffectivePolicy,
   failure?: { readonly diagnostics: readonly string[]; readonly reason: string },
   ruleMetadata: Readonly<Record<string, CustomRuleMetadata>> = Object.freeze({}),
+  policyScopes?: PolicyScopes,
 ): PolicySnapshot {
   const frozenPolicy = deepFreeze(structuredClone(policy));
+  const scopes = policyScopes ? { policyScopes: deepFreeze(structuredClone(policyScopes)) } : {};
   if (!failure) {
     return Object.freeze({
       state: 'ready',
       policy: frozenPolicy,
       diagnostics: Object.freeze([]),
       ruleMetadata,
+      ...scopes,
     });
   }
   return Object.freeze({
@@ -144,6 +153,7 @@ export function createPolicySnapshot(
     diagnostics: Object.freeze([...failure.diagnostics]),
     reason: failure.reason,
     ruleMetadata,
+    ...scopes,
   });
 }
 

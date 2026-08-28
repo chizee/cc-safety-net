@@ -19,7 +19,6 @@ const require = createRequire(import.meta.url);
 let schemas: ReturnType<typeof createSchemas> | undefined;
 const OVER_LIMIT_RULE_SOURCES = Array(RULE_SOURCE_LIMIT + 1).fill('over-limit');
 const RULE_OVERRIDE_KEY_PATTERN = /^[^/]+\/[^/]+$/;
-const SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const AUDIT_RETENTION_ERROR = `must be an integer between ${MIN_AUDIT_RETENTION_DAYS} and ${MAX_AUDIT_RETENTION_DAYS}`;
 const RULES_CONFIG_FIELDS = ['version', 'rules', 'overrides', 'transparent_wrappers'];
 const USER_POLICY_FIELDS = [
@@ -467,57 +466,6 @@ function createSchemas() {
       )
       .check(alwaysRun(refineDuplicateRuleNames)),
   );
-  const requiredLockString = z
-    .string({ error: 'required string' })
-    .refine((value) => value.trim() !== '', { error: 'required string' });
-  // The fields every kind shares stay outside the union: a union stops at an unmatched
-  // discriminator, which would hide the rest of the entry's own errors.
-  const LockEntrySharedSchema = z.looseObject(
-    {
-      spec: requiredLockString,
-      name: requiredLockString,
-      version: requiredLockString,
-      digest: z
-        .string({ error: 'required sha256 digest' })
-        .regex(SHA256_DIGEST_PATTERN, 'required sha256 digest'),
-    },
-    { error: 'must be an object' },
-  );
-  const RulesLockfileSchema = z.looseObject({
-    rulebooks: z.array(
-      z.intersection(
-        LockEntrySharedSchema,
-        z.discriminatedUnion(
-          'kind',
-          [
-            z.object({
-              kind: z.literal('local-directory'),
-              path: requiredLockString,
-            }),
-            z.object({
-              kind: z.literal('github'),
-              owner: requiredLockString,
-              repo: requiredLockString,
-              ref: requiredLockString,
-              commit: requiredLockString,
-              path: requiredLockString,
-              // Kept out of validation: a malformed display ref is dropped, not reported.
-              display_ref: z.unknown().optional(),
-            }),
-          ],
-          {
-            // The union reports a non-object entry, and otherwise an unmatched `kind`
-            // under the discriminator's own path.
-            error: (issue) => {
-              if (!isRecord(issue.input)) return 'must be an object';
-              const kind = issue.input.kind;
-              return typeof kind === 'string' ? `unknown kind "${kind}"` : 'required string';
-            },
-          },
-        ),
-      ),
-    ),
-  });
   return {
     RulesConfigSchema,
     RulesConfigDiagnosticSchema,
@@ -526,7 +474,6 @@ function createSchemas() {
     LegacyConfigSchema,
     RulebookSchema,
     RulebookV2Schema,
-    RulesLockfileSchema,
   };
 }
 
@@ -554,10 +501,6 @@ export function getRulebookSchema() {
 
 export function getRulebookV2Schema() {
   return getSchemas().RulebookV2Schema;
-}
-
-export function getRulesLockfileSchema() {
-  return getSchemas().RulesLockfileSchema;
 }
 
 /** Custom rule names as written, in declaration order. */

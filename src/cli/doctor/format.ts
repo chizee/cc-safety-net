@@ -17,6 +17,7 @@ import type {
   UpdateInfo,
 } from '@/integrations/doctor-types';
 import type { SelfTestSummary } from '@/integrations/self-test';
+import { describePolicyScope } from '@/ir/policy';
 
 interface TableOptions {
   headers?: string[];
@@ -228,9 +229,10 @@ export function formatEnvironmentSection(envVars: EnvVarInfo[]): string {
 }
 
 export function formatEffectiveSafetySection(report: DoctorReport): string {
+  const scopes = report.effectiveSafety.policyScopes;
   const lines = [
     `Effective Safety`,
-    `   Selected preset: ${report.effectiveSafety.selectedPreset}`,
+    `   Selected preset: ${report.effectiveSafety.selectedPreset}${scopes ? ` (${describePolicyScope(scopes.levelScope)})` : ''}`,
     `   Effective: ${report.effectiveSafety.level}`,
   ];
   const capabilityLabels = [
@@ -244,6 +246,13 @@ export function formatEffectiveSafetySection(report: DoctorReport): string {
     const state = capability.enabled ? colors.green('ON') : colors.dim('OFF');
     const sources = capability.sources.length > 0 ? ` (${capability.sources.join(', ')})` : '';
     lines.push(`   ${label}: ${state} via ${capability.source}${sources}`);
+  }
+
+  // Display, not a gate: the project scope is honored as written, so these lines
+  // report the merge result instead of becoming findings.
+  if (scopes && scopes.weakenings.length > 0) {
+    lines.push('   Project policy deltas:');
+    for (const weakening of scopes.weakenings) lines.push(`      ${weakening}`);
   }
 
   lines.push(`   Stored rule customizations: ${report.effectiveSafety.ruleCounts.stored}`);

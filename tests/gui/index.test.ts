@@ -478,6 +478,9 @@ describe('policy GUI server', () => {
       expect(html).toContain('setDetailStatus(');
       expect(html).toContain('Destructive Command Protection');
       expect(html).toContain('Safety preset');
+      // The project policy is reported beside the file rows and never edited here.
+      expect(html).toContain('id="project-policy-path"');
+      expect(html).toContain('id="project-policy-notice"');
       // Preset status dedupe: text only when customized, hidden when empty.
       expect(html).toContain('#safety-preset-status:empty');
       expect(html).toContain(
@@ -886,6 +889,64 @@ describe('policy GUI server', () => {
     }
   });
 
+  // The editor writes the user file only, so a project policy in force is
+  // reported beside it as a display-only notice rather than becoming editable.
+  test('GET api policy reports the project policy path and its weakenings', async () => {
+    const project = join(tempDir, 'project');
+    mkdirSync(join(project, '.cc-safety-net'), { recursive: true });
+    mkdirSync(safetyNetHome, { recursive: true });
+    writeFileSync(
+      join(safetyNetHome, 'policy.json'),
+      JSON.stringify({ version: 1, safety: { level: 'strict' } }),
+      'utf-8',
+    );
+    writeFileSync(
+      join(project, '.cc-safety-net', 'policy.json'),
+      JSON.stringify({ version: 1, safety: { level: 'standard' } }),
+      'utf-8',
+    );
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      cwd: project,
+    });
+
+    try {
+      const loaded = await getJson<
+        PolicyApiResponse & {
+          path: string;
+          projectPolicy?: { path: string; weakenings: string[] };
+        }
+      >(`${server.origin}/api/policy?token=${server.token}`);
+
+      expect(loaded.projectPolicy).toEqual({
+        path: join(project, '.cc-safety-net', 'policy.json'),
+        weakenings: ['project policy lowers level: strict -> standard'],
+      });
+      // The edited document stays the user file, whatever the project scope sets.
+      expect(loaded.path).toBe(join(safetyNetHome, 'policy.json'));
+      expect(loaded.policy).toMatchObject({ safety: { level: 'strict' } });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('GET api policy omits the project policy when the project has none', async () => {
+    const server = await createPolicyGuiServer({
+      userConfigDir: join(safetyNetHome, 'rules'),
+      cwd: join(tempDir, 'bare-project'),
+    });
+
+    try {
+      const loaded = await getJson<PolicyApiResponse & { projectPolicy?: unknown }>(
+        `${server.origin}/api/policy?token=${server.token}`,
+      );
+
+      expect(loaded.projectPolicy).toBeUndefined();
+    } finally {
+      await server.close();
+    }
+  });
+
   // The server buffers the whole body before parsing, so it must stop reading
   // at a named cap instead of letting one request grow process memory.
   test('POST bodies over the size cap are rejected with 413', async () => {
@@ -1217,7 +1278,7 @@ describe('policy GUI server', () => {
     // A dropped source stops enforcing without any other signal, so the tab has
     // to be told; without this the user sees a shorter list and nothing else.
     expect(payload.errors).toEqual([
-      'missing lock entry for unsynced-rules; run `cc-safety-net rule sync`',
+      `missing rulebook file ${join(tempDir, '.cc-safety-net', 'rules', 'unsynced-rules', 'rulebook.json')} for unsynced-rules; create that file or remove that source from the rules config`,
     ]);
     expect(payload.rulebooks.map((rulebook) => rulebook.name)).toEqual(['project-rules']);
   });

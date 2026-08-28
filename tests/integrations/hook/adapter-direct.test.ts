@@ -11,7 +11,7 @@ import { runConfiguredHookAdapter } from '@/integrations/hook/common';
 import { runKimiCodeHook } from '@/integrations/kimi-code/hook';
 import { getUserPolicyPath } from '@/policy/store';
 import { writeDefaultRulesConfig } from '@/rules/policy';
-import { readLatestAuditLogEntry, writeLockedGitHubRulebookPolicy } from '../../helpers';
+import { readLatestAuditLogEntry, writeVendoredGitHubRulebookPolicy } from '../../helpers';
 import {
   antigravityShellInput,
   claudeCodeBashInput,
@@ -199,7 +199,7 @@ describe('hook adapter direct integration', () => {
   test('an unreadable policy filesystem degrades through the shared handler', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-direct-bad-config-'));
     try {
-      writeLockedGitHubRulebookPolicy(cwd, '{}', { cacheAsDirectory: true });
+      writeVendoredGitHubRulebookPolicy(cwd, '{}', { rulebookAsDirectory: true });
       const allowed = await runWithInput(runCopilotCliHook, {
         ...copilotBashInput('git status'),
         cwd,

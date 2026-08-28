@@ -5,12 +5,13 @@ import { printCommandHelp } from '@/cli/help';
 import { RULE_DOC } from '@/cli/rule/doc';
 import { printRuleAddResult, printRuleChangeResult, printRulesListReport } from '@/cli/rule/format';
 import { runRulesMigrate } from '@/cli/rule/migrate';
+import { runRuleSyncMigration } from '@/cli/rule/sync-migrate';
 import { getUpdateNotice } from '@/cli/rule/update-notice';
 import { runRulesVerify } from '@/cli/rule/verify';
 import { COMMAND_PATTERN, isReservedTransparentWrapper } from '@/engine/facade';
 import {
   addRulebookSource,
-  getRulesConfigSourceDisplayMap,
+  getRulesConfigRuntimeErrorsForConfig,
   loadRulesPolicy,
   readRulesConfig,
   removeRulebookSource,
@@ -20,13 +21,12 @@ import {
 } from '@/rules/policy';
 import { writeJsonAtomic } from '@/rules/policy/config-file';
 import {
-  ensurePolicyDirectory,
   getPolicyFilesystemTargetForPath,
   PolicyFilesystemError,
   type PolicyFilesystemTarget,
   readPolicyFile,
 } from '@/rules/policy/filesystem';
-import { getPolicyPaths, getRulebookCacheRoot, getScopePaths } from '@/rules/policy/paths';
+import { getScopePaths } from '@/rules/policy/paths';
 import { isGitHubRef, isGitHubRepositorySource, NAME_PATTERN } from '@/rules/policy/source-syntax';
 
 interface RuleFlags {
@@ -89,25 +89,21 @@ async function runRuleCommandInternal(args: readonly string[]): Promise<number> 
     return 1;
   }
   const value = flags.positionals[1];
-  const options = { global: flags.global, check: flags.check };
+  const options = { global: flags.global };
 
   if (subcommand === 'init') {
     const scope = getScopePaths(options);
-    const dir = scope.configDir;
     ensureRulesConfig(scope.configTarget);
-    ensurePolicyDirectory(
-      getPolicyFilesystemTargetForPath(
-        scope.filesystemScope,
-        getRulebookCacheRoot({ ...options, cacheConfigDir: dir }),
-      ),
-    );
-    const rulebookPath = join(dir, 'example-rules', 'rulebook.json');
+    const rulebookPath = join(scope.configDir, 'example-rules', 'rulebook.json');
     const rulebookTarget = getPolicyFilesystemTargetForPath(scope.filesystemScope, rulebookPath);
     if (flags.example && readPolicyFile(rulebookTarget) === null)
       writeStarterRulebook(rulebookTarget, 'example-rules');
-    const result = await syncRulesConfig(options);
-    printRuleChangeResult(result, 'Rule config initialized.');
-    return result.ok ? 0 : 1;
+    // Nothing to synchronize: the scope is validated the way the guard loads it.
+    const errors = getRulesConfigRuntimeErrorsForConfig(scope.configPath, scope.filesystemScope);
+    for (const error of errors) console.error(error);
+    if (errors.length > 0) return 1;
+    console.log('Rule config initialized.');
+    return 0;
   }
 
   if (subcommand === 'add') {
@@ -137,23 +133,19 @@ async function runRuleCommandInternal(args: readonly string[]): Promise<number> 
     return result.ok ? 0 : 1;
   }
 
-  if (subcommand === 'update' || subcommand === 'sync') {
-    const result = await syncRulesConfig({
-      ...options,
-      only: subcommand === 'update' ? value : undefined,
-      refresh: subcommand === 'update',
-    });
-    printRuleChangeResult(result, flags.check ? 'Rule config checked.' : 'Rule config synced.');
+  if (subcommand === 'update') {
+    const result = await syncRulesConfig({ ...options, only: value, refresh: true });
+    printRuleChangeResult(result, 'Rule config synced.');
     return result.ok ? 0 : 1;
+  }
+
+  if (subcommand === 'sync') {
+    return runRuleSyncMigration({ global: flags.global });
   }
 
   if (subcommand === 'list') {
     const policy = loadRulesPolicy();
-    const paths = getPolicyPaths({});
-    printRulesListReport(policy, {
-      user: getRulesConfigSourceDisplayMap(policy.userConfigPath, paths.userScope),
-      project: getRulesConfigSourceDisplayMap(policy.projectConfigPath, paths.projectScope),
-    });
+    printRulesListReport(policy);
     return policy.errors.length > 0 ? 1 : 0;
   }
 
@@ -255,6 +247,13 @@ function validateRuleFlags(flags: RuleFlags): void {
       flags.errors.push("--delete-source is only valid with 'rule remove'");
     }
   }
+  // No subcommand carries --check honestly any more: sync migrates leftovers, and an
+  // add or update dry-run would have to fetch and validate the candidate to mean
+  // anything, so accepting the flag reports success for content nothing checked.
+  // `rule verify` is the offline validation command.
+  if (flags.check && subcommand) {
+    flags.errors.push(unknownRuleOption(subcommand, '--check'));
+  }
   if (flags.cleanup && subcommand !== 'migrate') {
     flags.errors.push(unknownRuleOption(subcommand, '--cleanup'));
   }
@@ -270,7 +269,6 @@ function validateRuleFlags(flags: RuleFlags): void {
   if (subcommand === 'add') validateRuleAddFlags(flags);
   if (subcommand === 'migrate') {
     if (flags.global) flags.errors.push(unknownRuleOption(subcommand, '--global'));
-    if (flags.check) flags.errors.push(unknownRuleOption(subcommand, '--check'));
     if (flags.positionals.length > 1) {
       flags.errors.push(`Unexpected rule migrate argument: ${flags.positionals[1]}`);
     }

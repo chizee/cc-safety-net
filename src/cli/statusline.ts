@@ -100,7 +100,12 @@ export async function printStatusline(input: StatuslineInput = process.stdin): P
       custom: '🔧',
     }[hasEffectiveRuleCustomization ? 'custom' : modes.effectiveLevel];
 
-    status = `🛡️ CC Safety Net ${levelEmoji}${modes.worktreeMode ? '🌳' : ''}${snapshot.state === 'degraded' ? '⚠️' : ''}`;
+    // One glyph for "the project scope relaxed something": the statusline is the
+    // surface a teammate sees without opening anything, and `status` carries the
+    // per-field deltas behind it.
+    const weakened = (snapshot.policyScopes?.weakenings.length ?? 0) > 0 ? '🔻' : '';
+
+    status = `🛡️ CC Safety Net ${levelEmoji}${modes.worktreeMode ? '🌳' : ''}${weakened}${snapshot.state === 'degraded' ? '⚠️' : ''}`;
   }
 
   // Check for piped stdin input and prepend with separator
