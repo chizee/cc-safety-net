@@ -301,7 +301,7 @@ function validateRuleAddFlags(flags: RuleFlags): void {
     return;
   }
   if (flags.ref && !isGitHubRef(flags.ref)) {
-    flags.errors.push(`--ref must be a single path segment: ${flags.ref}`);
+    flags.errors.push(`--ref must use valid path segments: ${flags.ref}`);
   }
   const invalidNames = flags.only.filter((name) => !NAME_PATTERN.test(name));
   if (invalidNames.length > 0) {

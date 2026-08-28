@@ -267,6 +267,7 @@ function mockGitHubRepoRulebooksFetch(
         return new Response(JSON.stringify({ default_branch: 'main' }));
       case 'https://api.github.com/repos/owner/repo/commits/main':
       case 'https://api.github.com/repos/owner/repo/commits/v2':
+      case 'https://api.github.com/repos/owner/repo/commits/feature%2Fv2':
       case 'https://api.github.com/repos/owner/repo/commits/abc123':
         return new Response(JSON.stringify({ sha: 'abc123' }));
     }
@@ -713,9 +714,12 @@ describe('rules policy recovery coverage', () => {
       expect(getRulebookSourceSyntaxError('bad:source')).toContain('Local rulebook sources');
       expect(getRulebookSourceSyntaxError('project-rules')).toBeNull();
       expect(getRulebookSourceSyntaxError('owner/repo#bad@/name')).toContain(
-        'refs must be a single path segment',
+        'refs must use valid path segments',
       );
-      expect(getRulebookSourceSyntaxError('owner/repo#main/bad/name')).toContain(
+      expect(getRulebookSourceSyntaxError('owner/repo#main//name')).toContain(
+        'refs must use valid path segments',
+      );
+      expect(getRulebookSourceSyntaxError('owner/repo#main')).toContain(
         'GitHub rulebook sources must be',
       );
       expect(isGitHubRepositorySource('owner/repo')).toBe(true);
@@ -725,6 +729,13 @@ describe('rules policy recovery coverage', () => {
         owner: 'owner',
         repo: 'repo',
         ref: 'main',
+        path: '.cc-safety-net/rules/project-rules/rulebook.json',
+        name: 'project-rules',
+      });
+      expect(parseGitHubSource('owner/repo#feature/v2/project-rules')).toEqual({
+        owner: 'owner',
+        repo: 'repo',
+        ref: 'feature/v2',
         path: '.cc-safety-net/rules/project-rules/rulebook.json',
         name: 'project-rules',
       });
@@ -775,6 +786,9 @@ describe('rules policy recovery coverage', () => {
         ok: true,
         specs: ['owner/repo#main/alpha'],
       });
+      expect(
+        getRemoveMatches(['owner/repo#feature/v2/alpha'], null, 'owner/repo#feature/v2'),
+      ).toEqual({ ok: true, specs: ['owner/repo#feature/v2/alpha'] });
       expect(getRemoveMatches(['owner/repo#main/alpha'], null, 'owner/repo')).toEqual({
         ok: true,
         specs: ['owner/repo#main/alpha'],
@@ -1481,10 +1495,7 @@ describe('rules policy recovery coverage', () => {
   // one must surface the source-specific error, never a raw TypeError.
   test.each([
     [{ '/repos/owner/repo': { default_branch: 123 } }, 'missing default branch'],
-    [
-      { '/repos/owner/repo': { default_branch: 'feature/v2' } },
-      'GitHub default branch must be a single path segment: feature/v2',
-    ],
+    [{ '/repos/owner/repo': { default_branch: 'feature//v2' } }, 'invalid default branch'],
     [
       { '/repos/owner/repo': { default_branch: 'main' }, '/commits/main': { sha: { n: 1 } } },
       'Failed to resolve commit for owner/repo',
@@ -1846,18 +1857,18 @@ describe('rules policy recovery coverage', () => {
 
       const result = await addRulebookSource('owner/repo', {
         cwd: tempDir,
-        ref: 'v2',
+        ref: 'feature/v2',
         rulebooks: ['beta', 'alpha', 'beta'],
       });
 
       expect(result.ok).toBe(true);
       expect(readRulesConfig(getProjectRulesConfigPath(tempDir)).config?.rules).toEqual([
-        'owner/repo#v2/beta',
-        'owner/repo#v2/alpha',
+        'owner/repo#feature/v2/beta',
+        'owner/repo#feature/v2/alpha',
       ]);
       expect(result.add).toEqual({
         source: 'owner/repo',
-        ref: 'v2',
+        ref: 'feature/v2',
         selected: ['beta', 'alpha'],
         added: ['beta', 'alpha'],
         alreadyConfigured: [],

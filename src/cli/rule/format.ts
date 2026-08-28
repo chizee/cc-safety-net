@@ -20,8 +20,7 @@ export function printRuleChangeResult(
     return;
   }
   printResultWarnings(result);
-  console.log(action);
-  printSuccessfulRuleChange(result);
+  printSuccessfulRuleChange(result, action);
 }
 
 export function printRuleAddResult(result: AddRulebookSourceResult, source: string): void {
@@ -50,11 +49,14 @@ export function printRuleAddResult(result: AddRulebookSourceResult, source: stri
   } else if (result.add.commits.length > 1) {
     console.log(`Locked at ${result.add.commits.map((commit) => commit.slice(0, 7)).join(', ')}.`);
   }
-  printSuccessfulRuleChange(result);
+  printSuccessfulRuleChange(result, 'Rule config synced.');
 }
 
-function printSuccessfulRuleChange(result: { entries: RulebookLockEntryWithStats[] }): void {
-  console.log('Rule config synced.');
+function printSuccessfulRuleChange(
+  result: { entries: RulebookLockEntryWithStats[] },
+  action: string,
+): void {
+  console.log(action);
   console.log('');
   printActiveRulebookSummary(result.entries);
 }

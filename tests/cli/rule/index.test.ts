@@ -93,6 +93,27 @@ describe('rule update refresh', () => {
       syncRulesConfig.mockRestore();
     }
   });
+
+  test.each([
+    'sync',
+    'update',
+  ])('%s --check reports a check without claiming a sync', async (command) => {
+    const syncRulesConfig = spyOn(sync, 'syncRulesConfig').mockResolvedValue({
+      ok: true,
+      errors: [],
+      warnings: [],
+      entries: [],
+    });
+    try {
+      const result = await captureRuleCommand([command, '--check']);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Rule config checked.');
+      expect(result.stdout).not.toContain('Rule config synced.');
+    } finally {
+      syncRulesConfig.mockRestore();
+    }
+  });
 });
 
 describe('rule leaf help', () => {
@@ -184,11 +205,11 @@ describe('rule add repository flags', () => {
 
   test('rejects missing and invalid repository flag values', async () => {
     const missingOnly = await captureRuleCommand(['add', 'owner/repo', '--only', '--global']);
-    const invalidRef = await captureRuleCommand(['add', 'owner/repo', '--ref', 'feature/v2']);
+    const invalidRef = await captureRuleCommand(['add', 'owner/repo', '--ref', 'feature//v2']);
     const invalidName = await captureRuleCommand(['add', 'owner/repo', '--only', 'bad/name']);
 
     expect(missingOnly.stderr).toContain('--only requires at least one value');
-    expect(invalidRef.stderr).toContain('--ref must be a single path segment: feature/v2');
+    expect(invalidRef.stderr).toContain('--ref must use valid path segments: feature//v2');
     expect(invalidName.stderr).toContain('Invalid rulebook names: bad/name');
   });
 

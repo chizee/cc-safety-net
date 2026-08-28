@@ -29,7 +29,7 @@ type RulebookMatchResult =
   | { ok: false; result: SyncRulesConfigResult };
 type ConfiguredGitHubSource = { owner: string; repo: string; ref: string };
 
-const GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#([A-Za-z0-9._-]+)$/;
+const GITHUB_REPOSITORY_REF_SOURCE_RE = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(.+)$/;
 
 export function getRulebookLockEntrySourceIdentityError(entry: RulebookLockEntry): string | null {
   if (isGitHubRulebookSource(entry.spec)) {
@@ -154,7 +154,7 @@ function getGitHubRepositoryRefMatches(rules: string[], match: string): string[]
   const owner = parsed?.[1];
   const repo = parsed?.[2];
   const ref = parsed?.[3];
-  if (!owner || !repo || !ref) return [];
+  if (!owner || !repo || !ref || !isGitHubRef(ref)) return [];
   return getConfiguredGitHubSourceMatches(rules, (source) => {
     return source.owner === owner && source.repo === repo && source.ref === ref;
   });

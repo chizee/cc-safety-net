@@ -113,7 +113,7 @@ export async function discoverGitHubRepositoryRulebooks(
     throw new Error(`Invalid GitHub repository source: ${source}`);
   }
   if (options.ref !== undefined && !isGitHubRef(options.ref)) {
-    throw new Error(`GitHub rulebook refs must be a single path segment: ${options.ref}`);
+    throw new Error(`GitHub rulebook refs must use valid path segments: ${options.ref}`);
   }
   const operation = options.operation ?? createRuleSyncOperation();
   const ref = options.ref ?? (await getGitHubDefaultBranch(owner, repo, source, operation));
@@ -172,7 +172,7 @@ async function getGitHubDefaultBranch(
     throw new Error(`Failed to inspect ${source}: missing default branch`);
   }
   if (!isGitHubRef(defaultBranch)) {
-    throw new Error(`GitHub default branch must be a single path segment: ${defaultBranch}`);
+    throw new Error(`GitHub returned an invalid default branch: ${defaultBranch}`);
   }
   return defaultBranch;
 }
