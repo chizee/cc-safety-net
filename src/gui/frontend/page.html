@@ -111,9 +111,22 @@
         </section>
 
         <section class="view" data-view="policy" hidden>
-          <div class="view-head">
+          <div class="view-head view-head-actions">
             <p class="panel-sub muted">Choose what CC Safety Net blocks. Changes apply after you save.</p>
+            <button type="button" id="project-draft-enter">Draft project policy</button>
           </div>
+          <div class="project-draft-bar" id="project-draft-bar" hidden>
+            <div class="project-draft-target">
+              <strong>Project policy draft</strong>
+              <code id="project-draft-path"></code>
+              <p class="muted">Only the fields you mark are written here; everything else keeps inheriting from each member's own policy.</p>
+            </div>
+            <div class="savebar-actions">
+              <button type="button" id="project-draft-change" hidden>Change…</button>
+              <button type="button" id="project-draft-exit">Exit draft</button>
+            </div>
+          </div>
+          <p class="status error" id="project-draft-diagnostics" hidden></p>
           <div class="policy-savebar" id="policy-savebar" hidden><span>Unsaved changes</span><div class="savebar-actions"><button type="button" id="discard-changes">Discard</button><button class="primary" id="save">Save</button></div></div>
           <div class="recovery" id="recovery" hidden>
             <div>
@@ -177,6 +190,16 @@
               <button type="button" id="reset-secret-customizations" class="panel-head-action">Restore defaults</button>
             </header>
             <div id="secret"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head raw-json-head">
+              <div class="panel-title">
+                <h2>Policy JSON</h2>
+                <p class="panel-sub muted" id="raw-source">Read-only mirror of the policy controls.</p>
+              </div>
+              <button class="icon-button" id="raw-copy" type="button" aria-label="Copy raw JSON to clipboard"></button>
+            </div>
+            <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source" readonly></textarea>
           </section>
         </section>
 
@@ -286,16 +309,6 @@
             <p class="muted retention-note" id="retention-note"></p>
           </section>
           <section class="panel">
-            <div class="panel-head raw-json-head">
-              <div class="panel-title">
-                <h2>Policy JSON</h2>
-                <p class="panel-sub muted" id="raw-source">Read-only mirror of the policy controls.</p>
-              </div>
-              <button class="icon-button" id="raw-copy" type="button" aria-label="Copy raw JSON to clipboard"></button>
-            </div>
-            <textarea id="raw" aria-label="Raw policy JSON" aria-describedby="raw-source" readonly></textarea>
-          </section>
-          <section class="panel">
             <div class="panel-head">
               <div class="panel-title">
                 <h2>Version</h2>
@@ -366,6 +379,7 @@
     <form method="dialog">
       <h2 id="confirm-dialog-title"></h2>
       <p class="muted" id="confirm-dialog-body"></p>
+      <div class="dialog-rows" id="confirm-dialog-rows" hidden></div>
       <p class="dialog-detail"><code id="confirm-dialog-detail"></code></p>
       <div class="dialog-actions">
         <button type="submit" id="confirm-dialog-cancel" value="cancel">Cancel</button>

@@ -256,3 +256,20 @@ is visible where it matters, in the vendored file's own git history and in the d
 prints before overwriting.
 
 Adjudicated 2026-08-28. Source: `TEAM-POLICY-DESIGN.md` vendoring remote sources.
+
+### RR-15: GUI Session Token Readable by the Agent That Launches It
+
+`gui` prints its session URL, token included, on stdout. An agent that launches the command itself
+therefore reads the token and can drive the token-gated write endpoints, including the
+project-policy apply that writes `<dir>/.cc-safety-net/policy.json`. The token defeats
+browser-origin attacks — another page, or a process that never saw that line, cannot reach the
+loopback server — but it cannot exclude the launcher, because handing it over is what lets the
+browser page work at all. The exposure pre-exists for user-policy writes; project-policy writes are
+the reason to record it now, since the same token reaches a file the rest of a team loads. What
+still holds against the mistake model is the direct route: the always-on policy-file guard and the
+`policy apply` invocation block deny an agent editing or applying those files by command. Closing
+the gap needs a confirmation channel the browser session cannot supply on its own, which a
+single-user localhost session tool does not justify.
+
+Adjudicated 2026-08-29. Sources: `REVIEW.md` threat model; `SECURITY.md` policy-file protection
+non-goals.

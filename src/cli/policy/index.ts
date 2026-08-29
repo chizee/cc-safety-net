@@ -10,17 +10,21 @@
  * restore has to be visible in the confirmation the human reads.
  */
 
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createInterface } from 'node:readline';
 import { parseCommandArgs } from '@/cli/args';
 import { policyCommand } from '@/cli/commands/policy';
 import { printCommandHelp } from '@/cli/help';
 import {
+  buildProjectPolicyFileValue,
+  diffPolicyRows,
   getProjectPolicyPath,
   getUserPolicyDiagnostics,
   mergeProjectPolicy,
   projectPolicyProjection,
+  readPolicyJson,
+  readRuntimeUserBaseline,
 } from '@/engine/facade';
 import type { GuiPolicy } from '@/ir/policy';
 import { getUserPolicyPath, normalizeGuiPolicy, writeUserPolicyFromGui } from '@/policy/store';
@@ -92,7 +96,7 @@ export async function runPolicyCommand(
     printPolicyDiff(normalizeGuiPolicy(readPolicyJson(targetPath).value), proposed, true);
   }
   if (!parsed.flags.global) {
-    const user = readUserBaseline();
+    const user = readRuntimeUserBaseline().baseline;
     console.log('Effective policy (user + project merged):');
     printPolicyDiff(
       mergeProjectPolicy(user, projectPolicyProjection(readPolicyJson(targetPath).value).policy)
@@ -150,101 +154,21 @@ function writeScopePolicy(
     writeUserPolicyFromGui(normalized);
     return;
   }
-  // Only the fields the proposal sets are written: a field absent from the project
-  // file inherits from the user policy at load time, and writing defaults instead
-  // would silently pin them (e.g. materialize level "standard" under a strict user).
-  const value = isRecord(proposalValue) ? proposalValue : {};
   mkdirSync(dirname(path), { recursive: true });
-  writeJsonAtomic(path, {
-    version: normalized.version,
-    ...Object.fromEntries(
-      ['safety', 'workflow', 'destructive_command_protection', 'secret_protection']
-        .filter((key) => value[key] !== undefined)
-        .map((key) => [key, value[key]]),
-    ),
-  });
+  writeJsonAtomic(path, buildProjectPolicyFileValue(proposalValue, normalized));
 }
 
-/**
- * The user baseline the effective diff merges against, mirroring the runtime's
- * precedence exactly: an existing file wins even when unreadable (the runtime
- * degrades it to protective defaults), and the embedded snapshot an Amp install
- * ships (`readPolicyConfig` reads the same global) stands in only when no file
- * exists at all.
- */
-function readUserBaseline(): GuiPolicy {
-  const path = getUserPolicyPath();
-  if (existsSync(path)) return normalizeGuiPolicy(readPolicyJson(path).value);
-  return normalizeGuiPolicy(
-    (globalThis as Record<string, unknown>).__CC_SAFETY_NET_EMBEDDED_POLICY__,
-  );
-}
-
-/** Reads one policy file's JSON; a non-empty `errors` means the caller must stop. */
-function readPolicyJson(path: string): { value?: unknown; errors: string[] } {
-  if (!existsSync(path)) return { errors: [`${path}: file not found`] };
-  try {
-    return { value: JSON.parse(readFileSync(path, 'utf-8')) as unknown, errors: [] };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      errors: [`${path}: ${error instanceof SyntaxError ? `Invalid JSON: ${message}` : message}`],
-    };
-  }
-}
-
-/**
- * The whole diff: the policy file shape is fixed and small, so one flat map of
- * `field.path` to displayed value covers it without a diff library. Audit belongs
- * to the user scope only and drops out of a project-scope comparison.
- */
+/** Renders the shared diff rows; an absent side reads as `(unset)`. */
 function printPolicyDiff(current: GuiPolicy, proposed: GuiPolicy, global: boolean): void {
-  const before = flattenPolicy(current, global);
-  const after = flattenPolicy(proposed, global);
-  const lines = [...new Set([...Object.keys(before), ...Object.keys(after)])].flatMap((field) =>
-    before[field] === after[field]
-      ? []
-      : [`  ${field}: ${before[field] ?? UNSET} -> ${after[field] ?? UNSET}`],
-  );
-  if (lines.length === 0) {
+  const rows = diffPolicyRows(current, proposed, global);
+  if (rows.length === 0) {
     console.log('No changes.');
     return;
   }
-  console.log(`Changes (${lines.length}):`);
-  for (const line of lines) console.log(line);
-}
-
-function flattenPolicy(policy: GuiPolicy, includeAudit: boolean): Record<string, string> {
-  return {
-    'safety.level': policy.safety.level,
-    ...flattenSection('safety.overrides', policy.safety.overrides),
-    'workflow.worktree_mode': String(policy.workflow.worktree_mode),
-    'destructive_command_protection.enabled': String(policy.destructive_command_protection.enabled),
-    ...flattenSection(
-      'destructive_command_protection.overrides',
-      policy.destructive_command_protection.overrides,
-    ),
-    'destructive_command_protection.allow_paths': flattenList(
-      policy.destructive_command_protection.allow_paths,
-    ),
-    'secret_protection.enabled': String(policy.secret_protection.enabled),
-    ...flattenSection('secret_protection.overrides', policy.secret_protection.overrides),
-    'secret_protection.deny_paths': flattenList(policy.secret_protection.deny_paths),
-    'secret_protection.allow_paths': flattenList(policy.secret_protection.allow_paths),
-    ...(includeAudit ? { 'audit.retention_days': String(policy.audit.retention_days) } : {}),
-  };
-}
-
-function flattenSection(prefix: string, values: Record<string, string | boolean | undefined>) {
-  return Object.fromEntries(
-    Object.entries(values).flatMap(([key, value]) =>
-      value === undefined ? [] : [[`${prefix}.${key}`, String(value)]],
-    ),
-  ) as Record<string, string>;
-}
-
-function flattenList(values: readonly string[]): string {
-  return values.length === 0 ? '(none)' : values.join(', ');
+  console.log(`Changes (${rows.length}):`);
+  for (const row of rows) {
+    console.log(`  ${row.field}: ${row.before ?? UNSET} -> ${row.after ?? UNSET}`);
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
