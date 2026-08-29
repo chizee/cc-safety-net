@@ -73,7 +73,11 @@ async function runDoctorBothModes(cwd: string, host: ReturnType<typeof mockHealt
   const jsonExit = await withEnv(host.env, () =>
     runDoctor({ cwd, json: true, skipUpdateCheck: true }),
   );
-  const report = JSON.parse(host.captured.output.join('\n')) as { findings: unknown[] };
+  const report = JSON.parse(host.captured.output.join('\n')) as {
+    findings: unknown[];
+    effectiveSafety: { policyScopes?: unknown };
+    v2Leftovers?: unknown;
+  };
 
   host.captured.output.length = 0;
   const humanExit = await withoutTtyStdout(() =>
@@ -186,6 +190,63 @@ describe('doctor report verification ownership', () => {
         );
         expect(run.jsonExit).toBe(1);
         expect(run.humanExit).toBe(1);
+      } finally {
+        host.restore();
+      }
+    });
+  });
+
+  // The project scope is honored as written, so what it relaxes is reported and
+  // never turned into a finding: findings own the exit code, and a team policy
+  // in force is not a failure.
+  test('reports what the project policy weakened without raising a finding', async () => {
+    await withTempDir('doctor-project-policy-', async (cwd) => {
+      const host = mockHealthyDoctorHost(cwd);
+
+      try {
+        mkdirSync(join(cwd, 'safety-net'), { recursive: true });
+        writeFileSync(
+          join(cwd, 'safety-net', 'policy.json'),
+          JSON.stringify({ version: 1, safety: { level: 'strict' } }),
+        );
+        mkdirSync(join(cwd, '.cc-safety-net'), { recursive: true });
+        writeFileSync(
+          join(cwd, '.cc-safety-net', 'policy.json'),
+          JSON.stringify({ version: 1, safety: { level: 'standard' } }),
+        );
+        const run = await runDoctorBothModes(cwd, host);
+
+        expect(run.report.effectiveSafety.policyScopes).toEqual({
+          levelScope: 'project',
+          weakenings: ['project policy lowers level: strict -> standard'],
+        });
+        expect(run.human).toContain('Selected preset: standard (project policy)');
+        expect(run.human).toContain('project policy lowers level: strict -> standard');
+        expect(run.report.findings).toEqual([]);
+        expect(run.jsonExit).toBe(0);
+        expect(run.humanExit).toBe(0);
+      } finally {
+        host.restore();
+      }
+    });
+  });
+
+  test('points a scope that still carries v2 leftovers at the migration command', async () => {
+    await withTempDir('doctor-v2-leftovers-', async (cwd) => {
+      const host = mockHealthyDoctorHost(cwd);
+
+      try {
+        mkdirSync(join(cwd, '.cc-safety-net', 'rules'), { recursive: true });
+        writeFileSync(join(cwd, '.cc-safety-net', 'rules', 'rule.lock'), '{"version":1}');
+        const run = await runDoctorBothModes(cwd, host);
+
+        expect(run.report.v2Leftovers).toEqual([join(cwd, '.cc-safety-net', 'rules', 'rule.lock')]);
+        expect(run.report.findings).toEqual([
+          expect.objectContaining({ checkId: 'config.v2-leftovers', severity: 'info' }),
+        ]);
+        expect(run.human).toContain('Rulebook lock and cache leftovers detected');
+        expect(run.jsonExit).toBe(0);
+        expect(run.humanExit).toBe(0);
       } finally {
         host.restore();
       }

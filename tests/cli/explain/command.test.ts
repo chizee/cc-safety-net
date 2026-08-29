@@ -11,6 +11,7 @@ import { explainCommand as explainCommandBase } from '@/cli/explain/index';
 import { createCommandTraceContext, createCommandTraceRecorder } from '@/engine/command-trace';
 import { getConfigSource } from '@/engine/explain';
 import { REASON_GIT_METADATA_PROTECTION } from '@/guards/git-metadata-protection';
+import { REASON_POLICY_APPLY_PROTECTION } from '@/guards/policy-apply-protection';
 import { REASON_POLICY_CONFIG_PROTECTION } from '@/guards/policy-protection';
 import { REASON_SECRET_PROTECTION } from '@/guards/secret-protection';
 import type { EnvironmentContext } from '@/ir/analysis';
@@ -775,6 +776,35 @@ describe('explainCommand guard parity fixes', () => {
     expect(result.customRule).toEqual({ id: 'block-echo' });
   });
 
+  test('reports the project scope as the source of the effective safety preset', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'explain-policy-scope-'));
+
+    try {
+      mkdirSync(join(tempDir, 'home'), { recursive: true });
+      writeFileSync(
+        join(tempDir, 'home', 'policy.json'),
+        JSON.stringify({ version: 1, safety: { level: 'strict' } }),
+        'utf-8',
+      );
+      mkdirSync(join(tempDir, 'project', '.cc-safety-net'), { recursive: true });
+      writeFileSync(
+        join(tempDir, 'project', '.cc-safety-net', 'policy.json'),
+        JSON.stringify({ version: 1, safety: { level: 'standard' } }),
+        'utf-8',
+      );
+
+      const result = explainCommandBase('git status', {
+        cwd: join(tempDir, 'project'),
+        userConfigDir: join(tempDir, 'home', 'rules'),
+      });
+
+      expect(result.selectedPreset).toBe('standard');
+      expect(result.safetyPresetScope).toBe('project');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   test('loaded rules policy reports rulebook and override metadata', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'explain-policy-metadata-'));
 
@@ -1329,6 +1359,17 @@ describe('explainCommand pre-analysis protection stages', () => {
     expect(result.result).toBe('blocked');
     expect(result.reason).toBe(REASON_POLICY_CONFIG_PROTECTION);
     expect(result.ruleId).toBe('policy-protection');
+  });
+
+  test('names the policy apply rule before command analysis', () => {
+    // Analyzer input only: explain never runs the command it is handed.
+    const result = explainCommand('npx -y cc-safety-net policy apply proposal.json');
+    expect(result.result).toBe('blocked');
+    expect(result.reason).toBe(REASON_POLICY_APPLY_PROTECTION);
+    expect(result.ruleId).toBe('policy-apply-protection');
+    expect(explainCommand('npx -y cc-safety-net policy check proposal.json').ruleId).not.toBe(
+      'policy-apply-protection',
+    );
   });
 
   test('hard-stops executed brace and function policy mutations in standard and strict', async () => {

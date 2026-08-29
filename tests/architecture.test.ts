@@ -65,6 +65,8 @@ describe('source architecture', () => {
     const adminExceptions: readonly [string, RegExp][] = [
       // rules administration is read-write, outside the facade
       ['cli/rule/', /^@\/rules\//],
+      // policy apply is read-write, outside the facade
+      ['cli/policy/', /^@\/(?:policy\/store|rules\/policy\/config-file)$/],
       // GUI policy editor is read-write, outside the facade
       ['gui/', /^@\/policy\/store$/],
     ];

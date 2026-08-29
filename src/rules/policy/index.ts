@@ -8,24 +8,21 @@ export {
   getProjectRulesConfigPath,
   /** @internal */
   getProjectRulesDir,
-  getRulebookDisplaySource,
+  /** @internal */
   getRulesLockPathForConfigPath,
   getUserRulesConfigPath,
   /** @internal */
   getUserRulesDir,
+  /** @internal */
   getUserRulesLockPath,
   RULES_DIR,
 } from './paths';
-export {
-  getRulesConfigRuntimeErrorsForConfig,
-  getRulesConfigSourceDisplayMap,
-  loadRulesPolicy,
-} from './scope-policy';
+export { getRulesConfigRuntimeErrorsForConfig, loadRulesPolicy } from './scope-policy';
 export { addRulebookSource, removeRulebookSource, syncRulesConfig } from './sync';
 export type {
+  ActiveRulebookSummary,
   AddRulebookSourceResult,
   LoadedRulesPolicy,
-  RulebookLockEntryWithStats,
   RuleOverride,
   SyncRulesConfigOptions,
 } from './types';

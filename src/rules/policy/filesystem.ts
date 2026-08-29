@@ -230,14 +230,7 @@ export function removePolicyFile(target: PolicyFilesystemTarget): void {
   }
 }
 
-export function ensurePolicyDirectory(target: PolicyFilesystemTarget): void {
-  try {
-    ensureDirectoryComponents(target, target.relativePath.split(sep));
-  } catch (error) {
-    throwPolicyFilesystemError(target.scope.label, error);
-  }
-}
-
+/** Removes a validated directory tree; the migration command prunes the v2 cache with it. */
 export function removePolicyDirectory(target: PolicyFilesystemTarget): void {
   try {
     if (!validatePolicyDirectoryRemoval(target)) return;
@@ -260,6 +253,7 @@ export function removeEmptyPolicyDirectory(target: PolicyFilesystemTarget): void
   }
 }
 
+/** @internal Retained for the v2 cache cleanup the migration command performs. */
 export function validatePolicyDirectoryRemoval(target: PolicyFilesystemTarget): boolean {
   try {
     if (!validateTarget(target, true, 'directory').exists) return false;

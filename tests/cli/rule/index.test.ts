@@ -13,7 +13,6 @@ describe('rule list exit code', () => {
       const env = { HOME: join(tempDir, 'home') };
       const rulesDir = join(tempDir, '.cc-safety-net', 'rules');
       writeProjectRuleConfig(rulesDir);
-      expect((await runCCSafetyNetCli(['rule', 'sync'], env, tempDir)).exitCode).toBe(0);
       writeFileSync(
         join(rulesDir, 'rule.json'),
         JSON.stringify({
@@ -67,7 +66,9 @@ describe('rule update notice', () => {
 });
 
 describe('rule update refresh', () => {
-  test('update re-resolves remote refs while sync reuses the locked commit', async () => {
+  // `sync` is covered end to end in tests/cli/rule.test.ts, which runs it inside a temp
+  // project: it now deletes leftovers, so it must never run against the developer's own cwd.
+  test('update re-resolves remote refs for the whole scope and for one source', async () => {
     const syncRulesConfig = spyOn(sync, 'syncRulesConfig').mockResolvedValue({
       ok: true,
       errors: [],
@@ -84,34 +85,25 @@ describe('rule update refresh', () => {
       expect(syncRulesConfig).toHaveBeenLastCalledWith(
         expect.objectContaining({ refresh: true, only: 'alpha' }),
       );
-
-      await captureRuleCommand(['sync']);
-      expect(syncRulesConfig).toHaveBeenLastCalledWith(
-        expect.objectContaining({ refresh: false, only: undefined }),
-      );
     } finally {
       syncRulesConfig.mockRestore();
     }
   });
 
-  test.each([
-    'sync',
-    'update',
-  ])('%s --check reports a check without claiming a sync', async (command) => {
-    const syncRulesConfig = spyOn(sync, 'syncRulesConfig').mockResolvedValue({
-      ok: true,
-      errors: [],
-      warnings: [],
-      entries: [],
-    });
-    try {
-      const result = await captureRuleCommand([command, '--check']);
+  // On update, --check skipped remote resolution entirely and reported success
+  // for content nothing validated; the flag has no honest CLI carrier left.
+  test('rejects --check on every rule subcommand', async () => {
+    for (const args of [
+      ['update', '--check'],
+      ['add', 'owner/repo', '--check'],
+      ['remove', 'alpha', '--check'],
+    ]) {
+      const result = await captureRuleCommand(args);
 
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Rule config checked.');
-      expect(result.stdout).not.toContain('Rule config synced.');
-    } finally {
-      syncRulesConfig.mockRestore();
+      expect(result.exitCode, args.join(' ')).toBe(1);
+      expect(result.stderr, args.join(' ')).toContain(
+        `Unknown option for rule ${args[0]}: --check`,
+      );
     }
   });
 });

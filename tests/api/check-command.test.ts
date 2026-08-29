@@ -7,7 +7,7 @@ import {
   captureConsoleOutput,
   withEnv,
   withTempDir,
-  writeLockedGitHubRulebookPolicy,
+  writeVendoredGitHubRulebookPolicy,
 } from '../helpers';
 
 const PROJECT_RULEBOOK = JSON.stringify({
@@ -88,7 +88,7 @@ describe('checkCommand', () => {
 
   test('applies project policy from the supplied cwd', async () => {
     await withIsolatedProject('ccsn-api-project-rule-', ({ cwd }) => {
-      writeLockedGitHubRulebookPolicy(cwd, PROJECT_RULEBOOK);
+      writeVendoredGitHubRulebookPolicy(cwd, PROJECT_RULEBOOK);
       const result = expectDeny(checkCommand({ command: 'docker prune', cwd }));
       expect(result.reason).toContain('Use targeted cleanup.');
       expect(result.ruleId).toBe('custom.policy/block-prune');
@@ -156,7 +156,7 @@ describe('checkCommand', () => {
   test('reads current policy on every call', async () => {
     await withIsolatedProject('ccsn-api-policy-refresh-', ({ cwd }) => {
       expect(checkCommand({ command: 'docker prune', cwd })).toEqual({ kind: 'allow' });
-      writeLockedGitHubRulebookPolicy(cwd, PROJECT_RULEBOOK);
+      writeVendoredGitHubRulebookPolicy(cwd, PROJECT_RULEBOOK);
       const result = expectDeny(checkCommand({ command: 'docker prune', cwd }));
       expect(result.ruleId).toBe('custom.policy/block-prune');
     });

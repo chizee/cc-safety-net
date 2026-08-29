@@ -61,7 +61,7 @@ export function behavioralContractCases(paths: {
     'printf safe',
   );
   const invalidConfig = {
-    configFallbackReason: 'invalid policy config: run `cc-safety-net rule sync`.',
+    configFallbackReason: 'invalid policy config: fix the file named in the diagnostic.',
   };
   // Everyday agent work must stay allowed at standard and strict safety: a widened
   // destructive heuristic would start denying routine commands without failing any

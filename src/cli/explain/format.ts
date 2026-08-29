@@ -11,6 +11,7 @@ import {
 } from '@/cli/explain/format-helpers';
 import { colors } from '@/cli/utils/colors';
 import type { ExplainResult } from '@/ir/explain';
+import { describePolicyScope } from '@/ir/policy';
 
 export function formatTraceHuman(result: ExplainResult, options?: { asciiOnly?: boolean }): string {
   const box = getBoxChars(options?.asciiOnly ?? false);
@@ -212,7 +213,10 @@ export function formatTraceHuman(result: ExplainResult, options?: { asciiOnly?: 
   const configPath = result.configSource ?? 'none';
   const configStatus = result.configValid ? '' : ' (invalid)';
   lines.push(`  Path: ${configPath}${configStatus}`);
-  lines.push(`  Safety preset: ${result.selectedPreset ?? 'standard'}`);
+  const presetScope = result.safetyPresetScope;
+  lines.push(
+    `  Safety preset: ${result.selectedPreset ?? 'standard'}${presetScope ? ` (${describePolicyScope(presetScope)})` : ''}`,
+  );
   lines.push(`  Effective capabilities: ${result.effectiveLevel}`);
   const overrides = Object.entries(result.destructiveCommandRuleOverrides ?? {});
   lines.push(`  Rule customizations: ${overrides.length}`);

@@ -23,7 +23,11 @@ describe('rule command docs', () => {
   test('documents current rulebook configuration', () => {
     expect(RULE_DOC).toContain('.cc-safety-net/rules/rule.json');
     expect(RULE_DOC).toContain('.cc-safety-net/rules/<rulebook-name>/rulebook.json');
-    expect(RULE_DOC).toContain('.cc-safety-net/cache/rulebooks/');
+    // Rulebooks are live files: the doc must not send anyone to a lock or cache any more.
+    expect(RULE_DOC.toLowerCase()).not.toContain('cache');
+    expect(RULE_DOC.toLowerCase()).not.toContain('lockfile');
+    expect(RULE_DOC.toLowerCase()).not.toContain('lock entry');
+    expect(RULE_DOC).not.toContain('rule sync');
     expect(RULE_DOC).toContain('owner/repo#ref/<rulebook-name>');
     expect(RULE_DOC).toContain('allowed_commands');
     expect(RULE_DOC).toContain('tests');
@@ -65,7 +69,7 @@ describe('rule command docs', () => {
     expect(result.output).toContain('--delete-source');
   });
 
-  test('initializes inert project rule config and sibling cache layout', async () => {
+  test('initializes inert project rule config with no cache layout', async () => {
     await withTempDir('safety-net-rule-init-', async (tempDir) => {
       const result = await runCCSafetyNetCli(
         ['rule', 'init'],
@@ -99,7 +103,7 @@ describe('rule command docs', () => {
     });
   });
 
-  test('initializes inert global rule config and sibling cache layout', async () => {
+  test('initializes inert global rule config with no cache layout', async () => {
     await withTempDir('safety-net-rule-init-global-', async (tempDir) => {
       const result = await runCCSafetyNetCli(['rule', 'init', '--global'], {
         CC_SAFETY_NET_HOME: join(tempDir, '.cc-safety-net'),
@@ -205,14 +209,14 @@ describe('rule command docs', () => {
   });
 });
 
-describe('rule sync', () => {
+describe('rule update', () => {
   test('prints the remaining diagnostic instead of success when the runtime stays degraded', async () => {
-    await withTempDir('safety-net-rule-sync-truth-', async (tempDir) => {
+    await withTempDir('safety-net-rule-update-truth-', async (tempDir) => {
       const env = projectRuleEnv(tempDir);
       const rulesDir = join(tempDir, '.cc-safety-net', 'rules');
       writeProjectRuleConfig(rulesDir, { 'project-rules/typo': 'off' });
 
-      const result = await runCCSafetyNetCli(['rule', 'sync'], env, tempDir);
+      const result = await runCCSafetyNetCli(['rule', 'update'], env, tempDir);
 
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('unknown override key "project-rules/typo"');
@@ -221,7 +225,7 @@ describe('rule sync', () => {
   });
 
   test('prints success once the runtime loads cleanly', async () => {
-    await withTempDir('safety-net-rule-sync-clean-', async (tempDir) => {
+    await withTempDir('safety-net-rule-update-clean-', async (tempDir) => {
       const env = projectRuleEnv(tempDir);
       writeLocalRulebook(
         join(tempDir, '.cc-safety-net', 'rules', 'project-rules', 'rulebook.json'),
@@ -229,10 +233,41 @@ describe('rule sync', () => {
       );
       writeProjectRulesConfig(tempDir, ['project-rules']);
 
-      const result = await runCCSafetyNetCli(['rule', 'sync'], env, tempDir);
+      const result = await runCCSafetyNetCli(['rule', 'update'], env, tempDir);
 
       expectSuccessfulCli(result);
       expect(result.output).toContain('Rule config synced.');
+    });
+  });
+});
+
+describe('rule sync', () => {
+  test('is a deprecated migration that prunes the v2 leftovers it finds', async () => {
+    await withTempDir('safety-net-rule-sync-deprecated-', async (tempDir) => {
+      const env = projectRuleEnv(tempDir);
+      const rulesDir = join(tempDir, '.cc-safety-net', 'rules');
+      writeProjectRuleConfig(rulesDir);
+      writeFileSync(join(rulesDir, 'rule.lock'), JSON.stringify({ version: 1, rulebooks: [] }));
+
+      const result = await runCCSafetyNetCli(['rule', 'sync'], env, tempDir);
+
+      expectSuccessfulCli(result);
+      expect(result.output).toContain('`cc-safety-net rule sync` is deprecated');
+      expect(result.output).not.toContain('Rule config synced.');
+      expect(existsSync(join(rulesDir, 'rule.lock'))).toBe(false);
+    });
+  });
+
+  test('rejects --check, which no longer has synchronization to check', async () => {
+    await withTempDir('safety-net-rule-sync-check-', async (tempDir) => {
+      const result = await runCCSafetyNetCli(
+        ['rule', 'sync', '--check'],
+        projectRuleEnv(tempDir),
+        tempDir,
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Unknown option for rule sync: --check');
     });
   });
 });
@@ -271,11 +306,6 @@ describe('rule list', () => {
           transparent_wrappers: ['wrap'],
         }),
       );
-      expect((await runCCSafetyNetCli(['rule', 'sync', '--global'], env, tempDir)).exitCode).toBe(
-        0,
-      );
-      expect((await runCCSafetyNetCli(['rule', 'sync'], env, tempDir)).exitCode).toBe(0);
-
       const result = await runRuleList(tempDir, env);
 
       expect(result.exitCode).toBe(0);
@@ -306,7 +336,7 @@ describe('rule list', () => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toBe('');
       expect(result.output).toContain('Issues (1):');
-      expect(result.output).toContain('missing lockfile');
+      expect(result.output).toContain('missing rulebook file');
     });
   });
 
@@ -494,7 +524,8 @@ describe('rule remove', () => {
         expectSuccessfulCli(result);
         expectProjectRulesConfigRules(tempDir, []);
         expect(existsSync(join(tempDir, '.cc-safety-net', 'rules', 'project-rules'))).toBe(false);
-        expect(readdirSync(join(tempDir, '.cc-safety-net', 'cache', 'rulebooks'))).toEqual([]);
+        // Nothing caches a rulebook any more, so syncing this scope wrote no cache at all.
+        expect(existsSync(join(tempDir, '.cc-safety-net', 'cache'))).toBe(false);
       },
     );
   });
@@ -909,14 +940,16 @@ describe('rule verify', () => {
 
 function expectInertRulesLayout(dir: string): void {
   expect(existsSync(join(dir, '.cc-safety-net', 'rules', 'rule.json'))).toBe(true);
-  expect(existsSync(join(dir, '.cc-safety-net', 'rules', 'rule.lock'))).toBe(true);
+  // Rulebooks are live files, so initializing a scope publishes no lockfile.
+  expect(existsSync(join(dir, '.cc-safety-net', 'rules', 'rule.lock'))).toBe(false);
   expect(readRulesConfig(join(dir, '.cc-safety-net', 'rules', 'rule.json'))).toEqual({
     version: 1,
     rules: [],
     overrides: {},
     transparent_wrappers: [],
   });
-  expect(existsSync(join(dir, '.cc-safety-net', 'cache', 'rulebooks'))).toBe(true);
+  // Nothing is cached any more, so initializing a scope creates no cache directory either.
+  expect(existsSync(join(dir, '.cc-safety-net', 'cache'))).toBe(false);
   expect(existsSync(join(dir, '.cc-safety-net', 'rules', 'cache'))).toBe(false);
 }
 

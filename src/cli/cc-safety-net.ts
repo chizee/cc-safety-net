@@ -10,6 +10,7 @@ import {
   findLegacyTopLevelHookIntegration,
 } from '@/cli/hook-integrations';
 import { runInstallCommand, runUpdateCommand } from '@/cli/install';
+import { runPolicyCommand } from '@/cli/policy';
 import { runRuleCommand } from '@/cli/rule';
 import { printStatus } from '@/cli/status';
 import { printStatusline } from '@/cli/statusline';
@@ -64,6 +65,9 @@ const commandHandlers = {
   },
   rule: async (args) => {
     process.exit(await runRuleCommand(args));
+  },
+  policy: async (args) => {
+    process.exit(await runPolicyCommand(args));
   },
   status: async (args) => {
     if (reportCommandArgErrors(parseCommandArgs({ label: 'status' }, args).errors)) {

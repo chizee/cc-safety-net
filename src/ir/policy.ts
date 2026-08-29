@@ -49,6 +49,36 @@ export interface SecretProtectionConfig {
 
 export type DestructiveCommandRuleOverride = 'on' | 'off';
 
+/** The canonical policy-file shape, as `policy.json` states it in either scope. */
+export type GuiPolicy = {
+  version: 1;
+  safety: {
+    level: PolicySafetyLevel;
+    overrides: {
+      fail_closed?: boolean;
+      paranoid_rm?: boolean;
+      paranoid_interpreters?: boolean;
+    };
+  };
+  workflow: {
+    worktree_mode: boolean;
+  };
+  destructive_command_protection: {
+    enabled: boolean;
+    overrides: Record<string, DestructiveCommandRuleOverride>;
+    allow_paths: string[];
+  };
+  secret_protection: {
+    enabled: boolean;
+    overrides: Record<string, DestructiveCommandRuleOverride>;
+    deny_paths: string[];
+    allow_paths: string[];
+  };
+  audit: {
+    retention_days: number;
+  };
+};
+
 export type RuleActivationCapability = 'fail_closed' | 'paranoid_rm' | 'paranoid_interpreters';
 
 export type EffectiveCapabilitySource = 'preset' | 'capability_override' | 'environment';
@@ -138,12 +168,28 @@ export type CustomRuleMetadata = {
   };
 };
 
+/**
+ * Which scope supplied the effective safety level, and one preformatted line per
+ * field a project policy weakened relative to the user policy. Present only when a
+ * project policy file was read.
+ */
+export type PolicyScopes = {
+  readonly levelScope: 'user' | 'project' | 'default';
+  readonly weakenings: readonly string[];
+};
+
+/** How a surface names the scope a value came from, next to the value itself. */
+export function describePolicyScope(scope: PolicyScopes['levelScope']): string {
+  return scope === 'default' ? 'built-in default' : `${scope} policy`;
+}
+
 export type PolicySnapshot =
   | {
       readonly state: 'ready';
       readonly policy: EffectivePolicy;
       readonly diagnostics: readonly string[];
       readonly ruleMetadata: Readonly<Record<string, CustomRuleMetadata>>;
+      readonly policyScopes?: PolicyScopes;
     }
   | {
       readonly state: 'degraded';
@@ -151,6 +197,7 @@ export type PolicySnapshot =
       readonly diagnostics: readonly string[];
       readonly reason: string;
       readonly ruleMetadata: Readonly<Record<string, CustomRuleMetadata>>;
+      readonly policyScopes?: PolicyScopes;
     };
 
 /** The runtime configuration state as diagnostic surfaces report it. */

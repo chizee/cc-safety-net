@@ -3,7 +3,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -14,16 +13,13 @@ import { loadPolicySnapshot } from '@/policy/snapshot';
 import {
   getProjectRulesConfigPath,
   getProjectRulesDir,
-  getRulesLockPathForConfigPath,
   getUserRulesConfigPath,
   loadRulesPolicy,
   syncRulesConfig,
   writeDefaultRulesConfig,
   writeStarterRulebook,
 } from '@/rules/policy';
-import { getRulebookCachePath } from '@/rules/policy/paths';
-import { sha256Digest } from '@/rules/policy/resolver';
-import { withTempDir, writeLockedGitHubRulebookPolicy } from '../helpers';
+import { withTempDir, writeVendoredGitHubRulebookPolicy } from '../helpers';
 import { TEST_ENVIRONMENT } from '../helpers/environment';
 import { testModes } from '../helpers/policy';
 
@@ -70,38 +66,39 @@ function treeState(root: string) {
   return entries;
 }
 
+/** A strict user policy plus the project policy directory, in an isolated temp cwd. */
+function writeStrictUserPolicy(cwd: string) {
+  const userConfigDir = join(cwd, 'user', 'rules');
+  mkdirSync(userConfigDir, { recursive: true });
+  writeFileSync(
+    join(cwd, 'user', 'policy.json'),
+    JSON.stringify({ version: 1, safety: { level: 'strict' } }),
+  );
+  const projectPolicyPath = join(cwd, '.cc-safety-net', 'policy.json');
+  mkdirSync(dirname(projectPolicyPath), { recursive: true });
+  return { userConfigDir, projectPolicyPath };
+}
+
 describe('policy snapshots', () => {
-  test('fails closed with fixed diagnostics for linked project config and lock files', async () => {
+  test('fails closed with fixed diagnostics for a linked project config file', async () => {
     await withTempDir('cc-safety-net-snapshot-linked-control-', (cwd) => {
       const userConfigDir = join(cwd, 'user', 'rules');
-      for (const target of ['config', 'lock'] as const) {
-        const outside = join(cwd, `${target}-TOPSECRET`);
-        writeFileSync(outside, 'TOPSECRET unexpected token payload');
-        mkdirSync(getProjectRulesDir(cwd), { recursive: true });
-        const configPath = getProjectRulesConfigPath(cwd);
-        const lockPath = getRulesLockPathForConfigPath(configPath);
-        if (target === 'config') {
-          symlinkSync(outside, configPath);
-        } else {
-          writeDefaultRulesConfig(configPath, ['missing-rules']);
-          symlinkSync(outside, lockPath);
-        }
+      const outside = join(cwd, 'config-TOPSECRET');
+      writeFileSync(outside, 'TOPSECRET unexpected token payload');
+      mkdirSync(getProjectRulesDir(cwd), { recursive: true });
+      symlinkSync(outside, getProjectRulesConfigPath(cwd));
 
-        const snapshot = loadPolicySnapshot({ cwd, userConfigDir });
-        expect(snapshot.state).toBe('degraded');
-        expect(snapshot.policy.rules).toEqual([]);
-        expect(JSON.stringify(snapshot)).not.toContain('TOPSECRET');
-        expect(JSON.stringify(snapshot)).not.toContain('unexpected token');
-        expect(snapshot.diagnostics).toContain(
-          'Unable to access project policy filesystem safely.',
-        );
+      const snapshot = loadPolicySnapshot({ cwd, userConfigDir });
 
-        rmSync(getProjectRulesDir(cwd), { recursive: true, force: true });
-      }
+      expect(snapshot.state).toBe('degraded');
+      expect(snapshot.policy.rules).toEqual([]);
+      expect(JSON.stringify(snapshot)).not.toContain('TOPSECRET');
+      expect(JSON.stringify(snapshot)).not.toContain('unexpected token');
+      expect(snapshot.diagnostics).toContain('Unable to access project policy filesystem safely.');
     });
   });
 
-  test('fails closed before parsing linked cache or local rulebook bytes', async () => {
+  test('fails closed before parsing linked rulebook bytes', async () => {
     await withTempDir('cc-safety-net-snapshot-linked-rulebook-', (cwd) => {
       const userConfigDir = join(cwd, 'user', 'rules');
       const configDir = getProjectRulesDir(cwd);
@@ -111,22 +108,7 @@ describe('policy snapshots', () => {
       writeFileSync(outside, externalBytes);
       mkdirSync(configDir, { recursive: true });
       writeDefaultRulesConfig(configPath, ['linked']);
-      const entry = {
-        spec: 'linked',
-        kind: 'local-directory' as const,
-        path: 'linked',
-        name: 'linked',
-        version: '1.0.0',
-        digest: sha256Digest(externalBytes),
-      };
-      writeFileSync(
-        getRulesLockPathForConfigPath(configPath),
-        `${JSON.stringify({ version: 1, rulebooks: [entry] })}\n`,
-      );
-      const cachePath = getRulebookCachePath(entry, { cacheConfigDir: configDir });
       mkdirSync(join(configDir, 'linked'), { recursive: true });
-      mkdirSync(dirname(cachePath), { recursive: true });
-      symlinkSync(outside, cachePath);
       symlinkSync(outside, join(configDir, 'linked', 'rulebook.json'));
 
       const rules = loadRulesPolicy({ cwd, userConfigDir });
@@ -170,17 +152,16 @@ describe('policy snapshots', () => {
       if (snapshot.state !== 'degraded') return;
       expect(snapshot.policy.rules).toEqual([]);
       expect(snapshot.policy.safety.level).toBe('strict');
-      expect(snapshot.diagnostics).toEqual([
-        `missing lockfile ${join(cwd, '.cc-safety-net', 'rules', 'rule.lock')}; run \`cc-safety-net rule sync\``,
-      ]);
+      const missingRulebook = `missing rulebook file ${join(cwd, '.cc-safety-net', 'rules', 'missing-rules', 'rulebook.json')} for missing-rules; create that file or remove that source from the rules config`;
+      expect(snapshot.diagnostics).toEqual([missingRulebook]);
       expect(snapshot.reason).toBe(
-        `missing lockfile ${join(cwd, '.cc-safety-net', 'rules', 'rule.lock')}; run \`cc-safety-net rule sync\`. Those rule sources are not active; every other rule and all built-in protections still apply.`,
+        `${missingRulebook}. Those rule sources are not active; every other rule and all built-in protections still apply.`,
       );
     });
 
     await withTempDir('cc-safety-net-snapshot-invalid-policy-', (cwd) => {
       const userConfigDir = join(cwd, 'user', 'rules');
-      writeLockedGitHubRulebookPolicy(cwd, rulebook());
+      writeVendoredGitHubRulebookPolicy(cwd, rulebook());
       mkdirSync(dirname(userConfigDir), { recursive: true });
       const policyPath = join(dirname(userConfigDir), 'policy.json');
       writeFileSync(policyPath, JSON.stringify({ version: 1, extra: true }));
@@ -248,6 +229,46 @@ describe('policy snapshots', () => {
     });
   });
 
+  test('honors the project policy and records its provenance on the snapshot', async () => {
+    await withTempDir('cc-safety-net-snapshot-project-policy-', (cwd) => {
+      const scope = writeStrictUserPolicy(cwd);
+      writeFileSync(
+        scope.projectPolicyPath,
+        JSON.stringify({ version: 1, safety: { level: 'standard' } }),
+      );
+
+      const snapshot = loadPolicySnapshot({ cwd, userConfigDir: scope.userConfigDir });
+
+      // A weakening project policy is honored as written, not a failure.
+      expect(snapshot.state).toBe('ready');
+      expect(snapshot.policy.safety.level).toBe('standard');
+      expect(snapshot.policyScopes).toEqual({
+        levelScope: 'project',
+        weakenings: ['project policy lowers level: strict -> standard'],
+      });
+      expect(Object.isFrozen(snapshot.policyScopes)).toBeTrue();
+    });
+  });
+
+  test('degrades naming the project policy file while the user policy stays in force', async () => {
+    await withTempDir('cc-safety-net-snapshot-project-policy-invalid-', (cwd) => {
+      const scope = writeStrictUserPolicy(cwd);
+      writeFileSync(scope.projectPolicyPath, '{"version":1,');
+
+      const snapshot = loadPolicySnapshot({ cwd, userConfigDir: scope.userConfigDir });
+
+      expect(snapshot.state).toBe('degraded');
+      if (snapshot.state !== 'degraded') return;
+      expect(snapshot.diagnostics).toEqual([`${scope.projectPolicyPath}: Invalid JSON`]);
+      expect(snapshot.reason).toContain(`${scope.projectPolicyPath}: Invalid JSON`);
+      expect(snapshot.policy.safety.level).toBe('strict');
+      // The user policy is still enforced, so the reason must not tell the reader
+      // that built-in defaults replaced it.
+      expect(snapshot.reason).toContain('Enforcing the salvaged policy with protective defaults');
+      expect(snapshot.reason).not.toContain('Enforcing built-in protective defaults');
+    });
+  });
+
   test('salvages a deny path list by dropping only the home-covering entry', async () => {
     await withTempDir('cc-safety-net-snapshot-deny-path-salvage-', (cwd) => {
       const userConfigDir = join(cwd, 'user', 'rules');
@@ -287,15 +308,15 @@ describe('policy snapshots', () => {
       ]);
       expect(snapshot).toMatchObject({
         state: 'degraded',
-        reason: expect.stringContaining('missing lockfile'),
+        reason: expect.stringContaining('missing rulebook file'),
       });
     });
   });
 
-  test('reads and verifies cached rulebooks without writes or network access', async () => {
+  test('reads and validates vendored rulebooks without writes or network access', async () => {
     await withTempDir('cc-safety-net-snapshot-offline-', (cwd) => {
       const content = rulebook();
-      writeLockedGitHubRulebookPolicy(cwd, content);
+      writeVendoredGitHubRulebookPolicy(cwd, content);
       const userConfigDir = join(cwd, 'user', 'rules');
       const before = treeState(cwd);
       let fetchCalls = 0;
@@ -309,20 +330,20 @@ describe('policy snapshots', () => {
       expect(fetchCalls).toBe(0);
       expect(treeState(cwd)).toEqual(before);
 
-      const cache = Object.keys(before).find((path) => path.endsWith('/rulebook.json'));
-      expect(cache).toBeDefined();
-      writeFileSync(join(cwd, cache as string), rulebook('Changed without sync.'));
+      const vendored = Object.keys(before).find((path) => path.endsWith('/rulebook.json'));
+      expect(vendored).toBeDefined();
+      writeFileSync(join(cwd, vendored as string), '{ "rulebook_version": 1,');
 
       const invalid = loadPolicySnapshot({ cwd, userConfigDir });
       expect(invalid.state).toBe('degraded');
-      if (invalid.state === 'degraded') expect(invalid.reason).toContain('cache digest mismatch');
+      if (invalid.state === 'degraded') expect(invalid.reason).toContain('invalid rulebook');
       expect(fetchCalls).toBe(0);
     });
   });
 
   test('analysis consumes the explicit snapshot instead of reloading configuration', async () => {
     await withTempDir('cc-safety-net-snapshot-analysis-', (cwd) => {
-      writeLockedGitHubRulebookPolicy(cwd, rulebook());
+      writeVendoredGitHubRulebookPolicy(cwd, rulebook());
       const snapshot = loadPolicySnapshot({ cwd, userConfigDir: join(cwd, 'user', 'rules') });
       writeFileSync(getProjectRulesConfigPath(cwd), JSON.stringify({ version: 1, rules: [] }));
 

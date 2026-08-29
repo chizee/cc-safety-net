@@ -12,7 +12,7 @@ import {
 import { validateRulesConfig } from '@/rules/policy/config-file';
 import { SECRET_DEFAULT_OFF_RULE_ID_SET } from '@/rules/secret-protection-rules';
 import { analyzeTestCommand as analyzeCommand, loadTestPolicy } from '../helpers/policy';
-import { withEnv, writeLockedGitHubRulebookPolicy } from '../helpers.ts';
+import { withEnv, writeVendoredGitHubRulebookPolicy } from '../helpers.ts';
 
 const legacyRule = {
   name: 'block-git-add-all',
@@ -312,7 +312,7 @@ describe('runtime config loading', () => {
       version: 1,
       destructive_command_protection: { enabled: false, overrides: {} },
     });
-    writeLockedGitHubRulebookPolicy(
+    writeVendoredGitHubRulebookPolicy(
       tempDir,
       JSON.stringify({
         rulebook_version: 1,
@@ -376,7 +376,7 @@ describe('runtime config loading', () => {
     ).toBe('powershell.remove-item-recursive-force-root-or-home');
   });
 
-  test('project policy is ignored', () => {
+  test('project policy applies on top of the user scope', () => {
     writeProjectPolicy({
       version: 1,
       destructive_command_protection: { overrides: { 'git.reset-hard': 'off' } },
@@ -387,11 +387,15 @@ describe('runtime config loading', () => {
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
     expect(config.configFallbackReason).toBeUndefined();
-    expect(config.destructiveCommandRuleOverrides).toEqual({});
-    // The project override is ignored, so only the built-in default-off tier remains.
-    expect(config.secretProtection?.disabledRules).toEqual([...SECRET_DEFAULT_OFF_RULE_ID_SET]);
-    expect(config.safety).toEqual({});
-    expect(config.worktreeMode).toBe(false);
+    expect(config.destructiveCommandRuleOverrides).toEqual({ 'git.reset-hard': 'off' });
+    // The project override joins the built-in default-off tier.
+    expect(config.secretProtection?.disabledRules).toEqual([
+      ...SECRET_DEFAULT_OFF_RULE_ID_SET,
+      'secret.ext.pem',
+    ]);
+    // No user policy file, so the level is the built-in default the merge starts from.
+    expect(config.safety).toEqual({ level: 'standard' });
+    expect(config.worktreeMode).toBe(true);
   });
 
   test('invalid policy fields degrade with every rejected field named', () => {
@@ -441,7 +445,7 @@ describe('runtime config loading', () => {
     expect(reason).not.toContain('Invalid JSON');
   });
 
-  test('user secret overrides and deny paths apply', () => {
+  test('user secret overrides survive the project scope that sets other fields', () => {
     writeUserPolicy({
       version: 1,
       secret_protection: {
@@ -457,12 +461,14 @@ describe('runtime config loading', () => {
 
     const config = loadTestPolicy(tempDir, { userConfigDir: userRulesDir });
 
-    expect(config.secretProtection?.enabled).toBe(false);
+    // The project sets `enabled`, so it wins there; the user's rule override stays
+    // in force and both scopes' deny paths apply.
+    expect(config.secretProtection?.enabled).toBe(true);
     expect(config.secretProtection?.disabledRules).toEqual([
       ...SECRET_DEFAULT_OFF_RULE_ID_SET,
       'secret.ext.pem',
     ]);
-    expect(config.secretProtection?.denyPaths).toEqual(['user.key']);
+    expect(config.secretProtection?.denyPaths).toEqual(['user.key', 'project.key']);
   });
 
   test('validates transparent wrapper config', () => {
@@ -515,16 +521,16 @@ describe('runtime config loading', () => {
     expect(analyzeCommand('echo ok', { cwd: tempDir, config })).toBeNull();
   }
 
-  test('unreadable rulebook cache entries are dropped', () => {
-    writeLockedGitHubRulebookPolicy(tempDir, '{}', { cacheAsDirectory: true });
+  test('unreadable rulebook files are dropped', () => {
+    writeVendoredGitHubRulebookPolicy(tempDir, '{}', { rulebookAsDirectory: true });
 
     expectRuleSourceDropped('Unable to access project policy filesystem safely.');
   });
 
-  test('invalid rulebook cache JSON is dropped', () => {
-    writeLockedGitHubRulebookPolicy(tempDir, '{');
+  test('invalid rulebook JSON is dropped', () => {
+    writeVendoredGitHubRulebookPolicy(tempDir, '{');
 
-    expectRuleSourceDropped('invalid cached rulebook');
+    expectRuleSourceDropped('invalid rulebook');
   });
 });
 

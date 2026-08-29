@@ -2768,6 +2768,8 @@ describe('secret protection exempts every documented explain invocation', () => 
       // The install docs print the -y form, so it must not block on its argument.
       `npx -y cc-safety-net explain 'cat ~/.ssh/id_rsa'`,
       `bunx --yes cc-safety-net explain 'cat ~/.ssh/id_rsa'`,
+      // pnpm's built-in `dlx` takes precedence over any project script.
+      `pnpm dlx cc-safety-net explain 'cat ~/.ssh/id_rsa'`,
     ]) {
       expect(findSensitiveTargetInCommand(command, cwd), command).toBeNull();
     }
@@ -2777,6 +2779,11 @@ describe('secret protection exempts every documented explain invocation', () => 
     const cwd = join(tmpdir(), 'secret-protection-project');
 
     for (const command of [
+      // Yarn Classic treats `yarn dlx` as a project script named `dlx`, so this
+      // form can execute repository code and its argument is not inert.
+      `yarn dlx cc-safety-net explain ~/.ssh/id_rsa`,
+      // An npm alias spec resolves a different package under our name.
+      `npx cc-safety-net@npm:other-package explain ~/.ssh/id_rsa`,
       `bun run src/cli/other.ts explain ~/.ssh/id_rsa`,
       `bun run src/cli/cc-safety-net.ts hook --coding-cli ~/.ssh/id_rsa`,
       `bunx some-other-tool explain ~/.ssh/id_rsa`,
@@ -2790,6 +2797,9 @@ describe('secret protection exempts every documented explain invocation', () => 
       // Node has no `run` subcommand: this executes a local script named `run`
       // and hands it the sensitive argument, so it is not the documented form.
       `node run src/cli/cc-safety-net.ts explain ~/.ssh/id_rsa`,
+      // Only the two-token `dlx` form resolves the published package.
+      `pnpm exec cc-safety-net explain ~/.ssh/id_rsa`,
+      `pnpm dlx some-other-tool explain ~/.ssh/id_rsa`,
     ]) {
       expect(findSensitiveTargetInCommand(command, cwd), command).not.toBeNull();
     }

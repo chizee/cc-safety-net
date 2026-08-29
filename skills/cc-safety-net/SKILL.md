@@ -26,8 +26,8 @@ rulebook schema, paths, GitHub sources, matching behavior, and validation.
 
 These commands are read-only and safe to run for discovery: `--help`, `--version`, `status`,
 `doctor`, `logs` (without `--prune-legacy`), `explain`, `rule list`, `rule verify`, `rule doc`,
-`help`. Every other command mutates configuration or installed integrations; run those only as
-part of a workflow below.
+`policy check`, `help`. Every other command mutates configuration or installed integrations; run
+those only as part of a workflow below.
 
 ## Core model
 
@@ -37,8 +37,11 @@ part of a workflow below.
   not directly in `rule.json`.
 - Three scopes: user (all projects), project (current project only), and shareable GitHub
   rulebooks at `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in a repository.
-- Rules apply only after `rule sync` validates them into the lock and cache. A rule you just
-  added silently does nothing until it is synced.
+- Rulebooks are live files. The runtime reads each `rulebook.json` on every tool call, so a saved
+  edit applies to the next command with no sync step.
+- `policy.json` sets the safety level, per-feature toggles, per-rule overrides, and path lists. It
+  has two scopes: the project file `.cc-safety-net/policy.json`, committed and shared with the
+  team, layered on the user file that applies to every project.
 - The session safety level is `standard`, `strict`, or `paranoid`, set per session with the
   `CC_SAFETY_NET_LEVEL` environment variable.
 
@@ -48,6 +51,8 @@ part of a workflow below.
   explain a decision.
 - The user thinks a block was wrong: triage a false positive.
 - The user wants to add, edit, disable, or migrate blocking rules: configure rules.
+- The user wants to change the safety level, toggle a protection, or adjust path lists: configure
+  the policy.
 - The user wants CC Safety Net installed into or removed from an agent CLI: manage integrations.
 - A rule does not fire, or the user asks whether protection is working: diagnose.
 - The user asks how or why the analyzer behaves a certain way, beyond what `explain` and
@@ -121,12 +126,10 @@ intent, merge behavior, or target command is unclear.
    `.cc-safety-net/rules/<rulebook-name>/rulebook.json`, and ensure the source name, directory
    name, and rulebook `name` match exactly.
 8. Validate after edits:
-   - Project rules: run `npx -y cc-safety-net rule sync`, `npx -y cc-safety-net rule verify`,
-     and `npx -y cc-safety-net rule list`.
-   - User rules: run `npx -y cc-safety-net rule sync --global`, `npx -y cc-safety-net rule
-     verify`, and `npx -y cc-safety-net rule list`.
-   - Shareable GitHub rulebook-only edits: run `npx -y cc-safety-net rule verify`. Run `sync`
-     and `list` only if the rulebook is also installed in local `rule.json`.
+   - User or Project rules: run `npx -y cc-safety-net rule verify` and `npx -y cc-safety-net rule
+     list`. Both commands cover every scope, so neither takes `--global`.
+   - Shareable GitHub rulebook-only edits: run `npx -y cc-safety-net rule verify`. Run `list` only
+     if the rulebook is also installed in local `rule.json`.
 9. If validation fails, show the exact errors and make the smallest fix.
 10. Confirm the saved paths or GitHub rulebook path and summarize the added or updated rules.
 
@@ -134,22 +137,49 @@ Rule invariants:
 
 - Do not use legacy inline `.safety-net.json` or `~/.cc-safety-net/config.json` rules. Convert
   existing legacy files with `npx -y cc-safety-net rule migrate`.
-- Every rule command must be listed in `allowed_commands`. The `tests` fixtures are optional and
-  never executed.
+- Every rule command must be listed in `allowed_commands`. The `tests` fixtures are optional;
+  `rule verify` evaluates `rulebook_version` 2 fixtures against the rulebook's own rules, and
+  fixture commands are analyzer input that CC Safety Net never executes.
 - A blocked fixture, when present, must specify the expected `rule`, and that rule must exist in
   the rulebook.
 - Local source names are bare names such as `project-rules`; do not put filesystem paths in
   `rules`.
-- An edited or invalid local rulebook keeps its last synced, digest-verified version enforced
-  and the edit stays pending until `npx -y cc-safety-net rule sync` validates it.
-- A missing lock entry or cache, a cache digest mismatch, or an invalid cached rulebook makes
-  that source inactive, and a missing lockfile or an unreadable `rule.json` makes every source
-  in its scope inactive: those rules stop applying while other custom rules and built-in
-  protections stay active. Repair the condition, then run `npx -y cc-safety-net rule sync`.
+- A saved rulebook is live. There is no pending state and nothing to run afterwards, so verify the
+  edit rather than activating it.
+- A missing or invalid rulebook file makes that source inactive, and an unreadable or invalid
+  `rule.json` makes every source in its scope inactive: those rules stop applying while other
+  custom rules and built-in protections stay active. Fix the file named in the diagnostic.
 - A duplicate rulebook name keeps the first claim, user scope before project scope, and ignores
   the later rulebook.
-- `rule sync` reports failure with the remaining diagnostic instead of success when the
-  synchronized scope still does not load cleanly.
+- `npx -y cc-safety-net rule add owner/repo` fetches remote rulebooks, validates them, and vendors
+  each one into `<rulebook-name>/rulebook.json`; `npx -y cc-safety-net rule update [source]`
+  re-fetches and overwrites those copies and prints what changed. The runtime never fetches, and a
+  remote source with no vendored file reports that `rule update` has to vendor it first.
+- `rule sync` is deprecated: it only migrates lock and cache leftovers from an earlier version.
+  Never run it as a validation or activation step.
+
+## Configure the policy
+
+Both `policy.json` files are protected: you propose the change, the user applies it. Reading them
+is allowed, writing them is not.
+
+1. Inspect the current state: `npx -y cc-safety-net status` for the effective policy and the file
+   paths it loaded, `npx -y cc-safety-net rule list` for custom rules, plus whatever project
+   context the request depends on. Read an existing `policy.json` before proposing changes to it.
+2. Write the proposed policy JSON to an unprotected path such as `policy-proposal.json`. For
+   project scope, set only the fields the team intends to control; an unset field inherits
+   from the user policy, and `apply` writes only the fields the proposal sets.
+   Applying replaces the target file, so the proposal is the complete policy, not a patch. Audit
+   settings are user scope only; a project proposal cannot set them.
+3. Run `npx -y cc-safety-net policy check policy-proposal.json` and show the user the printed
+   diff. Add `--global` to target the user policy instead of the project one. Fix every reported
+   error and re-check until it passes.
+4. Ask the user to run the apply in their own terminal and quote the exact command:
+   `npx -y cc-safety-net policy apply policy-proposal.json` (with `--global` when that is the
+   scope). It confirms interactively, there is no `--yes` flag, and agent invocations of
+   `policy apply` are blocked by design, so never run it, wrap it, or write the file yourself.
+5. Once the user confirms they applied it, run `npx -y cc-safety-net status` and report the
+   effective policy, including any project scope deltas it prints.
 
 ## Manage integrations
 
@@ -170,8 +200,8 @@ Rule invariants:
    `policy.json` that `rule list` does not report.
 2. `npx -y cc-safety-net doctor` verifies the installation: platform detection and hook config,
    a synthetic guard self-test, and configuration scopes. Use `--json` when parsing the result.
-3. When a custom rule does not fire, run in order: `rule verify`, `rule sync` (add `--global`
-   for user scope), `rule list`, then re-test the command with `explain`.
+3. When a custom rule does not fire, run in order: `rule verify`, `rule list`, then re-test the
+   command with `explain`.
 
 ## Answer from the source
 
@@ -217,9 +247,9 @@ version.
 
 ## Safety rules
 
-- Help the user operate CC Safety Net, never evade it. Do not change levels, uninstall, or edit
-  config to get a blocked command through unless the user explicitly asks for that outcome and
-  understands what the block guards against.
+- Help the user operate CC Safety Net, never evade it. Do not change levels, uninstall, edit
+  config, or propose a policy that weakens protection to get a blocked command through unless the
+  user explicitly asks for that outcome and understands what the block guards against.
 - Never run `hook`; it is the integration entry point that reads hook JSON from stdin, not a
   user-facing command.
 - `logs --prune-legacy` permanently deletes legacy logs. Run it only on an explicit request, and

@@ -11,7 +11,6 @@ import {
   getUserRulesConfigPath,
   syncRulesConfig,
 } from '@/rules/policy';
-import { getRulebookCachePath } from '@/rules/policy/paths';
 import { fetchGitHubResource } from '@/rules/policy/resolver';
 import {
   createRuleSyncOperation,
@@ -110,7 +109,7 @@ describe('rulebook sync source fanout limits', () => {
     expect(failureStarted).toEqual([0, 1, 2, 3]);
   });
 
-  test('accepts 64 real local sources in order and rejects 65 before lock or cache writes', async () => {
+  test('accepts 64 real local sources in order and rejects 65 without writing anything', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'rule-sync-source-limit-'));
     try {
       const names = Array.from(
@@ -129,14 +128,8 @@ describe('rulebook sync source fanout limits', () => {
       const accepted = await syncRulesConfig({ cwd });
       expect(accepted.ok).toBe(true);
       expect(accepted.entries.map((entry) => entry.spec)).toEqual(names.slice(0, 64));
-      const lockPath = getRulesLockPathForConfigPath(configPath);
-      const lockBefore = readFileSync(lockPath, 'utf8');
-      const firstEntry = accepted.entries[0];
-      if (!firstEntry) throw new Error('missing accepted entry');
-      const cachePath = getRulebookCachePath(firstEntry, {
-        cacheConfigDir: getProjectRulesDir(cwd),
-      });
-      const cacheBefore = readFileSync(cachePath, 'utf8');
+      const rulebookPath = join(getProjectRulesDir(cwd), names[0] ?? '', 'rulebook.json');
+      const rulebookBefore = readFileSync(rulebookPath, 'utf8');
 
       writeFileSync(
         configPath,
@@ -150,8 +143,8 @@ describe('rulebook sync source fanout limits', () => {
         entries: [],
       });
       expect(JSON.stringify(rejected)).not.toContain('TOPSECRET');
-      expect(readFileSync(lockPath, 'utf8')).toBe(lockBefore);
-      expect(readFileSync(cachePath, 'utf8')).toBe(cacheBefore);
+      expect(existsSync(getRulesLockPathForConfigPath(configPath))).toBe(false);
+      expect(readFileSync(rulebookPath, 'utf8')).toBe(rulebookBefore);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -387,7 +380,7 @@ describe('GitHub repository discovery source boundaries', () => {
     });
   });
 
-  test('preserves request counts for pinned, restored, refreshed, partial, and check paths', async () => {
+  test('preserves request counts for vendored, restored, refreshed, partial, and check paths', async () => {
     await withGitHubRulebooks('request-counts', ['rules-00'], async (cwd, requests, operation) => {
       const configPath = getProjectRulesConfigPath(cwd);
       const localPath = join(getProjectRulesDir(cwd), 'local-rules', 'rulebook.json');
@@ -400,43 +393,32 @@ describe('GitHub repository discovery source boundaries', () => {
           rules: ['owner/repo#main/rules-00', 'local-rules'],
         }),
       );
+      // Vendoring the remote source costs one commit resolution and one raw fetch...
       expect((await syncRulesConfigWithOperation({ cwd }, operation())).ok).toBe(true);
       expect(requests).toHaveLength(2);
+      // ...and the vendored file it leaves behind costs nothing on every later run.
       requests.length = 0;
       expect((await syncRulesConfigWithOperation({ cwd }, operation())).ok).toBe(true);
       expect(requests).toHaveLength(0);
 
-      const lockPath = getRulesLockPathForConfigPath(configPath);
-      const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as {
-        rulebooks: Array<Parameters<typeof getRulebookCachePath>[0]>;
-      };
-      const remote = lock.rulebooks.find((entry) => entry.kind === 'github');
-      if (!remote) throw new Error('missing remote lock entry');
-      const cachePath = getRulebookCachePath(remote, {
-        cacheConfigDir: getProjectRulesDir(cwd),
-      });
-      rmSync(cachePath);
+      const vendoredPath = join(getProjectRulesDir(cwd), 'rules-00', 'rulebook.json');
+      rmSync(vendoredPath);
       expect((await syncRulesConfigWithOperation({ cwd }, operation())).ok).toBe(true);
-      expect(requests).toHaveLength(1);
+      expect(requests).toHaveLength(2);
 
       requests.length = 0;
-      const lockBeforeCheck = readFileSync(lockPath, 'utf8');
-      const cacheBeforeCheck = readFileSync(cachePath, 'utf8');
+      const vendoredBeforeCheck = readFileSync(vendoredPath, 'utf8');
       expect((await syncRulesConfigWithOperation({ cwd, check: true }, operation())).ok).toBe(true);
       expect(requests).toHaveLength(0);
-      expect(readFileSync(lockPath, 'utf8')).toBe(lockBeforeCheck);
-      expect(readFileSync(cachePath, 'utf8')).toBe(cacheBeforeCheck);
+      expect(readFileSync(vendoredPath, 'utf8')).toBe(vendoredBeforeCheck);
 
-      expect(
-        (await syncRulesConfigWithOperation({ cwd, only: 'rules-00', refresh: true }, operation()))
-          .ok,
-      ).toBe(true);
+      const updated = await syncRulesConfigWithOperation(
+        { cwd, only: 'rules-00', refresh: true },
+        operation(),
+      );
+      expect(updated.ok).toBe(true);
       expect(requests).toHaveLength(2);
-      expect(
-        (
-          JSON.parse(readFileSync(lockPath, 'utf8')) as { rulebooks: Array<{ name: string }> }
-        ).rulebooks.map((entry) => entry.name),
-      ).toEqual(['rules-00', 'local-rules']);
+      expect(updated.entries.map((entry) => entry.name)).toEqual(['rules-00', 'local-rules']);
     });
   });
 });

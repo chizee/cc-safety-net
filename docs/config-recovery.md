@@ -1,8 +1,8 @@
 # Configuration recovery: ready and degraded
 
-Runtime policy evaluation loads a snapshot on every tool call from local policy, lockfiles, and
-digest-verified rulebook caches. It performs no writes, network requests, or caching. When one of
-those sources cannot be validated, the snapshot reports one of two states.
+Runtime policy evaluation loads a snapshot on every tool call from the policy files and the rulebook
+files each scope's `rule.json` lists. It performs no writes, network requests, or caching. When one
+of those sources cannot be validated, the snapshot reports one of two states.
 
 | State | Meaning | Runtime behavior |
 | --- | --- | --- |
@@ -16,11 +16,12 @@ policy file falls back to protective defaults, so there is always something safe
 ## Why dropping beats blocking
 
 Denying every tool call on unverifiable rule configuration looks like fail-closed safety and is not.
-Tamper resistance covers the canonical user `policy.json` only; `rule.json`, rulebooks, lockfiles,
-and caches are best-effort. In the ready state nothing gates an agent removing a rulebook entry from
-`rule.json` — removal is not drift, so no diagnostic and no protection fires. An actor that wants
-those rules gone already has an unguarded path, so blocking on a *corrupt* cache buys nothing against
-them and only strands the user whose lockfile hit a merge conflict or whose cache went stale.
+Tamper resistance covers the canonical user `policy.json` and the project `policy.json` only;
+`rule.json` and the rulebook files are best-effort. In the ready state nothing gates an agent
+removing a rulebook entry from `rule.json` — removal is not drift, so no diagnostic and no protection
+fires. An actor that wants those rules gone already has an unguarded path, so blocking on a
+*corrupt* rulebook buys nothing against them and only strands the user whose rulebook file hit a
+merge conflict.
 
 Be precise about what dropping costs. It removes the denials that source contributed, so a command
 the user deliberately blocked can now run. That is less enforcement than the configured policy, and
@@ -40,7 +41,7 @@ Closing the gap for real requires a protected or authenticated configuration con
 `rule.json` — the same tamper resistance `policy.json` already has. That is a deliberate product
 decision and is deferred, not part of this contract. A fail-closed default is not a substitute for
 it: blocking stopped the honest user and not the actor, since removing a `rule.json` entry is a
-single unguarded write that is strictly easier than corrupting a cache.
+single unguarded write that is strictly easier than corrupting a rulebook file.
 
 ## Which fallback is active per failure
 
@@ -52,62 +53,74 @@ rejected part ignored. Both produce the `degraded` state.
 | Unknown field in an otherwise readable `policy.json` | warning | The salvaged policy: recognized valid sections survive, invalid ones fall back to protective defaults |
 | Invalid recognized field in `policy.json` | warning | The salvaged policy; the invalid section only falls back to its protective default |
 | Empty or malformed JSON in `policy.json` | warning | Built-in protective defaults (destructive-command and secret protection enabled, no allow paths, no disabling overrides) |
+| Unknown or invalid field in the project `.cc-safety-net/policy.json` | warning | The salvaged project policy: its recognized valid fields still layer over the user policy, the rest is dropped |
+| Empty or malformed JSON in the project `.cc-safety-net/policy.json` | warning | The user policy alone; the project file contributes nothing |
+| An `audit` section in the project `.cc-safety-net/policy.json` | warning | The user policy's audit settings; audit is user scope only and the project section is ignored |
 | Unknown rule override key | warning | Every loaded rule, with only the unknown override ignored |
 | Project override naming a user-scoped rule | warning | The user-scoped rule as configured; user policy stays authoritative |
 | Duplicate active rulebook name | warning | The rulebook that claimed the name first; the later one contributes nothing |
-| Missing lockfile, or missing lock entry for a configured source | error | None — that source is dropped |
-| Missing cache entry, or cache digest mismatch | error | None — that source is dropped |
-| Invalid cached rulebook | error | None — that source is dropped |
+| Missing rulebook file for a configured source | error | None — that source is dropped |
+| Rulebook file that is not valid JSON, or fails the rulebook schema | error | None — that source is dropped |
+| Rulebook whose `name` does not match the source that lists it | error | None — that source is dropped |
+| Remote source with nothing vendored yet | error | None — that source is dropped until `rule update` vendors it |
 | Malformed, empty, or unsupported-`version` `rule.json` | error | None — that whole scope is dropped, including its `transparent_wrappers` |
 | Unreadable or unsafe policy filesystem | error | None for rule sources; `policy.json` falls back to protective defaults |
 
 A failure in one scope drops only that scope. The other scope's verified rules stay enforced, and
 every built-in rule keeps applying in every case.
 
-An edited, invalid, or missing local rulebook source is not in the table because it is not a failure
-state. The guard reads the digest-verified cache and never re-reads the local copy, so the edit is
-simply not active until `cc-safety-net rule sync` validates and publishes it.
+An edit to a rulebook is not in the table because it is not a failure state: rulebooks are live
+files, so the guard reads the edited file on the next tool call. An edit that breaks the file is the
+invalid-rulebook row above — that source drops until the file is fixed.
 
 One caveat is worth stating precisely, because it is the only place dropped configuration reduces
 built-in *coverage* rather than removing custom rules. `transparent_wrappers` is declared in
 `rule.json`, not in a rulebook, and it is what lets analysis look through a user-declared wrapper to
-the command underneath. A dropped rulebook cache, missing lock entry, or digest mismatch leaves it
-intact, because `rule.json` still reads. An unreadable `rule.json` loses it for that scope, so a
-destructive command behind a wrapper that scope declared is no longer unwrapped. There is no verified
-copy to fall back to — `rule.json` carries no lock or digest by design — and the alternative is the
-lockout this contract exists to remove. An agent can already delete that key from a readable
-`rule.json` without tripping anything, so the gap sits inside the tamper boundary rather than opening
-a new one. Both halves are pinned in `tests/engine/guard-config-recovery.test.ts`.
+the command underneath. A dropped rulebook leaves it intact, because `rule.json` still reads. An
+unreadable `rule.json` loses it for that scope, so a destructive command behind a wrapper that scope
+declared is no longer unwrapped. There is no verified copy to fall back to — `rule.json` carries no
+digest by design — and the alternative is the lockout this contract exists to remove. An agent can
+already delete that key from a readable `rule.json` without tripping anything, so the gap sits inside
+the tamper boundary rather than opening a new one. Both halves are pinned in `tests/engine/guard-config-recovery.test.ts`.
 
 Failures unrelated to configuration are unchanged: malformed hook or tool payloads, unparseable
 commands in strict mode, and parser or resource-limit failures still deny that one tool call.
 
 Duplicate rulebook names resolve deterministically in favour of the first claim, with the user scope
-claiming before the project scope. Because the collision is resolved rather than fatal, `rule sync`
-for one scope does not fail on a name the other scope already uses.
+claiming before the project scope. Because the collision is resolved rather than fatal, changing one
+scope does not fail on a name the other scope already uses.
 
 ## No recovery plane
 
 Nothing is special-cased while degraded, because nothing is denied for being unconfigurable. There is
-no allowlisted repair command and no allowlisted config path: `cc-safety-net rule sync`, reading
+no allowlisted repair command and no allowlisted config path: `cc-safety-net rule update`, reading
 `rule.json`, and editing it are ordinary calls that pass or fail on their own merits. Shell edit
 forms of `rule.json` (`sed -i`, `jq … > tmp && mv`) are likewise ordinary, consistent with
 `rule.json` not being a protected path.
 
-The canonical user `policy.json` remains protected in every state. Policy-file protection runs before
-the configuration snapshot is loaded, so it is unaffected by the state and denies mutation regardless.
+The user and project `policy.json` files remain protected in every state. Policy-file protection runs
+before the configuration snapshot is loaded, so it is unaffected by the state and denies mutation
+regardless.
 
-## Truthful synchronization
+## Truthful reporting after a change
 
-`cc-safety-net rule sync` reloads the synchronized scope the way the guard loads it before reporting
-success. If a diagnostic remains — an unknown override key, for example — sync reports
-failure with that exact diagnostic and exits non-zero instead of printing `Rule config synced.`.
+`cc-safety-net rule add`, `rule remove`, and `rule update` reload the scope they changed the way the
+guard loads it before reporting success. If a diagnostic remains — an unknown override key, for
+example — the command reports failure with that exact diagnostic and exits non-zero.
 
-The verification covers the scope being synchronized, not the whole machine. Diagnostics owned solely
+The verification covers the scope being changed, not the whole machine. Diagnostics owned solely
 by the other scope are left alone so that setting up one scope while the other is still incomplete
-remains possible. `rule migrate` propagates the sync result, so migrating a scope whose `rule.json`
+remains possible. `rule migrate` propagates that result, so migrating a scope whose `rule.json`
 carries a stale override reports that diagnostic; the migrated files are written and the legacy file
 is retained, so re-running after the fix succeeds.
+
+## Leftovers from version 2
+
+A scope that was configured by an earlier version can still carry a `rule.lock` and a `cache`
+directory. Neither is read: every rulebook loads from its own file. `cc-safety-net doctor` reports
+the leftovers, and the deprecated `cc-safety-net rule sync` migrates them once — it vendors any
+cached rulebook that still matches its recorded digest, names the remote sources that need
+`cc-safety-net rule update` instead, and deletes the lock and cache.
 
 ## Where the state is reported
 

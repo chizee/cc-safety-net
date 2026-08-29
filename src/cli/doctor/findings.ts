@@ -108,7 +108,22 @@ const findingRules: FindingRule[] = [
               title: 'Runtime is enforcing a fallback configuration',
               detail: `The rejected candidate configuration is not active: ${report.configState.reason}`,
               fixHint:
-                'Correct the named source, run `cc-safety-net rule sync` for a rule source, then rerun doctor.',
+                'Fix the file named in the reason, or run `cc-safety-net rule update` to vendor a remote source, then rerun doctor.',
+            },
+          ]
+        : [],
+  },
+  {
+    derive: (report) =>
+      report.v2Leftovers && report.v2Leftovers.length > 0
+        ? [
+            {
+              checkId: 'config.v2-leftovers',
+              severity: 'info',
+              title: 'Rulebook lock and cache leftovers detected',
+              detail: `Files an earlier version left behind are no longer read: ${report.v2Leftovers.join(', ')}.`,
+              fixHint:
+                'Run `cc-safety-net rule sync` (add `--global` for user scope) to migrate them, then rerun doctor.',
             },
           ]
         : [],

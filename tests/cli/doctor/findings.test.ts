@@ -159,9 +159,9 @@ describe('deriveDoctorFindings', () => {
       severity: 'warning' as const,
       title: 'Runtime is enforcing a fallback configuration',
       detail:
-        'The rejected candidate configuration is not active: local source digest mismatch for ./rules; enforcing the verified cached rulebook; the local edit is pending; run `cc-safety-net rule sync`.',
+        'The rejected candidate configuration is not active: invalid rulebook /project/.cc-safety-net/rules/team-rules/rulebook.json: Invalid JSON; fix that file.',
       fixHint:
-        'Correct the named source, run `cc-safety-net rule sync` for a rule source, then rerun doctor.',
+        'Fix the file named in the reason, or run `cc-safety-net rule update` to vendor a remote source, then rerun doctor.',
     };
     const reason = expected.detail.slice(expected.detail.indexOf(': ') + 2);
 
@@ -170,6 +170,22 @@ describe('deriveDoctorFindings', () => {
     ).toContainEqual(expected);
     expect(deriveDoctorFindings(createReport())).not.toContainEqual(
       expect.objectContaining({ checkId: expected.checkId }),
+    );
+  });
+
+  test('reports v2 lock and cache leftovers with the one command that migrates them', () => {
+    const leftovers = ['/project/.cc-safety-net/rules/rule.lock', '/project/.cc-safety-net/cache'];
+
+    expect(deriveDoctorFindings(createReport({ v2Leftovers: leftovers }))).toContainEqual({
+      checkId: 'config.v2-leftovers',
+      severity: 'info',
+      title: 'Rulebook lock and cache leftovers detected',
+      detail: `Files an earlier version left behind are no longer read: ${leftovers.join(', ')}.`,
+      fixHint:
+        'Run `cc-safety-net rule sync` (add `--global` for user scope) to migrate them, then rerun doctor.',
+    });
+    expect(deriveDoctorFindings(createReport())).not.toContainEqual(
+      expect.objectContaining({ checkId: 'config.v2-leftovers' }),
     );
   });
 

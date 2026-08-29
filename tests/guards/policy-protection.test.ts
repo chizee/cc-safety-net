@@ -8,6 +8,7 @@ import type { ToolRoute } from '@/ir/invocation';
 import { getNonCommandToolInputKind, normalizeToolName } from '@/parser/tool-input';
 import { getUserPolicyPath } from '@/policy/store';
 import {
+  getProjectPolicyPath,
   getProjectRulesConfigPath,
   getProjectRulesLockPath,
   getUserRulesConfigPath,
@@ -103,7 +104,6 @@ describe('policy config protection', () => {
         getProjectRulesLockPath(cwd),
         join(safetyNetHome, 'rules', 'local', 'rulebook.json'),
         join(safetyNetHome, 'cache', 'rulebook.json'),
-        '.cc-safety-net/policy.json',
       ]) {
         expect(findPolicyMutation('Write', { file_path: path }, cwd), path).toBeNull();
         expect(
@@ -477,6 +477,107 @@ describe('policy config protection', () => {
       expect(() => findPolicyMutation('Bash', { command }, cwd)).toThrow(
         PathCanonicalizationLimitError,
       );
+    });
+  });
+
+  test('blocks every mutation route against the absent project policy file', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home', '.cc-safety-net') }, () => {
+      const project = join(cwd, 'project');
+      mkdirSync(project);
+      const projectPolicy = getProjectPolicyPath(project);
+      const projectDir = dirname(projectPolicy);
+      for (const command of [
+        `cat package.json > ${projectPolicy}`,
+        'cat package.json > .cc-safety-net/policy.json',
+        `tee ${projectPolicy}`,
+        `sed -i.bak s/a/b/ ${projectPolicy}`,
+        `rm -rf ${projectDir}`,
+        'cd .cc-safety-net && rm -rf ../.cc-safety-net',
+        `mv ${projectPolicy} /tmp/policy-copy.json`,
+        `mv ${projectDir} /tmp/disabled-safety-net`,
+        `find ${projectPolicy} -delete`,
+        `find ${projectDir} -type f -delete`,
+        `rm ${projectPolicy} "`,
+      ]) {
+        expect(findPolicyMutation('Bash', { command }, project), command).not.toBeNull();
+      }
+
+      for (const path of [projectPolicy, '.cc-safety-net/policy.json']) {
+        expect(findPolicyMutation('Write', { file_path: path }, project)?.target, path).toBe(path);
+      }
+      expect(
+        findPolicyMutationWithRoute(
+          'apply_patch',
+          { patch: `*** Update File: ${projectPolicy}` },
+          { kind: 'patch' },
+          { configCwd: project, executionCwd: project },
+        )?.target,
+      ).toBe(projectPolicy);
+    });
+  });
+
+  test('leaves the project root itself to the destructive command rules', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home', '.cc-safety-net') }, () => {
+      const project = join(cwd, 'project');
+      mkdirSync(project);
+      for (const command of [
+        `rm -rf ${project}`,
+        'rm -rf .',
+        'find . -delete',
+        `mv ${project} /tmp`,
+      ]) {
+        expect(findPolicyMutation('Bash', { command }, project), command).toBeNull();
+      }
+    });
+  });
+
+  test('keeps reading the project policy file allowed', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home', '.cc-safety-net') }, () => {
+      const projectPolicy = getProjectPolicyPath(cwd);
+      expect(findPolicyMutation('Read', { file_path: projectPolicy }, cwd)).toBeNull();
+      for (const command of [
+        'cat .cc-safety-net/policy.json',
+        `jq '.' ${projectPolicy}`,
+        `ls -la ${dirname(projectPolicy)}`,
+      ]) {
+        expect(findPolicyMutation('Bash', { command }, cwd), command).toBeNull();
+      }
+    });
+  });
+
+  test('protects the project policy of both the execution and the config project', () => {
+    withEnv({ CC_SAFETY_NET_HOME: join(cwd, 'home', '.cc-safety-net') }, () => {
+      const executionCwd = join(cwd, 'execution-project');
+      const configCwd = join(cwd, 'config-project');
+      mkdirSync(executionCwd);
+      mkdirSync(configCwd);
+      for (const target of [getProjectPolicyPath(executionCwd), getProjectPolicyPath(configCwd)]) {
+        expect(
+          findPolicyMutationWithRoute(
+            'Write',
+            { file_path: target },
+            { kind: 'path' },
+            { configCwd, executionCwd },
+          )?.target,
+          target,
+        ).toBe(target);
+      }
+      expect(
+        findPolicyMutationWithRoute(
+          'Write',
+          { file_path: getUserPolicyPath() },
+          { kind: 'path' },
+          { configCwd, executionCwd },
+        ),
+      ).not.toBeNull();
+      expect(
+        findPolicyMutationWithRoute(
+          'Write',
+          { file_path: getProjectPolicyPath(join(cwd, 'unrelated-project')) },
+          { kind: 'path' },
+          { configCwd, executionCwd },
+        ),
+      ).toBeNull();
     });
   });
 

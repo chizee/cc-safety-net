@@ -1,4 +1,4 @@
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { colors } from '@/cli/utils/colors';
 import {
   getLegacyProjectConfigPath,
@@ -10,10 +10,7 @@ import {
   getLegacyUserRulesConfigPath,
   getProjectRulesConfigPath,
   getRulesConfigRuntimeErrorsForConfig,
-  getRulesConfigSourceDisplayMap,
-  getRulesLockPathForConfigPath,
   getUserRulesConfigPath,
-  getUserRulesLockPath,
   RULES_DIR,
 } from '@/rules/policy';
 import {
@@ -65,7 +62,6 @@ function runRulesVerifyInternal(options: RulesVerifyOptions): number {
   const legacyUserConfig = options.legacyUserConfigPath ?? getLegacyUserRulesConfigPath();
   const legacyProjectConfig = options.legacyProjectConfigPath ?? getLegacyProjectConfigPath(cwd);
   const githubSourceRulesDir = resolve(cwd, RULES_DIR);
-  const userConfigDir = dirname(userConfig);
   const paths = getPolicyPaths({
     cwd,
     userConfigPath: userConfig,
@@ -88,7 +84,6 @@ function runRulesVerifyInternal(options: RulesVerifyOptions): number {
     path: string;
     result: ValidationResult;
     schema: RulesConfigSchemaKind;
-    sourceDisplayMap: Map<string, string>;
     target: PolicyFilesystemTarget;
     inactive?: boolean;
   }> = [];
@@ -101,20 +96,12 @@ function runRulesVerifyInternal(options: RulesVerifyOptions): number {
 
   if (readPolicyFile(userConfigTarget) !== null) {
     const result = validateRulesConfigFile(userConfigTarget);
-    result.errors.push(
-      ...getRulesConfigRuntimeErrorsForConfig(
-        userConfig,
-        getUserRulesLockPath({ userConfigDir }),
-        { userConfigDir },
-        paths.userScope,
-      ),
-    );
+    result.errors.push(...getRulesConfigRuntimeErrorsForConfig(userConfig, paths.userScope));
     configsChecked.push({
       scope: 'User',
       path: userConfig,
       result,
       schema: 'rules',
-      sourceDisplayMap: getRulesConfigSourceDisplayMap(userConfig, paths.userScope),
       target: userConfigTarget,
     });
     if (result.errors.length > 0) hasErrors = true;
@@ -131,7 +118,6 @@ function runRulesVerifyInternal(options: RulesVerifyOptions): number {
         path: legacyUserConfig,
         result,
         schema: 'legacy',
-        sourceDisplayMap: new Map(),
         inactive: true,
         target: legacyUserTarget,
       });
@@ -144,22 +130,12 @@ function runRulesVerifyInternal(options: RulesVerifyOptions): number {
 
   if (readPolicyFile(projectConfigTarget) !== null) {
     const result = validateRulesConfigFile(projectConfigTarget);
-    result.errors.push(
-      ...getRulesConfigRuntimeErrorsForConfig(
-        projectConfig,
-        getRulesLockPathForConfigPath(projectConfig),
-        {
-          userConfigDir,
-        },
-        paths.projectScope,
-      ),
-    );
+    result.errors.push(...getRulesConfigRuntimeErrorsForConfig(projectConfig, paths.projectScope));
     configsChecked.push({
       scope: 'Project',
       path: resolve(projectConfig),
       result,
       schema: 'rules',
-      sourceDisplayMap: getRulesConfigSourceDisplayMap(projectConfig, paths.projectScope),
       target: projectConfigTarget,
     });
     if (result.errors.length > 0) hasErrors = true;
@@ -176,7 +152,6 @@ function runRulesVerifyInternal(options: RulesVerifyOptions): number {
       path: resolve(legacyProjectConfig),
       result,
       schema: 'legacy',
-      sourceDisplayMap: new Map(),
       inactive: true,
       target: legacyProjectTarget,
     });
@@ -197,25 +172,14 @@ function runRulesVerifyInternal(options: RulesVerifyOptions): number {
 
   for (const config of configsChecked) {
     if (config.inactive) {
-      printInactiveLegacyRulesConfig(
-        config.scope,
-        config.path,
-        config.result,
-        config.sourceDisplayMap,
-      );
+      printInactiveLegacyRulesConfig(config.scope, config.path, config.result);
     } else if (config.result.errors.length > 0) {
       printInvalidRulesConfig(config.scope, config.path, config.result.errors);
     } else {
       if (config.schema === 'rules' && addRulesSchemaIfMissing(config.target)) {
         console.log(`\nAdded $schema to ${config.scope.toLowerCase()} config.`);
       }
-      printValidRulesConfig(
-        config.scope,
-        config.path,
-        config.result,
-        config.schema,
-        config.sourceDisplayMap,
-      );
+      printValidRulesConfig(config.scope, config.path, config.result, config.schema);
     }
   }
 
@@ -332,7 +296,6 @@ function printValidRulesConfig(
   path: string,
   result: ValidationResult,
   schema: RulesConfigSchemaKind,
-  sourceDisplayMap: Map<string, string>,
 ): void {
   console.log(`\n✓ ${scope} config: ${path}`);
   console.log(`  Schema: ${schema === 'rules' ? 'rulebook sources' : 'legacy inline rules'}`);
@@ -340,7 +303,7 @@ function printValidRulesConfig(
     console.log(`  ${schema === 'rules' ? 'Sources' : 'Rules'}:`);
     let i = 1;
     for (const name of result.ruleNames) {
-      console.log(`    ${i}. ${sourceDisplayMap.get(name) ?? name}`);
+      console.log(`    ${i}. ${name}`);
       i++;
     }
   } else {
@@ -352,7 +315,6 @@ function printInactiveLegacyRulesConfig(
   scope: string,
   path: string,
   result: ValidationResult,
-  sourceDisplayMap: Map<string, string>,
 ): void {
   console.error(`\n✗ Legacy ${scope.toLowerCase()} config: ${path}`);
   console.error('  Schema: legacy inline rules');
@@ -372,7 +334,7 @@ function printInactiveLegacyRulesConfig(
     console.error('  Rules:');
     let i = 1;
     for (const name of result.ruleNames) {
-      console.error(`    ${i}. ${sourceDisplayMap.get(name) ?? name}`);
+      console.error(`    ${i}. ${name}`);
       i++;
     }
     return;

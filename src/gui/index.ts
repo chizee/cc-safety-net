@@ -11,6 +11,7 @@ import { type RunInstallCommandOptions, runInstallCommand } from '@/cli/install'
 import {
   createPolicySnapshot,
   describeConfigState,
+  getProjectPolicyPath,
   getUserPolicyDiagnostics,
   loadPolicySnapshot,
   loadRulesPolicy,
@@ -187,9 +188,20 @@ async function handleRequest(
 
   if (request.method === 'GET' && url.pathname === '/api/policy') {
     const result = readUserPolicyForGui(options);
+    const snapshot = loadPolicySnapshot(options);
     sendJson(response, 200, {
       ...result,
-      configState: describeConfigState(loadPolicySnapshot(options)),
+      configState: describeConfigState(snapshot),
+      // Display only: the editor writes the user file, so a project policy in
+      // force is reported beside it rather than made editable here.
+      ...(snapshot.policyScopes
+        ? {
+            projectPolicy: {
+              path: getProjectPolicyPath(options.cwd),
+              weakenings: snapshot.policyScopes.weakenings,
+            },
+          }
+        : {}),
       destructiveCommandRules: DESTRUCTIVE_COMMAND_RULE_METADATA,
       secretPatterns: SECRET_PROTECTION_RULE_METADATA,
       version: getPackageVersion(),

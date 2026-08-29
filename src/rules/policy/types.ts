@@ -3,42 +3,16 @@ import type { RuleOverride, RulesConfig } from '@/policy/schema';
 
 export type { RuleOverride, RulesConfig };
 
-interface RulebookLockEntryBase {
+/** What a rulebook contributes once it is loaded, for reports and command output. */
+export interface ActiveRulebookSummary {
   spec: string;
   name: string;
   version: string;
-  digest: string;
-}
-
-interface LocalDirectoryRulebookLockEntry extends RulebookLockEntryBase {
-  kind: 'local-directory';
-  path: string;
-}
-
-export interface GitHubRulebookLockEntry extends RulebookLockEntryBase {
-  kind: 'github';
-  owner: string;
-  repo: string;
-  ref: string;
-  commit: string;
-  path: string;
-  display_ref?: string;
-}
-
-export type RulebookLockEntry = LocalDirectoryRulebookLockEntry | GitHubRulebookLockEntry;
-
-export type RulebookLockEntryWithStats = RulebookLockEntry & {
-  ruleCount?: number;
-};
-
-export interface RulesLockfile {
-  version: 1;
-  rulebooks: RulebookLockEntry[];
+  ruleCount: number;
 }
 
 export interface RulesPolicyOptions {
   cwd?: string;
-  cacheConfigDir?: string;
   userConfigDir?: string;
   userConfigPath?: string;
   projectConfigPath?: string;
@@ -60,7 +34,9 @@ export interface SyncRulesConfigResult {
   ok: boolean;
   errors: string[];
   warnings: string[];
-  entries: RulebookLockEntryWithStats[];
+  entries: ActiveRulebookSummary[];
+  /** Preformatted lines describing what vendoring changed on disk, if anything. */
+  changes?: string[];
 }
 
 export interface AddRulebookSourceResult extends SyncRulesConfigResult {
@@ -94,8 +70,6 @@ export interface LoadedRulesPolicy {
   projectConfig?: RulesConfig;
   userConfigPath: string;
   projectConfigPath: string;
-  userLockPath: string;
-  projectLockPath: string;
 }
 
 export const DEFAULT_CONFIG: RulesConfig = {

@@ -14,7 +14,7 @@ import {
   resolveOpenCodeShellRoute,
 } from '@/integrations/opencode/plugin';
 import { getUserPolicyPath } from '@/policy/store';
-import { syncRulesConfig, writeDefaultRulesConfig } from '@/rules/policy';
+import { writeDefaultRulesConfig } from '@/rules/policy';
 import {
   createLinkedWorktreeFixture,
   readAuditLogEntriesForSession,
@@ -695,19 +695,20 @@ describe('OpenCode plugin', () => {
     );
   });
 
-  test('enforces the verified rulebook until explicit sync, then reloads local rules', async () => {
+  test('reloads local rules from the edited rulebook on the next tool call', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-opencode-plugin-'));
     try {
       await syncInitialGitRulebook(dir);
       const plugin = await loadToolPlugin(dir);
+      await executeGitStatus(plugin);
+      await expect(executeBash(plugin, 'git add -A')).rejects.toThrow(initialGitRule.reason);
 
       writeUpdatedGitRulebook(dir);
 
-      // The unsynced local edit stays pending: the verified cache still rules.
-      await executeGitStatus(plugin);
-      await expect(executeBash(plugin, 'git add -A')).rejects.toThrow(initialGitRule.reason);
-      expect((await syncRulesConfig({ cwd: dir })).ok).toBeTrue();
+      // The local rulebook is a live file: the edit rules on the next call, and
+      // the stale lock entry and cached copy from the sync above are ignored.
       await expect(executeGitStatus(plugin)).rejects.toThrow(updatedGitRule.reason);
+      await executeBash(plugin, 'git add -A');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -721,12 +722,12 @@ describe('OpenCode plugin', () => {
       await syncInitialGitRulebook(dir);
       const plugin = await loadToolPlugin(dir);
 
-      writeUpdatedGitRulebook(dir);
-
       await expect(executeBash(plugin, 'git add -A', 'nested')).rejects.toThrow(
         initialGitRule.reason,
       );
-      expect((await syncRulesConfig({ cwd: dir })).ok).toBeTrue();
+
+      writeUpdatedGitRulebook(dir);
+
       await expect(executeGitStatus(plugin, 'nested')).rejects.toThrow(updatedGitRule.reason);
     } finally {
       rmSync(dir, { recursive: true, force: true });

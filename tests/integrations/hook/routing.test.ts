@@ -13,7 +13,7 @@ import { getCursorToolRoute } from '@/integrations/cursor/hook';
 import { getGeminiCliToolRoute } from '@/integrations/gemini-cli/hook';
 import { getGrokBuildToolRoute } from '@/integrations/grok-build/hook';
 import { getKimiCodeToolRoute } from '@/integrations/kimi-code/hook';
-import { writeLockedGitHubRulebookPolicy } from '../../helpers.ts';
+import { writeVendoredGitHubRulebookPolicy } from '../../helpers.ts';
 import {
   antigravityShellInput,
   claudeCodeBashInput,
@@ -389,7 +389,7 @@ describe('hook command routing', () => {
   test('Coding CLI hook keeps running when config loading throws', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'safety-net-hook-bad-config-'));
     try {
-      writeLockedGitHubRulebookPolicy(cwd, '{}', { cacheAsDirectory: true });
+      writeVendoredGitHubRulebookPolicy(cwd, '{}', { rulebookAsDirectory: true });
 
       // An unreadable policy filesystem degrades to protective defaults rather than
       // denying every command, so an ordinary command still passes with no output.

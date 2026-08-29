@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AMP_MANAGED_HEADER, buildAmpArtifactHeader } from '@/integrations/amp/artifact';
@@ -116,34 +115,6 @@ describe('generated artifact contract', () => {
         join(rules, 'rule.json'),
         JSON.stringify({ version: 1, rules: ['user-rules'] }),
       );
-      const digest = createHash('sha256').update(rulebook).digest('hex');
-      writeFileSync(
-        join(rules, 'rule.lock'),
-        JSON.stringify({
-          version: 1,
-          rulebooks: [
-            {
-              spec: 'user-rules',
-              kind: 'local-directory',
-              path: 'user-rules',
-              name: 'user-rules',
-              version: '1.0.0',
-              digest: `sha256:${digest}`,
-            },
-          ],
-        }),
-      );
-      // `rule sync` materializes the resolved rulebook here; the guard reads the
-      // cached copy, so the fixture ships it instead of shelling out to sync.
-      const cached = join(
-        home,
-        '.cc-safety-net',
-        'cache',
-        'rulebooks',
-        `user-rules--${digest.slice(0, 12)}`,
-      );
-      mkdirSync(cached, { recursive: true });
-      writeFileSync(join(cached, 'rulebook.json'), rulebook);
       const proc = Bun.spawnSync(
         ['node', join(directory, 'dist', 'bin', 'cc-safety-net.js'), 'hook', '--coding-cli'],
         {

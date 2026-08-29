@@ -109,6 +109,27 @@ describe('formatTraceHuman', () => {
     expect(output).toContain('Path:');
   });
 
+  // Explain answers "why is my level this here" with the supplying scope alone;
+  // the per-field deltas belong to status and doctor.
+  test('names the scope that supplied the safety preset', () => {
+    const result = mockExplainResult('git status', [['git', 'status']], {
+      type: 'custom-rules-check',
+      rulesChecked: true,
+      matched: false,
+    });
+    result.safetyPresetScope = 'project';
+
+    expect(formatTraceHuman(result)).toContain('Safety preset: standard (project policy)');
+    expect(JSON.parse(formatTraceJson(result)).safetyPresetScope).toBe('project');
+  });
+
+  test('leaves the safety preset unqualified when no project policy was read', () => {
+    const result = explainCommand('git status');
+
+    expect(formatTraceHuman(result)).toContain('Safety preset: standard\n');
+    expect(formatTraceHuman(result)).not.toContain('policy)');
+  });
+
   test('shows segment labels for multi-segment', () => {
     const result = explainCommand('echo a && echo b');
     const output = formatTraceHuman(result);

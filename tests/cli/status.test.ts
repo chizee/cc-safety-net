@@ -115,6 +115,11 @@ describe('status command', () => {
   const writeUserPolicy = (policy: Record<string, unknown>) =>
     writeFile(join(home, 'policy.json'), JSON.stringify(policy));
 
+  const writeProjectPolicy = async (policy: Record<string, unknown>) => {
+    await mkdir(join(project, '.cc-safety-net'), { recursive: true });
+    await writeFile(join(project, '.cc-safety-net', 'policy.json'), JSON.stringify(policy));
+  };
+
   test('prints the facts block and no issues block when ready', async () => {
     const result = await runStatus();
 
@@ -127,6 +132,61 @@ describe('status command', () => {
     expect(result.output).toContain('Everything configured is active.');
     expect(result.output).not.toContain('Not active');
     expect(issueBullets(result.output)).toEqual([]);
+  });
+
+  /**
+   * The project policy is a second file in force, so it is named as a fact, and
+   * what it relaxes is stated where the reader already looks. The deltas are
+   * informational: nothing about them is inactive, so they never join the
+   * "Not active" bullets.
+   */
+  test('names the project policy file and prints its weakenings as their own block', async () => {
+    await writeUserPolicy({ version: 1, safety: { level: 'strict' } });
+
+    const withoutProject = await runStatus();
+    expect(withoutProject.output).not.toContain('Project');
+
+    await writeProjectPolicy({ version: 1, safety: { level: 'standard' } });
+    const result = await runStatus();
+
+    expect(factValue(result.output, 'Project')).not.toBe('');
+    expect(join(project, '.cc-safety-net', 'policy.json')).toStartWith(
+      factValue(result.output, 'Project').slice(0, -1),
+    );
+    expect(result.output).toMatch(/^ {2}Level\s+standard$/m);
+    expect(result.output).toMatch(/^ {2}Project policy$/m);
+    expect(result.output).toMatch(/^ {4}project policy lowers level: strict -> standard$/m);
+    expect(issueBullets(result.output)).toEqual([]);
+    expect(result.output).toContain('Everything configured is active.');
+  });
+
+  test('wrapped weakening lines stay inside the render width', async () => {
+    await writeUserPolicy({ version: 1 });
+    await writeProjectPolicy({
+      version: 1,
+      // A path with spaces gives the wrapper real break points; the budget bug
+      // shows as continuation lines two columns past the render width.
+      destructive_command_protection: { allow_paths: [`~/team/${'word '.repeat(25)}end`] },
+    });
+
+    const output = renderOnTTY(60);
+
+    expect(output).toContain('Project policy');
+    output.split('\n').forEach((line) => {
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI color codes
+      expect(line.replace(/\[[0-9;]*m/g, '').length, line).toBeLessThanOrEqual(60);
+    });
+  });
+
+  test('does not tilde-abbreviate a path that merely shares a prefix with home', async () => {
+    await writeUserPolicy({ version: 1 });
+    await writeProjectPolicy({ version: 1, workflow: { worktree_mode: true } });
+
+    // With home `<root>/proj`, the project under `<root>/project` shares a raw
+    // string prefix; abbreviating it would display a path that does not exist.
+    const result = await runStatus({ HOME: join(root, 'proj') });
+
+    expect(result.output).not.toContain('~ect');
   });
 
   test('prints one bullet per diagnostic and never the combined reason', async () => {

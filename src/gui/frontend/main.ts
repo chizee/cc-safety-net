@@ -60,6 +60,7 @@ type PolicyState = {
   exists: boolean;
   version: string;
   configState?: { state: string; reason: string };
+  projectPolicy?: { path: string; weakenings: string[] };
 };
 type FeedEntry = {
   ts: string;
@@ -1823,6 +1824,15 @@ function render() {
   qs('policy-savebar').hidden = true;
   qs('dirty-chip').hidden = true;
   qs('policy-path').textContent = state.path + (state.exists ? '' : ' (not created yet)');
+  // The project policy is merged on top of the file this editor writes, so it is
+  // named here and what it relaxes is stated; neither is editable from the GUI.
+  const projectPolicy = state.projectPolicy;
+  qs('project-policy-row').hidden = !projectPolicy;
+  qs('project-policy-path').textContent = projectPolicy?.path ?? '';
+  qs('project-policy-notice').hidden = !projectPolicy || projectPolicy.weakenings.length === 0;
+  qs('project-policy-notice').textContent = projectPolicy
+    ? ['Merged on top of this file:', ...projectPolicy.weakenings].join('\n')
+    : '';
   qs('app-version').textContent = state.version;
   renderSafety();
   qs('destructive-command').innerHTML =

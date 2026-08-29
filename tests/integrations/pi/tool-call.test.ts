@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createPiToolCallHandler, handlePiToolCall } from '@/integrations/pi/tool-call';
 import { getUserPolicyPath } from '@/policy/store';
-import { syncRulesConfig, writeDefaultRulesConfig } from '@/rules/policy';
+import { writeDefaultRulesConfig } from '@/rules/policy';
 import { readAuditLogEntriesForSession, readLatestAuditLogEntry, withEnv } from '../../helpers';
 import { type AnalyzeCall, captureAnalyzeCalls } from '../../helpers/analyze-capture';
 import {
@@ -478,21 +478,23 @@ describe('Pi tool_call event', () => {
     }
   });
 
-  test('enforces the verified rulebook until explicit sync, then reloads local rules', async () => {
+  test('reloads local rules from the edited rulebook on the next tool call', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'safety-net-pi-tool-call-'));
     try {
       await syncInitialGitRulebook(dir);
-      writeUpdatedGitRulebook(dir);
-
-      // The unsynced local edit stays pending: the verified cache still rules.
       expect(handlePiToolCall(bashToolCall('git status'), piContext(dir))).toBeUndefined();
       expect(handlePiToolCall(bashToolCall('git add -A'), piContext(dir))?.reason).toContain(
         initialGitRule.reason,
       );
-      expect((await syncRulesConfig({ cwd: dir })).ok).toBeTrue();
+
+      writeUpdatedGitRulebook(dir);
+
+      // The local rulebook is a live file: the edit rules on the next call, and
+      // the stale lock entry and cached copy from the sync above are ignored.
       expect(handlePiToolCall(bashToolCall('git status'), piContext(dir))?.reason).toContain(
         updatedGitRule.reason,
       );
+      expect(handlePiToolCall(bashToolCall('git add -A'), piContext(dir))).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

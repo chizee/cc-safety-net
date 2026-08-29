@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { listAuditLogFiles } from '@/engine/audit-scan';
-import { syncRulesConfig, writeDefaultRulesConfig, writeStarterRulebook } from '@/rules/policy';
+import { writeDefaultRulesConfig, writeStarterRulebook } from '@/rules/policy';
 import { readAuditLogEntriesForSession, readLatestAuditLogEntry } from '../../helpers';
 import {
   claudeCodeBashInput,
@@ -131,11 +131,11 @@ describe('Claude Code hook', () => {
       });
     });
 
-    test('an unsynchronized rule source rides along as a warning on an unrelated denial', async () => {
+    test('a rule source with no rulebook rides along as a warning on an unrelated denial', async () => {
       await withHookTestContext(async (context) => {
-        writeProjectRulesConfigWithoutLock(context.cwd);
+        writeProjectRulesConfigWithoutRulebook(context.cwd);
 
-        // The unsynchronized source is dropped, so an ordinary command passes...
+        // The unreadable source is dropped, so an ordinary command passes...
         const allowed = await context.runClaudeCodeHook(
           context.claudeCodeBashInput('git status --short --branch'),
         );
@@ -146,8 +146,8 @@ describe('Claude Code hook', () => {
         // ...and the diagnostic surfaces on the next denial it did not cause.
         const reason = await denialReason(context, 'git reset --hard');
 
-        expect(reason).toContain('Config warning: missing lockfile');
-        expect(reason).toContain('run `cc-safety-net rule sync`');
+        expect(reason).toContain('Config warning: missing rulebook file');
+        expect(reason).toContain('create that file or remove that source from the rules config');
       });
     });
   });
@@ -269,28 +269,19 @@ period, so default to 0 instead of hiding the Weekly block at fresh-period start
       });
     });
 
-    test('a local rulebook is inert until explicit sync creates the rule lock', async () => {
+    test('a local rulebook enforces with no lockfile of any kind', async () => {
       await withHookTestContext(async (context) => {
-        writeProjectRulesConfigWithoutLock(context.cwd);
+        writeProjectRulesConfigWithoutRulebook(context.cwd);
         writeStarterRulebook(join(context.cwd, '.cc-safety-net/rules/project-rules/rulebook.json'));
 
-        // Unsynchronized rules are never enforced, so the command passes until sync
-        // publishes a verified lock entry for it.
-        const result = await context.runClaudeCodeHook(
-          context.claudeCodeBashInput('docker system prune'),
-        );
-
-        expect(existsSync(join(context.cwd, '.cc-safety-net/rules/rule.lock'))).toBe(false);
-        expect(result.stdout).toBe('');
-
-        expect((await syncRulesConfig({ cwd: context.cwd })).ok).toBeTrue();
-        const synced = JSON.parse(
+        const result = JSON.parse(
           (await context.runClaudeCodeHook(context.claudeCodeBashInput('docker system prune')))
             .stdout,
         );
-        expect(existsSync(join(context.cwd, '.cc-safety-net/rules/rule.lock'))).toBe(true);
-        expect(synced.hookSpecificOutput.permissionDecision).toBe('deny');
-        expect(synced.hookSpecificOutput.permissionDecisionReason).toContain(
+
+        expect(existsSync(join(context.cwd, '.cc-safety-net/rules/rule.lock'))).toBe(false);
+        expect(result.hookSpecificOutput.permissionDecision).toBe('deny');
+        expect(result.hookSpecificOutput.permissionDecisionReason).toContain(
           '[project-rules/block-docker-system-prune] Use targeted cleanup instead.',
         );
       });
@@ -478,14 +469,18 @@ period, so default to 0 instead of hiding the Weekly block at fresh-period start
       });
     });
 
-    test('project policy path is inert', async () => {
+    test('denies writes to the project policy path', async () => {
       await withHookTestContext(async (context) => {
-        await expectNoHookOutput(context.runClaudeCodeHook, {
+        const result = await context.runClaudeCodeHook({
           hook_event_name: 'PreToolUse',
           cwd: context.cwd,
           tool_name: 'Write',
           tool_input: { file_path: '.cc-safety-net/policy.json', content: '{}' },
         });
+
+        expect(getHookDenyReason(result, 'claude-code')).toContain(
+          'This path contains the protected policy config and you must not modify or delete it.',
+        );
       });
     });
   });
@@ -547,7 +542,7 @@ period, so default to 0 instead of hiding the Weekly block at fresh-period start
       });
     });
 
-    test('project policy is ignored', async () => {
+    test('project policy disabling secret protection is honored', async () => {
       await withHookTestContext(async (context) => {
         writeProjectPolicy(context.cwd, {
           version: 1,
@@ -561,7 +556,8 @@ period, so default to 0 instead of hiding the Weekly block at fresh-period start
           tool_input: { file_path: '.env' },
         });
 
-        expectSecretProtectionDeny(result, 'claude-code');
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout).toBe('');
       });
     });
   });
@@ -730,7 +726,7 @@ async function denialReason(context: HookTestContext, command: string): Promise<
   return parsed.hookSpecificOutput.permissionDecisionReason as string;
 }
 
-function writeProjectRulesConfigWithoutLock(cwd: string): void {
+function writeProjectRulesConfigWithoutRulebook(cwd: string): void {
   rmSync(join(cwd, '.cc-safety-net/rules'), { recursive: true, force: true });
   writeDefaultRulesConfig(join(cwd, '.cc-safety-net/rules/rule.json'), ['project-rules']);
 }

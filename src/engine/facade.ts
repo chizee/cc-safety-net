@@ -32,22 +32,21 @@ export {
   getEnvFlagValue,
   resolveAuditScope,
 } from '@/policy/env';
+export { mergeProjectPolicy } from '@/policy/merge';
 export { getUserPolicyDiagnostics } from '@/policy/schema';
 export {
   createPolicySnapshot,
   describeConfigState,
   loadPolicySnapshot,
 } from '@/policy/snapshot';
-export { getUserPolicyPath } from '@/policy/store';
+export { getUserPolicyPath, projectPolicyProjection } from '@/policy/store';
 export { type ValidationResult, validateRulesConfigFile } from '@/rules/config';
 export { COMMAND_PATTERN } from '@/rules/constants';
 export { resolveEffectiveDestructiveCommandRules } from '@/rules/destructive-command-rules';
 export {
   getProjectRulesConfigPath,
   getRulesConfigRuntimeErrorsForConfig,
-  getRulesLockPathForConfigPath,
   getUserRulesConfigPath,
-  getUserRulesLockPath,
   loadRulesPolicy,
 } from '@/rules/policy';
 export {
@@ -56,5 +55,5 @@ export {
   type PolicyFilesystemTarget,
   readPolicyFile,
 } from '@/rules/policy/filesystem';
-export { getPolicyPaths } from '@/rules/policy/paths';
+export { getPolicyPaths, getProjectPolicyPath } from '@/rules/policy/paths';
 export type { RulesPolicyOptions } from '@/rules/policy/types';

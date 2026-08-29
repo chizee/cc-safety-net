@@ -1,9 +1,8 @@
-import {
-  type AddRulebookSourceResult,
-  getRulebookDisplaySource,
-  type LoadedRulesPolicy,
-  type RulebookLockEntryWithStats,
-  type RuleOverride,
+import type {
+  ActiveRulebookSummary,
+  AddRulebookSourceResult,
+  LoadedRulesPolicy,
+  RuleOverride,
 } from '@/rules/policy';
 
 export function printRuleChangeResult(
@@ -11,7 +10,8 @@ export function printRuleChangeResult(
     ok: boolean;
     errors: string[];
     warnings?: string[];
-    entries: RulebookLockEntryWithStats[];
+    changes?: string[];
+    entries: ActiveRulebookSummary[];
   },
   action: string,
 ): void {
@@ -47,29 +47,32 @@ export function printRuleAddResult(result: AddRulebookSourceResult, source: stri
     );
   }
   if (result.add.commits.length > 0) {
-    console.log(`Locked at ${result.add.commits.map((commit) => commit.slice(0, 7)).join(', ')}.`);
+    console.log(
+      `Vendored at ${result.add.commits.map((commit) => commit.slice(0, 7)).join(', ')}.`,
+    );
   }
   printSuccessfulRuleChange(result, 'Rule config synced.');
 }
 
 function printSuccessfulRuleChange(
-  result: { entries: RulebookLockEntryWithStats[] },
+  result: { entries: ActiveRulebookSummary[]; changes?: string[] },
   action: string,
 ): void {
+  for (const change of result.changes ?? []) console.log(change);
   console.log(action);
   console.log('');
   printActiveRulebookSummary(result.entries);
 }
 
-function printActiveRulebookSummary(entries: RulebookLockEntryWithStats[]): void {
+function printActiveRulebookSummary(entries: ActiveRulebookSummary[]): void {
   if (entries.length === 0) {
     console.log('Active rulebooks: (none)');
     return;
   }
   console.log(`Active rulebooks (${entries.length}):`);
   for (const entry of entries) {
-    console.log(`  - ${entry.name} ${entry.version} (${formatRuleCount(entry.ruleCount ?? 0)})`);
-    console.log(`    Source: ${getRulebookDisplaySource(entry)}`);
+    console.log(`  - ${entry.name} ${entry.version} (${formatRuleCount(entry.ruleCount)})`);
+    console.log(`    Source: ${entry.spec}`);
   }
 }
 
@@ -77,13 +80,10 @@ function formatRuleCount(count: number): string {
   return `${count} ${count === 1 ? 'rule' : 'rules'}`;
 }
 
-export function printRulesListReport(
-  policy: LoadedRulesPolicy,
-  sourceDisplayMaps: Record<'user' | 'project', Map<string, string>>,
-): void {
+export function printRulesListReport(policy: LoadedRulesPolicy): void {
   printListSection('Active sources', policy.rulebooks, (rulebook) => [
     `[${rulebook.source}] ${rulebook.name} ${rulebook.version}`,
-    `  Source: ${sourceDisplayMaps[rulebook.source].get(rulebook.spec) ?? rulebook.spec}`,
+    `  Source: ${rulebook.spec}`,
   ]);
   printListSection('Active rules', policy.rules, (rule) => [
     `[${getRuleSource(policy, rule.name)}] ${rule.name}`,

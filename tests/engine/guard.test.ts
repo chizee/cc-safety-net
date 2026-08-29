@@ -10,6 +10,7 @@ import {
   GuardEvaluationError,
   type GuardStage,
 } from '@/engine/guard';
+import { REASON_POLICY_APPLY_PROTECTION } from '@/guards/policy-apply-protection';
 import { StructuralShellSyntaxLimitError } from '@/guards/semantic-facts';
 import { parseCommand } from '@/parser/command';
 import { getUserPolicyPath } from '@/policy/store';
@@ -427,6 +428,29 @@ describe('guard evaluation', () => {
           decision: { kind: 'deny', intent: 'hard_stop' },
         });
       }
+    });
+  });
+
+  test('hard-stops agent invocations of policy apply', async () => {
+    await withTempDir('cc-safety-net-guard-policy-apply-', (cwd) => {
+      // Analyzer input strings only; nothing here is executed.
+      for (const command of [
+        'cc-safety-net policy apply proposal.json',
+        'pnpm dlx cc-safety-net policy apply proposal.json',
+      ]) {
+        expect(evaluateGuard(commandInvocation(cwd, command)), command).toMatchObject({
+          stage: 'policy-protection',
+          decision: {
+            kind: 'deny',
+            intent: 'hard_stop',
+            reason: REASON_POLICY_APPLY_PROTECTION,
+            evidence: [{ kind: 'command', command, segment: command }],
+          },
+        });
+      }
+      expect(
+        evaluateGuard(commandInvocation(cwd, 'cc-safety-net policy check proposal.json')).decision,
+      ).not.toMatchObject({ reason: REASON_POLICY_APPLY_PROTECTION });
     });
   });
 
