@@ -7,10 +7,12 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runPolicyCommand } from '@/cli/policy';
 import { REASON_POLICY_CONFIG_PROTECTION } from '@/guards/policy-protection';
 import {
   createPolicyGuiServer,
@@ -22,11 +24,12 @@ import {
   starRepo,
   userHasStarredRepo,
 } from '@/gui';
+import type { ChooseDirectoryResult } from '@/gui/choose-directory';
 import { doctorIntegrationOrder, getIntegrationDisplayName } from '@/integrations/catalog';
 import type { InstallAction, InstallTarget } from '@/integrations/install/targets';
 import { getPackageVersion } from '@/integrations/system-info';
-import { getUserPolicyPath } from '@/policy/store';
-import { mockVersionFetcher, withEnv, writeJsonlFixture } from '../helpers';
+import { getUserPolicyPath, loadPolicyConfig } from '@/policy/store';
+import { captureConsoleOutput, mockVersionFetcher, withEnv, writeJsonlFixture } from '../helpers';
 import { syncInitialGitRulebook } from '../helpers/rulebook';
 
 interface PolicyApiResponse {
@@ -87,6 +90,30 @@ interface IntegrationsApiResponse {
 interface IntegrationActionApiResponse {
   ok: boolean;
   output: string;
+}
+
+interface ProjectDraftApiResponse {
+  dir: string;
+  path: string;
+  revision: number;
+  exists: boolean;
+  baseline: { safety: { level: string }; audit: { retention_days: number } };
+  userPolicyDiagnostics: string[];
+  projection: Record<string, unknown>;
+  projectionDiagnostics: string[];
+  canPickDirectory: boolean;
+}
+
+interface ProjectDiffApiResponse {
+  rows: { field: string; before?: string; after?: string }[];
+  weakenings: string[];
+  existingFileDiagnostics: string[];
+  errors: string[];
+}
+
+interface ProjectApplyApiResponse {
+  path: string;
+  errors: string[];
 }
 
 interface RulesApiResponse {
@@ -536,8 +563,13 @@ describe('policy GUI server', () => {
       expect(html).toContain('var previewRequestId = 0;');
       expect(html).toContain('const requestId = ++previewRequestId;');
       expect(html).toContain('if (requestId !== previewRequestId)\n    return false;');
+      // A rule matching what it inherits keeps no override in user mode; project
+      // mode always writes it out (tests/gui/project-draft.test.ts drives both).
       expect(html).toContain(
-        'if (input.checked === preview?.rules[ruleId]?.inheritedEnabled)\n      delete draftPolicy.destructive_command_protection.overrides[ruleId];',
+        'if (!projectDraft && active === inheritedEnabled) {\n    delete draftPolicy.destructive_command_protection.overrides[ruleId];',
+      );
+      expect(html).toContain(
+        'setDestructiveOverride(ruleId, input.checked, preview?.rules[ruleId]?.inheritedEnabled);',
       );
       expect(html).toContain('var tierExpanded = new Map([');
       expect(html).toContain('["strict", false]');
@@ -732,6 +764,14 @@ describe('policy GUI server', () => {
       expect(html).toContain('Policy JSON');
       expect(html).toContain(
         '<div class="panel-head raw-json-head">\n              <div class="panel-title">\n                <h2>Policy JSON</h2>',
+      );
+      // The panel lives in the Policy tab, where project draft mode previews the
+      // sparse proposal beside the controls that produced it.
+      expect(html.indexOf('<h2>Policy JSON</h2>')).toBeGreaterThan(
+        html.indexOf('data-view="policy"'),
+      );
+      expect(html.indexOf('<h2>Policy JSON</h2>')).toBeLessThan(
+        html.indexOf('data-view="settings"'),
       );
       expect(html).toContain('.raw-json-head {\n  flex-wrap: nowrap;');
       expect(html).toContain('.raw-json-head .panel-title {');
@@ -1343,6 +1383,374 @@ describe('policy GUI server', () => {
         destructive_command_protection: { enabled: true, overrides: {} },
         secret_protection: { enabled: true, overrides: {} },
       });
+    } finally {
+      await server.close();
+    }
+  });
+
+  // The project draft targets the session directory and inherits from a user
+  // policy that lives in a sibling temp subtree, so a project write landing on
+  // the user file — the failure the containment machinery exists to stop — is
+  // observable rather than hidden behind a shared path.
+  const projectDraftOptions = (projectDir: string) => ({
+    cwd: projectDir,
+    userConfigDir: join(tempDir, 'home', 'rules'),
+  });
+
+  const writeDraftUserPolicy = (value: unknown) => {
+    mkdirSync(join(tempDir, 'home'), { recursive: true });
+    writeFileSync(
+      join(tempDir, 'home', 'policy.json'),
+      typeof value === 'string' ? value : JSON.stringify(value),
+      'utf-8',
+    );
+  };
+
+  const writeProjectPolicyFile = (projectDir: string, value: unknown) => {
+    mkdirSync(join(projectDir, '.cc-safety-net'), { recursive: true });
+    writeFileSync(
+      join(projectDir, '.cc-safety-net', 'policy.json'),
+      typeof value === 'string' ? value : JSON.stringify(value),
+      'utf-8',
+    );
+  };
+
+  const projectPolicyPath = (projectDir: string) =>
+    join(projectDir, '.cc-safety-net', 'policy.json');
+
+  const WORKTREE_PROPOSAL = { version: 1, workflow: { worktree_mode: true } };
+
+  test('project draft endpoints stay behind the shared token guard', async () => {
+    const server = await createPolicyGuiServer(projectDraftOptions(tempDir));
+    try {
+      expect((await fetch(`${server.origin}/api/policy/project`)).status).toBe(403);
+      for (const path of [
+        '/api/policy/project/choose-directory',
+        '/api/policy/project/diff',
+        '/api/policy/project/apply',
+      ]) {
+        // A POST needs the query token and the header; neither alone opens the
+        // route, so a page on another origin cannot drive a project write.
+        expect(
+          (
+            await fetch(`${server.origin}${path}?token=${server.token}`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: '{}',
+            })
+          ).status,
+        ).toBe(403);
+        expect(
+          (
+            await fetch(`${server.origin}${path}`, {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                'x-cc-safety-net-token': server.token,
+              },
+              body: '{}',
+            })
+          ).status,
+        ).toBe(403);
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('project apply writes only the proposed fields and the loader merges the rest', async () => {
+    writeDraftUserPolicy({ version: 1, safety: { level: 'paranoid' } });
+    const server = await createPolicyGuiServer(projectDraftOptions(tempDir));
+    try {
+      const state = await getJson<ProjectDraftApiResponse>(
+        `${server.origin}/api/policy/project?token=${server.token}`,
+      );
+      expect(state).toMatchObject({
+        dir: tempDir,
+        // The GUI states where the write lands instead of joining the path in
+        // the browser, where the separator would be wrong on Windows.
+        path: projectPolicyPath(tempDir),
+        revision: 0,
+        exists: false,
+        userPolicyDiagnostics: [],
+        projection: {},
+        projectionDiagnostics: [],
+        canPickDirectory: expect.any(Boolean),
+      });
+      // The inherited values the draft renders come from the runtime baseline,
+      // not from built-in defaults.
+      expect(state.baseline.safety.level).toBe('paranoid');
+
+      const applied = await postJson<ProjectApplyApiResponse>(
+        `${server.origin}/api/policy/project/apply?token=${server.token}`,
+        server.token,
+        { revision: state.revision, proposal: WORKTREE_PROPOSAL },
+      );
+
+      expect(applied).toEqual({ path: projectPolicyPath(tempDir), errors: [] });
+      // Everything the draft left unmarked stays out of the file, so it keeps
+      // inheriting instead of pinning a default over a stricter user policy.
+      expect(JSON.parse(readFileSync(applied.path, 'utf-8'))).toEqual(WORKTREE_PROPOSAL);
+      const merged = loadPolicyConfig(projectDraftOptions(tempDir));
+      expect(merged.safety.level).toBe('paranoid');
+      expect(merged.worktreeMode).toBeTrue();
+      expect(merged.errors).toEqual([]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('project draft rejects an audit section and an invalid proposal without writing', async () => {
+    const server = await createPolicyGuiServer(projectDraftOptions(tempDir));
+    try {
+      const audit = await postJsonResponse<{ errors: string[] }>(
+        `${server.origin}/api/policy/project/apply?token=${server.token}`,
+        server.token,
+        { revision: 0, proposal: { version: 1, audit: { retention_days: 5 } } },
+      );
+      expect(audit.status).toBe(400);
+      expect(audit.body.errors).toEqual([
+        'audit settings are user scope only; remove the audit section from a project proposal',
+      ]);
+
+      const invalid = { version: 1, safety: { level: 'bogus' } };
+      const diff = await postJsonResponse<ProjectDiffApiResponse>(
+        `${server.origin}/api/policy/project/diff?token=${server.token}`,
+        server.token,
+        { revision: 0, proposal: invalid },
+      );
+      expect(diff.status).toBe(400);
+      // No rows are computed from invalid input: a proposal that cannot be
+      // applied must never be reviewable in the confirm dialog.
+      expect(diff.body.rows).toBeUndefined();
+      expect(diff.body.errors.join(' ')).toContain('safety.level');
+
+      const apply = await postJsonResponse<{ errors: string[] }>(
+        `${server.origin}/api/policy/project/apply?token=${server.token}`,
+        server.token,
+        { revision: 0, proposal: invalid },
+      );
+      expect(apply.status).toBe(400);
+
+      // A body with no revision is malformed input, not the directory-changed
+      // story a stale revision tells, so it must not read as one.
+      const unbound = await postJsonResponse<{ errors: string[] }>(
+        `${server.origin}/api/policy/project/apply?token=${server.token}`,
+        server.token,
+        { proposal: WORKTREE_PROPOSAL },
+      );
+      expect(unbound.status).toBe(400);
+      expect(unbound.body.errors).toEqual(['revision must be a number']);
+      expect(existsSync(projectPolicyPath(tempDir))).toBeFalse();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('project apply derives the path from the session, not from the body', async () => {
+    const decoy = join(tempDir, 'decoy');
+    mkdirSync(decoy, { recursive: true });
+    const server = await createPolicyGuiServer(projectDraftOptions(tempDir));
+    try {
+      const applied = await postJson<ProjectApplyApiResponse>(
+        `${server.origin}/api/policy/project/apply?token=${server.token}`,
+        server.token,
+        {
+          revision: 0,
+          proposal: WORKTREE_PROPOSAL,
+          // Nothing in the body may steer the write; a client that names a
+          // directory is ignored rather than obeyed.
+          dir: decoy,
+          path: join(decoy, 'policy.json'),
+        },
+      );
+
+      expect(applied.path).toBe(projectPolicyPath(tempDir));
+      expect(existsSync(projectPolicyPath(decoy))).toBeFalse();
+      expect(existsSync(join(decoy, 'policy.json'))).toBeFalse();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('a malformed project policy file is reported, then replaced by an apply', async () => {
+    writeProjectPolicyFile(tempDir, '{ not json');
+    const server = await createPolicyGuiServer(projectDraftOptions(tempDir));
+    try {
+      const state = await getJson<ProjectDraftApiResponse>(
+        `${server.origin}/api/policy/project?token=${server.token}`,
+      );
+      expect(state.exists).toBeTrue();
+      // The draft starts empty and says why rather than pretending the current
+      // team policy loaded.
+      expect(state.projection).toEqual({});
+      expect(state.projectionDiagnostics[0]).toContain('Invalid JSON');
+
+      const diff = await postJson<ProjectDiffApiResponse>(
+        `${server.origin}/api/policy/project/diff?token=${server.token}`,
+        server.token,
+        { revision: 0, proposal: WORKTREE_PROPOSAL },
+      );
+      // The dialog needs this to warn that the invalid file will be replaced.
+      expect(diff.existingFileDiagnostics[0]).toContain('Invalid JSON');
+      expect(diff.rows).toEqual([
+        { field: 'workflow.worktree_mode', before: 'false', after: 'true' },
+      ]);
+
+      const applied = await postJson<ProjectApplyApiResponse>(
+        `${server.origin}/api/policy/project/apply?token=${server.token}`,
+        server.token,
+        { revision: 0, proposal: WORKTREE_PROPOSAL },
+      );
+      expect(JSON.parse(readFileSync(applied.path, 'utf-8'))).toEqual(WORKTREE_PROPOSAL);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('a directory change bumps the revision and strands the diff it invalidates', async () => {
+    const other = join(tempDir, 'other');
+    mkdirSync(other, { recursive: true });
+    let picked: ChooseDirectoryResult = { cancelled: true };
+    const server = await createPolicyGuiServer({
+      ...projectDraftOptions(tempDir),
+      chooseDirectory: async () => picked,
+    });
+    try {
+      // A cancelled pick leaves the directory and the revision alone.
+      expect(
+        await postJson<Record<string, unknown>>(
+          `${server.origin}/api/policy/project/choose-directory?token=${server.token}`,
+          server.token,
+          {},
+        ),
+      ).toEqual({ dir: tempDir, revision: 0, cancelled: true });
+
+      picked = { path: other };
+      const changed = await postJson<{ dir: string; revision: number; cancelled: boolean }>(
+        `${server.origin}/api/policy/project/choose-directory?token=${server.token}`,
+        server.token,
+        {},
+      );
+      expect(changed).toEqual({ dir: other, revision: 1, cancelled: false });
+
+      // The confirmation a second tab is holding describes a directory that is
+      // no longer the target, so neither call may act on its revision.
+      for (const route of ['diff', 'apply']) {
+        const stale = await postJsonResponse<{ errors: string[] }>(
+          `${server.origin}/api/policy/project/${route}?token=${server.token}`,
+          server.token,
+          { revision: 0, proposal: WORKTREE_PROPOSAL },
+        );
+        expect(stale.status).toBe(409);
+        expect(stale.body.errors[0]).toContain('directory changed');
+      }
+      expect(existsSync(projectPolicyPath(tempDir))).toBeFalse();
+      expect(existsSync(projectPolicyPath(other))).toBeFalse();
+
+      const applied = await postJson<ProjectApplyApiResponse>(
+        `${server.origin}/api/policy/project/apply?token=${server.token}`,
+        server.token,
+        { revision: changed.revision, proposal: WORKTREE_PROPOSAL },
+      );
+      expect(applied.path).toBe(projectPolicyPath(other));
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('project apply refuses a .cc-safety-net symlink that leaves the session directory', async () => {
+    const outside = join(tempDir, 'outside');
+    const projectDir = join(tempDir, 'project');
+    mkdirSync(outside, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    symlinkSync(outside, join(projectDir, '.cc-safety-net'), 'dir');
+    const server = await createPolicyGuiServer(projectDraftOptions(projectDir));
+    try {
+      const applied = await postJsonResponse<ProjectApplyApiResponse>(
+        `${server.origin}/api/policy/project/apply?token=${server.token}`,
+        server.token,
+        { revision: 0, proposal: WORKTREE_PROPOSAL },
+      );
+
+      expect(applied.status).toBe(500);
+      expect(applied.body.errors).toEqual(['Unable to access project policy filesystem safely.']);
+      // The redirected write lands nowhere: this is the write a checkout the
+      // user did not author could otherwise aim at their own policy directory.
+      expect(existsSync(join(outside, 'policy.json'))).toBeFalse();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('a malformed user policy is reported as the draft entry gate', async () => {
+    writeDraftUserPolicy('{ not json');
+    const server = await createPolicyGuiServer(projectDraftOptions(tempDir));
+    try {
+      const state = await getJson<ProjectDraftApiResponse>(
+        `${server.origin}/api/policy/project?token=${server.token}`,
+      );
+
+      expect(state.userPolicyDiagnostics).toHaveLength(1);
+      expect(state.userPolicyDiagnostics[0]).toContain('Invalid JSON');
+      // The baseline degraded to protective defaults, which is exactly why the
+      // draft must refuse to present it as the user's inherited policy.
+      expect(state.baseline.safety.level).toBe('standard');
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('a schema-invalid but parseable user policy is reported as the draft entry gate', async () => {
+    // The file reads and parses, so only schema validation catches it - and the
+    // rest of the GUI shows its recovery banner for exactly this state.
+    writeDraftUserPolicy({ version: 1, safety: { level: 'bogus' } });
+    const server = await createPolicyGuiServer(projectDraftOptions(tempDir));
+    try {
+      const state = await getJson<ProjectDraftApiResponse>(
+        `${server.origin}/api/policy/project?token=${server.token}`,
+      );
+
+      expect(state.userPolicyDiagnostics.length).toBeGreaterThan(0);
+      expect(state.userPolicyDiagnostics.join('\n')).toContain('safety.level');
+      expect(state.baseline.safety.level).toBe('standard');
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('project diff rows and weakenings match CLI policy check for the same proposal', async () => {
+    writeDraftUserPolicy({ version: 1, safety: { level: 'paranoid' } });
+    writeProjectPolicyFile(tempDir, { version: 1, safety: { level: 'strict' } });
+    const proposal = {
+      version: 1,
+      safety: { level: 'standard' },
+      secret_protection: { enabled: false },
+    };
+    const proposalPath = join(tempDir, 'proposal.json');
+    writeFileSync(proposalPath, JSON.stringify(proposal), 'utf-8');
+    const server = await createPolicyGuiServer(projectDraftOptions(tempDir));
+    try {
+      const diff = await postJson<ProjectDiffApiResponse>(
+        `${server.origin}/api/policy/project/diff?token=${server.token}`,
+        server.token,
+        { revision: 0, proposal },
+      );
+      const cli = await withEnv({ CC_SAFETY_NET_HOME: join(tempDir, 'home') }, () =>
+        captureConsoleOutput(() => runPolicyCommand(['check', proposalPath], { cwd: tempDir })),
+      );
+
+      expect(cli.result).toBe(0);
+      // Same rows, same order, same rendering of an absent side: the GUI dialog
+      // and `policy check` must not describe one proposal two ways.
+      expect(
+        diff.rows.map(
+          (row) => `  ${row.field}: ${row.before ?? '(unset)'} -> ${row.after ?? '(unset)'}`,
+        ),
+      ).toEqual(cli.stdout.filter((line) => line.startsWith('  ')));
+      expect(diff.rows.length).toBeGreaterThan(0);
+      expect(diff.weakenings).toContain('project policy lowers level: paranoid -> standard');
+      expect(diff.existingFileDiagnostics).toEqual([]);
     } finally {
       await server.close();
     }
@@ -2427,6 +2835,20 @@ async function postJson<T>(url: string, token: string, body: unknown): Promise<T
   });
   expect(response.status).toBe(200);
   return (await response.json()) as T;
+}
+
+/** The POST twin of `postJson` for the routes whose contract is a non-200 status. */
+async function postJsonResponse<T>(
+  url: string,
+  token: string,
+  body: unknown,
+): Promise<{ status: number; body: T }> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-cc-safety-net-token': token },
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: (await response.json()) as T };
 }
 
 async function repairPolicyViaApi(

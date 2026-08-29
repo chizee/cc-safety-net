@@ -67,8 +67,9 @@ describe('source architecture', () => {
       ['cli/rule/', /^@\/rules\//],
       // policy apply is read-write, outside the facade
       ['cli/policy/', /^@\/(?:policy\/store|rules\/policy\/config-file)$/],
-      // GUI policy editor is read-write, outside the facade
-      ['gui/', /^@\/policy\/store$/],
+      // GUI policy editor is read-write, outside the facade; the project draft
+      // writes through the containment machinery rather than a joined path
+      ['gui/', /^@\/(?:policy\/store|rules\/policy\/filesystem)$/],
     ];
     const violations = sourceFiles()
       .filter((path) => ['cli', 'gui'].includes(layer(path)))

@@ -1314,6 +1314,144 @@ button.rule-id:hover {
   width: min(680px, calc(100vw - 32px));
 }
 
+/* The before/after rows need more room than a text-only confirmation. */
+.confirm-dialog:has(.dialog-rows:not([hidden])) {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.dialog-rows {
+  max-height: 46vh;
+  overflow: auto;
+}
+
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+
+.diff-table th {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.diff-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.diff-table code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.diff-before {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.diff-after {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.diff-warning {
+  margin: 8px 0 0;
+  padding: 7px 10px;
+  border-left: 3px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 12px;
+}
+
+.view-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.project-draft-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--master-border);
+  border-radius: var(--radius);
+  background: var(--master-bg);
+}
+
+.project-draft-bar[hidden] {
+  display: none;
+}
+
+.project-draft-target strong {
+  display: block;
+  font-size: 13px;
+}
+
+.project-draft-target code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.project-draft-target p {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+/* Says whose value a control is showing: the project's, or the one it inherits
+   from each member's own user policy. */
+.project-chip {
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+  padding: 2px 9px;
+  border: 1px solid var(--master-border);
+  border-radius: 999px;
+  background: var(--master-bg);
+  color: var(--master-fg);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.project-chip.inherited {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.rule-row > .project-chip {
+  grid-column: 1 / -1;
+  justify-self: end;
+  margin-left: 0;
+}
+
+.project-field-line {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.project-chip-slot:empty {
+  display: none;
+}
+
+/* An inherited control is showing someone else's value, so it reads quieter. */
+.row:has(.project-chip.inherited) strong {
+  color: var(--muted);
+}
+
 .report-field {
   display: grid;
   gap: 6px;

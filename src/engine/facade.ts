@@ -24,6 +24,12 @@ export { explainCommand } from '@/engine/explain';
 export { StructuralShellSyntaxLimitError } from '@/guards/semantic-facts';
 export { ToolInputLimitError } from '@/parser/tool-input';
 export {
+  buildProjectPolicyFileValue,
+  diffPolicyRows,
+  readPolicyJson,
+  readRuntimeUserBaseline,
+} from '@/policy/diff';
+export {
   ENV_FLAGS,
   type EnvFlag,
   envFlagIsSet,
