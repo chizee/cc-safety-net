@@ -2096,7 +2096,7 @@ const renderDestructiveCommands = () => {
 const refreshPolicyPreview = async () => {
   const requestId = ++previewRequestId;
   const result = await requestPolicyPreview(
-    effectivePreviewPolicy(collectFormPolicy(), projectDraft && projectDraft.baseline),
+    effectivePreviewPolicy(collectFormPolicy(), projectDraft?.baseline),
   );
   if (requestId !== previewRequestId) return false;
   if (!result.ok || !result.data?.preview) {
@@ -2123,7 +2123,7 @@ const runCommandTest = async () => {
     method: 'POST',
     body: JSON.stringify({
       command,
-      policy: effectivePreviewPolicy(collectFormPolicy(), projectDraft && projectDraft.baseline),
+      policy: effectivePreviewPolicy(collectFormPolicy(), projectDraft?.baseline),
     }),
   });
   if (requestId !== testerRequestId) return;
