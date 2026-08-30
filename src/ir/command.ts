@@ -123,7 +123,7 @@ export type CommandConnector = {
 
 export type CommandGroup = {
   readonly kind: 'group';
-  readonly style: 'subshell' | 'brace' | 'grouping';
+  readonly style: 'subshell' | 'brace';
   readonly span: CommandSpan;
   readonly body: CommandProgram;
 };

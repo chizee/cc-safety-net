@@ -1,3 +1,4 @@
+import type { CustomRule } from '@/ir/policy';
 import type {
   ActiveRulebookSummary,
   AddRulebookSourceResult,
@@ -9,7 +10,6 @@ export function printRuleChangeResult(
   result: {
     ok: boolean;
     errors: string[];
-    warnings?: string[];
     changes?: string[];
     entries: ActiveRulebookSummary[];
   },
@@ -19,7 +19,6 @@ export function printRuleChangeResult(
     printResultErrors(result);
     return;
   }
-  printResultWarnings(result);
   printSuccessfulRuleChange(result, action);
 }
 
@@ -32,7 +31,6 @@ export function printRuleAddResult(result: AddRulebookSourceResult, source: stri
     printResultErrors(result);
     return;
   }
-  printResultWarnings(result);
   if (result.add.added.length > 0) {
     console.log(
       `Added ${result.add.added.length} ${result.add.added.length === 1 ? 'rulebook' : 'rulebooks'} from ${result.add.source} at ${result.add.ref}:`,
@@ -51,7 +49,7 @@ export function printRuleAddResult(result: AddRulebookSourceResult, source: stri
       `Vendored at ${result.add.commits.map((commit) => commit.slice(0, 7)).join(', ')}.`,
     );
   }
-  printSuccessfulRuleChange(result, 'Rule config synced.');
+  printSuccessfulRuleChange(result, 'Rule config updated.');
 }
 
 function printSuccessfulRuleChange(
@@ -87,8 +85,7 @@ export function printRulesListReport(policy: LoadedRulesPolicy): void {
   ]);
   printListSection('Active rules', policy.rules, (rule) => [
     `[${getRuleSource(policy, rule.name)}] ${rule.name}`,
-    `  Command: ${rule.subcommand ? `${rule.command} ${rule.subcommand}` : rule.command}`,
-    `  Block args: ${rule.block_args.join(', ')}`,
+    ...describeRuleMatch(rule),
     `  Reason: ${rule.reason}`,
   ]);
   printListSection('Disabled rules', getMergedOverrides(policy, 'off'), (override) => [
@@ -116,6 +113,25 @@ function printListSection<T>(title: string, items: T[], format: (item: T) => str
   }
 }
 
+/**
+ * How a rule matches, in the shape its own rulebook version states it. A version 2 rule
+ * carries no `block_args`, so printing that row would show an empty list for every one of
+ * them and hide the `match` contract that actually decides the block.
+ */
+function describeRuleMatch(rule: CustomRule): string[] {
+  if (!rule.match) {
+    return [
+      `  Command: ${rule.subcommand ? `${rule.command} ${rule.subcommand}` : rule.command}`,
+      `  Block args: ${rule.block_args.join(', ')}`,
+    ];
+  }
+  return [
+    `  Command: ${[rule.command, ...rule.match.command_path].join(' ')}`,
+    ...(rule.match.any_args ? [`  Any args: ${rule.match.any_args.join(', ')}`] : []),
+    ...(rule.match.exclude_args ? [`  Exclude args: ${rule.match.exclude_args.join(', ')}`] : []),
+  ];
+}
+
 function getRuleSource(policy: LoadedRulesPolicy, ruleName: string): 'user' | 'project' {
   return (
     policy.rulebooks.find((rulebook) => rulebook.rules.includes(ruleName))?.source ?? 'project'
@@ -139,9 +155,4 @@ function getMergedOverrides(
 
 function printResultErrors(result: { errors: string[] }): void {
   for (const error of result.errors) console.error(error);
-}
-
-function printResultWarnings(result: { warnings?: string[] }): void {
-  if (!result.warnings || result.warnings.length === 0) return;
-  for (const warning of result.warnings) console.warn(warning);
 }

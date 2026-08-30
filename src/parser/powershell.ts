@@ -12,8 +12,6 @@ import type {
 import {
   appendAccumulatedCommand,
   createCommandAccumulator,
-  createCommandIssues,
-  createCommandNodes,
   createCommandWordParts,
   freezeCommandProgram,
   freezeCommandWord,
@@ -112,8 +110,8 @@ function scanPowerShellSequence(
   depth: number,
   closingBrace = false,
 ): PowerShellScanResult {
-  const nodes = createCommandNodes();
-  const issues = createCommandIssues();
+  const nodes: CommandNode[] = [];
+  const issues: CommandIssue[] = [];
   const accumulator = createCommandAccumulator();
   let wordCount = 0;
   let limited = false;

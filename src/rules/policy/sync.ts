@@ -117,7 +117,7 @@ function verifyRuntimeRulesPolicy(
     ...new Set(getRulesConfigRuntimeErrorsForConfig(scope.configPath, scope.filesystemScope)),
   ];
   if (remaining.length === 0) return result;
-  return { ok: false, errors: remaining, warnings: result.warnings, entries: result.entries };
+  return { ok: false, errors: remaining, entries: result.entries };
 }
 
 async function syncRulesConfigInternal(
@@ -151,7 +151,6 @@ async function syncRulesConfigInternal(
       resolveRulebookSourceForSync(
         spec,
         scope.configDir,
-        options,
         scope.filesystemScope,
         operation,
         refetched.has(spec),
@@ -211,7 +210,6 @@ async function syncRulesConfigInternal(
     return {
       ok: reported.length === 0,
       errors: reported.map((failure) => `Failed to update ${failure.spec}: ${failure.message}`),
-      warnings: [],
       entries: resolved.map(summarizeRulebook),
       changes,
     };
@@ -526,7 +524,7 @@ export async function mapRulebookSources<T, U>(
 }
 
 function sourceLimitResult(): SyncRulesConfigResult {
-  return { ok: false, errors: [RULE_SOURCE_LIMIT_ERROR], warnings: [], entries: [] };
+  return { ok: false, errors: [RULE_SOURCE_LIMIT_ERROR], entries: [] };
 }
 
 function projectSyncOptions(options: SyncRulesConfigOptions): SyncRulesConfigOptions {
@@ -586,13 +584,12 @@ async function removeRulebookSourceInternal(
   const scope = getScopePaths(options);
   const loaded = readRulesConfig(scope.configTarget);
   if (loaded.errors.length > 0) {
-    return { ok: false, errors: loaded.errors, warnings: [], entries: [] };
+    return { ok: false, errors: loaded.errors, entries: [] };
   }
   if (!loaded.config) {
     return {
       ok: false,
       errors: [`No config found at ${scope.configPath}`],
-      warnings: [],
       entries: [],
     };
   }
@@ -633,7 +630,6 @@ async function removeRulebookSourceInternal(
       return {
         ok: false,
         errors: [...deleteResult.result.errors, ...rollback.errors],
-        warnings: rollback.warnings,
         entries: rollback.entries,
       };
     }
@@ -656,7 +652,6 @@ async function checkRulesConfig(
   return {
     ok: result.errors.length === 0 && result.warnings.length === 0,
     errors: [...result.errors, ...result.warnings],
-    warnings: [],
     entries: result.entries,
   };
 }
@@ -677,7 +672,7 @@ function getLocalSourceDirsForDelete(
       : dirs.flatMap((dir) => getLocalSourceDirDeleteError(dir, filesystemScope));
   const allErrors = [...errors, ...dirErrors];
   return allErrors.length > 0
-    ? { ok: false, result: { ok: false, errors: allErrors, warnings: [], entries: [] } }
+    ? { ok: false, result: { ok: false, errors: allErrors, entries: [] } }
     : { ok: true, dirs };
 }
 
@@ -735,7 +730,7 @@ function deleteLocalSourceDirs(
     }
   });
   return errors.length > 0
-    ? { ok: false, result: { ok: false, errors, warnings: [], entries: [] } }
+    ? { ok: false, result: { ok: false, errors, entries: [] } }
     : { ok: true };
 }
 
@@ -769,7 +764,6 @@ function failWithError(error: unknown): SyncRulesConfigResult {
   return {
     ok: false,
     errors: [error instanceof Error ? error.message : String(error)],
-    warnings: [],
     entries: [],
   };
 }

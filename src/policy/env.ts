@@ -4,6 +4,7 @@ import type {
   PolicySafety,
   PolicySafetyLevel,
 } from '@/ir/policy';
+import { SAFETY_LEVEL_CAPABILITIES } from '@/ir/safety-level';
 
 export interface EnvFlag {
   name: string;
@@ -27,14 +28,6 @@ export const ENV_FLAGS = {
 const SAFETY_LEVELS: PolicySafetyLevel[] = ['standard', 'strict', 'paranoid'];
 
 type Capability = 'failClosed' | 'paranoidRm' | 'paranoidInterpreters';
-
-function expandSafetyLevel(level: PolicySafetyLevel): Record<Capability, boolean> {
-  return {
-    failClosed: level === 'strict' || level === 'paranoid',
-    paranoidRm: level === 'paranoid',
-    paranoidInterpreters: level === 'paranoid',
-  };
-}
 
 function maxSafetyLevel(policyLevel: PolicySafetyLevel, envLevel: PolicySafetyLevel | undefined) {
   if (!envLevel) return policyLevel;
@@ -79,7 +72,12 @@ export function getCCSafetyNetEnvModes(
   const policyLevel = policy.safety?.level ?? 'standard';
   const envLevel = parseEnvLevel();
   const baseLevel = maxSafetyLevel(policyLevel, envLevel);
-  const values = expandSafetyLevel(baseLevel);
+  const presetCapabilities = SAFETY_LEVEL_CAPABILITIES[baseLevel];
+  const values = {
+    failClosed: presetCapabilities.fail_closed,
+    paranoidRm: presetCapabilities.paranoid_rm,
+    paranoidInterpreters: presetCapabilities.paranoid_interpreters,
+  };
   const capabilitySources: Record<Capability, EffectiveCapabilitySource> = {
     failClosed: baseLevel === policyLevel ? 'preset' : 'environment',
     paranoidRm: baseLevel === policyLevel ? 'preset' : 'environment',

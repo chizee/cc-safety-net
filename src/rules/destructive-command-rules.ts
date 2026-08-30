@@ -8,74 +8,8 @@ import type {
   RuleActivationCapability,
 } from '@/ir/policy';
 
-export const DESTRUCTIVE_COMMAND_RULE_IDS = [
-  'git.ssh-env',
-  'git.alias-config',
-  'git.checkout-force',
-  'git.checkout-double-dash',
-  'git.checkout-ref-path',
-  'git.checkout-pathspec-from-file',
-  'git.checkout-ambiguous',
-  'git.switch-discard-changes',
-  'git.switch-force',
-  'git.restore-worktree',
-  'git.restore-unstaged',
-  'git.reset-hard',
-  'git.reset-merge',
-  'git.clean-force',
-  'git.rm-force',
-  'git.push-force',
-  'git.push-delete',
-  'git.push-mirror',
-  'git.branch-force-delete',
-  'git.rebase-abort',
-  'git.merge-abort',
-  'git.tag-delete',
-  'git.reflog-delete',
-  'git.stash-drop',
-  'git.stash-clear',
-  'git.worktree-remove-force',
-  'rm.recursive-force-root-or-home',
-  'rm.git-metadata',
-  'rm.recursive-force-dynamic-target',
-  'rm.recursive-force-home-cwd',
-  'rm.recursive-force-cwd-self',
-  'rm.recursive-force-outside-cwd',
-  'rm.recursive-force-paranoid',
-  'powershell.remove-item-root-or-home',
-  'powershell.remove-item-recursive-force-root-or-home',
-  'powershell.remove-item-git-metadata',
-  'powershell.remove-item-recursive-force-dynamic-target',
-  'powershell.remove-item-recursive-force-home-cwd',
-  'powershell.remove-item-recursive-force-cwd-self',
-  'powershell.remove-item-recursive-force-outside-cwd',
-  'powershell.remove-item-recursive-force-paranoid',
-  'powershell.remove-item-pipeline-dynamic-target',
-  'find.delete',
-  'find.delete-git-metadata',
-  'find.exec-rm-recursive-force',
-  'dd.device-write',
-  'mkfs.device',
-  'shred.target',
-  'interpreter.dangerous-command',
-  'interpreter.one-liner-paranoid',
-  'awk.system-dynamic',
-  'xargs.rm-recursive-force-dynamic',
-  'xargs.shell-dynamic',
-  'parallel.rm-recursive-force-dynamic',
-  'parallel.shell-dynamic',
-  'parallel.command-stream-dynamic',
-  'shell.dynamic-structure',
-  'shell.dynamic-executable',
-  'raw-text.dangerous-command',
-] as const;
-
-export const DESTRUCTIVE_COMMAND_RULE_ID_SET = new Set<string>(DESTRUCTIVE_COMMAND_RULE_IDS);
-
-export type DestructiveCommandRuleId = (typeof DESTRUCTIVE_COMMAND_RULE_IDS)[number];
-
-export interface DestructiveCommandRuleMetadata {
-  id: DestructiveCommandRuleId;
+interface DestructiveCommandRuleMetadata {
+  id: string;
   category: string;
   label: string;
   description: string;
@@ -85,7 +19,7 @@ export interface DestructiveCommandRuleMetadata {
   activationCapability?: RuleActivationCapability;
 }
 
-export const DESTRUCTIVE_COMMAND_RULE_METADATA: readonly DestructiveCommandRuleMetadata[] = [
+const DESTRUCTIVE_COMMAND_RULE_DEFINITIONS = [
   {
     id: 'git.ssh-env',
     category: 'Git',
@@ -574,7 +508,16 @@ export const DESTRUCTIVE_COMMAND_RULE_METADATA: readonly DestructiveCommandRuleM
     example: "git reset --hard 'unterminated",
     intent: 'stop_and_explain',
   },
-] as const;
+] as const satisfies readonly DestructiveCommandRuleMetadata[];
+
+export type DestructiveCommandRuleId = (typeof DESTRUCTIVE_COMMAND_RULE_DEFINITIONS)[number]['id'];
+
+export const DESTRUCTIVE_COMMAND_RULE_ID_SET = new Set<string>(
+  DESTRUCTIVE_COMMAND_RULE_DEFINITIONS.map((rule) => rule.id),
+);
+
+export const DESTRUCTIVE_COMMAND_RULE_METADATA: readonly DestructiveCommandRuleMetadata[] =
+  DESTRUCTIVE_COMMAND_RULE_DEFINITIONS;
 
 const DESTRUCTIVE_COMMAND_RULE_INTENTS = new Map(
   DESTRUCTIVE_COMMAND_RULE_METADATA.map((rule) => [rule.id, rule.intent]),
@@ -584,10 +527,7 @@ const CATASTROPHIC_DESTRUCTIVE_COMMAND_RULE_IDS = new Set(
   DESTRUCTIVE_COMMAND_RULE_METADATA.filter((rule) => rule.catastrophic).map((rule) => rule.id),
 );
 
-export function destructiveCommandMatch(
-  id: (typeof DESTRUCTIVE_COMMAND_RULE_IDS)[number],
-  reason: string,
-) {
+export function destructiveCommandMatch(id: DestructiveCommandRuleId, reason: string) {
   return {
     id,
     reason,

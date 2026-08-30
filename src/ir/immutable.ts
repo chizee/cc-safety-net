@@ -1,5 +1,4 @@
 import type {
-  CommandIssue,
   CommandNode,
   CommandProgram,
   CommandRedirection,
@@ -8,14 +7,6 @@ import type {
   CommandWordPart,
   WordProvenance,
 } from '@/ir/command';
-
-export function createCommandNodes() {
-  return [] as CommandNode[];
-}
-
-export function createCommandIssues() {
-  return [] as CommandIssue[];
-}
 
 export function createCommandAccumulator() {
   return {

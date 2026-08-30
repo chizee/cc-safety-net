@@ -1,11 +1,4 @@
-const GIT_OPTIONS_WITH_VALUES = new Set([
-  '-c',
-  '-C',
-  '--git-dir',
-  '--work-tree',
-  '--namespace',
-  '--config-env',
-]);
+import { GIT_GLOBAL_OPTS_WITH_VALUE } from '@/analyzer/git/worktree';
 
 const DOCKER_OPTIONS_WITH_VALUES = new Set([
   '-c',
@@ -23,7 +16,7 @@ const DOCKER_OPTIONS_WITH_VALUES = new Set([
 const EMPTY_OPTIONS_WITH_VALUES = new Set<string>();
 
 export function getCustomRuleOptionsWithValues(command: string): ReadonlySet<string> {
-  if (command === 'git') return GIT_OPTIONS_WITH_VALUES;
+  if (command === 'git') return GIT_GLOBAL_OPTS_WITH_VALUE;
   if (command === 'docker') return DOCKER_OPTIONS_WITH_VALUES;
   return EMPTY_OPTIONS_WITH_VALUES;
 }

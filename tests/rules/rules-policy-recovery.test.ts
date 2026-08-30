@@ -298,7 +298,6 @@ describe('rules policy recovery coverage', () => {
       expect(added).toEqual({
         ok: false,
         errors: ['Unable to access project policy filesystem safely.'],
-        warnings: [],
         entries: [],
       });
       expect(readFileSync(sentinel, 'utf-8')).toBe('TOPSECRET');
@@ -1355,7 +1354,7 @@ describe('rules policy recovery coverage', () => {
     const originalFetch = globalThis.fetch;
 
     try {
-      await expect(resolveRulebookSource('bad:source', tempDir, {})).rejects.toThrow(
+      await expect(resolveRulebookSource('bad:source', tempDir)).rejects.toThrow(
         'Local rulebook sources',
       );
       await expect(discoverGitHubRepositoryRulebooks('/repo')).rejects.toThrow(
@@ -1388,7 +1387,7 @@ describe('rules policy recovery coverage', () => {
           ? new Response(JSON.stringify({ sha: 'abc123' }))
           : new Response('', { status: 404 });
       }) as unknown as typeof fetch;
-      await expect(resolveRulebookSource('owner/repo#main/alpha', tempDir, {})).rejects.toThrow(
+      await expect(resolveRulebookSource('owner/repo#main/alpha', tempDir)).rejects.toThrow(
         'GitHub raw returned 404',
       );
 
@@ -1402,7 +1401,7 @@ describe('rules policy recovery coverage', () => {
         }
         return new Response('', { status: 404 });
       }) as unknown as typeof fetch;
-      await expect(resolveRulebookSource('owner/repo#main/alpha', tempDir, {})).rejects.toThrow(
+      await expect(resolveRulebookSource('owner/repo#main/alpha', tempDir)).rejects.toThrow(
         'must match GitHub source',
       );
 
@@ -1413,7 +1412,6 @@ describe('rules policy recovery coverage', () => {
         resolveRulebookSourceForSync(
           'owner/repo#main/alpha',
           tempDir,
-          {},
           undefined,
           createRuleSyncOperation(),
           false,
@@ -1431,7 +1429,6 @@ describe('rules policy recovery coverage', () => {
           await resolveRulebookSourceForSync(
             'owner/repo#main/alpha',
             tempDir,
-            {},
             undefined,
             createRuleSyncOperation(),
             false,
@@ -1487,7 +1484,6 @@ describe('rules policy recovery coverage', () => {
           await resolveRulebookSourceForSync(
             'owner/repo#main/alpha',
             getProjectRulesDir(tempDir),
-            {},
             undefined,
             createRuleSyncOperation(),
             false,
@@ -1496,8 +1492,7 @@ describe('rules policy recovery coverage', () => {
         ).content,
       ).toBe(alphaRulebook);
       expect(
-        (await resolveRulebookSource('owner/repo#main/alpha', getProjectRulesDir(tempDir), {}))
-          .spec,
+        (await resolveRulebookSource('owner/repo#main/alpha', getProjectRulesDir(tempDir))).spec,
       ).toBe('owner/repo#main/alpha');
       expect(getRemoveMatches(['owner/repo#main/alpha'], 'owner/repo')).toEqual({
         ok: true,

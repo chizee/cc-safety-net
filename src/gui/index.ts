@@ -309,8 +309,6 @@ async function handleRequest(
       session.revision += 1;
     }
     sendJson(response, 200, {
-      dir: resolveDraftProjectDir(session, options),
-      revision: session.revision,
       cancelled: 'cancelled' in picked,
       ...('error' in picked ? { error: picked.error } : {}),
     });
@@ -331,7 +329,6 @@ async function handleRequest(
       // path assembled client-side would print the wrong separator on Windows.
       path: getProjectPolicyPath(dir),
       revision: session.revision,
-      exists: current.exists,
       baseline: user.baseline,
       userPolicyDiagnostics: user.diagnostics,
       projection: current.projection,
@@ -489,11 +486,9 @@ function resolveDraftProjectDir(
  */
 function readProjectPolicyFile(dir: string) {
   const path = getProjectPolicyPath(dir);
-  const exists = existsSync(path);
-  const file = exists ? readPolicyJson(path) : { value: undefined, errors: [] };
+  const file = existsSync(path) ? readPolicyJson(path) : { value: undefined, errors: [] };
   const projection = projectPolicyProjection(file.value);
   return {
-    exists,
     projection: projection.policy,
     diagnostics: [...file.errors, ...projection.diagnostics],
   };

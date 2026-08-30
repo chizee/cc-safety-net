@@ -172,6 +172,15 @@ describe('custom rule matching', () => {
     expect(result).toBe('[test] No force push.');
   });
 
+  test('git subcommand does not treat --super-prefix value as subcommand', () => {
+    expect(
+      checkCustomRules(
+        ['git', '--super-prefix', 'push', 'status', '--force'],
+        [makeGitRule(['--force'], 'push')],
+      ),
+    ).toBeNull();
+  });
+
   test('docker subcommand skips known global option values', () => {
     const rules: CustomRule[] = [
       {

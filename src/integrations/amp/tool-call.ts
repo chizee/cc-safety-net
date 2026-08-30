@@ -178,15 +178,10 @@ function ampThreadId(event: unknown): string | undefined {
   return typeof id === 'string' && id.trim() !== '' ? id : undefined;
 }
 
-function malformedAmpToolCall(
-  cwd: string | null,
-  toolName?: string,
-  command?: string,
-  segment?: string,
-): MalformedAmpToolCall {
+function malformedAmpToolCall(cwd: string | null, toolName?: string): MalformedAmpToolCall {
   return {
     malformed: true,
-    denial: createFailedClosedDenial({ command, segment, toolName }),
+    denial: createFailedClosedDenial({ toolName }),
     cwd,
   };
 }

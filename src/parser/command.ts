@@ -19,5 +19,5 @@ export function parseCommand(
   ) {
     return parsePowerShellCommand(source, limits);
   }
-  return parsePosixCommand(source, 'posix', limits);
+  return parsePosixCommand(source, limits);
 }

@@ -72,7 +72,6 @@ describe('rule update refresh', () => {
     const syncRulesConfig = spyOn(sync, 'syncRulesConfig').mockResolvedValue({
       ok: true,
       errors: [],
-      warnings: [],
       entries: [],
     });
     try {

@@ -72,7 +72,6 @@ function noRulebookMatch(
         nameMatches.length === 0
           ? [`No configured rulebook matches ${match}`]
           : [`Ambiguous rulebook match ${match}: ${nameMatches.join(', ')}`],
-      warnings: [],
       entries: [],
     },
   };
@@ -113,7 +112,6 @@ function getGitHubRepositoryMatches(rules: string[], match: string): RulebookMat
         `Multiple refs are configured for ${match}. Use an explicit ref:`,
         `  cc-safety-net rule remove ${match}#<ref>`,
       ],
-      warnings: [],
       entries: [],
     },
   };

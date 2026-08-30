@@ -96,7 +96,6 @@ interface ProjectDraftApiResponse {
   dir: string;
   path: string;
   revision: number;
-  exists: boolean;
   baseline: { safety: { level: string }; audit: { retention_days: number } };
   userPolicyDiagnostics: string[];
   projection: Record<string, unknown>;
@@ -1471,7 +1470,6 @@ describe('policy GUI server', () => {
         // the browser, where the separator would be wrong on Windows.
         path: projectPolicyPath(tempDir),
         revision: 0,
-        exists: false,
         userPolicyDiagnostics: [],
         projection: {},
         projectionDiagnostics: [],
@@ -1580,7 +1578,6 @@ describe('policy GUI server', () => {
       const state = await getJson<ProjectDraftApiResponse>(
         `${server.origin}/api/policy/project?token=${server.token}`,
       );
-      expect(state.exists).toBeTrue();
       // The draft starts empty and says why rather than pretending the current
       // team policy loaded.
       expect(state.projection).toEqual({});
@@ -1624,15 +1621,19 @@ describe('policy GUI server', () => {
           server.token,
           {},
         ),
-      ).toEqual({ dir: tempDir, revision: 0, cancelled: true });
+      ).toEqual({ cancelled: true });
 
       picked = { path: other };
-      const changed = await postJson<{ dir: string; revision: number; cancelled: boolean }>(
+      const changed = await postJson<{ cancelled: boolean }>(
         `${server.origin}/api/policy/project/choose-directory?token=${server.token}`,
         server.token,
         {},
       );
-      expect(changed).toEqual({ dir: other, revision: 1, cancelled: false });
+      expect(changed).toEqual({ cancelled: false });
+      const current = await getJson<ProjectDraftApiResponse>(
+        `${server.origin}/api/policy/project?token=${server.token}`,
+      );
+      expect(current).toMatchObject({ dir: other, revision: 1 });
 
       // The confirmation a second tab is holding describes a directory that is
       // no longer the target, so neither call may act on its revision.
@@ -1651,7 +1652,7 @@ describe('policy GUI server', () => {
       const applied = await postJson<ProjectApplyApiResponse>(
         `${server.origin}/api/policy/project/apply?token=${server.token}`,
         server.token,
-        { revision: changed.revision, proposal: WORKTREE_PROPOSAL },
+        { revision: current.revision, proposal: WORKTREE_PROPOSAL },
       );
       expect(applied.path).toBe(projectPolicyPath(other));
     } finally {

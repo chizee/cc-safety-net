@@ -139,7 +139,6 @@ describe('rulebook sync source fanout limits', () => {
       expect(rejected).toEqual({
         ok: false,
         errors: [SOURCE_LIMIT_ERROR],
-        warnings: [],
         entries: [],
       });
       expect(JSON.stringify(rejected)).not.toContain('TOPSECRET');
@@ -360,7 +359,6 @@ describe('GitHub repository discovery source boundaries', () => {
       expect(result).toEqual({
         ok: false,
         errors: [SOURCE_LIMIT_ERROR],
-        warnings: [],
         entries: [],
       });
       expect(readFileSync(configPath, 'utf8')).toBe(config);

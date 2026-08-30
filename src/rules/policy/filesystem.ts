@@ -22,11 +22,7 @@ const POLICY_FILESYSTEM_SCOPE = Symbol('PolicyFilesystemScope');
 const POLICY_FILESYSTEM_TARGET = Symbol('PolicyFilesystemTarget');
 const NO_FOLLOW = constants.O_NOFOLLOW ?? 0;
 
-export type PolicyFilesystemLabel =
-  | 'user policy'
-  | 'project policy'
-  | 'rules policy'
-  | 'rule source';
+export type PolicyFilesystemLabel = 'user policy' | 'project policy' | 'rules policy';
 
 export interface PolicyFilesystemScope {
   readonly [POLICY_FILESYSTEM_SCOPE]: true;

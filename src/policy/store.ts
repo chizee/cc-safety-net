@@ -30,15 +30,12 @@ import type {
   PolicyScopes,
   SecretProtectionConfig,
 } from '@/ir/policy';
+import { SAFETY_OVERRIDE_KEYS } from '@/ir/safety-level';
 import {
   clampAuditRetentionDays,
   DEFAULT_AUDIT_RETENTION_DAYS,
 } from '@/policy/audit-retention-days';
-import {
-  mergeProjectPolicy,
-  type ProjectPolicyProjection,
-  SAFETY_OVERRIDE_KEYS,
-} from '@/policy/merge';
+import { mergeProjectPolicy, type ProjectPolicyProjection } from '@/policy/merge';
 import { writeJsonAtomic } from '@/rules/policy/config-file';
 import { getProjectPolicyPath, getUserRulesDir, POLICY_FILE } from '@/rules/policy/paths';
 import type { RulesPolicyOptions } from '@/rules/policy/types';

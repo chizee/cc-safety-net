@@ -1,5 +1,4 @@
 import type {
-  CommandDialect,
   CommandFunction,
   CommandGroup,
   CommandIssue,
@@ -16,8 +15,6 @@ import type {
 import {
   appendAccumulatedCommand,
   createCommandAccumulator,
-  createCommandIssues,
-  createCommandNodes,
   createCommandWordParts,
   freezeCommandProgram,
   freezeParsedCommandWord,
@@ -64,16 +61,12 @@ type LexicalScanState = {
 
 const CONTINUATION_CONNECTORS = new Set(['&&', '||', '|', '|&']);
 
-export function parsePosixCommand(
-  source: string,
-  dialect: CommandDialect,
-  limits: CommandParserLimits,
-): CommandProgram {
+export function parsePosixCommand(source: string, limits: CommandParserLimits): CommandProgram {
   const span = { start: 0, end: source.length };
   if (source.length > limits.maxInputLength) {
     return freezeCommandProgram({
       kind: 'program',
-      dialect,
+      dialect: 'posix',
       source,
       span,
       status: 'limited',
@@ -92,7 +85,6 @@ export function parsePosixCommand(
     source,
     0,
     source.length,
-    dialect,
     limits,
     {
       used: 0,
@@ -102,7 +94,7 @@ export function parsePosixCommand(
   );
   return freezeCommandProgram({
     kind: 'program',
-    dialect,
+    dialect: 'posix',
     source,
     span,
     status: getParseStatus(result.issues, result.limited),
@@ -115,14 +107,13 @@ function scanSequence(
   source: string,
   start: number,
   end: number,
-  dialect: CommandDialect,
   limits: CommandParserLimits,
   wordBudget: WordBudget,
   depth: number,
   closing?: ')' | '}',
 ): ScanResult {
-  const nodes = createCommandNodes();
-  const issues = createCommandIssues();
+  const nodes: CommandNode[] = [];
+  const issues: CommandIssue[] = [];
   const accumulator = createCommandAccumulator();
   const pendingHeredocs: PendingHeredoc[] = [];
 
@@ -132,7 +123,7 @@ function scanSequence(
     const tokens = accumulator.words.map((word) => word.text);
     appendAccumulatedCommand(nodes, accumulator, {
       kind: 'command',
-      dialect,
+      dialect: 'posix',
       source: source.slice(span.start, span.end),
       span,
       words: accumulator.words,
@@ -207,7 +198,6 @@ function scanSequence(
         source,
         functionOpening.braceIndex + 1,
         end,
-        dialect,
         limits,
         wordBudget,
         depth + 1,
@@ -218,7 +208,7 @@ function scanSequence(
         start: functionOpening.braceIndex + 1,
         end: inner.closed ? functionEnd - 1 : functionEnd,
       };
-      const body = buildNestedCommandProgram(source, dialect, bodySpan, inner);
+      const body = buildNestedCommandProgram(source, bodySpan, inner);
       nodes.push({
         kind: 'function',
         name: functionOpening.name,
@@ -288,10 +278,10 @@ function scanSequence(
         return limitedResult(nodes, issues, i, 'depth-limit', limits.maxDepth);
       }
       const close = char === '(' ? ')' : '}';
-      const inner = scanSequence(source, i + 1, end, dialect, limits, wordBudget, depth + 1, close);
+      const inner = scanSequence(source, i + 1, end, limits, wordBudget, depth + 1, close);
       const groupEnd = inner.next;
       const bodySpan = { start: i + 1, end: inner.closed ? groupEnd - 1 : groupEnd };
-      const body = buildNestedCommandProgram(source, dialect, bodySpan, inner);
+      const body = buildNestedCommandProgram(source, bodySpan, inner);
       nodes.push({
         kind: 'group',
         style: char === '(' ? 'subshell' : 'brace',
@@ -360,7 +350,7 @@ function scanSequence(
             limited: false,
           }
         : !targetIsBoundary
-          ? readWord(source, targetStart, end, dialect, limits, wordBudget, depth)
+          ? readWord(source, targetStart, end, limits, wordBudget, depth)
           : undefined;
       if (targetResult) {
         issues.push(...targetResult.issues);
@@ -428,7 +418,7 @@ function scanSequence(
     }
 
     if (accumulator.start === -1) appendMissingConnectorIssue(nodes, issues, i);
-    const wordResult = readWord(source, i, end, dialect, limits, wordBudget, depth);
+    const wordResult = readWord(source, i, end, limits, wordBudget, depth);
     issues.push(...wordResult.issues);
     if (wordResult.limited) {
       return propagatedLimitResult(nodes, issues, wordResult.next);
@@ -483,13 +473,12 @@ function scanSequence(
 
 function buildNestedCommandProgram(
   source: string,
-  dialect: CommandDialect,
   span: { start: number; end: number },
   result: ScanResult,
 ): CommandProgram {
   return {
     kind: 'program',
-    dialect,
+    dialect: 'posix',
     source: source.slice(span.start, span.end),
     span,
     status: getParseStatus(result.issues, result.limited),
@@ -502,7 +491,6 @@ function readWord(
   source: string,
   start: number,
   end: number,
-  dialect: CommandDialect,
   limits: CommandParserLimits,
   wordBudget: WordBudget,
   depth: number,
@@ -548,7 +536,7 @@ function readWord(
 
     if (char === '"') {
       quoted = true;
-      const result = readDoubleQuoted(source, i, end, dialect, limits, wordBudget, depth);
+      const result = readDoubleQuoted(source, i, end, limits, wordBudget, depth);
       text += result.text;
       nested.push(...result.nested);
       issues.push(...result.issues);
@@ -597,7 +585,7 @@ function readWord(
 
     const substitution =
       char === '$' || char === '<' || char === '>' || char === '`'
-        ? readSubstitution(source, i, end, dialect, limits, wordBudget, depth)
+        ? readSubstitution(source, i, end, limits, wordBudget, depth)
         : null;
     if (substitution) {
       const collected = collectSubstitution(substitution, nested, issues);
@@ -644,7 +632,6 @@ function readDoubleQuoted(
   source: string,
   start: number,
   end: number,
-  dialect: CommandDialect,
   limits: CommandParserLimits,
   wordBudget: WordBudget,
   depth: number,
@@ -688,7 +675,7 @@ function readDoubleQuoted(
       i = next;
       continue;
     }
-    const substitution = readSubstitution(source, i, end, dialect, limits, wordBudget, depth);
+    const substitution = readSubstitution(source, i, end, limits, wordBudget, depth);
     if (substitution) {
       const collected = collectSubstitution(substitution, nested, issues);
       i = collected.next;
@@ -719,14 +706,13 @@ function readSubstitution(
   source: string,
   start: number,
   end: number,
-  dialect: CommandDialect,
   limits: CommandParserLimits,
   wordBudget: WordBudget,
   depth: number,
 ): { program: CommandProgram; next: number; provenance: WordProvenance } | null {
   const arithmetic = source.startsWith('$((', start);
   const command = source.startsWith('$(', start) && !arithmetic;
-  const process = (source.startsWith('<(', start) || source.startsWith('>(', start)) && true;
+  const process = source.startsWith('<(', start) || source.startsWith('>(', start);
   const backtick = source[start] === '`';
   if (!arithmetic && !command && !process && !backtick) return null;
 
@@ -737,7 +723,7 @@ function readSubstitution(
   const next = close === -1 ? end : close + closing.length;
   if (depth >= limits.maxDepth) {
     return {
-      program: limitedProgram(source, start + openLength, innerEnd, dialect, 'depth-limit'),
+      program: limitedProgram(source, start + openLength, innerEnd, 'depth-limit'),
       next,
       provenance: arithmetic ? 'arithmetic' : 'command-substitution',
     };
@@ -752,7 +738,6 @@ function readSubstitution(
         source,
         cursor,
         innerEnd,
-        dialect,
         limits,
         wordBudget,
         depth + 1,
@@ -777,7 +762,7 @@ function readSubstitution(
     return {
       program: freezeCommandProgram({
         kind: 'program',
-        dialect,
+        dialect: 'posix',
         source: source.slice(start + openLength, innerEnd),
         span: { start: start + openLength, end: innerEnd },
         status: getParseStatus(arithmeticIssues, arithmeticLimited),
@@ -788,20 +773,12 @@ function readSubstitution(
       provenance: 'arithmetic',
     };
   }
-  const inner = scanSequence(
-    source,
-    start + openLength,
-    innerEnd,
-    dialect,
-    limits,
-    wordBudget,
-    depth + 1,
-  );
+  const inner = scanSequence(source, start + openLength, innerEnd, limits, wordBudget, depth + 1);
   const substitutionIssue =
     close === -1
       ? [
           {
-            code: arithmetic ? 'unclosed-arithmetic' : 'unclosed-command-substitution',
+            code: 'unclosed-command-substitution',
             message: `${source.slice(start, start + openLength)} substitution is not closed`,
             span: { start, end: next },
           },
@@ -820,7 +797,7 @@ function readSubstitution(
   return {
     program: freezeCommandProgram({
       kind: 'program',
-      dialect,
+      dialect: 'posix',
       source: source.slice(start + openLength, innerEnd),
       span: { start: start + openLength, end: innerEnd },
       status: getParseStatus(
@@ -831,7 +808,7 @@ function readSubstitution(
       nodes: inner.nodes,
     }),
     next,
-    provenance: arithmetic ? 'arithmetic' : 'command-substitution',
+    provenance: 'command-substitution',
   };
 }
 
@@ -1530,7 +1507,6 @@ function decodePosixLiteralWord(value: string, maxDepth: number): string | null 
     source,
     0,
     source.length,
-    'posix',
     { maxInputLength: source.length, maxWords: 1, maxDepth },
     { used: 0, max: 1 },
     0,
@@ -1546,16 +1522,10 @@ function decodePosixLiteralWord(value: string, maxDepth: number): string | null 
   return result.word.text.slice(1);
 }
 
-function limitedProgram(
-  source: string,
-  start: number,
-  end: number,
-  dialect: CommandDialect,
-  code: string,
-): CommandProgram {
+function limitedProgram(source: string, start: number, end: number, code: string): CommandProgram {
   return freezeCommandProgram({
     kind: 'program',
-    dialect,
+    dialect: 'posix',
     source: source.slice(start, end),
     span: { start, end },
     status: 'limited',

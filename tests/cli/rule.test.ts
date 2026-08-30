@@ -220,7 +220,7 @@ describe('rule update', () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('unknown override key "project-rules/typo"');
-      expect(result.output).not.toContain('Rule config synced.');
+      expect(result.output).not.toContain('Rule config updated.');
     });
   });
 
@@ -236,7 +236,7 @@ describe('rule update', () => {
       const result = await runCCSafetyNetCli(['rule', 'update'], env, tempDir);
 
       expectSuccessfulCli(result);
-      expect(result.output).toContain('Rule config synced.');
+      expect(result.output).toContain('Rule config updated.');
     });
   });
 });
@@ -253,7 +253,7 @@ describe('rule sync', () => {
 
       expectSuccessfulCli(result);
       expect(result.output).toContain('`cc-safety-net rule sync` is deprecated');
-      expect(result.output).not.toContain('Rule config synced.');
+      expect(result.output).not.toContain('Rule config updated.');
       expect(existsSync(join(rulesDir, 'rule.lock'))).toBe(false);
     });
   });

@@ -55,7 +55,7 @@ evidence must cite existing repository files:
   "boundary": "distinct-ownership-boundary",
   "affected_modes": ["standard"],
   "strict_fixture": {
-    "path": "tests/core/analyze/residual-risk-fixtures.test.ts",
+    "path": "tests/analyzer/strict-unverifiable.test.ts",
     "case_id": "rr-11-case-id",
     "mode": "strict",
     "command": "analyzer input that must fail closed",
@@ -75,8 +75,8 @@ evidence must cite existing repository files:
 }
 ```
 
-The central `tests/core/analyze/residual-risk-fixtures.test.ts` harness executes every automated
-fixture under its declared mode and asserts the expected blocking rule.
+Add each automated fixture to the test file named by `strict_fixture.path` and assert the expected
+blocking rule under its declared mode.
 
 ## What Is Never Residual Risk
 

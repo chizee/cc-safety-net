@@ -1,21 +1,10 @@
 import type { DestructiveCommandRuleOverride, GuiPolicy, PolicySafetyLevel } from '@/ir/policy';
+import {
+  SAFETY_LEVEL_CAPABILITIES,
+  SAFETY_OVERRIDE_KEYS,
+  type SafetyLevelCapability,
+} from '@/ir/safety-level';
 import { SECRET_DEFAULT_OFF_RULE_ID_SET } from '@/rules/secret-protection-rules';
-
-/** Capability keys as the policy file spells them. */
-export const SAFETY_OVERRIDE_KEYS = [
-  'fail_closed',
-  'paranoid_rm',
-  'paranoid_interpreters',
-] as const;
-
-type SafetyOverrideKey = (typeof SAFETY_OVERRIDE_KEYS)[number];
-
-/** The level's implied capabilities, mirroring the preset expansion in `policy/env.ts`. */
-const LEVEL_CAPABILITIES: Record<PolicySafetyLevel, Record<SafetyOverrideKey, boolean>> = {
-  standard: { fail_closed: false, paranoid_rm: false, paranoid_interpreters: false },
-  strict: { fail_closed: true, paranoid_rm: false, paranoid_interpreters: false },
-  paranoid: { fail_closed: true, paranoid_rm: true, paranoid_interpreters: true },
-};
 
 const LEVEL_RANK: Record<PolicySafetyLevel, number> = { standard: 0, strict: 1, paranoid: 2 };
 
@@ -27,7 +16,7 @@ const LEVEL_RANK: Record<PolicySafetyLevel, number> = { standard: 0, strict: 1, 
 export type ProjectPolicyProjection = {
   safety?: {
     level?: PolicySafetyLevel;
-    overrides?: Partial<Record<SafetyOverrideKey, boolean>>;
+    overrides?: Partial<Record<SafetyLevelCapability, boolean>>;
   };
   workflow?: { worktree_mode?: boolean };
   destructive_command_protection?: {
@@ -101,7 +90,7 @@ function unionPaths(user: readonly string[], project: readonly string[] | undefi
 
 function collectWeakenings(user: GuiPolicy, project: ProjectPolicyProjection): string[] {
   const level = project.safety?.level;
-  const capabilities = LEVEL_CAPABILITIES[user.safety.level];
+  const capabilities = SAFETY_LEVEL_CAPABILITIES[user.safety.level];
   return [
     ...(level && LEVEL_RANK[level] < LEVEL_RANK[user.safety.level]
       ? [`project policy lowers level: ${user.safety.level} -> ${level}`]

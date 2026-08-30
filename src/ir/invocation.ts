@@ -1,4 +1,6 @@
-export type CommandToolKind = 'posix' | 'powershell' | 'auto';
+import type { ShellKind } from './command.js';
+
+export type CommandToolKind = ShellKind;
 
 export type NonCommandToolInputKind = 'patch' | 'path' | 'grep' | 'glob' | 'unknown';
 

@@ -1,12 +1,16 @@
 import { commandSignature, formatRelativeTime } from '@/engine/browser-facade';
 import { integrationDisplayNames } from '@/integrations/catalog';
+import { SAFETY_LEVEL_CAPABILITIES, type SafetyLevelCapability } from '@/ir/safety-level';
 
 type SafetyLevel = 'standard' | 'strict' | 'paranoid';
-type Capability = 'fail_closed' | 'paranoid_rm' | 'paranoid_interpreters';
+type Capability = SafetyLevelCapability;
 type RuleOverrides = Record<string, 'on' | 'off'>;
 type Policy = {
   version: number;
-  safety: { level: SafetyLevel; overrides: Record<Capability, boolean | undefined> };
+  safety: {
+    level: SafetyLevel;
+    overrides: Record<SafetyLevelCapability, boolean | undefined>;
+  };
   workflow: { worktree_mode: boolean };
   destructive_command_protection: {
     enabled: boolean;
@@ -760,7 +764,8 @@ const renderProtectionCard = () => {
   const customized =
     state.preview.counts.effectiveCustomizations > 0 ||
     Object.entries(policy.safety.overrides).some(
-      ([key, value]) => value !== levelCapabilities(policy.safety.level)[key as Capability],
+      ([key, value]) =>
+        value !== SAFETY_LEVEL_CAPABILITIES[policy.safety.level][key as SafetyLevelCapability],
     );
   const commandsOn = policy.destructive_command_protection.enabled;
   const secretsOn = policy.secret_protection.enabled;
@@ -1853,18 +1858,14 @@ const renderSecretPatterns = () => {
           })
           .join('');
 };
-const levelCapabilities = (level: SafetyLevel) => ({
-  fail_closed: level === 'strict' || level === 'paranoid',
-  paranoid_rm: level === 'paranoid',
-  paranoid_interpreters: level === 'paranoid',
-});
 const presetName = () => safetyLevels[draftPolicy.safety.level][0];
 const renderPresetStatus = () => {
   if (!preview) return;
   const customized =
     preview.counts.effectiveCustomizations > 0 ||
     Object.entries(draftPolicy.safety.overrides).some(
-      ([key, value]) => value !== levelCapabilities(draftPolicy.safety.level)[key as Capability],
+      ([key, value]) =>
+        value !== SAFETY_LEVEL_CAPABILITIES[draftPolicy.safety.level][key as SafetyLevelCapability],
     );
   qs('safety-preset-status').textContent = customized ? `${presetName()} · Customized` : '';
   qs('safety-preset-status').classList.toggle('customized', customized);
@@ -1893,11 +1894,11 @@ const renderSafety = () => {
           `<label class="row preset-${level}"><input type="radio" name="safety-level" value="${level}" ${checkbox(draftPolicy.safety.level === level)}><span><strong>${meta[0]}</strong><small>${meta[1]}</small></span></label>`,
       )
       .join('');
-  const inherited = levelCapabilities(draftPolicy.safety.level);
+  const inherited = SAFETY_LEVEL_CAPABILITIES[draftPolicy.safety.level];
   qs('safety-overrides').innerHTML = Object.entries(safetyOverrides)
     .map(([key, meta]) => {
-      const value = draftPolicy.safety.overrides[key as Capability];
-      const inheritedText = inherited[key as Capability] ? 'on' : 'off';
+      const value = draftPolicy.safety.overrides[key as SafetyLevelCapability];
+      const inheritedText = inherited[key as SafetyLevelCapability] ? 'on' : 'off';
       return `<label class="row safety-override-row"><span><strong>${meta[0]}</strong><small>${meta[1]}</small></span><select data-safety-override="${key}">
       <option value="inherit" ${value === undefined ? 'selected' : ''}>Inherit from preset (${inheritedText})</option>
       <option value="true" ${value === true ? 'selected' : ''}>Force on</option>

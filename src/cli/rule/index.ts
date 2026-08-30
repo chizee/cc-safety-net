@@ -135,7 +135,7 @@ async function runRuleCommandInternal(args: readonly string[]): Promise<number> 
 
   if (subcommand === 'update') {
     const result = await syncRulesConfig({ ...options, only: value, refresh: true });
-    printRuleChangeResult(result, 'Rule config synced.');
+    printRuleChangeResult(result, 'Rule config updated.');
     return result.ok ? 0 : 1;
   }
 

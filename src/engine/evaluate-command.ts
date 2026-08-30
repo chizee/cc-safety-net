@@ -1,7 +1,6 @@
 import { analyzeCommandWithProgram } from '@/analyzer';
 import { createSemanticFactStore } from '@/guards/semantic-facts';
 import type { AnalyzeInput } from '@/ir/analysis';
-import type { CommandProgram } from '@/ir/command';
 import type { CommandTrace } from '@/ir/command-trace';
 import type { Decision } from '@/ir/decision';
 import type { SemanticFactStore } from '@/ir/semantic-facts';
@@ -11,7 +10,6 @@ import { createCommandTraceContext, createCommandTraceRecorder } from './command
 export type TracedCommandEvaluation = Readonly<{
   decision: Extract<Decision, { kind: 'deny' }> | null;
   trace: CommandTrace;
-  program: CommandProgram;
 }>;
 
 /**
@@ -57,6 +55,5 @@ export function evaluateCommandWithTrace(
           }
         : { result: 'allowed' },
     ),
-    program,
   });
 }

@@ -24,7 +24,6 @@ import {
   isGitHubRulebookSource,
   parseGitHubSource,
 } from './sources';
-import type { RulesPolicyOptions, SyncRulesConfigOptions } from './types';
 
 export interface ResolvedRulebook {
   spec: string;
@@ -56,7 +55,6 @@ export const GITHUB_FETCH_LIMITS = Object.freeze({
 export async function resolveRulebookSource(
   spec: string,
   configDir: string,
-  options: RulesPolicyOptions,
   filesystemScope: PolicyFilesystemScope = bindPolicyFilesystemScope(
     dirname(dirname(configDir)),
     'rules policy',
@@ -66,7 +64,7 @@ export async function resolveRulebookSource(
   if (isGitHubRulebookSource(spec)) {
     return resolveGitHubRulebook(spec, operation);
   }
-  return resolveLocalRulebook(spec, configDir, options, filesystemScope);
+  return resolveLocalRulebook(spec, configDir, filesystemScope);
 }
 
 /**
@@ -82,21 +80,20 @@ export async function resolveRulebookSource(
 export async function resolveRulebookSourceForSync(
   spec: string,
   configDir: string,
-  options: SyncRulesConfigOptions,
   filesystemScope: PolicyFilesystemScope | undefined,
   operation: RuleSyncOperation,
   refetch: boolean,
   fetchWhenMissing: boolean,
 ): Promise<ResolvedRulebook> {
   if (!isGitHubRulebookSource(spec)) {
-    return resolveRulebookSource(spec, configDir, options, filesystemScope, operation);
+    return resolveRulebookSource(spec, configDir, filesystemScope, operation);
   }
   const vendored = refetch ? null : readVendoredRulebook(spec, configDir, filesystemScope);
   if (vendored) return vendored;
   if (!refetch && !fetchWhenMissing) {
     throw new Error(`${spec} is not vendored; run rule update ${spec} to vendor it`);
   }
-  return resolveRulebookSource(spec, configDir, options, filesystemScope, operation);
+  return resolveRulebookSource(spec, configDir, filesystemScope, operation);
 }
 
 function readVendoredRulebook(
@@ -197,7 +194,6 @@ async function getGitHubDefaultBranch(
 function resolveLocalRulebook(
   spec: string,
   configDir: string,
-  _options: RulesPolicyOptions,
   filesystemScope: PolicyFilesystemScope,
 ): ResolvedRulebook {
   assertBareRulebookName(spec);

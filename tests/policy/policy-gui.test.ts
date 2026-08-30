@@ -13,10 +13,7 @@ import {
   SECRET_PROTECTION_RULE_METADATA,
   writeUserPolicyFromGui,
 } from '@/policy/store';
-import {
-  DESTRUCTIVE_COMMAND_RULE_IDS,
-  resolveEffectiveDestructiveCommandRules,
-} from '@/rules/destructive-command-rules';
+import { resolveEffectiveDestructiveCommandRules } from '@/rules/destructive-command-rules';
 import { withEnv } from '../helpers';
 
 describe('policy GUI helpers', () => {
@@ -299,10 +296,7 @@ describe('policy GUI helpers', () => {
     expect(readFileSync(projectPolicyPath, 'utf-8')).toBe(JSON.stringify({ version: 1 }));
   });
 
-  test('destructive command metadata covers every stable destructive command id', () => {
-    expect(DESTRUCTIVE_COMMAND_RULE_METADATA.map((entry) => entry.id).sort()).toEqual(
-      [...DESTRUCTIVE_COMMAND_RULE_IDS].sort(),
-    );
+  test('destructive command metadata describes each rule', () => {
     for (const entry of DESTRUCTIVE_COMMAND_RULE_METADATA) {
       expect(entry.category).not.toBe('');
       expect(entry.label).not.toBe('');
