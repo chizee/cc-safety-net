@@ -211,8 +211,8 @@ These hold across minor versions, so a host can build on them:
   an allow.
 - `cwd` anchors policy resolution. Relative command targets and the project's
   `.cc-safety-net/` configuration resolve against the `cwd` you pass, never `process.cwd()`.
-- The API path writes no audit record and makes no network request. One call reads policy
-  files and `CC_SAFETY_NET_*` environment settings, nothing else.
+- The API path writes no audit record and makes no network request. A call reads local
+  policy files, filesystem facts, and environment settings; nothing leaves the machine.
 
 The rule catalog is free to change in any minor version. Which commands get denied grows
 with each release, and `reason` wording changes with it. Branch on `kind`, and keep
