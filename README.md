@@ -81,10 +81,24 @@ CC Safety Net supports the coding agent CLIs below on Windows, macOS, and Linux.
 | **Interpreter one-liners** | Finds destructive code in `python -c`, `node -e`, `ruby -e`, and `perl -e` one-liners such as `os.system("rm -rf /")`. |
 | **Fail-closed by default** | Blocks malformed hook input and, in strict mode, commands it cannot parse. Invalid configuration never blocks. CC Safety Net drops an unverifiable rule source and uses protective defaults when it cannot read `policy.json`. It reports these states in block messages, `doctor`, the status line, and the GUI. |
 | **Secret protection** | Blocks content access to SSH keys, `.env` files, `~/.aws`, Kubernetes, Docker, and gcloud configuration, and coding-CLI credential stores. The rules apply to shell commands and read, edit, write, and search tools. |
-| **Custom rules via rulebooks** | Lets you add blocking rules at user or project scope. CC Safety Net pins rulebooks fetched from GitHub by SHA-256 digest. |
+| **Custom rules via rulebooks** | Lets you add blocking rules at user or project scope. Rulebooks are live JSON files: local ones are authored in place, and rulebooks fetched from GitHub are validated and vendored into your own configuration, updating only when you run `rule update`. |
 | **Audit logging** | Writes allowed and blocked command decisions to local per-project JSONL, redacts secrets, and keeps records for 30 days by default. Browse them with `npx cc-safety-net logs`, or review them in the Activity view of `npx cc-safety-net gui`. |
 
 Full rule catalogs: [Blocked Commands](https://ccsafetynet.com/docs/reference/blocked-commands) · [Allowed Commands](https://ccsafetynet.com/docs/reference/allowed-commands) · [Secret Protection](https://ccsafetynet.com/docs/reference/secret-protection).
+
+## Official rulebooks for AWS, Terraform, gcloud, and Azure
+
+The [cc-safety-net/rulebooks](https://github.com/cc-safety-net/rulebooks) repository publishes curated rulebooks that block recognizable destructive infrastructure CLI operations: `terraform destroy` and `terraform state rm`, `aws s3 rm` and `aws ec2 terminate-instances`, `gcloud projects delete` and `gcloud storage rm`, `az group delete` and `az keyvault purge`, and more. Safe previews such as `--dryrun` and `-dry-run` stay allowed. Install a selection with one command:
+
+```bash
+npx -y cc-safety-net rule add --only terraform aws --global
+```
+
+Rulebooks are JSON data: never executed, only adding denials, unable to weaken built-in protections. Installing vendors the files into your own configuration; nothing updates in the background. See [Official Rulebooks](https://ccsafetynet.com/docs/configuration/rulebooks).
+
+## Team setup
+
+Members who install CC Safety Net once per machine are protected in every repository at the standard preset, so the minimum team setup is automating that install in your project's existing bootstrap step, such as an npm `postinstall` script. To standardize more than the defaults, a team lead commits a project policy and project-scoped rulebooks under `.cc-safety-net/`, and every clone picks them up with no member action. Policy changes stay human-approved: `policy apply` requires a terminal confirmation and refuses agent invocations, and any field a project policy relaxes below a member's own policy is reported line by line in `status`, `doctor`, and the GUI. See [Team Setup](https://ccsafetynet.com/docs/guides/team-setup).
 
 ## Why not just use a sandbox?
 
@@ -181,6 +195,8 @@ Codex has one integration-specific limit. Its unified exec path is the default o
 
 Run the `update` command from [Quick start](#quick-start) to upgrade every installed integration to the current release.
 
+If you installed rulebooks from GitHub on version 2.2 or earlier, run `npx -y cc-safety-net rule sync` once per scope (add `--global` for user-scope sources) after upgrading. Rulebooks are now live vendored files instead of lock-and-cache state; the command migrates each cached rulebook into its live location and removes the leftovers. Until then, those GitHub-sourced rules are inactive and `status` and `doctor` report the degraded sources.
+
 > [!WARNING]
 > If you defined custom rules in a legacy inline config such as `.safety-net.json` or `~/.cc-safety-net/config.json`, CC Safety Net no longer loads those files at runtime. Their rules enforce nothing. Normal use does not show this failure because the commands now run. Run `npx -y cc-safety-net rule migrate` to convert the rules to the rulebook layout. Then run `npx -y cc-safety-net doctor` and confirm that the runtime is `ready`. See the [migration guide](https://ccsafetynet.com/docs/configuration/custom-rules#migrate-legacy-configuration).
 
@@ -190,8 +206,8 @@ The **[ccsafetynet.com/docs](https://ccsafetynet.com/docs)** site contains the f
 
 | Area | Pages |
 |---|---|
-| Get started | [Introduction](https://ccsafetynet.com/docs/introduction) · [Installation](https://ccsafetynet.com/docs/installation) · [Quickstart](https://ccsafetynet.com/docs/quickstart) · [How It Works](https://ccsafetynet.com/docs/guides/how-it-works) · [Dashboard](https://ccsafetynet.com/docs/guides/dashboard) |
-| Configuration | [Modes](https://ccsafetynet.com/docs/configuration/modes) · [Policy](https://ccsafetynet.com/docs/configuration/policy) · [Environment](https://ccsafetynet.com/docs/configuration/environment) · [Custom Rules](https://ccsafetynet.com/docs/configuration/custom-rules) · [Status Line](https://ccsafetynet.com/docs/configuration/status-line) · [Configuration Recovery](https://ccsafetynet.com/docs/configuration/recovery) |
+| Get started | [Introduction](https://ccsafetynet.com/docs/introduction) · [Installation](https://ccsafetynet.com/docs/installation) · [Quickstart](https://ccsafetynet.com/docs/quickstart) · [Team Setup](https://ccsafetynet.com/docs/guides/team-setup) · [How It Works](https://ccsafetynet.com/docs/guides/how-it-works) · [Dashboard](https://ccsafetynet.com/docs/guides/dashboard) |
+| Configuration | [Modes](https://ccsafetynet.com/docs/configuration/modes) · [Policy](https://ccsafetynet.com/docs/configuration/policy) · [Environment](https://ccsafetynet.com/docs/configuration/environment) · [Custom Rules](https://ccsafetynet.com/docs/configuration/custom-rules) · [Official Rulebooks](https://ccsafetynet.com/docs/configuration/rulebooks) · [Status Line](https://ccsafetynet.com/docs/configuration/status-line) · [Configuration Recovery](https://ccsafetynet.com/docs/configuration/recovery) |
 | Reference | [Blocked Commands](https://ccsafetynet.com/docs/reference/blocked-commands) · [Allowed Commands](https://ccsafetynet.com/docs/reference/allowed-commands) · [Secret Protection](https://ccsafetynet.com/docs/reference/secret-protection) · [Audit Log](https://ccsafetynet.com/docs/reference/audit-log) · [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace) · [Glossary](https://ccsafetynet.com/docs/reference/glossary) |
 | Guides | [Architecture](https://ccsafetynet.com/docs/guides/architecture) · [Analysis Engine](https://ccsafetynet.com/docs/guides/analysis-engine) · [Design Principles](https://ccsafetynet.com/docs/guides/design-principles) · [Security Model](https://ccsafetynet.com/docs/guides/security-model) · [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing) · [Integration Architecture](https://ccsafetynet.com/docs/guides/integration-architecture) · [Known Limitations](https://ccsafetynet.com/docs/guides/known-limitations) · [Troubleshooting](https://ccsafetynet.com/docs/guides/troubleshooting) |
 | Project | [Contributing](https://ccsafetynet.com/docs/contributing) · [Security Policy](https://ccsafetynet.com/docs/security) |
