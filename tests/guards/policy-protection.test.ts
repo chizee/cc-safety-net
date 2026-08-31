@@ -269,6 +269,29 @@ describe('policy config protection', () => {
     });
   });
 
+  test('protects an outside-home project policy through brace groups and subshells', () => {
+    const project = join(cwd, 'project');
+    mkdirSync(project);
+    const projectDir = dirname(getProjectPolicyPath(project));
+    for (const command of [
+      `rm -rf ${projectDir}`,
+      `{ rm -rf ${projectDir}; }`,
+      `( rm -rf ${projectDir} )`,
+      `true; { rm -rf ${projectDir}; }`,
+      `{ { rm -rf ${projectDir}; }; }`,
+      `{ cd ${project} && rm -rf .cc-safety-net; }`,
+    ]) {
+      expect(findPolicyMutation('Bash', { command }, project), command).not.toBeNull();
+    }
+    for (const command of [
+      `{ rm -rf ${join(project, 'node_modules')}; }`,
+      `( ls ${projectDir} )`,
+      `{ echo done; } > ${join(project, 'out.txt')}`,
+    ]) {
+      expect(findPolicyMutation('Bash', { command }, project), command).toBeNull();
+    }
+  });
+
   test('blocks destructive find roots that contain the policy file', () => {
     const safetyNetHome = join(cwd, 'home', '.cc-safety-net');
     withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
