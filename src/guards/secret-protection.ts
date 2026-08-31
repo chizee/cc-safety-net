@@ -756,30 +756,59 @@ function extractOperandPathCandidates(command: string, token: string): string[] 
 /**
  * The paths curl itself reads for its upload flags: a leading `@path` for
  * -d/--data/--data-ascii/--data-binary, `[name]@path` for --data-urlencode, and
- * `name=@path` or `name=<path` form parts for -F/--form. --data-raw and
- * --form-string send their argument literally and never open a file, so they
- * contribute nothing, and `@-` is stdin rather than a path. Only the
- * space-separated flag-then-operand spelling is recognized; glued (`-d@path`),
- * `=`-joined (`--data=@path`), and clustered short-option (`-sF`) forms are not.
+ * `[name=]@path` or `[name=]<path` form parts for -F/--form. Recognized operand
+ * spellings: a separate token (`-d @path`), one attached to a short option
+ * (`-d@path`, `-Fname=@path`), one `=`-joined to a long option (`--data=@path`,
+ * `--form=name=@path`), and the token after a clustered short-option group whose
+ * upload flag comes last (`-sF name=@path`). A clustered group with the operand
+ * attached (`-sd@path`) stays residual. --data-raw and --form-string send their
+ * argument literally and never open a file, so they contribute nothing, and `@-`
+ * is stdin rather than a path.
  */
 function extractCurlUploadPathTargets(tokens: readonly string[]): string[] {
   return tokens.flatMap((token, index) => {
-    const flag = tokens[index - 1];
-    if (flag === undefined || !CURL_UPLOAD_FLAGS.has(flag)) return [];
-    if (flag === '-F' || flag === '--form') {
-      const equals = token.indexOf('=');
-      const value = token.slice(equals + 1);
-      if (equals === -1 || (!value.startsWith('@') && !value.startsWith('<'))) return [];
-      return curlUploadPath(value.slice(1).split(';')[0] ?? '');
-    }
-    if (flag === '--data-urlencode') {
-      const at = token.indexOf('@');
-      const equals = token.indexOf('=');
-      if (at === -1 || (equals !== -1 && equals < at)) return [];
-      return curlUploadPath(token.slice(at + 1));
-    }
-    return token.startsWith('@') ? curlUploadPath(token.slice(1)) : [];
+    const attached = attachedCurlUploadOperand(token);
+    if (attached !== null) return curlUploadOperandPaths(attached.flag, attached.value);
+    const flag = curlOperandUploadFlag(tokens[index - 1]);
+    return flag === null ? [] : curlUploadOperandPaths(flag, token);
   });
+}
+
+function curlUploadOperandPaths(flag: string, value: string): string[] {
+  if (flag === '-F' || flag === '--form') {
+    const equals = value.indexOf('=');
+    const part = equals === -1 ? value : value.slice(equals + 1);
+    if (!part.startsWith('@') && !part.startsWith('<')) return [];
+    return curlUploadPath(part.slice(1).split(';')[0] ?? '');
+  }
+  if (flag === '--data-urlencode') {
+    const at = value.indexOf('@');
+    const equals = value.indexOf('=');
+    if (at === -1 || (equals !== -1 && equals < at)) return [];
+    return curlUploadPath(value.slice(at + 1));
+  }
+  return value.startsWith('@') ? curlUploadPath(value.slice(1)) : [];
+}
+
+// curl gives the operand of a clustered short-option group to its last flag
+// only, so `-sF name=@path` uploads the file exactly as `-F name=@path` does.
+function curlOperandUploadFlag(token: string | undefined): string | null {
+  if (token === undefined) return null;
+  if (CURL_UPLOAD_FLAGS.has(token)) return token;
+  return /^-[A-Za-z]+[dF]$/.test(token) ? `-${token.slice(-1)}` : null;
+}
+
+// The operand attached to the flag itself: `-d@path` / `-Fname=@path` for the
+// short spellings, `--data=@path` for the long ones.
+function attachedCurlUploadOperand(token: string) {
+  const short = token.slice(0, 2);
+  if (token.length > 2 && (short === '-d' || short === '-F')) {
+    return { flag: short, value: token.slice(2) };
+  }
+  const equals = token.indexOf('=');
+  if (equals === -1) return null;
+  const flag = token.slice(0, equals);
+  return CURL_UPLOAD_FLAGS.has(flag) ? { flag, value: token.slice(equals + 1) } : null;
 }
 
 function curlUploadPath(path: string): string[] {

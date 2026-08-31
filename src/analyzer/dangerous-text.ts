@@ -37,7 +37,7 @@ export function dangerousInTextMatch(
     { regex: /\bshred\b\s+\S/, label: 'shred', skipForEchoRg: true },
     {
       regex:
-        /\b(?:curl|wget|fetch|aria2c|https?|xhs?|ncat|netcat|nc)\b[^\n|;&]*\|\s*(?:[^\s|;&]*\/)?(?:ba|da|z|k)?sh(?![^\s;&|])/,
+        /\b(?:curl|wget|fetch|aria2c|https?|xhs?|ncat|netcat|nc)\b(?:[^\n|;&]|\\\n)*\|(?:\s|\\\n)*(?:env(?:\s+(?:-\S+|\w+=\S*))*\s+)?(?:[^\s|;&]*\/)?(?:ba|da|z|k)?sh(?![^\s;&|])/,
       label: 'download piped to shell',
       skipForEchoRg: true,
     },
