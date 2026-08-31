@@ -42,6 +42,20 @@ const ZOD_MODULE_STUBS: readonly [RegExp, string][] = [
   ],
 ];
 
+// Bun.build normally resolves the tsconfig `@/*` alias itself, but inside `bun test`
+// that implicit mapping is racy on Bun 1.4.0: the e2e-live beforeAll intermittently
+// failed with `Could not resolve: "@/rules/constants"` (~1 in 3 under load) while the
+// same build always succeeds in a standalone process. Resolving the alias explicitly
+// removes the only environmental dependency that can produce that error.
+const srcAlias: BunPlugin = {
+  name: 'src-alias',
+  setup(build) {
+    build.onResolve({ filter: /^@\// }, (args) => ({
+      path: Bun.resolveSync(`./src/${args.path.slice(2)}`, join(import.meta.dir, '..')),
+    }));
+  },
+};
+
 const zodModuleStubs: BunPlugin = {
   name: 'zod-module-stubs',
   setup(build) {
@@ -115,7 +129,7 @@ export async function buildRuntimeBundles(outdir: string) {
     define: {
       __PKG_VERSION__: JSON.stringify(pkg.version),
     },
-    plugins: [guiAssetsPlugin, vendorZod],
+    plugins: [srcAlias, guiAssetsPlugin, vendorZod],
   });
   if (!result.success) return result;
   // Bun names a split entry's output directory after its source directory, so
@@ -172,7 +186,7 @@ export async function buildAmpBundle(outdir: string) {
     define: {
       __PKG_VERSION__: JSON.stringify(pkg.version),
     },
-    plugins: [inlineZod, zodModuleStubs],
+    plugins: [srcAlias, inlineZod, zodModuleStubs],
   });
   if (!result.success) return result;
   const artifact = result.outputs[0];
@@ -197,7 +211,7 @@ export async function buildOpenClawBundle(outdir: string) {
     define: {
       __PKG_VERSION__: JSON.stringify(pkg.version),
     },
-    plugins: [inlineZod, zodModuleStubs],
+    plugins: [srcAlias, inlineZod, zodModuleStubs],
   });
   if (!result.success) return result;
   const artifact = result.outputs[0];
