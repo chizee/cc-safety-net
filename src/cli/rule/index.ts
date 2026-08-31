@@ -55,6 +55,7 @@ const RULE_SUBCOMMANDS = new Set([
   'verify',
 ]);
 const RULE_WRAPPER_ACTIONS = new Set(['add', 'remove', 'list']);
+const OFFICIAL_RULEBOOKS_SOURCE = 'cc-safety-net/rulebooks';
 
 export async function runRuleCommand(args: readonly string[]): Promise<number> {
   try {
@@ -107,16 +108,24 @@ async function runRuleCommandInternal(args: readonly string[]): Promise<number> 
   }
 
   if (subcommand === 'add') {
-    if (!value) {
-      console.error('rule add requires a source');
+    const source = resolveRuleAddSource(flags);
+    if (!source) {
+      console.error(
+        'rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)',
+      );
       return 1;
     }
-    const result = await addRulebookSource(value, {
+    const scope = getScopePaths(options);
+    const result = await addRulebookSource(source, {
       ...options,
       ref: flags.ref,
       rulebooks: flags.only.length > 0 ? flags.only : undefined,
     });
-    printRuleAddResult(result, value);
+    printRuleAddResult(
+      result,
+      source,
+      `Scope: ${flags.global ? 'user' : 'project'} (${scope.configDir})`,
+    );
     return result.ok ? 0 : 1;
   }
 
@@ -282,12 +291,19 @@ function validateRuleFlags(flags: RuleFlags): void {
   }
 }
 
+/**
+ * A selection alone names the official repository: `--ref`/`--only` only mean anything for an
+ * owner/repo source, so omitting it there is the shorthand, not a mistake. A bare `rule add`
+ * keeps erroring, so taking the whole official catalog stays an explicit act.
+ */
+function resolveRuleAddSource(flags: RuleFlags): string | undefined {
+  if (flags.positionals[1]) return flags.positionals[1];
+  if (flags.ref || flags.only.length > 0) return OFFICIAL_RULEBOOKS_SOURCE;
+  return undefined;
+}
+
 function validateRuleAddFlags(flags: RuleFlags): void {
-  const source = flags.positionals[1];
-  if (!source && flags.only.length > 0) {
-    flags.errors.push('rule add requires owner/repo before --only');
-    return;
-  }
+  const source = resolveRuleAddSource(flags);
   if (!source) return;
   if ((flags.ref || flags.only.length > 0) && !isGitHubRepositorySource(source)) {
     if (flags.ref) {

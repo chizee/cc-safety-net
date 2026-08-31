@@ -47,12 +47,15 @@ function listPolicyWithRule(rule: CustomRule): LoadedRulesPolicy {
   };
 }
 
+const scopeLine = 'Scope: project (/tmp/x/.cc-safety-net/rules)';
+
 describe('rule add output', () => {
   test('reports only newly selected repository rulebooks and the resolved commit', async () => {
     const output = await captureConsoleOutput(() =>
-      printRuleAddResult(repositoryAddResult(true), 'owner/repo'),
+      printRuleAddResult(repositoryAddResult(true), 'owner/repo', scopeLine),
     );
 
+    expect(output.stdout[0]).toBe(scopeLine);
     expect(output.stdout).toContain('Added 1 rulebook from owner/repo at main:');
     expect(output.stdout).toContain('  - aws');
     expect(output.stdout).toContain('Vendored at abcdef1.');
@@ -62,11 +65,21 @@ describe('rule add output', () => {
 
   test('describes an idempotent repository add without claiming another addition', async () => {
     const output = await captureConsoleOutput(() =>
-      printRuleAddResult(repositoryAddResult(false), 'owner/repo'),
+      printRuleAddResult(repositoryAddResult(false), 'owner/repo', scopeLine),
     );
 
     expect(output.stdout).toContain('Rulebooks already configured from owner/repo at main: aws');
     expect(output.stdout).not.toContain('Added 1 rulebook');
+  });
+
+  // A failed add wrote nothing, so naming a destination would claim a change that never landed.
+  test('omits the scope line when the add failed', async () => {
+    const output = await captureConsoleOutput(() =>
+      printRuleAddResult({ ok: false, errors: ['boom'], entries: [] }, 'owner/repo', scopeLine),
+    );
+
+    expect(output.stdout).toEqual([]);
+    expect(output.stderr).toContain('boom');
   });
 });
 

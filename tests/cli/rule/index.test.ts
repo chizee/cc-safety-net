@@ -1,11 +1,11 @@
 import { describe, expect, spyOn, test } from 'bun:test';
-import { writeFileSync } from 'node:fs';
+import { realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runRuleCommand } from '@/cli/rule';
 import * as systemInfo from '@/integrations/system-info';
 import * as sync from '@/rules/policy/sync';
 import { captureConsoleOutput, runCCSafetyNetCli, withEnv, withTempDir } from '../../helpers';
-import { writeProjectRuleConfig } from '../../helpers/rulebook';
+import { writeLocalRulebook, writeProjectRuleConfig } from '../../helpers/rulebook';
 
 describe('rule list exit code', () => {
   test('exits 0 when the merged policy has warnings but no errors', async () => {
@@ -123,10 +123,11 @@ describe('rule leaf help', () => {
     const result = await captureRuleCommand(['add', '--help']);
 
     expect(result.exitCode).toBe(0);
-    expect(result.output).toContain('cc-safety-net rule add <source>');
+    expect(result.output).toContain('cc-safety-net rule add [source]');
     expect(result.output).toContain('--ref <ref>');
     expect(result.output).toContain('--only <rulebook...>');
     expect(result.output).toContain('rule add acme/safety-rules --only aws gcloud');
+    expect(result.output).toContain('rule add --only terraform aws');
   });
 
   test('renders wrapper list help, not the first wrapper leaf', async () => {
@@ -177,11 +178,14 @@ describe('rule leaf help', () => {
 });
 
 describe('rule add repository flags', () => {
-  test('requires the repository before a variadic selection', async () => {
+  // `--only` swallows every following non-flag argument, so the trailing repository lands in
+  // the selection instead of the source slot: the omitted source defaults to the official
+  // repository and the stray value is judged as the rulebook name it was parsed as.
+  test('validates variadic selection names when the source is omitted', async () => {
     const result = await captureRuleCommand(['add', '--only', 'aws', 'owner/repo']);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain('rule add requires owner/repo before --only');
+    expect(result.stderr).toContain('Invalid rulebook names: owner/repo');
   });
 
   test('rejects repository flags for local and canonical sources', async () => {
@@ -209,6 +213,95 @@ describe('rule add repository flags', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('Unknown option for rule update: --only');
+  });
+});
+
+describe('rule add omitted source', () => {
+  test('still refuses a bare add, and names the shorthand that selects from the official repository', async () => {
+    const result = await captureRuleCommand(['add']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      'rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)',
+    );
+  });
+
+  test('resolves a selection without a source to the official rulebooks repository', async () => {
+    const addRulebookSource = spyOn(sync, 'addRulebookSource').mockResolvedValue({
+      ok: true,
+      errors: [],
+      entries: [],
+      add: {
+        source: 'cc-safety-net/rulebooks',
+        ref: 'main',
+        selected: ['terraform', 'aws'],
+        added: ['terraform', 'aws'],
+        alreadyConfigured: [],
+        commits: [],
+      },
+    });
+    try {
+      const result = await captureRuleCommand(['add', '--only', 'terraform', 'aws']);
+
+      expect(result.exitCode).toBe(0);
+      expect(addRulebookSource).toHaveBeenLastCalledWith(
+        'cc-safety-net/rulebooks',
+        expect.objectContaining({ rulebooks: ['terraform', 'aws'] }),
+      );
+      expect(result.stdout).toContain('cc-safety-net/rulebooks');
+      expect(result.stdout).toContain('Scope: project (');
+    } finally {
+      addRulebookSource.mockRestore();
+    }
+  });
+
+  test('applies repository flag validation to the defaulted source', async () => {
+    const invalidName = await captureRuleCommand(['add', '--only', 'bad/name']);
+    const invalidRef = await captureRuleCommand(['add', '--ref', 'feature//v2', '--only', 'aws']);
+
+    expect(invalidName.exitCode).toBe(1);
+    expect(invalidName.stderr).toContain('Invalid rulebook names: bad/name');
+    expect(invalidRef.exitCode).toBe(1);
+    expect(invalidRef.stderr).toContain('--ref must use valid path segments: feature//v2');
+  });
+});
+
+describe('rule add scope line', () => {
+  test('names the project scope destination it wrote to', async () => {
+    await withTempDir('safety-net-rule-add-scope-project-', async (tempDir) => {
+      writeLocalRulebook(
+        join(tempDir, '.cc-safety-net', 'rules', 'project-rules', 'rulebook.json'),
+        'project-rules',
+      );
+
+      const result = await runCCSafetyNetCli(
+        ['rule', 'add', 'project-rules'],
+        { HOME: join(tempDir, 'home') },
+        tempDir,
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain(
+        `Scope: project (${join(realpathSync(tempDir), '.cc-safety-net', 'rules')})`,
+      );
+      expect(result.output).toContain('Added rulebook source: project-rules');
+    });
+  });
+
+  test('names the user scope destination under --global', async () => {
+    await withTempDir('safety-net-rule-add-scope-user-', async (tempDir) => {
+      const home = join(tempDir, 'home');
+      writeLocalRulebook(join(home, 'rules', 'project-rules', 'rulebook.json'), 'project-rules');
+
+      const result = await runCCSafetyNetCli(
+        ['rule', 'add', 'project-rules', '--global'],
+        { CC_SAFETY_NET_HOME: home, HOME: home },
+        tempDir,
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain(`Scope: user (${join(home, 'rules')})`);
+    });
   });
 });
 

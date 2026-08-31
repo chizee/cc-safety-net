@@ -22,7 +22,14 @@ export function printRuleChangeResult(
   printSuccessfulRuleChange(result, action);
 }
 
-export function printRuleAddResult(result: AddRulebookSourceResult, source: string): void {
+export function printRuleAddResult(
+  result: AddRulebookSourceResult,
+  source: string,
+  scopeLine: string,
+): void {
+  // Which scope an add landed in is invisible otherwise, so running from the wrong directory
+  // reads as success. A failed add wrote nothing, so it names no destination.
+  if (result.ok) console.log(scopeLine);
   if (!result.add) {
     printRuleChangeResult(result, `Added rulebook source: ${source}`);
     return;

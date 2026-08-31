@@ -16,6 +16,7 @@ export const ruleAddExamples = [
   'cc-safety-net rule add acme/safety-rules',
   'cc-safety-net rule add acme/safety-rules --only aws gcloud',
   'cc-safety-net rule add acme/safety-rules --ref v2 --only aws',
+  'cc-safety-net rule add --only terraform aws',
 ];
 
 export const ruleCommand = {
@@ -25,7 +26,7 @@ export const ruleCommand = {
   subcommands: [
     { usage: 'init [--example]', description: 'Create inert rule config' },
     {
-      usage: 'add <source> [--ref <ref>] [--only <rulebook...>]',
+      usage: 'add [source] [--ref <ref>] [--only <rulebook...>]',
       description: 'Add rulebook sources and sync',
     },
     { usage: 'remove <source>', description: 'Remove a rulebook source and sync' },
