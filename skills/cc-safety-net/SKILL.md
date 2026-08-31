@@ -84,7 +84,9 @@ those only as part of a workflow below.
 4. If a built-in rule fired, no rule edit can relax it. Check the reason for a documented escape
    hatch, such as `CC_SAFETY_NET_WORKTREE=1` for local git discards in linked worktrees, or
    `rule wrapper add` when a trusted transparent wrapper hid the real command from the analyzer.
-   Pass the wrapper name as a separate argv value, or shell-escape it as one argument. Otherwise
+   Pass the wrapper name as a separate argv value, or shell-escape it as one argument. If the
+   user explicitly wants that built-in rule off, read its id from the `ruleId` field of
+   `explain --json` and propose a per-rule policy override (see configure the policy). Otherwise
    explain the risk the rule guards against and suggest reporting the case at
    https://github.com/kenryu42/cc-safety-net/issues.
 
@@ -116,6 +118,10 @@ intent, merge behavior, or target command is unclear.
    - If the user explicitly asks to install existing GitHub rulebooks instead of authoring them,
      use `npx -y cc-safety-net rule add owner/repo --only <rulebook...>`; omit `--only` only
      when they want every rulebook, and add `--ref <ref>` only when they name a non-default ref.
+     `rule add --only <rulebook...>` with no source selects from the official
+     `cc-safety-net/rulebooks` repository, whose curated rulebooks block destructive Terraform,
+     AWS, gcloud, and Azure CLI operations; prefer installing one of those over authoring when it
+     already covers the request.
    - For transparent wrappers, prefer `npx -y cc-safety-net rule wrapper add` with the trusted
      wrapper name passed as a separate argv value, or shell-escaped as one argument, over editing
      `rule.json` by hand.
@@ -162,6 +168,22 @@ Rule invariants:
 
 Both `policy.json` files are protected: you propose the change, the user applies it. Reading them
 is allowed, writing them is not.
+
+`policy.json` fields, all optional except `version: 1` (`policy check` reports every schema
+error, so validate against it rather than guessing further fields):
+
+- `safety.level`: `standard`, `strict`, or `paranoid`. `safety.overrides`: booleans for
+  `fail_closed`, `paranoid_rm`, and `paranoid_interpreters` that pin one capability apart from
+  the level.
+- `workflow.worktree_mode`: boolean, allows local git discards in linked worktrees.
+- `destructive_command_protection` and `secret_protection`: an `enabled` boolean, and per-rule
+  `overrides` mapping a built-in rule id (`git.reset-hard`, `secret.basename.env`) to `"on"` or
+  `"off"`. Get the id for a blocked command from the `ruleId` field of `explain --json`.
+- `destructive_command_protection.allow_paths`: absolute or `~/` paths where recursive delete
+  targets are permitted. `secret_protection.allow_paths`: exact user-managed paths exempted from
+  secret protection, globs rejected. `secret_protection.deny_paths`: extra paths protected like
+  built-in secrets.
+- `audit.retention_days`: days of audit history to keep, user scope only.
 
 1. Inspect the current state: `npx -y cc-safety-net status` for the effective policy and the file
    paths it loaded, `npx -y cc-safety-net rule list` for custom rules, plus whatever project
