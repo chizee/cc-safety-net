@@ -26,7 +26,17 @@ CC Safety Net is short for Coding CLI Safety Net. It is a PreToolUse hook that b
 
 ## Why this exists
 
-We built CC Safety Net after an agent [wiped hours of work](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) with one `rm -rf ~/` or `git checkout --`. Instructions did not stop it. Rules in `CLAUDE.md` or `AGENTS.md` can guide an agent, but they cannot enforce a technical limit. CC Safety Net watches relevant tool calls and blocks destructive commands and secret access before they reach the shell. See [What is CC Safety Net](https://ccsafetynet.com/docs/introduction) for the full background.
+No major coding CLI deterministically blocks destructive git commands inside the workspace you handed it. `git reset --hard`, `git checkout -- .`, `git clean -f`, `git stash clear`, and `git push --force` all act on files the agent is already allowed to write, so a sandbox that scopes writes to the project directory sees nothing wrong. OpenAI's [Codex security docs](https://learn.chatgpt.com/docs/security) say commands under workspace-write "can still mutate state and perform destructive operations". An [independent analysis of Codex permissions](https://codex.danielvaughan.com) (2026-04-20) puts it directly: "No command-level semantic blocking: the system cannot prevent git reset --hard". Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) scope writes to the working directory, which is where your uncommitted work lives.
+
+Three more reasons the layer is worth running:
+
+- **A deterministic check under probabilistic ones.** Anthropic publishes a 17% false-negative rate for the Claude Code [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) classifier on real overeager actions and calls it "not a drop-in replacement for careful human review". Deny rules and hooks are the deterministic layer instead of a judgment call. Verified against Claude Code 2.1.251, a PreToolUse deny still fires in default, auto, and bypassPermissions modes (`tests/e2e-live/protection.test.ts`). That is a per-version result, not a standing guarantee, so the suite runs again on every release and host upgrade.
+- **Secret protection with nothing to configure.** Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) state that the default read behavior "still allows reading credential files such as ~/.aws/credentials and ~/.ssh/", and that "There is no built-in credential deny list". The native equivalents in other CLIs are opt-in config you write per CLI. CC Safety Net blocks content access to those paths and to project `.env` files on install, across shell commands and the read, edit, write, and search tools.
+- **One policy and one audit trail across 13 CLIs.** Five vendors ship five incompatible permission mechanisms and no decision log you can read afterwards.
+
+Layers below this one have failed in the field. [Why not just use a sandbox?](#why-not-just-use-a-sandbox) covers the sandbox and allowlist CVEs, and Adversa's [incident tracker](https://adversa.ai/blog/ai-coding-agent-incidents) records nine agent destruction cases from 2025 and 2026, with guardrails enabled in about half of them.
+
+The founding case still stands. It is just no longer the frontier. An agent [wiped hours of work](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) with one `rm -rf ~/`, and instructions did not stop it. Claude Code now ships a deterministic circuit breaker for critical paths like that one, which is the right fix and the reason it is no longer our headline. The git commands above have no such breaker. Rules in `CLAUDE.md` or `AGENTS.md` can guide an agent, but they cannot enforce a technical limit. See [What is CC Safety Net](https://ccsafetynet.com/docs/introduction) for the full background.
 
 ## Quick start
 
@@ -102,7 +112,11 @@ Members who install CC Safety Net once per machine are protected in every reposi
 
 ## Why not just use a sandbox?
 
-A workspace-writable sandbox still permits `git reset --hard`, `git push --force`, and `rm -rf .` inside the project directory. The operating system sees writes to an allowed path. A sandbox limits where a process can write. CC Safety Net blocks destructive operations inside that allowed area. Use both. See [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing).
+A sandbox decides where a process may write. It does not decide what the process may do inside that area. Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) scope writes to the working directory by default, so `git reset --hard`, `git push --force`, and `rm -rf .` on your project all land on allowed paths, and the operating system sees permitted writes.
+
+Reads are wider than most people assume. The same docs say of the default read behavior that "There is no built-in credential deny list", and name `~/.aws/credentials` and `~/.ssh/` as files it still allows reading. CC Safety Net blocks content access to those paths with no configuration.
+
+Sandboxes and allowlists also break. CVE-2026-25725 escaped Claude Code's bubblewrap sandbox through `settings.json`, and CVE-2026-22708 bypassed Cursor's command allowlist. Run both layers. See [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing).
 
 ## Safety presets
 
