@@ -70,6 +70,19 @@ const FIND_MATCH_PATH_PRIMARIES = new Set([
   '-samefile',
 ]);
 
+// curl reads a file whenever an upload flag is given `@path` (or `<path` for a
+// form part). The path keeps its `@` as a shell token, so it only reaches the
+// sensitive-path rules once the marker is stripped.
+const CURL_UPLOAD_FLAGS = new Set([
+  '-d',
+  '--data',
+  '--data-ascii',
+  '--data-binary',
+  '--data-urlencode',
+  '-F',
+  '--form',
+]);
+
 // Interpreters read files from inside a code string (python -c, node -e, ...),
 // where the path is not a standalone shell token. Their code bodies are scanned
 // for embedded path literals instead of treated as plain operands.
@@ -470,6 +483,13 @@ function extractSegmentPathTargets(
       ...post.flatMap(extractAwkGetlineRedirectTargets),
     ];
   }
+  if (command === 'curl') {
+    return [
+      ...assignmentValues,
+      ...post.flatMap((token) => extractOperandPathCandidates(command, token)),
+      ...extractCurlUploadPathTargets(post),
+    ];
+  }
   if (isCodeInterpreter(command)) {
     if (SHELL_STDIN_INTERPRETERS.has(command)) {
       const body = getShellCommandString(command, post);
@@ -697,6 +717,39 @@ function extractOperandPathCandidates(command: string, token: string): string[] 
   if (command === 'zip' && /\.zip$/i.test(token)) return candidates;
   candidates.push(token);
   return candidates;
+}
+
+/**
+ * The paths curl itself reads for its upload flags: a leading `@path` for
+ * -d/--data/--data-ascii/--data-binary, `[name]@path` for --data-urlencode, and
+ * `name=@path` or `name=<path` form parts for -F/--form. --data-raw and
+ * --form-string send their argument literally and never open a file, so they
+ * contribute nothing, and `@-` is stdin rather than a path. Only the
+ * space-separated flag-then-operand spelling is recognized; glued (`-d@path`),
+ * `=`-joined (`--data=@path`), and clustered short-option (`-sF`) forms are not.
+ */
+function extractCurlUploadPathTargets(tokens: readonly string[]): string[] {
+  return tokens.flatMap((token, index) => {
+    const flag = tokens[index - 1];
+    if (flag === undefined || !CURL_UPLOAD_FLAGS.has(flag)) return [];
+    if (flag === '-F' || flag === '--form') {
+      const equals = token.indexOf('=');
+      const value = token.slice(equals + 1);
+      if (equals === -1 || (!value.startsWith('@') && !value.startsWith('<'))) return [];
+      return curlUploadPath(value.slice(1).split(';')[0] ?? '');
+    }
+    if (flag === '--data-urlencode') {
+      const at = token.indexOf('@');
+      const equals = token.indexOf('=');
+      if (at === -1 || (equals !== -1 && equals < at)) return [];
+      return curlUploadPath(token.slice(at + 1));
+    }
+    return token.startsWith('@') ? curlUploadPath(token.slice(1)) : [];
+  });
+}
+
+function curlUploadPath(path: string): string[] {
+  return path === '' || path === '-' ? [] : [path];
 }
 
 function extractFindCommandTargets(
