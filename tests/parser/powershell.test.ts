@@ -125,6 +125,37 @@ describe('PowerShell command parser boundary', () => {
     ).toBe('posix');
   });
 
+  test('auto routes the file cmdlets, and their aliases only with a PowerShell path expression', () => {
+    for (const command of [
+      String.raw`Get-Content $HOME\.ssh\id_rsa`,
+      'Set-Content notes.txt hello',
+      'Add-Content notes.txt hello',
+      'Copy-Item a.txt b.txt',
+      'Move-Item a.txt b.txt',
+      String.raw`gc $HOME\.ssh\id_rsa`,
+      'cat $env:HOME/.aws/credentials',
+      String.raw`type ~\.ssh\id_rsa`,
+      String.raw`cp $HOME\a b`,
+      String.raw`mv ~\a b`,
+      String.raw`rm $HOME\a`,
+    ]) {
+      expect(parseCommand(command, 'auto').dialect, command).toBe('powershell');
+    }
+    for (const command of [
+      'cat file.txt',
+      'type cat',
+      'cp a.txt b.txt',
+      'mv a b',
+      'gc file.txt',
+      'cat $HOME/notes.txt',
+      String.raw`git grep "process\.env"`,
+      String.raw`echo "Get-Content $HOME\.ssh\id_rsa"`,
+      "cat <<'EOF'\n$HOME\\.ssh\\id_rsa\nEOF",
+    ]) {
+      expect(parseCommand(command, 'auto').dialect, command).toBe('posix');
+    }
+  });
+
   test('ignores PowerShell line and nested block comments structurally', () => {
     const program = parseCommand(
       'Write-Output ok # ; | Remove-Item . -Recurse -Force\n<# outer ; <# nested | #> Remove-Item / #>\nRemove-Item . -Recurse -Force',

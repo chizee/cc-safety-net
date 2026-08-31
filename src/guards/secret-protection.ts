@@ -19,7 +19,12 @@ import {
 import { normalizeMsysDrivePath, processPathResolver } from '@/ir/environment';
 import { createToolInvocation, type ToolRoute } from '@/ir/invocation';
 import type { SecretProtectionConfig } from '@/ir/policy';
-import type { SemanticFactStore, SemanticFacts, ShellSyntaxFacts } from '@/ir/semantic-facts';
+import type {
+  CommandSyntaxFacts,
+  SemanticFactStore,
+  SemanticFacts,
+  ShellSyntaxFacts,
+} from '@/ir/semantic-facts';
 import { getShellCommandString } from '@/parser/shell';
 import { advanceQuoteScanState } from '@/parser/shell/shared';
 import {
@@ -378,21 +383,30 @@ function extractToolPathTargets(
 ): string[] {
   if (facts.invocation.route.kind === 'command') {
     const command = getCommandSyntaxFact(facts, 'input-candidate');
-    return command ? extractCommandPathTargets(command.shell, facts.store, options) : [];
+    return command
+      ? extractCommandPathTargets(command.shell, facts.store, options, isPowerShell(command))
+      : [];
   }
   if (facts.invocation.route.kind !== 'unknown') return [...facts.paths];
 
   const command = getCommandSyntaxFact(facts, 'input-candidate');
   return [
-    ...(command ? extractCommandPathTargets(command.shell, facts.store, options) : []),
+    ...(command
+      ? extractCommandPathTargets(command.shell, facts.store, options, isPowerShell(command))
+      : []),
     ...facts.paths,
   ];
+}
+
+function isPowerShell(command: CommandSyntaxFacts): boolean {
+  return command.program.dialect === 'powershell';
 }
 
 function extractCommandPathTargets(
   syntax: ShellSyntaxFacts,
   store: SemanticFactStore,
   options: PathExtractionOptions,
+  powershell = false,
 ): string[] {
   if (syntax.status === 'structural-limit') throw new StructuralShellSyntaxLimitError();
   if (syntax.status === 'unclosed-quote') return [];
@@ -426,12 +440,14 @@ function extractCommandPathTargets(
     }
 
     if (entry.kind === 'redirection') {
-      const target = entry.target ? projectSensitiveShellText(entry.target) : undefined;
+      const target = entry.target
+        ? projectSensitiveShellText(rewritePowerShellHomePrefix(entry.target, powershell))
+        : undefined;
       if (target && entry.targetOrder === 'legacy-segment') segment.push(target);
       else if (target) targets.push(target);
       continue;
     }
-    segment.push(projectSensitiveShellText(entry.text));
+    segment.push(projectSensitiveShellText(rewritePowerShellHomePrefix(entry.text, powershell)));
   }
 
   if (segment.length > 0) {
@@ -705,6 +721,24 @@ function extractLeadingAssignmentValues(tokens: readonly string[]): string[] {
     }
   }
   return values;
+}
+
+// The four spellings of the home directory in PowerShell, each followed by a separator so the
+// bare variable stays the directory itself. Names are case-insensitive there, and the braced
+// form is how the projection spells an expandable variable.
+const POWERSHELL_HOME_PREFIX = /^(?:\$\{home\}|\$\{env:(?:userprofile|home)\}|~)(?=[\\/])/i;
+
+/**
+ * A PowerShell operand rewritten to the `~/...` candidate its POSIX spelling already produces,
+ * so the existing home rules see one form. Only the home prefix resolves: a token that does not
+ * start with one keeps its backslashes, so an ordinary variable (`$config\.ssh\id_rsa`) still
+ * names nothing the rules match, and no other expression is evaluated. Only a PowerShell
+ * program reaches here, which is what makes rewriting a backslash safe: in POSIX text it is an
+ * escape character, and `git grep "process\.env"` must not become `process/.env`.
+ */
+function rewritePowerShellHomePrefix(token: string, powershell: boolean): string {
+  if (!powershell || !POWERSHELL_HOME_PREFIX.test(token)) return token;
+  return `~${token.replace(POWERSHELL_HOME_PREFIX, '').replace(/\\/g, '/')}`;
 }
 
 function extractOperandPathCandidates(command: string, token: string): string[] {
