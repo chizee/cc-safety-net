@@ -259,13 +259,19 @@ describe('policy config protection', () => {
         `{ rm -rf ${safetyNetHome}; }`,
         `cleanup() { rm -rf ${safetyNetHome}; }; cleanup`,
         `cleanup() { rm -rf ${safetyNetHome}; }; X=1 cleanup`,
+        `function cleanup { rm -rf ${safetyNetHome}; }; cleanup`,
+        `function cleanup() { rm -rf ${safetyNetHome}; }; cleanup`,
       ]) {
         expect(findPolicyMutation('Bash', { command }, cwd)?.target, command).toBe(safetyNetHome);
       }
 
-      expect(
-        findPolicyMutation('Bash', { command: `cleanup() { rm -rf ${safetyNetHome}; }` }, cwd),
-      ).toBeNull();
+      for (const command of [
+        `cleanup() { rm -rf ${safetyNetHome}; }`,
+        `function cleanup { rm -rf ${safetyNetHome}; }`,
+        `function cleanup() { rm -rf ${safetyNetHome}; }`,
+      ]) {
+        expect(findPolicyMutation('Bash', { command }, cwd), command).toBeNull();
+      }
     });
   });
 

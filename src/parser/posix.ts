@@ -1624,7 +1624,10 @@ function readFunctionOpening(
   start: number,
   end: number,
 ): FunctionOpening | undefined {
-  const match = /^([A-Za-z_][A-Za-z0-9_]*)[ \t]*\([ \t]*\)[ \t]*\{/.exec(source.slice(start, end));
+  const slice = source.slice(start, end);
+  const match =
+    /^(?:function[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*\([ \t]*\)[ \t]*\{/.exec(slice) ??
+    /^function[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+\{/.exec(slice);
   const name = match?.[1];
   if (!match || !name) return undefined;
   return { name, braceIndex: start + match[0].lastIndexOf('{') };

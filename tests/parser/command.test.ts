@@ -87,17 +87,37 @@ describe('command parser boundary', () => {
     expectProgramSpans(program, source);
   });
 
-  test('keeps unsupported and unclosed function forms on bounded parser paths', () => {
-    const bashOnly = parseCommand('function cleanup { echo ok; }', 'posix');
+  test('keeps unclosed function forms on bounded parser paths', () => {
     const unclosed = parseCommand('cleanup() { echo ok', 'posix');
 
-    expect(bashOnly.nodes.some((node) => node.kind === 'function')).toBeFalse();
     expect(unclosed.status).toBe('partial');
     expect(unclosed.issues).toContainEqual({
       code: 'unclosed-function-body',
       message: 'function body is not closed',
       span: { start: 10, end: 19 },
     });
+  });
+
+  test('parses function keyword and hybrid definition forms', () => {
+    for (const source of [
+      'function cleanup { echo ok; }',
+      'function cleanup() { echo ok; }',
+      'function cleanup () { echo ok; }',
+    ]) {
+      const program = parseCommand(source, 'posix');
+
+      expect(program.status, source).toBe('complete');
+      expect(
+        program.nodes.flatMap((node) => (node.kind === 'function' ? [node.name] : [])),
+        source,
+      ).toEqual(['cleanup']);
+    }
+
+    expect(
+      parseCommand('function cleanup{ echo ok; }', 'posix').nodes.some(
+        (node) => node.kind === 'function',
+      ),
+    ).toBeFalse();
   });
 
   test('marks executable substitution output without a sentinel token', () => {
