@@ -35,6 +35,12 @@ export function dangerousInTextMatch(
     { regex: /\bdd\b[^\n|;&]*\bof=\/dev\/\S/, label: 'dd of=/dev/', skipForEchoRg: true },
     { regex: /\bmkfs(?:\.[a-z0-9_-]+)?\s+\/dev\/\S/, label: 'mkfs /dev/', skipForEchoRg: true },
     { regex: /\bshred\b\s+\S/, label: 'shred', skipForEchoRg: true },
+    {
+      regex:
+        /\b(?:curl|wget|fetch|aria2c|https?|xhs?|ncat|netcat|nc)\b[^\n|;&]*\|\s*(?:[^\s|;&]*\/)?(?:ba|da|z|k)?sh(?![^\s;&|])/,
+      label: 'download piped to shell',
+      skipForEchoRg: true,
+    },
   ];
 
   for (const pattern of patterns) {
