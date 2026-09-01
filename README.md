@@ -19,46 +19,14 @@
 
 </div>
 
-CC Safety Net is short for Coding CLI Safety Net. It is a PreToolUse hook that blocks destructive commands and access to secrets such as SSH keys and `.env` files before the tool call runs. It parses what a command does, so flag reordering, shell wrappers, and interpreter one-liners cannot bypass it.
+CC Safety Net (Coding CLI Safety Net) blocks destructive commands and access to secrets such as SSH keys and `.env` files before the tool call runs. It parses what the command does. Wrapping the command or reordering flags does not hide it. A broken config file never blocks anything.
 
 > [!NOTE]
 > **[Full documentation →](https://ccsafetynet.com/docs)** covers installation, configuration, reference material, guides, and the security model. This README is the short version.
 
-## Why this exists
-
-No major coding CLI deterministically blocks destructive git commands inside the workspace you handed it. `git reset --hard`, `git checkout -- .`, `git clean -f`, `git stash clear`, and `git push --force` all act on files the agent is already allowed to write, so a sandbox that scopes writes to the project directory sees nothing wrong. OpenAI's [Codex security docs](https://learn.chatgpt.com/docs/security) say commands under workspace-write "can still mutate state and perform destructive operations". An [independent analysis of Codex permissions](https://codex.danielvaughan.com) (2026-04-20) puts it directly: "No command-level semantic blocking: the system cannot prevent git reset --hard". Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) scope writes to the working directory, which is where your uncommitted work lives.
-
-Three more reasons the layer is worth running:
-
-- **A deterministic check under probabilistic ones.** Anthropic publishes a 17% false-negative rate for the Claude Code [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) classifier on real overeager actions and calls it "not a drop-in replacement for careful human review". Deny rules and hooks are the deterministic layer instead of a judgment call. Verified against Claude Code 2.1.251, a PreToolUse deny still fires in default, auto, and bypassPermissions modes (`tests/e2e-live/protection.test.ts`). That is a per-version result, not a standing guarantee, so the suite runs again on every release and host upgrade.
-- **Secret protection with nothing to configure.** Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) state that the default read behavior "still allows reading credential files such as ~/.aws/credentials and ~/.ssh/", and that "There is no built-in credential deny list". The native equivalents in other CLIs are opt-in config you write per CLI. CC Safety Net blocks content access to those paths and to project `.env` files on install, across shell commands and the read, edit, write, and search tools.
-- **One policy and one audit trail across 13 CLIs.** Five vendors ship five incompatible permission mechanisms and no decision log you can read afterwards.
-
-Layers below this one have failed in the field. [Why not just use a sandbox?](#why-not-just-use-a-sandbox) covers the sandbox and allowlist CVEs, and Adversa's [incident tracker](https://adversa.ai/blog/ai-coding-agent-incidents) records nine agent destruction cases from 2025 and 2026, with guardrails enabled in about half of them.
-
-The founding case still stands. It is just no longer the frontier. An agent [wiped hours of work](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) with one `rm -rf ~/`, and instructions did not stop it. Claude Code now ships a deterministic circuit breaker for critical paths like that one, which is the right fix and the reason it is no longer our headline. The git commands above have no such breaker. Rules in `CLAUDE.md` or `AGENTS.md` can guide an agent, but they cannot enforce a technical limit. See [What is CC Safety Net](https://ccsafetynet.com/docs/introduction) for the full background.
-
-## Quick start
-
-You need Node.js 18 or higher.
-
-Run the interactive selector to install CC Safety Net into one or more installed coding CLIs:
-
-```bash
-npx -y cc-safety-net@latest install
-```
-
-To update every installed integration:
-
-```bash
-npx -y cc-safety-net@latest update
-```
-
-Keep the `@latest` qualifier; a bare `cc-safety-net` spec can run an older cached copy from the npx cache. `npx -y cc-safety-net uninstall` removes integrations interactively, and `npm install -g cc-safety-net` gives you `ccsn`, a shorter alias for the same commands.
-
 ## Supported coding CLIs
 
-CC Safety Net supports the coding agent CLIs below on Windows, macOS, and Linux. Automated tests cover the analyzer and some Windows integrations. Other hosts have best-effort Windows support that has not been tested. Amp documents macOS, Linux, and WSL, but not native Windows.
+CC Safety Net supports the coding agent CLIs below on Windows, macOS, and Linux. Automated tests cover the analyzer and some Windows integrations. Windows support for the remaining CLIs is best effort and has not been tested.
 
 <table align="center">
   <tr>
@@ -82,57 +50,56 @@ CC Safety Net supports the coding agent CLIs below on Windows, macOS, and Linux.
   </tr>
 </table>
 
-## What it does
+Amp documents macOS, Linux, and WSL, but not native Windows.
 
-| Capability | What it catches |
-|---|---|
-| **Semantic command analysis** | Detects the intent of `rm -rf` on destructive targets, `git reset --hard`, `git checkout --`, `git push --force`, `git stash clear`, `git clean -f`, unsafe `find -delete`, `dd`, `mkfs`, and `shred`. It allows `git checkout -b feature` but blocks `git checkout -- file`. |
-| **Shell wrapper detection** | Finds destructive commands inside `bash -c`, `sh -c`, and similar wrappers. It analyzes nested wrappers up to 10 levels deep. |
-| **Interpreter one-liners** | Finds destructive code in `python -c`, `node -e`, `ruby -e`, and `perl -e` one-liners such as `os.system("rm -rf /")`. |
-| **Fail-closed by default** | Blocks malformed hook input and, in strict mode, commands it cannot parse. Invalid configuration never blocks. CC Safety Net drops an unverifiable rule source and uses protective defaults when it cannot read `policy.json`. It reports these states in block messages, `doctor`, the status line, and the GUI. |
-| **Secret protection** | Blocks content access to SSH keys, `.env` files, `~/.aws`, Kubernetes, Docker, and gcloud configuration, and coding-CLI credential stores. The rules apply to shell commands and read, edit, write, and search tools. |
-| **Custom rules via rulebooks** | Lets you add blocking rules at user or project scope. Rulebooks are live JSON files: local ones are authored in place, and rulebooks fetched from GitHub are validated and vendored into your own configuration, updating only when you run `rule update`. |
-| **Audit logging** | Writes allowed and blocked command decisions to local per-project JSONL, redacts secrets, and keeps records for 30 days by default. Browse them with `npx cc-safety-net logs`, or review them in the Activity view of `npx cc-safety-net gui`. |
+## Features
+
+- **Blocks destructive commands.** `git reset --hard`, `git push --force`, `rm -rf` on dangerous targets, `find -delete`, and PowerShell `Remove-Item`. The hook still blocks the same command inside `bash -c` or `python -c`. A sandbox still allows `git reset --hard` inside your project. See [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing).
+- **Blocks secret access.** SSH keys, `.env` files, `~/.aws`, and the credential files coding CLIs keep. The rules cover the shell and the agent's read, edit, write, and search tools. Blocking a CLI's own settings files is optional. It stays off until you turn it on.
+- **Customize the rules in a GUI.** Run `npx cc-safety-net gui` and open Policy. Turn individual block and secret rules off. Add paths to allow or deny. You cannot turn off the rules that catch wiping `/` or `~`.
+- **Adds blocks through rulebooks.** Official packs for Terraform, AWS, gcloud, and Azure, or JSON you write yourself. A rulebook can only add blocks. It cannot turn built-in protection off. The packs live in [cc-safety-net/rulebooks](https://github.com/cc-safety-net/rulebooks). Install a pack with:
+
+  ```bash
+  npx -y cc-safety-net rule add --only terraform aws --global
+  ```
+
+  See [Official Rulebooks](https://ccsafetynet.com/docs/configuration/rulebooks).
+- **Shares policy through git.** Commit `.cc-safety-net/` so clones and cloud sessions pick up the same rules. If a project file tries to loosen a member's stricter settings, `status` and `doctor` report it. `policy apply` asks for confirmation in a terminal. Copying the folder is not enough. The hook still has to be installed. See [Team Setup](https://ccsafetynet.com/docs/guides/team-setup) and [Cloud Environments](https://ccsafetynet.com/docs/guides/cloud-environments).
+- **Embeds in your own tools.** Install the npm package and call `checkCommand` to get allow or deny from your own code. No hook required. See [Library API](#library-api).
 
 Full rule catalogs: [Blocked Commands](https://ccsafetynet.com/docs/reference/blocked-commands) · [Allowed Commands](https://ccsafetynet.com/docs/reference/allowed-commands) · [Secret Protection](https://ccsafetynet.com/docs/reference/secret-protection).
 
-## Official rulebooks for AWS, Terraform, gcloud, and Azure
+## Quick start
 
-The [cc-safety-net/rulebooks](https://github.com/cc-safety-net/rulebooks) repository publishes curated rulebooks that block recognizable destructive infrastructure CLI operations: `terraform destroy` and `terraform state rm`, `aws s3 rm` and `aws ec2 terminate-instances`, `gcloud projects delete` and `gcloud storage rm`, `az group delete` and `az keyvault purge`, and more. Safe previews such as `--dryrun` and `-dry-run` stay allowed. Install a selection with one command:
+You need Node.js 18 or higher.
+
+To install into the coding CLIs on this machine, run:
 
 ```bash
-npx -y cc-safety-net rule add --only terraform aws --global
+npx -y cc-safety-net@latest install
 ```
 
-Rulebooks are JSON data: never executed, only adding denials, unable to weaken built-in protections. Installing vendors the files into your own configuration; nothing updates in the background. See [Official Rulebooks](https://ccsafetynet.com/docs/configuration/rulebooks).
+To update every installed integration:
 
-## Team setup
+```bash
+npx -y cc-safety-net@latest update
+```
 
-Members who install CC Safety Net once per machine are protected in every repository at the standard preset, so the minimum team setup is automating that install in your project's existing bootstrap step, such as an npm `postinstall` script. To standardize more than the defaults, a team lead commits a project policy and project-scoped rulebooks under `.cc-safety-net/`, and every clone picks them up with no member action. Policy changes stay human-approved: `policy apply` requires a terminal confirmation and refuses agent invocations, and any field a project policy relaxes below a member's own policy is reported line by line in `status`, `doctor`, and the GUI. See [Team Setup](https://ccsafetynet.com/docs/guides/team-setup).
-
-## Cloud environments
-
-A cloud agent session runs on a machine nobody signs into, and it clones your repository at a real branch and pushes back to your real remote. Anthropic's [Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web) docs say cloud environments keep credentials outside the sandbox and attach API keys to requests "after they leave the session", which stops the session from reading a key but not from using it, so the [official rulebooks](#official-rulebooks-for-aws-terraform-gcloud-and-azure) apply there more than anywhere. Platform guardrails are per-version too: a scheduled cloud task pushed straight to `main` with unrestricted branch pushes turned off ([anthropics/claude-code#44949](https://github.com/anthropics/claude-code/issues/44949)). Committed configuration is the part of a session's setup your project controls. Cloud sessions read settings files and `.cc-safety-net/` out of the repository, Amp personal plugins follow the account into Orb threads, and a devcontainer or Dockerfile installs at build time, since installing protection needs no terminal. See [Cloud Environments](https://ccsafetynet.com/docs/guides/cloud-environments).
-
-## Why not just use a sandbox?
-
-A sandbox decides where a process may write. It does not decide what the process may do inside that area. Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) scope writes to the working directory by default, so `git reset --hard` and `rm -rf .` on your project land on allowed paths, and the operating system sees permitted writes. `git push --force` rewrites your remote over the network, an effect no filesystem write scope addresses; CC Safety Net denies all three before they execute.
-
-Reads are wider than most people assume. The same docs say of the default read behavior that "There is no built-in credential deny list", and name `~/.aws/credentials` and `~/.ssh/` as files it still allows reading. CC Safety Net blocks content access to those paths with no configuration.
-
-Sandboxes and allowlists also break. CVE-2026-25725 escaped Claude Code's bubblewrap sandbox through `settings.json`, and CVE-2026-22708 bypassed Cursor's command allowlist. Run both layers. See [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing).
+Keep the `@latest` qualifier. A bare `cc-safety-net` spec can run an older copy from the npx cache. To uninstall, run `npx -y cc-safety-net uninstall`. `npm install -g cc-safety-net` also installs the `ccsn` alias.
 
 ## Safety presets
 
-Set a session safety preset with the GUI `npx cc-safety-net gui` then navigate to the policy tab:
+To set a preset, run `npx cc-safety-net gui` and open Policy.
 
 | Preset | Effect |
 |---|---|
 | Standard | Blocks recognizable destructive Git and filesystem commands. Allows metadata-only checks of built-in sensitive paths while continuing to block content access. Recommended for normal coding. |
-| Strict | Standard, plus blocks dynamic or unparseable commands the analyzer cannot verify safely and metadata-only discovery of built-in sensitive paths. Occasional false positives on advanced shell. |
+| Strict | Standard, plus blocks dynamic or unparseable commands the analyzer cannot verify safely. Also blocks metadata-only discovery of built-in sensitive paths. Occasional false positives on advanced shell. |
 | Paranoid | Strict, plus blocks `rm -rf` inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos. |
 
-## Diagnostics and tracing
+Linked-worktree mode relaxes only local discard. See [Modes](https://ccsafetynet.com/docs/configuration/modes).
+
+## Diagnostics
 
 ```bash
 # Summarize what is being enforced right now
@@ -151,78 +118,13 @@ npx cc-safety-net gui
 
 Details: [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace) · [Audit Log](https://ccsafetynet.com/docs/reference/audit-log) · [Dashboard](https://ccsafetynet.com/docs/guides/dashboard) · [Configuration Recovery](https://ccsafetynet.com/docs/configuration/recovery).
 
-## The /cc-safety-net skill
-
-The plugin ships a skill that turns your coding agent into a CC Safety Net operator. It never triggers on its own; you invoke it by typing `/cc-safety-net` in the agent (Claude Code lists it under its plugin namespace as `cc-safety-net:cc-safety-net`; Pi and OpenCode register it as a built-in `/cc-safety-net` command).
-
-Reach for it when:
-
-- A command was just refused with `BLOCKED by CC Safety Net` and you want the step-by-step reason.
-- A block looks wrong and you want it triaged: reproduce the decision, fix the responsible custom rule, or report a built-in false positive.
-- You want custom blocking rules written, edited, or migrated for you.
-- You want CC Safety Net installed into, updated in, or removed from another agent CLI.
-- A rule you added does not fire, or you want to confirm protection is active.
-
-Anything you type after the command becomes the request, e.g. `/cc-safety-net why was my last git command blocked` or `/cc-safety-net block terraform destroy in this project`.
-
-## Library API
-
-Node.js hosts that need an in-process allow or deny decision can call the command-check
-function directly instead of installing an agent integration:
-
-```bash
-npm install cc-safety-net
-```
-
-```ts
-import { checkCommand } from 'cc-safety-net/api';
-
-function commandIsAllowed(command: string, cwd: string): boolean {
-  try {
-    const result = checkCommand({ command, cwd });
-    if (result.kind === 'allow') return true;
-    console.error(result.reason);
-    return false;
-  } catch (error) {
-    console.error('CC Safety Net could not check the command', error);
-    return false;
-  }
-}
-
-if (commandIsAllowed('git status', process.cwd())) {
-  // The host can now decide how to run the command.
-}
-```
-
-Usage rules:
-
-- `cwd` is required and must be an absolute directory path. It anchors relative command
-  targets and selects the project policy.
-- A `deny` result means the host must not execute the command. **If `checkCommand` throws,
-  do not execute the command either.**
-
-### Stability contract
-
-These hold across minor versions, so a host can build on them:
-
-- The input shape `{ command, cwd }`, with `cwd` an absolute directory path, and the two
-  result kinds, `allow` and `deny` with a `reason` string and an optional `ruleId`.
-- A `deny` means do not execute the command, and a throw means the same. A throw is never
-  an allow.
-- `cwd` anchors policy resolution. Relative command targets and the project's
-  `.cc-safety-net/` configuration resolve against the `cwd` you pass, never `process.cwd()`.
-- The API path writes no audit record and makes no network request. A call reads local
-  policy files, filesystem facts, and environment settings; nothing leaves the machine.
-
-The rule catalog is free to change in any minor version. Which commands get denied grows
-with each release, and `reason` wording changes with it. Branch on `kind`, and keep
-`reason` and `ruleId` for humans and logs rather than comparing against them.
-
-A worked host example is in [Embedding](https://ccsafetynet.com/docs/guides/embedding).
-
 ## Limitations
 
-CC Safety Net denies a tool call before it runs. It does not enforce filesystem permissions, inspect network egress, or contain a process. Two v2 limits matter. First, the policy and sensitive-path command extractors remain mainly POSIX-oriented. Sensitive-path checks do resolve a PowerShell home prefix, `$HOME`, `$env:USERPROFILE`, `$env:HOME`, or `~`, joined to a literal suffix by `\` or `/`, for `Get-Content`, `Set-Content`, `Add-Content`, `Copy-Item`, `Move-Item`, `Remove-Item`, and the aliases `gc`, `cat`, `type`, `cp`, `mv`, `rm`, `ri`, `del`, `rd`, `rmdir`, and `erase`, so `Get-Content $HOME\.ssh\id_rsa` is denied. A path assembled any other way, such as by concatenation, a subexpression, or `Join-Path`, still evades static path extraction. Second, policy-file protection is a best-effort exact-path guard. It does not emulate commands. Use operating-system permissions, a sandbox, or equivalent runtime controls when you need complete protection.
+CC Safety Net denies a tool call before it runs. It does not set filesystem permissions, watch network egress, or contain a process.
+
+The policy and secret-path extractors are mostly POSIX. For PowerShell they resolve a home prefix (`$HOME`, `$env:USERPROFILE`, `$env:HOME`, or `~`) joined to a literal suffix with `\` or `/`. The same check applies to `Get-Content`, `Set-Content`, `Add-Content`, `Copy-Item`, `Move-Item`, `Remove-Item`, and their aliases. `Get-Content $HOME\.ssh\id_rsa` is denied. A path built by concatenation, a subexpression, or `Join-Path` is not.
+
+Policy-file protection matches exact paths. It does not emulate commands. Use OS permissions or a sandbox when you need that.
 
 Codex has one integration-specific limit. Its unified exec path is the default on macOS and Linux. It sends a hook payload when a command starts a session, but it sends none for `write_stdin`. CC Safety Net can inspect and audit the command that opens the session. It cannot inspect or audit text that the model types into the running session. Codex emits no event for that call, so an adapter change cannot close this gap.
 
@@ -232,7 +134,7 @@ Codex has one integration-specific limit. Its unified exec path is the default o
 
 Run the `update` command from [Quick start](#quick-start) to upgrade every installed integration to the current release.
 
-If you installed rulebooks from GitHub on version 2.2 or earlier, run `npx -y cc-safety-net rule sync` once per scope (add `--global` for user-scope sources) after upgrading. Rulebooks are now live vendored files instead of lock-and-cache state; the command migrates each cached rulebook into its live location and removes the leftovers. Until then, those GitHub-sourced rules are inactive and `status` and `doctor` report the degraded sources.
+If you installed rulebooks from GitHub on version 2.2 or earlier, run `npx -y cc-safety-net rule sync` once per scope after upgrading. Add `--global` for user-scope sources. Rulebooks are now live files in your config. The command copies each cached rulebook into that location and removes the leftovers. Until you run it, those GitHub-sourced rules are inactive. `status` and `doctor` report the degraded sources.
 
 > [!WARNING]
 > If you defined custom rules in a legacy inline config such as `.safety-net.json` or `~/.cc-safety-net/config.json`, CC Safety Net no longer loads those files at runtime. Their rules enforce nothing. Normal use does not show this failure because the commands now run. Run `npx -y cc-safety-net rule migrate` to convert the rules to the rulebook layout. Then run `npx -y cc-safety-net doctor` and confirm that the runtime is `ready`. See the [migration guide](https://ccsafetynet.com/docs/configuration/custom-rules#migrate-legacy-configuration).
@@ -248,6 +150,39 @@ The **[ccsafetynet.com/docs](https://ccsafetynet.com/docs)** site contains the f
 | Reference | [Blocked Commands](https://ccsafetynet.com/docs/reference/blocked-commands) · [Allowed Commands](https://ccsafetynet.com/docs/reference/allowed-commands) · [Secret Protection](https://ccsafetynet.com/docs/reference/secret-protection) · [Audit Log](https://ccsafetynet.com/docs/reference/audit-log) · [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace) · [Glossary](https://ccsafetynet.com/docs/reference/glossary) |
 | Guides | [Architecture](https://ccsafetynet.com/docs/guides/architecture) · [Analysis Engine](https://ccsafetynet.com/docs/guides/analysis-engine) · [Design Principles](https://ccsafetynet.com/docs/guides/design-principles) · [Security Model](https://ccsafetynet.com/docs/guides/security-model) · [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing) · [Integration Architecture](https://ccsafetynet.com/docs/guides/integration-architecture) · [Embedding](https://ccsafetynet.com/docs/guides/embedding) · [Known Limitations](https://ccsafetynet.com/docs/guides/known-limitations) · [Troubleshooting](https://ccsafetynet.com/docs/guides/troubleshooting) |
 | Project | [Contributing](https://ccsafetynet.com/docs/contributing) · [Security Policy](https://ccsafetynet.com/docs/security) |
+
+## The cc-safety-net skill
+
+The skill is the operating manual for CC Safety Net. Ask it anything about the tool: why a command was blocked, whether a block was wrong, how to write or migrate custom rules, how to change the policy or safety level, how to install or remove an integration, or whether protection is working at all. When the CLI output cannot settle a question, it reads the source of the installed version and answers from that.
+
+```text
+/cc-safety-net why was my last git command blocked
+/cc-safety-net block terraform destroy in this repo
+/cc-safety-net is secret protection active in Codex?
+```
+
+The command ships with the Claude Code plugin and is built into the OpenCode and Pi integrations. The skill loads only when you invoke it, so it takes no context-window space until you type the command. The agent cannot trigger it on its own.
+
+## Library API
+
+To check a command from Node.js without installing the hook:
+
+```bash
+npm install cc-safety-net
+```
+
+```ts
+import { checkCommand } from 'cc-safety-net/api';
+
+const result = checkCommand({ command: 'git status', cwd: process.cwd() });
+if (result.kind !== 'allow') {
+  throw new Error(result.reason);
+}
+```
+
+`cwd` must be an absolute directory path. If `checkCommand` throws, do not run the command.
+
+A full example is in [Embedding](https://ccsafetynet.com/docs/guides/embedding).
 
 ## Development
 
