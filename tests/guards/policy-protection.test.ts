@@ -259,14 +259,43 @@ describe('policy config protection', () => {
         `{ rm -rf ${safetyNetHome}; }`,
         `cleanup() { rm -rf ${safetyNetHome}; }; cleanup`,
         `cleanup() { rm -rf ${safetyNetHome}; }; X=1 cleanup`,
+        `function cleanup { rm -rf ${safetyNetHome}; }; cleanup`,
+        `function cleanup() { rm -rf ${safetyNetHome}; }; cleanup`,
       ]) {
         expect(findPolicyMutation('Bash', { command }, cwd)?.target, command).toBe(safetyNetHome);
       }
 
-      expect(
-        findPolicyMutation('Bash', { command: `cleanup() { rm -rf ${safetyNetHome}; }` }, cwd),
-      ).toBeNull();
+      for (const command of [
+        `cleanup() { rm -rf ${safetyNetHome}; }`,
+        `function cleanup { rm -rf ${safetyNetHome}; }`,
+        `function cleanup() { rm -rf ${safetyNetHome}; }`,
+      ]) {
+        expect(findPolicyMutation('Bash', { command }, cwd), command).toBeNull();
+      }
     });
+  });
+
+  test('protects an outside-home project policy through brace groups and subshells', () => {
+    const project = join(cwd, 'project');
+    mkdirSync(project);
+    const projectDir = dirname(getProjectPolicyPath(project));
+    for (const command of [
+      `rm -rf ${projectDir}`,
+      `{ rm -rf ${projectDir}; }`,
+      `( rm -rf ${projectDir} )`,
+      `true; { rm -rf ${projectDir}; }`,
+      `{ { rm -rf ${projectDir}; }; }`,
+      `{ cd ${project} && rm -rf .cc-safety-net; }`,
+    ]) {
+      expect(findPolicyMutation('Bash', { command }, project), command).not.toBeNull();
+    }
+    for (const command of [
+      `{ rm -rf ${join(project, 'node_modules')}; }`,
+      `( ls ${projectDir} )`,
+      `{ echo done; } > ${join(project, 'out.txt')}`,
+    ]) {
+      expect(findPolicyMutation('Bash', { command }, project), command).toBeNull();
+    }
   });
 
   test('blocks destructive find roots that contain the policy file', () => {

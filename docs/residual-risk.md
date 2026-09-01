@@ -215,9 +215,10 @@ Adjudicated 2026-08-28. Sources: `TEAM-POLICY-DESIGN.md` threat model adjudicati
 
 ### RR-12: Project Policy Guard Best-Effort Gaps
 
-The guard on `<project>/.cc-safety-net/policy.json` inherits the user-scope gaps: heredoc bodies,
-brace groups, and writes laundered through `git` are not recognized as mutations of the protected
-file. The guard exists for the mistake model, a helpful agent routing around a block, and that
+The guard on `<project>/.cc-safety-net/policy.json` inherits the user-scope gaps: writes laundered
+through `git` are not recognized as mutations of the protected file. Brace groups and subshells are
+traversed by the guard; `tests/guards/policy-protection.test.ts` locks group coverage for both
+scopes. The guard exists for the mistake model, a helpful agent routing around a block, and that
 agent writes the file plainly. Closing the gaps means the exact-shell-emulation work already
 refused in RR-5 through RR-9, on a file whose deliberate-attack case is RR-11 and therefore out of
 scope. The complete mitigation is filesystem permissions.

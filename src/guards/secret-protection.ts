@@ -19,7 +19,12 @@ import {
 import { normalizeMsysDrivePath, processPathResolver } from '@/ir/environment';
 import { createToolInvocation, type ToolRoute } from '@/ir/invocation';
 import type { SecretProtectionConfig } from '@/ir/policy';
-import type { SemanticFactStore, SemanticFacts, ShellSyntaxFacts } from '@/ir/semantic-facts';
+import type {
+  CommandSyntaxFacts,
+  SemanticFactStore,
+  SemanticFacts,
+  ShellSyntaxFacts,
+} from '@/ir/semantic-facts';
 import { getShellCommandString } from '@/parser/shell';
 import { advanceQuoteScanState } from '@/parser/shell/shared';
 import {
@@ -68,6 +73,19 @@ const FIND_MATCH_PATH_PRIMARIES = new Set([
   '-wholename',
   '-iwholename',
   '-samefile',
+]);
+
+// curl reads a file whenever an upload flag is given `@path` (or `<path` for a
+// form part). The path keeps its `@` as a shell token, so it only reaches the
+// sensitive-path rules once the marker is stripped.
+const CURL_UPLOAD_FLAGS = new Set([
+  '-d',
+  '--data',
+  '--data-ascii',
+  '--data-binary',
+  '--data-urlencode',
+  '-F',
+  '--form',
 ]);
 
 // Interpreters read files from inside a code string (python -c, node -e, ...),
@@ -365,21 +383,30 @@ function extractToolPathTargets(
 ): string[] {
   if (facts.invocation.route.kind === 'command') {
     const command = getCommandSyntaxFact(facts, 'input-candidate');
-    return command ? extractCommandPathTargets(command.shell, facts.store, options) : [];
+    return command
+      ? extractCommandPathTargets(command.shell, facts.store, options, isPowerShell(command))
+      : [];
   }
   if (facts.invocation.route.kind !== 'unknown') return [...facts.paths];
 
   const command = getCommandSyntaxFact(facts, 'input-candidate');
   return [
-    ...(command ? extractCommandPathTargets(command.shell, facts.store, options) : []),
+    ...(command
+      ? extractCommandPathTargets(command.shell, facts.store, options, isPowerShell(command))
+      : []),
     ...facts.paths,
   ];
+}
+
+function isPowerShell(command: CommandSyntaxFacts): boolean {
+  return command.program.dialect === 'powershell';
 }
 
 function extractCommandPathTargets(
   syntax: ShellSyntaxFacts,
   store: SemanticFactStore,
   options: PathExtractionOptions,
+  powershell = false,
 ): string[] {
   if (syntax.status === 'structural-limit') throw new StructuralShellSyntaxLimitError();
   if (syntax.status === 'unclosed-quote') return [];
@@ -413,12 +440,14 @@ function extractCommandPathTargets(
     }
 
     if (entry.kind === 'redirection') {
-      const target = entry.target ? projectSensitiveShellText(entry.target) : undefined;
+      const target = entry.target
+        ? projectSensitiveShellText(rewritePowerShellHomePrefix(entry.target, powershell))
+        : undefined;
       if (target && entry.targetOrder === 'legacy-segment') segment.push(target);
       else if (target) targets.push(target);
       continue;
     }
-    segment.push(projectSensitiveShellText(entry.text));
+    segment.push(projectSensitiveShellText(rewritePowerShellHomePrefix(entry.text, powershell)));
   }
 
   if (segment.length > 0) {
@@ -468,6 +497,13 @@ function extractSegmentPathTargets(
       ...post.flatMap((token) => extractOperandPathCandidates('awk', token)),
       ...post.flatMap((token) => extractAwkSystemCommandTargets(token, store, options)),
       ...post.flatMap(extractAwkGetlineRedirectTargets),
+    ];
+  }
+  if (command === 'curl') {
+    return [
+      ...assignmentValues,
+      ...post.flatMap((token) => extractOperandPathCandidates(command, token)),
+      ...extractCurlUploadPathTargets(post),
     ];
   }
   if (isCodeInterpreter(command)) {
@@ -687,6 +723,24 @@ function extractLeadingAssignmentValues(tokens: readonly string[]): string[] {
   return values;
 }
 
+// The four spellings of the home directory in PowerShell, each followed by a separator so the
+// bare variable stays the directory itself. Names are case-insensitive there, and the braced
+// form is how the projection spells an expandable variable.
+const POWERSHELL_HOME_PREFIX = /^(?:\$\{home\}|\$\{env:(?:userprofile|home)\}|~)(?=[\\/])/i;
+
+/**
+ * A PowerShell operand rewritten to the `~/...` candidate its POSIX spelling already produces,
+ * so the existing home rules see one form. Only the home prefix resolves: a token that does not
+ * start with one keeps its backslashes, so an ordinary variable (`$config\.ssh\id_rsa`) still
+ * names nothing the rules match, and no other expression is evaluated. Only a PowerShell
+ * program reaches here, which is what makes rewriting a backslash safe: in POSIX text it is an
+ * escape character, and `git grep "process\.env"` must not become `process/.env`.
+ */
+function rewritePowerShellHomePrefix(token: string, powershell: boolean): string {
+  if (!powershell || !POWERSHELL_HOME_PREFIX.test(token)) return token;
+  return `~${token.replace(POWERSHELL_HOME_PREFIX, '').replace(/\\/g, '/')}`;
+}
+
 function extractOperandPathCandidates(command: string, token: string): string[] {
   if (token === '--') return [];
   const candidates: string[] = [];
@@ -697,6 +751,68 @@ function extractOperandPathCandidates(command: string, token: string): string[] 
   if (command === 'zip' && /\.zip$/i.test(token)) return candidates;
   candidates.push(token);
   return candidates;
+}
+
+/**
+ * The paths curl itself reads for its upload flags: a leading `@path` for
+ * -d/--data/--data-ascii/--data-binary, `[name]@path` for --data-urlencode, and
+ * `[name=]@path` or `[name=]<path` form parts for -F/--form. Recognized operand
+ * spellings: a separate token (`-d @path`), one attached to a short option
+ * (`-d@path`, `-Fname=@path`), one `=`-joined to a long option (`--data=@path`,
+ * `--form=name=@path`), and the token after a clustered short-option group whose
+ * upload flag comes last (`-sF name=@path`). A clustered group with the operand
+ * attached (`-sd@path`) stays residual. --data-raw and --form-string send their
+ * argument literally and never open a file, so they contribute nothing, and `@-`
+ * is stdin rather than a path.
+ */
+function extractCurlUploadPathTargets(tokens: readonly string[]): string[] {
+  return tokens.flatMap((token, index) => {
+    const attached = attachedCurlUploadOperand(token);
+    if (attached !== null) return curlUploadOperandPaths(attached.flag, attached.value);
+    const flag = curlOperandUploadFlag(tokens[index - 1]);
+    return flag === null ? [] : curlUploadOperandPaths(flag, token);
+  });
+}
+
+function curlUploadOperandPaths(flag: string, value: string): string[] {
+  if (flag === '-F' || flag === '--form') {
+    const equals = value.indexOf('=');
+    const part = equals === -1 ? value : value.slice(equals + 1);
+    if (!part.startsWith('@') && !part.startsWith('<')) return [];
+    return curlUploadPath(part.slice(1).split(';')[0] ?? '');
+  }
+  if (flag === '--data-urlencode') {
+    const at = value.indexOf('@');
+    const equals = value.indexOf('=');
+    if (at === -1 || (equals !== -1 && equals < at)) return [];
+    return curlUploadPath(value.slice(at + 1));
+  }
+  return value.startsWith('@') ? curlUploadPath(value.slice(1)) : [];
+}
+
+// curl gives the operand of a clustered short-option group to its last flag
+// only, so `-sF name=@path` uploads the file exactly as `-F name=@path` does.
+function curlOperandUploadFlag(token: string | undefined): string | null {
+  if (token === undefined) return null;
+  if (CURL_UPLOAD_FLAGS.has(token)) return token;
+  return /^-[A-Za-z]+[dF]$/.test(token) ? `-${token.slice(-1)}` : null;
+}
+
+// The operand attached to the flag itself: `-d@path` / `-Fname=@path` for the
+// short spellings, `--data=@path` for the long ones.
+function attachedCurlUploadOperand(token: string) {
+  const short = token.slice(0, 2);
+  if (token.length > 2 && (short === '-d' || short === '-F')) {
+    return { flag: short, value: token.slice(2) };
+  }
+  const equals = token.indexOf('=');
+  if (equals === -1) return null;
+  const flag = token.slice(0, equals);
+  return CURL_UPLOAD_FLAGS.has(flag) ? { flag, value: token.slice(equals + 1) } : null;
+}
+
+function curlUploadPath(path: string): string[] {
+  return path === '' || path === '-' ? [] : [path];
 }
 
 function extractFindCommandTargets(

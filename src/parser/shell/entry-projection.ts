@@ -14,6 +14,9 @@ import { hasUnclosedQuotes } from '@/parser/shell/shared';
 const LEGACY_BOUNDARIES = new Set(['&&', '||', '|&', '|', '&', ';']);
 const LEGACY_SEGMENT_REDIRECTS = new Set(['<<', '<<<', '>|']);
 const SPECIAL_VARIABLE_NAME = /[*@#?$!_-]/;
+// PowerShell variable names carry an optional scope or provider prefix, so `$env:USERPROFILE`
+// is one name rather than `$env` followed by literal text.
+const POWERSHELL_VARIABLE_NAME = /^\w+(?::\w+)*/;
 const EMPTY_ENTRIES = Object.freeze([]) as readonly ShellSyntaxEntry[];
 const EMPTY_STRINGS = Object.freeze([]) as readonly string[];
 // A call site inlines the whole body, so branching recursion (`a() { a; a; }`) grows
@@ -34,6 +37,7 @@ type ProjectionContext = {
   readonly flags: ProjectionFlags;
   readonly depth: number;
   readonly functions: Map<string, CommandProgram>;
+  readonly powershell: boolean;
 };
 
 type QuoteState = { single: boolean; double: boolean };
@@ -68,6 +72,7 @@ export function projectShellSyntax(source: string, program: CommandProgram): She
     flags,
     depth: 0,
     functions: new Map(),
+    powershell: program.dialect === 'powershell',
   });
   if (flags.limited) return freezeFacts('structural-limit', masked, EMPTY_ENTRIES);
   if (flags.invalid) return freezeFacts('invalid', masked, EMPTY_ENTRIES);
@@ -288,6 +293,7 @@ function projectText(text: string, context: ProjectionContext): ShellSyntaxEntry
     flags,
     depth: context.depth + 1,
     functions: new Map(),
+    powershell: false,
   });
   context.flags.limited ||= flags.limited;
   context.flags.expansions = flags.expansions;
@@ -314,7 +320,7 @@ function projectWord(
 
   for (const part of word.parts) {
     if (part.provenance !== 'command-substitution' && part.provenance !== 'arithmetic') {
-      for (const run of scanWordText(part.raw, state, context.flags)) {
+      for (const run of scanWordText(part.raw, state, context.flags, context.powershell)) {
         if (typeof run === 'string') {
           flush();
           entries.push(operatorEntry(run));
@@ -329,7 +335,12 @@ function projectWord(
     // nested command is still reached through the substitution scan over the source.
     if (state.double) {
       const quotedText = context.source.slice(part.span.start, part.span.end);
-      pending += scanWordText(quotedText, { single: false, double: true }, context.flags)
+      pending += scanWordText(
+        quotedText,
+        { single: false, double: true },
+        context.flags,
+        context.powershell,
+      )
         .map((run) => (typeof run === 'string' ? run : run.text))
         .join('');
       continue;
@@ -380,10 +391,15 @@ function projectWord(
 // expose their fallback, and an unquoted `*`/`?` makes the whole word a glob whose text never
 // reaches a segment. An unquoted parenthesis ends the run it sits in, so `open('.env')` still
 // yields `.env` as a token of its own.
+//
+// A PowerShell word follows PowerShell's rules instead: the escape character is a backtick, a
+// backslash is an ordinary path separator, and a variable name may carry a scope
+// (`$env:USERPROFILE`).
 function scanWordText(
   raw: string,
   state: QuoteState,
   flags: ProjectionFlags,
+  powershell: boolean,
 ): ({ text: string; glob: boolean } | string)[] {
   const runs: ({ text: string; glob: boolean } | string)[] = [];
   let text = '';
@@ -398,6 +414,13 @@ function scanWordText(
       index++;
       continue;
     }
+    // A backtick escapes the next character everywhere except inside single quotes, which are
+    // literal in PowerShell.
+    if (powershell && char === '`' && !state.single) {
+      text += raw[index + 1] ?? '';
+      index += 2;
+      continue;
+    }
     if (state.single) {
       if (char === "'") state.single = false;
       else text += char;
@@ -410,14 +433,14 @@ function scanWordText(
         index++;
         continue;
       }
-      if (char === '\\') {
+      if (!powershell && char === '\\') {
         const escaped = raw[index + 1] ?? '';
         text += ['"', '\\', '$'].includes(escaped) ? escaped : `\\${escaped}`;
         index += 2;
         continue;
       }
       if (char === '$') {
-        const expansion = readExpansion(raw, index, state, flags);
+        const expansion = readExpansion(raw, index, state, flags, powershell);
         text += expansion.text;
         index = expansion.next;
         continue;
@@ -432,7 +455,7 @@ function scanWordText(
       index++;
       continue;
     }
-    if (char === '\\') {
+    if (!powershell && char === '\\') {
       const escaped = raw[index + 1] ?? '';
       glob ||= escaped === '*' || escaped === '?';
       text += escaped;
@@ -440,7 +463,7 @@ function scanWordText(
       continue;
     }
     if (char === '$') {
-      const expansion = readExpansion(raw, index, state, flags);
+      const expansion = readExpansion(raw, index, state, flags, powershell);
       text += expansion.text;
       index = expansion.next;
       continue;
@@ -452,7 +475,13 @@ function scanWordText(
   return [...runs, { text, glob }];
 }
 
-function readExpansion(raw: string, start: number, state: QuoteState, flags: ProjectionFlags) {
+function readExpansion(
+  raw: string,
+  start: number,
+  state: QuoteState,
+  flags: ProjectionFlags,
+  powershell: boolean,
+) {
   const char = raw[start + 1];
   if (char === '{') {
     const close = findExpansionClose(raw, start + 2);
@@ -461,13 +490,14 @@ function readExpansion(raw: string, start: number, state: QuoteState, flags: Pro
       return { text: '', next: raw.length };
     }
     const expansion = raw.slice(start, close + 1);
-    collectAssignmentFallback(expansion, state, flags);
+    collectAssignmentFallback(expansion, state, flags, powershell);
     return { text: expansion, next: close + 1 };
   }
   if (char !== undefined && SPECIAL_VARIABLE_NAME.test(char)) {
     return { text: `\${${char}}`, next: start + 2 };
   }
-  const name = /^\w*/.exec(raw.slice(start + 1))?.[0] ?? '';
+  const name =
+    (powershell ? POWERSHELL_VARIABLE_NAME : /^\w*/).exec(raw.slice(start + 1))?.[0] ?? '';
   return { text: `\${${name}}`, next: start + 1 + name.length };
 }
 
@@ -475,6 +505,7 @@ function collectAssignmentFallback(
   expansion: string,
   state: QuoteState,
   flags: ProjectionFlags,
+  powershell: boolean,
 ): void {
   const content = expansion.slice(2, -1);
   const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(content)?.[0];
@@ -482,7 +513,7 @@ function collectAssignmentFallback(
   const suffix = content.slice(name.length);
   const operator = [':=', '='].find((candidate) => suffix.startsWith(candidate));
   if (!operator) return;
-  const runs = scanWordText(suffix.slice(operator.length), { ...state }, flags);
+  const runs = scanWordText(suffix.slice(operator.length), { ...state }, flags, powershell);
   flags.assignmentFallbacks.push(
     ...runs.flatMap((run) => (typeof run === 'string' || !run.text ? [] : [run.text])),
   );

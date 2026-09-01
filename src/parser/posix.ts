@@ -392,6 +392,7 @@ function scanSequence(
               span: delimiter.span,
             });
           }
+          const nested = accumulator.nested;
           pendingHeredocs.push({
             delimiter: delimiter.delimiter,
             quotedDelimiter: delimiter.quoted,
@@ -399,6 +400,17 @@ function scanSequence(
             declarationSpan: { start: redirectStart, end: redirectEnd },
             attach: (heredoc) => {
               redirection.heredoc = heredoc;
+              if (heredoc.quotedDelimiter) return;
+              nested.push(
+                ...readHeredocBodySubstitutions(
+                  source,
+                  heredoc.bodySpan.start,
+                  heredoc.bodySpan.end,
+                  limits,
+                  wordBudget,
+                  depth + 1,
+                ),
+              );
             },
           });
         }
@@ -810,6 +822,42 @@ function readSubstitution(
     next,
     provenance: 'command-substitution',
   };
+}
+
+// An unquoted heredoc delimiter leaves the body subject to parameter, command, and
+// arithmetic expansion, so its $(...) and backtick substitutions are live code even
+// though the surrounding lines stay data. A backslash escapes the next character, and
+// process substitution is not expanded in a heredoc body, so \$(...), <(...) and >(...)
+// remain inert text.
+function readHeredocBodySubstitutions(
+  source: string,
+  start: number,
+  end: number,
+  limits: CommandParserLimits,
+  wordBudget: WordBudget,
+  depth: number,
+): CommandProgram[] {
+  const programs: CommandProgram[] = [];
+  let i = start;
+  while (i < end) {
+    const char = source[i];
+    if (char === '\\') {
+      i += 2;
+      continue;
+    }
+    const substitution =
+      char === '$' || char === '`'
+        ? readSubstitution(source, i, end, limits, wordBudget, depth)
+        : null;
+    if (!substitution) {
+      i++;
+      continue;
+    }
+    programs.push(substitution.program);
+    i = substitution.next;
+    if (substitution.program.status === 'limited') break;
+  }
+  return programs;
 }
 
 function collectSubstitution(
@@ -1576,7 +1624,10 @@ function readFunctionOpening(
   start: number,
   end: number,
 ): FunctionOpening | undefined {
-  const match = /^([A-Za-z_][A-Za-z0-9_]*)[ \t]*\([ \t]*\)[ \t]*\{/.exec(source.slice(start, end));
+  const slice = source.slice(start, end);
+  const match =
+    /^(?:function[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*\([ \t]*\)[ \t]*\{/.exec(slice) ??
+    /^function[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+\{/.exec(slice);
   const name = match?.[1];
   if (!match || !name) return undefined;
   return { name, braceIndex: start + match[0].lastIndexOf('{') };

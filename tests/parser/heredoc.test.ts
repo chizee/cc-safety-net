@@ -150,6 +150,34 @@ E$OF`;
     );
   });
 
+  test('collects live substitutions from an unquoted body without reparsing its prose', () => {
+    const source = 'cat <<EOF\nrun $(printf hi) and `date`\nEOF';
+    const view = projectCommandViews(parseCommand(source, 'posix'))[0];
+
+    expect(view?.nested.map((program) => program.source)).toEqual(['printf hi', 'date']);
+    expect(view?.redirections[0]?.heredoc?.body).toBe('run $(printf hi) and `date`\n');
+  });
+
+  test.each([
+    ['quoted delimiter', "cat <<'EOF'\n$(printf hi)\nEOF"],
+    ['escaped and process substitution forms', 'cat <<EOF\n\\$(printf hi) <(date) >(cat)\nEOF'],
+  ])('collects nothing from an inert body with %s', (_name, source) => {
+    expect(projectCommandViews(parseCommand(source, 'posix'))[0]?.nested).toEqual([]);
+  });
+
+  test('collects a substitution from a tab-stripping body', () => {
+    const view = projectCommandViews(parseCommand('cat <<-EOF\n\t$(printf hi)\n\tEOF', 'posix'))[0];
+
+    expect(view?.nested.map((program) => program.source)).toEqual(['printf hi']);
+  });
+
+  test('collects substitutions from multiple heredocs in declaration order', () => {
+    const source = 'cat <<A <<B\n$(printf a)\nA\n$(printf b)\nB';
+    const view = projectCommandViews(parseCommand(source, 'posix'))[0];
+
+    expect(view?.nested.map((program) => program.source)).toEqual(['printf a', 'printf b']);
+  });
+
   test.each([
     ['cat <<', 'missing-heredoc-delimiter'],
     ['cat <<$(printf EOF)\nbody\nEOF', 'ambiguous-heredoc-delimiter'],

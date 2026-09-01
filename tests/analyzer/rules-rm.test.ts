@@ -225,6 +225,15 @@ describe('POSIX function execution', () => {
     assertBlocked('cleanup() { rm -rf ../outside; }; X=1 cleanup', 'outside cwd', '/project');
   });
 
+  test('analyzes a called function keyword body', () => {
+    assertBlocked('function cleanup { rm -rf ../outside; }; cleanup', 'outside cwd', '/project');
+    assertBlocked('function cleanup() { rm -rf ../outside; }; cleanup', 'outside cwd', '/project');
+  });
+
+  test('allows an inert function keyword definition', () => {
+    assertAllowed('function cleanup { rm -rf ../outside; }', '/project');
+  });
+
   test('preserves function CWD changes for following commands', () => {
     assertBlocked(
       'cleanup() { cd ..; }; cleanup && rm -rf build',

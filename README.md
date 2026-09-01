@@ -26,7 +26,17 @@ CC Safety Net is short for Coding CLI Safety Net. It is a PreToolUse hook that b
 
 ## Why this exists
 
-We built CC Safety Net after an agent [wiped hours of work](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) with one `rm -rf ~/` or `git checkout --`. Instructions did not stop it. Rules in `CLAUDE.md` or `AGENTS.md` can guide an agent, but they cannot enforce a technical limit. CC Safety Net watches relevant tool calls and blocks destructive commands and secret access before they reach the shell. See [What is CC Safety Net](https://ccsafetynet.com/docs/introduction) for the full background.
+No major coding CLI deterministically blocks destructive git commands inside the workspace you handed it. `git reset --hard`, `git checkout -- .`, `git clean -f`, `git stash clear`, and `git push --force` all act on files the agent is already allowed to write, so a sandbox that scopes writes to the project directory sees nothing wrong. OpenAI's [Codex security docs](https://learn.chatgpt.com/docs/security) say commands under workspace-write "can still mutate state and perform destructive operations". An [independent analysis of Codex permissions](https://codex.danielvaughan.com) (2026-04-20) puts it directly: "No command-level semantic blocking: the system cannot prevent git reset --hard". Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) scope writes to the working directory, which is where your uncommitted work lives.
+
+Three more reasons the layer is worth running:
+
+- **A deterministic check under probabilistic ones.** Anthropic publishes a 17% false-negative rate for the Claude Code [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) classifier on real overeager actions and calls it "not a drop-in replacement for careful human review". Deny rules and hooks are the deterministic layer instead of a judgment call. Verified against Claude Code 2.1.251, a PreToolUse deny still fires in default, auto, and bypassPermissions modes (`tests/e2e-live/protection.test.ts`). That is a per-version result, not a standing guarantee, so the suite runs again on every release and host upgrade.
+- **Secret protection with nothing to configure.** Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) state that the default read behavior "still allows reading credential files such as ~/.aws/credentials and ~/.ssh/", and that "There is no built-in credential deny list". The native equivalents in other CLIs are opt-in config you write per CLI. CC Safety Net blocks content access to those paths and to project `.env` files on install, across shell commands and the read, edit, write, and search tools.
+- **One policy and one audit trail across 13 CLIs.** Five vendors ship five incompatible permission mechanisms and no decision log you can read afterwards.
+
+Layers below this one have failed in the field. [Why not just use a sandbox?](#why-not-just-use-a-sandbox) covers the sandbox and allowlist CVEs, and Adversa's [incident tracker](https://adversa.ai/blog/ai-coding-agent-incidents) records nine agent destruction cases from 2025 and 2026, with guardrails enabled in about half of them.
+
+The founding case still stands. It is just no longer the frontier. An agent [wiped hours of work](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) with one `rm -rf ~/`, and instructions did not stop it. Claude Code now ships a deterministic circuit breaker for critical paths like that one, which is the right fix and the reason it is no longer our headline. The git commands above have no such breaker. Rules in `CLAUDE.md` or `AGENTS.md` can guide an agent, but they cannot enforce a technical limit. See [What is CC Safety Net](https://ccsafetynet.com/docs/introduction) for the full background.
 
 ## Quick start
 
@@ -100,9 +110,17 @@ Rulebooks are JSON data: never executed, only adding denials, unable to weaken b
 
 Members who install CC Safety Net once per machine are protected in every repository at the standard preset, so the minimum team setup is automating that install in your project's existing bootstrap step, such as an npm `postinstall` script. To standardize more than the defaults, a team lead commits a project policy and project-scoped rulebooks under `.cc-safety-net/`, and every clone picks them up with no member action. Policy changes stay human-approved: `policy apply` requires a terminal confirmation and refuses agent invocations, and any field a project policy relaxes below a member's own policy is reported line by line in `status`, `doctor`, and the GUI. See [Team Setup](https://ccsafetynet.com/docs/guides/team-setup).
 
+## Cloud environments
+
+A cloud agent session runs on a machine nobody signs into, and it clones your repository at a real branch and pushes back to your real remote. Anthropic's [Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web) docs say cloud environments keep credentials outside the sandbox and attach API keys to requests "after they leave the session", which stops the session from reading a key but not from using it, so the [official rulebooks](#official-rulebooks-for-aws-terraform-gcloud-and-azure) apply there more than anywhere. Platform guardrails are per-version too: a scheduled cloud task pushed straight to `main` with unrestricted branch pushes turned off ([anthropics/claude-code#44949](https://github.com/anthropics/claude-code/issues/44949)). Committed configuration is the part of a session's setup your project controls. Cloud sessions read settings files and `.cc-safety-net/` out of the repository, Amp personal plugins follow the account into Orb threads, and a devcontainer or Dockerfile installs at build time, since installing protection needs no terminal. See [Cloud Environments](https://ccsafetynet.com/docs/guides/cloud-environments).
+
 ## Why not just use a sandbox?
 
-A workspace-writable sandbox still permits `git reset --hard`, `git push --force`, and `rm -rf .` inside the project directory. The operating system sees writes to an allowed path. A sandbox limits where a process can write. CC Safety Net blocks destructive operations inside that allowed area. Use both. See [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing).
+A sandbox decides where a process may write. It does not decide what the process may do inside that area. Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) scope writes to the working directory by default, so `git reset --hard` and `rm -rf .` on your project land on allowed paths, and the operating system sees permitted writes. `git push --force` rewrites your remote over the network, an effect no filesystem write scope addresses; CC Safety Net denies all three before they execute.
+
+Reads are wider than most people assume. The same docs say of the default read behavior that "There is no built-in credential deny list", and name `~/.aws/credentials` and `~/.ssh/` as files it still allows reading. CC Safety Net blocks content access to those paths with no configuration.
+
+Sandboxes and allowlists also break. CVE-2026-25725 escaped Claude Code's bubblewrap sandbox through `settings.json`, and CVE-2026-22708 bypassed Cursor's command allowlist. Run both layers. See [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing).
 
 ## Safety presets
 
@@ -183,9 +201,28 @@ Usage rules:
 - A `deny` result means the host must not execute the command. **If `checkCommand` throws,
   do not execute the command either.**
 
+### Stability contract
+
+These hold across minor versions, so a host can build on them:
+
+- The input shape `{ command, cwd }`, with `cwd` an absolute directory path, and the two
+  result kinds, `allow` and `deny` with a `reason` string and an optional `ruleId`.
+- A `deny` means do not execute the command, and a throw means the same. A throw is never
+  an allow.
+- `cwd` anchors policy resolution. Relative command targets and the project's
+  `.cc-safety-net/` configuration resolve against the `cwd` you pass, never `process.cwd()`.
+- The API path writes no audit record and makes no network request. A call reads local
+  policy files, filesystem facts, and environment settings; nothing leaves the machine.
+
+The rule catalog is free to change in any minor version. Which commands get denied grows
+with each release, and `reason` wording changes with it. Branch on `kind`, and keep
+`reason` and `ruleId` for humans and logs rather than comparing against them.
+
+A worked host example is in [Embedding](https://ccsafetynet.com/docs/guides/embedding).
+
 ## Limitations
 
-CC Safety Net denies a tool call before it runs. It does not enforce filesystem permissions, inspect network egress, or contain a process. Two v2 limits matter. First, the policy and sensitive-path command extractors remain mainly POSIX-oriented. Native PowerShell path expressions such as `Get-Content $HOME\.ssh\id_rsa` can evade static path extraction. Second, policy-file protection is a best-effort exact-path guard. It does not emulate commands. Use operating-system permissions, a sandbox, or equivalent runtime controls when you need complete protection.
+CC Safety Net denies a tool call before it runs. It does not enforce filesystem permissions, inspect network egress, or contain a process. Two v2 limits matter. First, the policy and sensitive-path command extractors remain mainly POSIX-oriented. Sensitive-path checks do resolve a PowerShell home prefix, `$HOME`, `$env:USERPROFILE`, `$env:HOME`, or `~`, joined to a literal suffix by `\` or `/`, for `Get-Content`, `Set-Content`, `Add-Content`, `Copy-Item`, `Move-Item`, `Remove-Item`, and the aliases `gc`, `cat`, `type`, `cp`, `mv`, `rm`, `ri`, `del`, `rd`, `rmdir`, and `erase`, so `Get-Content $HOME\.ssh\id_rsa` is denied. A path assembled any other way, such as by concatenation, a subexpression, or `Join-Path`, still evades static path extraction. Second, policy-file protection is a best-effort exact-path guard. It does not emulate commands. Use operating-system permissions, a sandbox, or equivalent runtime controls when you need complete protection.
 
 Codex has one integration-specific limit. Its unified exec path is the default on macOS and Linux. It sends a hook payload when a command starts a session, but it sends none for `write_stdin`. CC Safety Net can inspect and audit the command that opens the session. It cannot inspect or audit text that the model types into the running session. Codex emits no event for that call, so an adapter change cannot close this gap.
 
@@ -206,10 +243,10 @@ The **[ccsafetynet.com/docs](https://ccsafetynet.com/docs)** site contains the f
 
 | Area | Pages |
 |---|---|
-| Get started | [Introduction](https://ccsafetynet.com/docs/introduction) · [Installation](https://ccsafetynet.com/docs/installation) · [Quickstart](https://ccsafetynet.com/docs/quickstart) · [Team Setup](https://ccsafetynet.com/docs/guides/team-setup) · [How It Works](https://ccsafetynet.com/docs/guides/how-it-works) · [Dashboard](https://ccsafetynet.com/docs/guides/dashboard) |
+| Get started | [Introduction](https://ccsafetynet.com/docs/introduction) · [Installation](https://ccsafetynet.com/docs/installation) · [Quickstart](https://ccsafetynet.com/docs/quickstart) · [Team Setup](https://ccsafetynet.com/docs/guides/team-setup) · [Cloud Environments](https://ccsafetynet.com/docs/guides/cloud-environments) · [How It Works](https://ccsafetynet.com/docs/guides/how-it-works) · [Dashboard](https://ccsafetynet.com/docs/guides/dashboard) |
 | Configuration | [Modes](https://ccsafetynet.com/docs/configuration/modes) · [Policy](https://ccsafetynet.com/docs/configuration/policy) · [Environment](https://ccsafetynet.com/docs/configuration/environment) · [Custom Rules](https://ccsafetynet.com/docs/configuration/custom-rules) · [Official Rulebooks](https://ccsafetynet.com/docs/configuration/rulebooks) · [Status Line](https://ccsafetynet.com/docs/configuration/status-line) · [Configuration Recovery](https://ccsafetynet.com/docs/configuration/recovery) |
 | Reference | [Blocked Commands](https://ccsafetynet.com/docs/reference/blocked-commands) · [Allowed Commands](https://ccsafetynet.com/docs/reference/allowed-commands) · [Secret Protection](https://ccsafetynet.com/docs/reference/secret-protection) · [Audit Log](https://ccsafetynet.com/docs/reference/audit-log) · [CLI Commands](https://ccsafetynet.com/docs/reference/cli-commands) · [Explain Trace](https://ccsafetynet.com/docs/reference/explain-trace) · [Glossary](https://ccsafetynet.com/docs/reference/glossary) |
-| Guides | [Architecture](https://ccsafetynet.com/docs/guides/architecture) · [Analysis Engine](https://ccsafetynet.com/docs/guides/analysis-engine) · [Design Principles](https://ccsafetynet.com/docs/guides/design-principles) · [Security Model](https://ccsafetynet.com/docs/guides/security-model) · [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing) · [Integration Architecture](https://ccsafetynet.com/docs/guides/integration-architecture) · [Known Limitations](https://ccsafetynet.com/docs/guides/known-limitations) · [Troubleshooting](https://ccsafetynet.com/docs/guides/troubleshooting) |
+| Guides | [Architecture](https://ccsafetynet.com/docs/guides/architecture) · [Analysis Engine](https://ccsafetynet.com/docs/guides/analysis-engine) · [Design Principles](https://ccsafetynet.com/docs/guides/design-principles) · [Security Model](https://ccsafetynet.com/docs/guides/security-model) · [vs Sandboxing](https://ccsafetynet.com/docs/guides/vs-sandboxing) · [Integration Architecture](https://ccsafetynet.com/docs/guides/integration-architecture) · [Embedding](https://ccsafetynet.com/docs/guides/embedding) · [Known Limitations](https://ccsafetynet.com/docs/guides/known-limitations) · [Troubleshooting](https://ccsafetynet.com/docs/guides/troubleshooting) |
 | Project | [Contributing](https://ccsafetynet.com/docs/contributing) · [Security Policy](https://ccsafetynet.com/docs/security) |
 
 ## Development

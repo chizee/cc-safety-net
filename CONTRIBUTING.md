@@ -219,6 +219,10 @@ bun run build
 **Important**: Version bumping and releases are handled by maintainers only.
 
 - **Never** modify the version in `package.json` or `plugin.json` directly
+- Before starting a release, and again whenever a supported host CLI is upgraded, run
+  `bun run test:e2e:live`. It spends real tokens, so it stays out of `bun run check` and
+  per-commit CI, and it is the only evidence for the per-host-version claim that a `PreToolUse`
+  deny still holds in Claude Code's bypass and auto permission modes.
 - Start `.github/workflows/prepare-release.yml` with a bump type (`patch`, `minor`, or `major`).
   It computes the next stable version from `package.json` on `main`. An explicit `version` input
   overrides the bump. Its dry-run mode performs the same checks without changing Git.
