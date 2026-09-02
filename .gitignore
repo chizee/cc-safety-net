@@ -5,12 +5,14 @@
 .claude/skills/*
 !.claude/skills/ccsn-find-simplifications
 !.claude/skills/release-notes
+!.claude/skills/verify-cc-safety-net
 .agents/*
 !.agents/setup
 !.agents/resume
 !.agents/skills
 .agents/skills/*
 !.agents/skills/ccsn-find-simplifications
+!.agents/skills/verify-cc-safety-net
 .safety-net.json
 .opencode
 .gemini
