@@ -118,6 +118,7 @@ export async function runReleaseTransaction(options: {
     requestedVersion: version,
     packageVersion: committedManifestVersion(options.cwd, 'package.json'),
     pluginVersion: committedManifestVersion(options.cwd, '.claude-plugin/plugin.json'),
+    codexVersion: committedManifestVersion(options.cwd, '.codex-plugin/plugin.json'),
     kimiVersion: committedManifestVersion(options.cwd, 'kimi.plugin.json'),
     headCommit,
     tagCommit,
