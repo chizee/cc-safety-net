@@ -60,4 +60,16 @@ describe('release file preparation', () => {
       );
     });
   });
+
+  test('includes the Codex manifest in the prepared release artifact', () => {
+    const workflow = readFileSync(
+      join(import.meta.dir, '..', '..', '.github', 'workflows', 'prepare-release.yml'),
+      'utf8',
+    );
+    const artifactCommand = workflow
+      .split('\n')
+      .find((line) => line.includes('tar -czf "$RUNNER_TEMP/prepared-release.tgz"'));
+
+    expect(artifactCommand?.split(' ')).toContain('.codex-plugin/plugin.json');
+  });
 });
