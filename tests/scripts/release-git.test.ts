@@ -310,12 +310,12 @@ describe('release git transaction', () => {
           join(repo, '.codex-plugin', 'plugin.json'),
           JSON.stringify({ version: '1.0.0' }),
         );
-        await expect(runTransaction(repo, '2.0.0')).rejects.toThrow(
+        await expect(runTransactionCli(repo, '2.0.0')).rejects.toThrow(
           'Prepared manifests must all contain 2.0.0',
         );
 
         rmSync(join(repo, '.codex-plugin', 'plugin.json'));
-        await expect(runTransaction(repo, '2.0.0')).rejects.toThrow('.codex-plugin/plugin.json');
+        await expect(runTransactionCli(repo, '2.0.0')).rejects.toThrow('.codex-plugin/plugin.json');
         expectRemoteUnchanged(root, remote, before);
       });
     });

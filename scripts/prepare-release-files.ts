@@ -6,12 +6,12 @@ import { assertReleaseVersion } from './release-state';
 
 export function updateReleaseManifests(cwd: string, requestedVersion: string): void {
   const version = assertReleaseVersion(requestedVersion);
-  for (const relativePath of [
+  [
     'package.json',
     '.claude-plugin/plugin.json',
     '.codex-plugin/plugin.json',
     'kimi.plugin.json',
-  ]) {
+  ].forEach((relativePath) => {
     const path = resolve(cwd, relativePath);
     // Reserializing would fight the committed formatting (JSON.stringify expands arrays that
     // biome collapses, so the release commit fails biome ci on the tag); only the version
@@ -21,7 +21,7 @@ export function updateReleaseManifests(cwd: string, requestedVersion: string): v
       path,
       readFileSync(path, 'utf8').replace(/("version"\s*:\s*")[^"]+(")/, `$1${version}$2`),
     );
-  }
+  });
 }
 
 if (import.meta.main) {
