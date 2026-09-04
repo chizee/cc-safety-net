@@ -307,6 +307,8 @@ describe('OpenCode plugin runtime verification', () => {
 
   // `opencode plugin` exiting 0 proves nothing: OpenCode fails open when a configured plugin
   // cannot be loaded, so an install that never populated the cache must not report success.
+  // This starts a nested Bun CLI and a Windows command shim, which can exceed Bun's default
+  // five-second test timeout under full-suite coverage instrumentation.
   test('fails the install when the plugin command left the cache empty', async () => {
     const homeDir = makeTempHome('safety-net-opencode-runtime-cli');
     const binDir = writeFakeCommands(homeDir, { opencode: 'process.exit(0);' });
@@ -324,5 +326,5 @@ describe('OpenCode plugin runtime verification', () => {
     } finally {
       rmSync(homeDir, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 });
