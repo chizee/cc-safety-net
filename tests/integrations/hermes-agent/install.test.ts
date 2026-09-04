@@ -131,11 +131,10 @@ async function runHermesCli(
   };
 }
 
-const pythonBin = Bun.which('python3') ?? Bun.which('python');
-
-function hasPython3() {
-  return pythonBin !== null && Bun.spawnSync([pythonBin, '--version']).exitCode === 0;
-}
+const pythonBin = ['python3', 'python']
+  .map((name) => Bun.which(name))
+  .filter((path): path is string => path !== null)
+  .find((path) => Bun.spawnSync([path, '--version']).exitCode === 0);
 
 /** The `task_id` the host passes; Hermes keys its cwd record by it when the contextvar is unset. */
 const HERMES_TASK_ID = 'task-1';
@@ -355,7 +354,7 @@ describe('Hermes Agent plugin artifact', () => {
         ?.content ?? '';
 
     expect(source).toContain('{"start_new_session": True}');
-    expect(source).toContain('["taskkill", "/PID", str(process.pid), "/T", "/F"]');
+    expect(source).toContain('os.path.join(system_root, "System32", "taskkill.exe")');
   });
 
   // Decoding with the process locale raises UnicodeDecodeError on undecodable analyzer output,
@@ -372,7 +371,7 @@ describe('Hermes Agent plugin artifact', () => {
   // Exercises the generated Python through Hermes' own contract: register(ctx) ->
   // ctx.register_hook('pre_tool_call', cb), then cb(tool_name=, args=, session_id=).
   // A stub stands in for the adapter so each transport outcome can be forced.
-  describe.skipIf(!hasPython3())('module behaviour under Hermes', () => {
+  describe.skipIf(pythonBin === undefined)('module behaviour under Hermes', () => {
     beforeAll(() => {
       analyzerStubBinDir = writeAnalyzerStub();
     });

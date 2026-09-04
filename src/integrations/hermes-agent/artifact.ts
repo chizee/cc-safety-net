@@ -151,8 +151,17 @@ def _pre_tool_call(tool_name="", args=None, session_id="", task_id="", **_):
     except subprocess.TimeoutExpired:
         try:
             if os.name == "nt":
+                system_root = os.environ.get("SystemRoot")
+                if not system_root:
+                    raise OSError("SystemRoot is unavailable")
                 subprocess.run(
-                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    [
+                        os.path.join(system_root, "System32", "taskkill.exe"),
+                        "/PID",
+                        str(process.pid),
+                        "/T",
+                        "/F",
+                    ],
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
