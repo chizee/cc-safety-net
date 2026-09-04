@@ -207,6 +207,24 @@ export function withEnv<T>(env: Record<string, string | undefined>, fn: () => T)
   }
 }
 
+export function createSpawnEnv(overrides: Record<string, string>) {
+  const overriddenNames = new Set(
+    Object.keys(overrides).map((name) =>
+      process.platform === 'win32' ? name.toLowerCase() : name,
+    ),
+  );
+  return {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] =>
+          entry[1] !== undefined &&
+          !overriddenNames.has(process.platform === 'win32' ? entry[0].toLowerCase() : entry[0]),
+      ),
+    ),
+    ...overrides,
+  };
+}
+
 export async function captureConsoleOutput<T>(
   fn: (output: { stdout: string[]; stderr: string[] }) => T | Promise<T>,
 ) {

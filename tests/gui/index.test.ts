@@ -2723,7 +2723,8 @@ process.exit(Number(process.env.STAR_EXIT));`,
         expect(await userHasStarredRepo('gh', 10)).toBeNull();
       });
     } finally {
-      rmSync(localTempDir, { recursive: true, force: true });
+      // Windows may keep the generated .cmd body's files locked briefly after its wrapper dies.
+      rmSync(localTempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
 

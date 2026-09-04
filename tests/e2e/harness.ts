@@ -14,7 +14,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { redactSecrets } from '@/engine/audit';
 import { listAuditLogFiles } from '@/engine/audit-scan';
-import { readAuditLogEntriesForSession } from '../helpers';
+import { createSpawnEnv, readAuditLogEntriesForSession } from '../helpers';
 
 export const NODE_EXECUTABLE = (() => {
   const executable = Bun.which('node');
@@ -128,7 +128,7 @@ export async function runCommand(
     stdout: 'pipe',
     stderr: 'pipe',
     cwd,
-    env: { ...isolatedEnv(home, options.level), ...options.env },
+    env: isolatedEnv(home, options.level, options.env),
   });
   proc.stdin.write(typeof input === 'string' ? input : JSON.stringify(input));
   proc.stdin.end();
@@ -306,13 +306,8 @@ export function describeHermesGates(
   }
 }
 
-export function isolatedEnv(home: string, level?: SafetyLevel) {
-  return {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(
-        (entry): entry is [string, string] => entry[1] !== undefined,
-      ),
-    ),
+export function isolatedEnv(home: string, level?: SafetyLevel, env: Record<string, string> = {}) {
+  return createSpawnEnv({
     HOME: home,
     USERPROFILE: home,
     // Hermes reads HERMES_HOME before the platform default, so a developer who exports it would
@@ -329,5 +324,6 @@ export function isolatedEnv(home: string, level?: SafetyLevel) {
     CC_SAFETY_NET_PARANOID_RM: '',
     CC_SAFETY_NET_PARANOID_INTERPRETERS: '',
     CC_SAFETY_NET_WORKTREE: '',
-  };
+    ...env,
+  });
 }

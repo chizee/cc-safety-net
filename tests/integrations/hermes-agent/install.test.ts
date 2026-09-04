@@ -29,8 +29,8 @@ import {
   uninstallHermesAgent,
 } from '@/integrations/hermes-agent/install';
 import { getPackageVersion } from '@/integrations/system-info';
-import { withEnv } from '../../helpers';
-import { createSpawnEnv, makeTempHome, runCli } from '../hook-helpers';
+import { createSpawnEnv, withEnv } from '../../helpers';
+import { makeTempHome, runCli } from '../hook-helpers';
 import { writeFakeCommands } from '../install/install-test-helpers';
 
 const MODULE_FILE = '__init__.py';
