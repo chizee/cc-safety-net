@@ -7,7 +7,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -31,6 +30,7 @@ import {
 import { getPackageVersion } from '@/integrations/system-info';
 import { withEnv } from '../../helpers';
 import { makeTempHome, runCli } from '../hook-helpers';
+import { writeFakeCommands } from '../install/install-test-helpers';
 
 const MODULE_FILE = '__init__.py';
 const MANIFEST_FILE = 'plugin.yaml';
@@ -93,19 +93,16 @@ function symlinkPluginDir(homeDir: string) {
 }
 
 function makeFakeHermesBin(homeDir: string) {
-  const binDir = join(homeDir, 'bin');
-  mkdirSync(binDir, { recursive: true });
-  const path = join(binDir, 'hermes');
-  writeFileSync(
-    path,
-    `#!/usr/bin/env sh
-printf '%s\\n' "$*" >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
-if [ -n "$CC_SAFETY_NET_TEST_WATCH_PATH" ] && [ -e "$CC_SAFETY_NET_TEST_WATCH_PATH" ]; then
-  printf 'watched-exists\\n' >> "$CC_SAFETY_NET_TEST_COMMAND_LOG"
-fi
-`,
-  );
-  chmodSync(path, 0o755);
+  const binDir = writeFakeCommands(homeDir, {
+    hermes: `appendFileSync(
+  process.env.CC_SAFETY_NET_TEST_COMMAND_LOG ?? '',
+  commandLine + '\\n',
+);
+const watchPath = process.env.CC_SAFETY_NET_TEST_WATCH_PATH;
+if (watchPath && existsSync(watchPath)) {
+  appendFileSync(process.env.CC_SAFETY_NET_TEST_COMMAND_LOG ?? '', 'watched-exists\\n');
+}`,
+  });
   return {
     path: `${binDir}${delimiter}${process.env.PATH ?? ''}`,
     logPath: join(homeDir, 'cmd.log'),
@@ -222,28 +219,28 @@ def get_session_cwd(session_key):
  * Both now arrive by environment, so every case after the first reuses the already-scanned file.
  */
 let analyzerStubBinDir = '';
+let analyzerStubHome = '';
 
 function writeAnalyzerStub() {
-  const binDir = makeTempHome('safety-net-hermes-npx');
-  writeFileSync(
-    join(binDir, 'npx'),
-    `#!/usr/bin/env sh
-pwd > "$CC_SAFETY_NET_TEST_SPAWN_CWD"
-cat > "$CC_SAFETY_NET_TEST_PAYLOAD"
-case "$CC_SAFETY_NET_TEST_MODE" in
-  block) printf '%s' '{"action":"block","message":"nope"}';;
-  garbage) printf '%s' 'not json';;
-  binary) printf '\\377\\376';;
-  fail) exit 3;;
-  # The realistic hang: npx exits but leaves a descendant holding the captured pipes.
-  hang) sleep 20 & printf '%s' "$!" > "$CC_SAFETY_NET_TEST_GRANDCHILD_PID";;
-  allow-shaped) printf '%s' '{"action":"allow"}';;
-  *) : ;;
-esac
-`,
+  analyzerStubHome = makeTempHome('safety-net-hermes-npx');
+  return writeFakeCommands(analyzerStubHome, {
+    npx: `writeFileSync(process.env.CC_SAFETY_NET_TEST_SPAWN_CWD ?? '', process.cwd());
+writeFileSync(process.env.CC_SAFETY_NET_TEST_PAYLOAD ?? '', await Bun.stdin.text());
+const mode = process.env.CC_SAFETY_NET_TEST_MODE;
+if (mode === 'block') process.stdout.write('{"action":"block","message":"nope"}');
+if (mode === 'garbage') process.stdout.write('not json');
+if (mode === 'binary') process.stdout.write(Buffer.from([255, 254]));
+if (mode === 'fail') process.exit(3);
+if (mode === 'hang') {
+  const child = Bun.spawn(
+    [process.execPath, '-e', 'setTimeout(() => {}, 20_000)'],
+    { stdout: 'inherit', stderr: 'inherit' },
   );
-  chmodSync(join(binDir, 'npx'), 0o755);
-  return binDir;
+  child.unref();
+  writeFileSync(process.env.CC_SAFETY_NET_TEST_GRANDCHILD_PID ?? '', String(child.pid));
+}
+if (mode === 'allow-shaped') process.stdout.write('{"action":"allow"}');`,
+  });
 }
 
 /**
@@ -377,7 +374,7 @@ describe('Hermes Agent plugin artifact', () => {
     });
 
     afterAll(() => {
-      rmSync(analyzerStubBinDir, { recursive: true, force: true });
+      rmSync(analyzerStubHome, { recursive: true, force: true });
     });
 
     test.each([

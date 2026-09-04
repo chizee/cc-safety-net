@@ -145,7 +145,7 @@ export function runNode(
   home: string,
   level?: SafetyLevel,
 ) {
-  return runCommand(['node', ...args], input, cwd, home, { level });
+  return runCommand([process.execPath, ...args], input, cwd, home, { level });
 }
 
 export async function runBuiltHost(
@@ -197,6 +197,9 @@ const WATCHED_REAL_PATHS = [
 export function withHostWorkspace<T>(run: (context: { cwd: string; home: string }) => Promise<T>) {
   return withWorkspace(async (context) => {
     const before = snapshotRealHostState();
+    const beforeAudits = listAuditLogFiles(join(REAL_HOME, '.cc-safety-net', 'logs'))
+      .filter((file) => basename(file).includes(SESSION_PREFIX))
+      .sort();
     // The checks run in finally so a test that dirties real host state and
     // then throws still reports the real-machine write, not just its own
     // failure. They are nested for the same reason: a snapshot mismatch must
@@ -209,10 +212,10 @@ export function withHostWorkspace<T>(run: (context: { cwd: string; home: string 
       }
     } finally {
       expect(
-        listAuditLogFiles(join(REAL_HOME, '.cc-safety-net', 'logs')).filter((file) =>
-          basename(file).includes(SESSION_PREFIX),
-        ),
-      ).toEqual([]);
+        listAuditLogFiles(join(REAL_HOME, '.cc-safety-net', 'logs'))
+          .filter((file) => basename(file).includes(SESSION_PREFIX))
+          .sort(),
+      ).toEqual(beforeAudits);
     }
   });
 }

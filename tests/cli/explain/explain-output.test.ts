@@ -1,16 +1,18 @@
 import { describe, expect, test } from 'bun:test';
+import { join, parse } from 'node:path';
 import { analyzeCommand } from '@/analyzer';
 import { explainCommand, formatTraceHuman } from '@/cli/explain';
 import { REASON_POLICY_CONFIG_PROTECTION } from '@/guards/policy-protection';
 import type { TraceStep } from '@/ir/command-trace';
 import type { ExplainResult } from '@/ir/explain';
-import { getTraceSteps, withEnv, withStdoutColor } from '../../helpers';
+import { getTraceSteps, toShellPath, withEnv, withStdoutColor } from '../../helpers';
 import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import { policySnapshot, testModes } from '../../helpers/policy';
 
+const ROOT = parse(process.cwd()).root;
 const OPTIONS = {
-  cwd: '/tmp/cc-safety-net-explain-output-no-config',
-  userConfigDir: '/tmp/cc-safety-net-explain-output-no-home',
+  cwd: join(ROOT, 'tmp', 'cc-safety-net-explain-output-no-config'),
+  userConfigDir: join(ROOT, 'tmp', 'cc-safety-net-explain-output-no-home'),
 };
 const GIT_REASON =
   "git reset --hard destroys all uncommitted changes permanently. Use 'git stash' first.";
@@ -61,8 +63,9 @@ describe('explain output', () => {
   // the user policy directory), exactly as the runtime guard blocks it before command analysis.
   test('preserves the exact root-or-home rm shadowed by policy protection payload', () => {
     withEnv({ TMPDIR: '/tmp/explain-output-tmpdir' }, () => {
+      const root = toShellPath(ROOT);
       expect(
-        explainCommand('rm -rf /', { ...OPTIONS, policySnapshot: policySnapshot() }),
+        explainCommand(`rm -rf ${root}`, { ...OPTIONS, policySnapshot: policySnapshot() }),
       ).toMatchObject({
         trace: {
           steps: [],
@@ -82,7 +85,7 @@ describe('explain output', () => {
         },
         result: 'blocked',
         reason: REASON_POLICY_CONFIG_PROTECTION,
-        segment: '/',
+        segment: root,
         ruleId: 'policy-protection',
         configSource: null,
         configValid: true,

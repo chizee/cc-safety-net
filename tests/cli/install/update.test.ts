@@ -94,6 +94,7 @@ function runUpdate(options: {
           {
             HOME: options.homeDir,
             PATH: options.path,
+            npm_config_cache: join(options.homeDir, '.npm'),
             // TMPDIR is the posix name os.tmpdir() reads, TEMP/TMP the win32 ones.
             TMPDIR: tmpDir,
             TEMP: tmpDir,

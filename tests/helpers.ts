@@ -1,5 +1,6 @@
 import { afterAll, expect, spyOn } from 'bun:test';
 import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -154,6 +155,22 @@ export function writeNestedAuditLogFixture(
   const monthDir = join(logsDir, projectDir, date.slice(0, 7));
   mkdirSync(monthDir, { recursive: true });
   writeJsonlFixture(join(monthDir, `${date}-${entry.sessionId}.jsonl`), [entry]);
+}
+
+export function mockReadFileError(filePath: string) {
+  const readFileSync = fs.readFileSync;
+  return spyOn(fs, 'readFileSync').mockImplementation(((path, options) => {
+    if (path === filePath) throw new Error('EACCES: permission denied');
+    return readFileSync(path, options);
+  }) as typeof fs.readFileSync);
+}
+
+export function mockReaddirError(dirPath: string) {
+  const readdirSync = fs.readdirSync;
+  return spyOn(fs, 'readdirSync').mockImplementation((path, options) => {
+    if (path === dirPath) throw new Error('EACCES: permission denied');
+    return Reflect.apply(readdirSync, fs, [path, options]);
+  });
 }
 
 function setEnvValue(key: string, value: string | undefined): void {

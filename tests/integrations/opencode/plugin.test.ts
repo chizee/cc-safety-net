@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, parse } from 'node:path';
 import {
   PATH_CANONICALIZATION_LIMITS,
   PathCanonicalizationLimitError,
@@ -47,6 +47,13 @@ function executeBash(plugin: ToolPlugin, command: string, workdir?: string) {
 
 function executeGitStatus(plugin: ToolPlugin, workdir?: string) {
   return executeBash(plugin, 'git status', workdir);
+}
+
+function catastrophicDeleteCommand(cwd: string) {
+  const root = parse(cwd).root;
+  return process.platform === 'win32'
+    ? `Remove-Item '${root.replaceAll("'", "''")}' -Recurse -Force`
+    : `rm -rf ${root}`;
 }
 
 const publicInputExposesGuardDependencies: 'safetyNetGuardDependencies' extends keyof Parameters<
@@ -557,7 +564,10 @@ describe('OpenCode plugin', () => {
           plugin['tool.execute.before']({ tool: 'read' }, { args: { path: '.env' } }),
         ).resolves.toBeUndefined();
         await expect(
-          plugin['tool.execute.before']({ tool: 'bash' }, { args: { command: 'rm -rf /' } }),
+          plugin['tool.execute.before'](
+            { tool: 'bash' },
+            { args: { command: catastrophicDeleteCommand(dir) } },
+          ),
         ).rejects.toThrow(
           'This path contains the protected policy config and you must not modify or delete it.',
         );
@@ -784,7 +794,11 @@ describe('OpenCode plugin', () => {
       await expect(
         plugin['tool.execute.before'](
           { tool: 'bash' },
-          { args: { command: 'npx -y cc-safety-net rule sync && rm -rf /' } },
+          {
+            args: {
+              command: `npx -y cc-safety-net rule sync ${process.platform === 'win32' ? ';' : '&&'} ${catastrophicDeleteCommand(dir)}`,
+            },
+          },
         ),
       ).rejects.toThrow(
         'This path contains the protected policy config and you must not modify or delete it.',

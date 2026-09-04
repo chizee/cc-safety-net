@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { stripJsonComments } from '@/integrations/jsonc';
 import { uninstallOpenCode, verifyOpenCodePluginRuntime } from '@/integrations/opencode/install';
 import { withEnv } from '../../helpers.ts';
 import { makeTempHome, runCli } from '../hook-helpers';
+import { writeFakeCommands } from '../install/install-test-helpers';
 
 function uninstallWithConfigs(name: string, files: Record<string, string>) {
   const homeDir = makeTempHome(name);
@@ -308,10 +309,7 @@ describe('OpenCode plugin runtime verification', () => {
   // cannot be loaded, so an install that never populated the cache must not report success.
   test('fails the install when the plugin command left the cache empty', async () => {
     const homeDir = makeTempHome('safety-net-opencode-runtime-cli');
-    const binDir = join(homeDir, 'bin');
-    mkdirSync(binDir, { recursive: true });
-    writeFileSync(join(binDir, 'opencode'), '#!/usr/bin/env sh\nexit 0\n');
-    chmodSync(join(binDir, 'opencode'), 0o755);
+    const binDir = writeFakeCommands(homeDir, { opencode: 'process.exit(0);' });
 
     try {
       const result = await runCli(['install', '--opencode'], '', {

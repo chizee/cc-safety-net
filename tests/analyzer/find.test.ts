@@ -5,7 +5,7 @@ import { basename, join } from 'node:path';
 import { isTrustedTempRootPath } from '@/analyzer/tmpdir';
 import { TEST_ENVIRONMENT, testEnvironment } from '../helpers/environment.ts';
 import { analyzeTestCommand } from '../helpers/policy.ts';
-import { assertAllowed, assertBlocked } from '../helpers.ts';
+import { assertAllowed, assertBlocked, toShellPath } from '../helpers.ts';
 
 describe('find -delete tests', () => {
   test('find delete blocked', () => {
@@ -19,7 +19,7 @@ describe('find -delete tests', () => {
   test('find delete allows explicit trusted temporary descendants', () => {
     assertAllowed('find /tmp/ccsn-perf-head.1T5B58 -depth -delete');
     assertAllowed('find /var/tmp/ccsn-cache -name "*.tmp" -delete');
-    assertAllowed(`find ${join(tmpdir(), 'ccsn-native')} -depth -delete`);
+    assertAllowed(`find ${toShellPath(join(tmpdir(), 'ccsn-native'))} -depth -delete`);
     assertAllowed('find /tmp/ccsn-a /var/tmp/ccsn-b -depth -delete');
   });
 
@@ -119,9 +119,9 @@ describe('find -delete tests', () => {
     const external = join(root, 'external');
     symlinkSync(homedir(), external, 'dir');
     try {
-      assertBlocked(`find ${external} -delete`, 'extremely dangerous');
-      assertBlocked(`find -L ${root} -delete`, 'find -delete');
-      assertBlocked(`find ${root} -follow -delete`, 'find -delete');
+      assertBlocked(`find ${toShellPath(external)} -delete`, 'extremely dangerous');
+      assertBlocked(`find -L ${toShellPath(root)} -delete`, 'find -delete');
+      assertBlocked(`find ${toShellPath(root)} -follow -delete`, 'find -delete');
     } finally {
       rmSync(root, { force: true, recursive: true });
     }
@@ -133,17 +133,25 @@ describe('find -delete tests', () => {
     const other = mkdtempSync(join(tmpdir(), 'ccsn-find-other-'));
     mkdirSync(repo);
     try {
-      assertBlocked(`find ${root} -depth -delete`, 'find -delete', repo);
-      assertBlocked(`find ${repo} -depth -delete`, 'find -delete', repo);
-      assertAllowed(`find ${other} -depth -delete`, repo);
+      assertBlocked(`find ${toShellPath(root)} -depth -delete`, 'find -delete', repo);
+      assertBlocked(`find ${toShellPath(repo)} -depth -delete`, 'find -delete', repo);
+      assertAllowed(`find ${toShellPath(other)} -depth -delete`, repo);
       assertBlocked(
         `find "$TMPDIR/${basename(root)}" -depth -delete`,
         'find -delete',
         repo,
         testEnvironment({ TMPDIR: tmpdir() }),
       );
-      assertBlocked(`env -C ${repo} find ${root} -depth -delete`, 'find -delete', other);
-      assertBlocked(`env -C ${other} find ${root} -depth -delete`, 'find -delete', repo);
+      assertBlocked(
+        `env -C ${toShellPath(repo)} find ${toShellPath(root)} -depth -delete`,
+        'find -delete',
+        other,
+      );
+      assertBlocked(
+        `env -C ${toShellPath(other)} find ${toShellPath(root)} -depth -delete`,
+        'find -delete',
+        repo,
+      );
     } finally {
       rmSync(root, { force: true, recursive: true });
       rmSync(other, { force: true, recursive: true });
