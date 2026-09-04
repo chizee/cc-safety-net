@@ -362,6 +362,24 @@ export async function runHook(
   return runCli(['hook', flag], input, env, cwd);
 }
 
+export function createSpawnEnv(overrides: Record<string, string>) {
+  const overriddenNames = new Set(
+    Object.keys(overrides).map((name) =>
+      process.platform === 'win32' ? name.toLowerCase() : name,
+    ),
+  );
+  return {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] =>
+          entry[1] !== undefined &&
+          !overriddenNames.has(process.platform === 'win32' ? entry[0].toLowerCase() : entry[0]),
+      ),
+    ),
+    ...overrides,
+  };
+}
+
 export async function runCli(
   args: readonly string[],
   input: string = '',
@@ -369,19 +387,11 @@ export async function runCli(
   cwd = TEST_HOOK_CWD,
 ): Promise<HookResult> {
   const home = env?.HOME ?? join(cwd, 'home');
-  const baseEnv: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) {
-      baseEnv[key] = value;
-    }
-  }
-
-  const mergedEnv: Record<string, string> = {
-    ...baseEnv,
+  const mergedEnv = createSpawnEnv({
     HOME: home,
     CC_SAFETY_NET_AUDIT_HOME: env?.CC_SAFETY_NET_AUDIT_HOME ?? home,
     ...(env ?? {}),
-  };
+  });
 
   const proc = Bun.spawn(
     [process.execPath, join(process.cwd(), 'src/cli/cc-safety-net.ts'), ...args],

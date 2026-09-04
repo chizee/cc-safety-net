@@ -56,6 +56,11 @@ function catastrophicDeleteCommand(cwd: string) {
     : `rm -rf ${root}`;
 }
 
+const CATASTROPHIC_DELETE_REASON =
+  process.platform === 'win32'
+    ? 'PowerShell Remove-Item targeting root or home directory is extremely dangerous and always blocked.'
+    : 'This path contains the protected policy config and you must not modify or delete it.';
+
 const publicInputExposesGuardDependencies: 'safetyNetGuardDependencies' extends keyof Parameters<
   typeof CCSafetyNetPlugin
 >[0]
@@ -568,9 +573,7 @@ describe('OpenCode plugin', () => {
             { tool: 'bash' },
             { args: { command: catastrophicDeleteCommand(dir) } },
           ),
-        ).rejects.toThrow(
-          'This path contains the protected policy config and you must not modify or delete it.',
-        );
+        ).rejects.toThrow(CATASTROPHIC_DELETE_REASON);
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -800,9 +803,7 @@ describe('OpenCode plugin', () => {
             },
           },
         ),
-      ).rejects.toThrow(
-        'This path contains the protected policy config and you must not modify or delete it.',
-      );
+      ).rejects.toThrow(CATASTROPHIC_DELETE_REASON);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, parse } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   PATH_CANONICALIZATION_LIMITS,
@@ -204,7 +204,7 @@ describe('secret protection path matching', () => {
     expect(findSensitivePathTarget(['protected-sibling/child.txt'], cwd, config)).toBeNull();
   });
 
-  test('blocks descendants of configured home and filesystem root paths', () => {
+  test('blocks descendants of home-expanded and absolute configured paths', () => {
     const home = mkdtempSync(join(tmpdir(), 'secret-protection-deny-home-'));
     try {
       withEnv({ HOME: home }, () => {
@@ -218,7 +218,7 @@ describe('secret protection path matching', () => {
       expect(
         findSensitivePathTarget([join(tmpdir(), 'ordinary.txt')], home, {
           disabledRules: [],
-          denyPaths: [parse(home).root],
+          denyPaths: [tmpdir()],
         })?.ruleId,
       ).toBe('secret.deny-path');
     } finally {

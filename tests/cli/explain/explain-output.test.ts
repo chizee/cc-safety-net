@@ -5,6 +5,7 @@ import { explainCommand, formatTraceHuman } from '@/cli/explain';
 import { REASON_POLICY_CONFIG_PROTECTION } from '@/guards/policy-protection';
 import type { TraceStep } from '@/ir/command-trace';
 import type { ExplainResult } from '@/ir/explain';
+import { getUserPolicyPath } from '@/policy/store';
 import { getTraceSteps, toShellPath, withEnv, withStdoutColor } from '../../helpers';
 import { TEST_ENVIRONMENT } from '../../helpers/environment';
 import { policySnapshot, testModes } from '../../helpers/policy';
@@ -59,11 +60,11 @@ function exactAllowed(command: string, tokens: string[], steps: TraceStep[]) {
 }
 
 describe('explain output', () => {
-  // Root/home rm is shadowed by the policy-config pre-analysis stage (`/` is an ancestor of
-  // the user policy directory), exactly as the runtime guard blocks it before command analysis.
+  // Root/home rm is shadowed by the policy-config pre-analysis stage (the filesystem root is an
+  // ancestor of the user policy directory), exactly as the runtime guard blocks it first.
   test('preserves the exact root-or-home rm shadowed by policy protection payload', () => {
     withEnv({ TMPDIR: '/tmp/explain-output-tmpdir' }, () => {
-      const root = toShellPath(ROOT);
+      const root = toShellPath(parse(getUserPolicyPath()).root);
       expect(
         explainCommand(`rm -rf ${root}`, { ...OPTIONS, policySnapshot: policySnapshot() }),
       ).toMatchObject({

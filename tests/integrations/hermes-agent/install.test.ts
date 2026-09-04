@@ -15,6 +15,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import {
   buildHermesAgentPluginFiles,
@@ -29,7 +30,7 @@ import {
 } from '@/integrations/hermes-agent/install';
 import { getPackageVersion } from '@/integrations/system-info';
 import { withEnv } from '../../helpers';
-import { makeTempHome, runCli } from '../hook-helpers';
+import { createSpawnEnv, makeTempHome, runCli } from '../hook-helpers';
 import { writeFakeCommands } from '../install/install-test-helpers';
 
 const MODULE_FILE = '__init__.py';
@@ -270,20 +271,20 @@ function runPluginCallback(
     const grandchildPidPath = join(dir, 'grandchild.pid');
 
     // `missing` runs with an empty PATH, so Python itself is launched by absolute path.
+    const env = createSpawnEnv({
+      PATH: mode === 'missing' ? '' : `${analyzerStubBinDir}${delimiter}${process.env.PATH}`,
+      PYTHONPATH: dir,
+      CC_SAFETY_NET_TEST_MODE: mode,
+      CC_SAFETY_NET_TEST_PAYLOAD: payloadPath,
+      CC_SAFETY_NET_TEST_SPAWN_CWD: spawnCwdPath,
+      CC_SAFETY_NET_TEST_GRANDCHILD_PID: grandchildPidPath,
+      ...extraEnv,
+    });
     const spawned = Bun.spawnSync(
       [pythonBin ?? 'python3', '-c', PYTHON_HOST, mode, tool, JSON.stringify(args), modulePath],
       {
         cwd: dir,
-        env: {
-          ...process.env,
-          PATH: mode === 'missing' ? '' : `${analyzerStubBinDir}${delimiter}${process.env.PATH}`,
-          PYTHONPATH: dir,
-          CC_SAFETY_NET_TEST_MODE: mode,
-          CC_SAFETY_NET_TEST_PAYLOAD: payloadPath,
-          CC_SAFETY_NET_TEST_SPAWN_CWD: spawnCwdPath,
-          CC_SAFETY_NET_TEST_GRANDCHILD_PID: grandchildPidPath,
-          ...extraEnv,
-        },
+        env,
       },
     );
     expect(spawned.stderr.toString()).toBe('');
@@ -453,22 +454,24 @@ describe('Hermes Agent plugin artifact', () => {
       expect(run.payload).toBeUndefined();
     });
 
-    // A descendant holding the captured pipes survives a kill aimed at the direct child alone, so
-    // a hung `npx` tree outlives every timed-out call. The elapsed bound is what keeps the drain
-    // that follows the group kill from becoming an indefinite wait on that same descendant.
-    test('kills the whole analyzer process tree when the analysis times out', () => {
-      const run = runPluginCallback('hang', 'terminal', { command: 'ls' });
+    // This stub exercises POSIX process groups and inherited pipe handles. Windows process-tree
+    // cleanup uses taskkill and is exercised by the native subprocess case immediately below.
+    test.skipIf(process.platform === 'win32')(
+      'kills the whole analyzer process tree when the analysis times out',
+      () => {
+        const run = runPluginCallback('hang', 'terminal', { command: 'ls' });
 
-      expect(run.result).toEqual({
-        action: 'block',
-        message: 'CC Safety Net failed closed: analysis timed out after 1s.',
-      });
-      expect(run.elapsedSeconds).toBeLessThan(2);
-      // `isRunning` reads an absent pid as "not running", so pin that the descendant was spawned:
-      // without this the kill assertion below passes even when no process tree was ever created.
-      expect(run.grandchildPid).toBeGreaterThan(0);
-      expect(isRunning(run.grandchildPid)).toBe(false);
-    });
+        expect(run.result).toEqual({
+          action: 'block',
+          message: 'CC Safety Net failed closed: analysis timed out after 1s.',
+        });
+        expect(run.elapsedSeconds).toBeLessThan(2);
+        // `isRunning` reads an absent pid as "not running", so pin that the descendant was spawned:
+        // without this the kill assertion below passes even when no process tree was ever created.
+        expect(run.grandchildPid).toBeGreaterThan(0);
+        expect(isRunning(run.grandchildPid)).toBe(false);
+      },
+    );
 
     test.skipIf(process.platform !== 'win32')(
       '[windows] kills the native analyzer process tree and returns a timeout block',
@@ -499,7 +502,7 @@ describe('Hermes Agent plugin artifact', () => {
         session_id: 'sess-1',
         cwd: run.cwd,
       });
-      expect(run.spawnCwd).toBe(process.env.HOME);
+      expect(run.spawnCwd).toBe(homedir());
       expect(run.spawnCwd).not.toBe(run.cwd);
       expect(run.payload?.cwd).toBe(run.cwd);
     });

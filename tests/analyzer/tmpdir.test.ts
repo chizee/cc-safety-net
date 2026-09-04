@@ -16,7 +16,7 @@ const isTmpdirOverriddenToNonTemp = (envAssignments: ReadonlyMap<string, string>
   isTmpdirOverriddenWithEnvironment(envAssignments, TEST_ENVIRONMENT);
 
 const STUB_ROOT = parse(tmpdir()).root;
-const STUB_TMPDIR = tmpdir();
+const STUB_TMPDIR = join(STUB_ROOT, 'tmp');
 const STUB_WORKDIR = join(STUB_ROOT, 'work');
 
 /**
@@ -184,8 +184,8 @@ describe('analysis over an injected filesystem', () => {
         protectedGitMetadata: null,
       });
 
-    // The real filesystem has no stub escape path, so the target stays a trusted temp path.
-    expect(analyze(TEST_ENVIRONMENT)).toBeNull();
+    // Without the synthetic symlink, the target stays within the injected temp root.
+    expect(analyze(stubEnvironment({}))).toBeNull();
     expect(
       analyze(
         stubEnvironment({
