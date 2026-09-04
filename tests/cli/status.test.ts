@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { printStatus } from '@/cli/status';
@@ -150,7 +150,7 @@ describe('status command', () => {
     const result = await runStatus();
 
     expect(factValue(result.output, 'Project')).not.toBe('');
-    expect(join(project, '.cc-safety-net', 'policy.json')).toStartWith(
+    expect(join(await realpath(project), '.cc-safety-net', 'policy.json')).toStartWith(
       factValue(result.output, 'Project').slice(0, -1),
     );
     expect(result.output).toMatch(/^ {2}Level\s+standard$/m);

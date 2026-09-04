@@ -457,7 +457,7 @@ describe('Pi tool_call event', () => {
             segment: '.env',
             reason: 'Access to a sensitive path is not allowed.',
             ruleId: 'secret.basename.env',
-            cwd: dir,
+            cwd: realpathSync(dir),
           }),
         );
       });
