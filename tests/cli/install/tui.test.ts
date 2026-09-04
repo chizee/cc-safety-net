@@ -68,7 +68,7 @@ type CapturedChoice = {
 };
 
 async function spawnInstallEval<T>(script: string, env: Record<string, string | undefined>) {
-  const proc = Bun.spawn(['bun', '--eval', script], {
+  const proc = Bun.spawn([process.execPath, '--eval', script], {
     cwd: process.cwd(),
     env: { ...process.env, ...env },
     stderr: 'pipe',

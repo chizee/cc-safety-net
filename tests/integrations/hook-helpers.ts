@@ -383,13 +383,16 @@ export async function runCli(
     ...(env ?? {}),
   };
 
-  const proc = Bun.spawn(['bun', join(process.cwd(), 'src/cli/cc-safety-net.ts'), ...args], {
-    stdin: 'pipe',
-    stdout: 'pipe',
-    stderr: 'pipe',
-    env: mergedEnv,
-    cwd,
-  });
+  const proc = Bun.spawn(
+    [process.execPath, join(process.cwd(), 'src/cli/cc-safety-net.ts'), ...args],
+    {
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: mergedEnv,
+      cwd,
+    },
+  );
   proc.stdin.write(input);
   proc.stdin.end();
   const stdoutPromise = new Response(proc.stdout).text();
