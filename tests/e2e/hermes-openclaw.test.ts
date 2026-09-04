@@ -31,6 +31,7 @@ import {
   expectAllowedAction,
   expectSingleAudit,
   type GateResult,
+  NODE_EXECUTABLE,
   parseJsonOutput,
   readHermesDirective,
   runBuiltHost,
@@ -148,7 +149,7 @@ const hermesPluginGate = {
     // The stub wins the lookup whether or not the machine has Hermes, so the gate installs the
     // same way everywhere. An enable that never ran would leave Hermes ignoring the plugin.
     const hermesCommandLog = join(home, 'hermes-cli.log');
-    await runCommand([process.execPath, cliPath, 'install', '--hermes-agent'], '', cwd, home, {
+    await runCommand([NODE_EXECUTABLE, cliPath, 'install', '--hermes-agent'], '', cwd, home, {
       env: {
         PATH: `${hermesStubBinDir}${delimiter}${process.env.PATH ?? ''}`,
         CC_SAFETY_NET_TEST_COMMAND_LOG: hermesCommandLog,
@@ -161,7 +162,7 @@ const hermesPluginGate = {
     const modulesDir = writeHermesModules(home);
     const binDir = writeFakeCommands(home, {
       npx: `const child = Bun.spawn(
-  [process.execPath, ${JSON.stringify(cliPath)}, 'hook', '--hermes-agent'],
+  [${JSON.stringify(NODE_EXECUTABLE)}, ${JSON.stringify(cliPath)}, 'hook', '--hermes-agent'],
   { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' },
 );
 process.exit(await child.exited);`,

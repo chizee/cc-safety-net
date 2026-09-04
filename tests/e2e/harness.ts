@@ -16,6 +16,12 @@ import { redactSecrets } from '@/engine/audit';
 import { listAuditLogFiles } from '@/engine/audit-scan';
 import { readAuditLogEntriesForSession } from '../helpers';
 
+export const NODE_EXECUTABLE = (() => {
+  const executable = Bun.which('node');
+  if (executable) return executable;
+  throw new Error('Node.js is required to run the packaged E2E artifacts');
+})();
+
 export type SafetyLevel = 'standard' | 'strict' | 'paranoid';
 
 export type GateResult = { allowed: true } | { allowed: false; reason: string };
@@ -145,7 +151,7 @@ export function runNode(
   home: string,
   level?: SafetyLevel,
 ) {
-  return runCommand([process.execPath, ...args], input, cwd, home, { level });
+  return runCommand([NODE_EXECUTABLE, ...args], input, cwd, home, { level });
 }
 
 export async function runBuiltHost(
