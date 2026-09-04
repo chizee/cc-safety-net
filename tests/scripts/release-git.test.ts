@@ -315,7 +315,9 @@ describe('release git transaction', () => {
         );
 
         rmSync(join(repo, '.codex-plugin', 'plugin.json'));
-        await expect(runTransactionCli(repo, '2.0.0')).rejects.toThrow('.codex-plugin/plugin.json');
+        await expect(runTransactionCli(repo, '2.0.0')).rejects.toThrow(
+          join('.codex-plugin', 'plugin.json'),
+        );
         expectRemoteUnchanged(root, remote, before);
       });
     });

@@ -130,6 +130,7 @@ function runNativeCli(
       {
         HOME: fake.homeDir,
         PATH: fake.path,
+        npm_config_cache: join(fake.homeDir, '.npm'),
         CC_SAFETY_NET_TEST_COMMAND_LOG: fake.logPath,
       },
       () => runInstallCommand(action, [targetFlag], { output: output as NodeJS.WriteStream }),
@@ -939,7 +940,10 @@ process.exit(42);`,
     const npxCacheEntry = writeNpxCacheEntry(homeDir, 'hashA', 'cc-safety-net');
 
     try {
-      const result = await runCli(['install', '--agy-cli'], '', { HOME: homeDir });
+      const result = await runCli(['install', '--agy-cli'], '', {
+        HOME: homeDir,
+        npm_config_cache: join(homeDir, '.npm'),
+      });
       const configPath = getAntigravityHooksPath(homeDir);
       const config = JSON.parse(readFileSync(configPath, 'utf-8'));
 
@@ -1066,7 +1070,10 @@ process.exit(42);`,
     const npxCacheEntry = writeNpxCacheEntry(homeDir, 'hashA', 'cc-safety-net');
 
     try {
-      const result = await runCli(['install', '--kimi-code'], '', { HOME: homeDir });
+      const result = await runCli(['install', '--kimi-code'], '', {
+        HOME: homeDir,
+        npm_config_cache: join(homeDir, '.npm'),
+      });
       const configPath = join(homeDir, '.kimi-code', 'config.toml');
 
       expect(result.exitCode).toBe(0);
@@ -1759,7 +1766,10 @@ describe('Cursor install', () => {
     const otherCacheEntry = writeNpxCacheEntry(homeDir, 'hashB', 'other-pkg');
 
     try {
-      const result = await runCli(['install', '--cursor'], '', { HOME: homeDir });
+      const result = await runCli(['install', '--cursor'], '', {
+        HOME: homeDir,
+        npm_config_cache: join(homeDir, '.npm'),
+      });
       const configPath = getCursorHooksPath(homeDir);
 
       expect(result.exitCode).toBe(0);
