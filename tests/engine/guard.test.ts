@@ -14,7 +14,7 @@ import { REASON_POLICY_APPLY_PROTECTION } from '@/guards/policy-apply-protection
 import { StructuralShellSyntaxLimitError } from '@/guards/semantic-facts';
 import { parseCommand } from '@/parser/command';
 import { getUserPolicyPath } from '@/policy/store';
-import { toShellPath, withTempDir } from '../helpers';
+import { quoteShellPath, toShellPath, withTempDir } from '../helpers';
 import { policySnapshot, testModes } from '../helpers/policy';
 
 const SNAPSHOT = policySnapshot();
@@ -605,9 +605,9 @@ describe('guard evaluation', () => {
       };
 
       for (const [command, ruleId] of [
-        [`rm -rf ${toShellPath(join(allowPath, 'private'))}`, 'secret.deny-path'],
-        [`rm -rf ${toShellPath(join(allowPath, 'private', 'sub'))}`, 'secret.deny-path'],
-        [`rm -rf ${toShellPath(join(allowPath, '.env'))}`, 'secret.basename.env'],
+        [`rm -rf ${quoteShellPath(join(allowPath, 'private'))}`, 'secret.deny-path'],
+        [`rm -rf ${quoteShellPath(join(allowPath, 'private', 'sub'))}`, 'secret.deny-path'],
+        [`rm -rf ${quoteShellPath(join(allowPath, '.env'))}`, 'secret.basename.env'],
       ] as const) {
         expect(
           evaluateGuard(commandInvocation(cwd, command), { dependencies: guardDependencies }),
@@ -616,9 +616,10 @@ describe('guard evaluation', () => {
       }
 
       expect(
-        evaluateGuard(commandInvocation(cwd, `rm -rf ${toShellPath(join(allowPath, 'other'))}`), {
-          dependencies: guardDependencies,
-        }),
+        evaluateGuard(
+          commandInvocation(cwd, `rm -rf ${quoteShellPath(join(allowPath, 'other'))}`),
+          { dependencies: guardDependencies },
+        ),
       ).toEqual({ stage: 'command-analysis', level: 'strict', decision: { kind: 'allow' } });
     });
   });

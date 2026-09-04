@@ -29,6 +29,7 @@ import {
 } from '../../helpers/policy';
 import {
   getTraceSteps,
+  quoteShellPath,
   toShellPath,
   withEnv,
   withLinkedWorktreeFixture,
@@ -1376,7 +1377,7 @@ describe('explainCommand pre-analysis protection stages', () => {
     await withTempDir('cc-safety-net-explain-policy-function-', (cwd) => {
       const safetyNetHome = join(cwd, 'shared-policy');
       withEnv({ CC_SAFETY_NET_HOME: safetyNetHome }, () => {
-        const shellSafetyNetHome = toShellPath(safetyNetHome);
+        const shellSafetyNetHome = quoteShellPath(safetyNetHome);
         for (const strict of [false, true]) {
           for (const command of [
             `{ rm -rf ${shellSafetyNetHome}; }`,

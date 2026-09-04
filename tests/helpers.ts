@@ -381,6 +381,11 @@ export function toShellPath(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
+/** Convert a native path to one safely quoted POSIX shell word. */
+export function quoteShellPath(p: string): string {
+  return `'${toShellPath(p).replaceAll("'", `'\\''`)}'`;
+}
+
 export interface LinkedWorktreeFixture {
   rootDir: string;
   mainWorktree: string;

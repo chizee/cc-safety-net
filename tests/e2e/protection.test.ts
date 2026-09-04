@@ -3,7 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { join } from 'node:path';
 import { buildRuntimeBundles } from '../../scripts/build-runtime';
 import { OPENCODE_HOST_SCRIPT, PI_HOST_SCRIPT } from '../../scripts/integration-host-scripts';
-import { readAuditLogEntriesForSession, toShellPath } from '../helpers';
+import { quoteShellPath, readAuditLogEntriesForSession } from '../helpers';
 import {
   buildE2EArtifacts,
   expectAllowedAction,
@@ -507,7 +507,7 @@ describe('built CLI protection contract', () => {
         await runGated(
           adapters[0],
           adapters[0].commandInput(
-            `ls -la ${toShellPath(safetyNetHome)}`,
+            `ls -la ${quoteShellPath(safetyNetHome)}`,
             cwd,
             home,
             inspectSession,
@@ -833,7 +833,7 @@ function policyMutation(
 ) {
   if (kind === 'write') return ['Write', { file_path: policyPath, content: '{}' }] as const;
   if (kind === 'redirect') {
-    return ['Bash', { command: `printf mutated > ${toShellPath(policyPath)}` }] as const;
+    return ['Bash', { command: `printf mutated > ${quoteShellPath(policyPath)}` }] as const;
   }
   if (kind === 'env') {
     return ['Bash', { command: 'printf mutated > $CC_SAFETY_NET_HOME/policy.json' }] as const;

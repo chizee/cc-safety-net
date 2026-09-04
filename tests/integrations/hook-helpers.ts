@@ -387,19 +387,17 @@ export async function runCli(
   cwd = TEST_HOOK_CWD,
 ): Promise<HookResult> {
   const home = env?.HOME ?? join(cwd, 'home');
-  const mergedEnv = createSpawnEnv({
-    HOME: home,
-    CC_SAFETY_NET_AUDIT_HOME: env?.CC_SAFETY_NET_AUDIT_HOME ?? home,
-    ...(env ?? {}),
-  });
-
   const proc = Bun.spawn(
     [process.execPath, join(process.cwd(), 'src/cli/cc-safety-net.ts'), ...args],
     {
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'pipe',
-      env: mergedEnv,
+      env: createSpawnEnv({
+        HOME: home,
+        CC_SAFETY_NET_AUDIT_HOME: env?.CC_SAFETY_NET_AUDIT_HOME ?? home,
+        ...(env ?? {}),
+      }),
       cwd,
     },
   );
