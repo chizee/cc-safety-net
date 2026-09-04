@@ -131,8 +131,10 @@ async function runHermesCli(
   };
 }
 
+const pythonBin = Bun.which('python3') ?? Bun.which('python');
+
 function hasPython3() {
-  return Bun.spawnSync(['python3', '--version']).exitCode === 0;
+  return pythonBin !== null && Bun.spawnSync([pythonBin, '--version']).exitCode === 0;
 }
 
 /** The `task_id` the host passes; Hermes keys its cwd record by it when the contextvar is unset. */
@@ -145,6 +147,34 @@ spec = importlib.util.spec_from_file_location("ccsn", sys.argv[4])
 plugin = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(plugin)
 plugin.TIMEOUT_SECONDS = 1
+if mode == "start-fail":
+    def fail_start(*_, **__):
+        raise OSError("synthetic start failure")
+    plugin.subprocess.Popen = fail_start
+if mode == "cleanup-fail":
+    class TimedOutProcess:
+        pid = 1
+        def communicate(self, *_, **kwargs):
+            raise plugin.subprocess.TimeoutExpired("npx", kwargs.get("timeout"))
+    def fail_cleanup(*_, **__):
+        raise OSError("synthetic cleanup failure")
+    plugin.subprocess.Popen = lambda *_, **__: TimedOutProcess()
+    if os.name == "nt":
+        plugin.subprocess.run = fail_cleanup
+    else:
+        plugin.os.killpg = fail_cleanup
+if mode == "native-hang":
+    plugin.ANALYZER = [sys.executable, "-c", """
+import os
+import subprocess
+import sys
+import time
+
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(20)"])
+with open(os.environ["CC_SAFETY_NET_TEST_GRANDCHILD_PID"], "w", encoding="utf-8") as pid_file:
+    pid_file.write(str(child.pid))
+time.sleep(20)
+"""]
 registered = {}
 class Ctx:
     def register_hook(self, name, callback):
@@ -245,15 +275,7 @@ function runPluginCallback(
 
     // `missing` runs with an empty PATH, so Python itself is launched by absolute path.
     const spawned = Bun.spawnSync(
-      [
-        Bun.which('python3') ?? 'python3',
-        '-c',
-        PYTHON_HOST,
-        mode,
-        tool,
-        JSON.stringify(args),
-        modulePath,
-      ],
+      [pythonBin ?? 'python3', '-c', PYTHON_HOST, mode, tool, JSON.stringify(args), modulePath],
       {
         cwd: dir,
         env: {
@@ -327,6 +349,15 @@ describe('Hermes Agent plugin artifact', () => {
     expect(source).toContain('"cc-safety-net", "hook", "--hermes-agent"');
   });
 
+  test('module uses platform-specific analyzer launch and process-tree cleanup', () => {
+    const source =
+      buildHermesAgentPluginFiles(getPackageVersion()).find((file) => file.name === MODULE_FILE)
+        ?.content ?? '';
+
+    expect(source).toContain('{"start_new_session": True}');
+    expect(source).toContain('["taskkill", "/PID", str(process.pid), "/T", "/F"]');
+  });
+
   // Decoding with the process locale raises UnicodeDecodeError on undecodable analyzer output,
   // and Hermes turns a raising callback into an allowed tool call.
   test('decodes the analyzer output with a decoder that cannot raise', () => {
@@ -360,6 +391,11 @@ describe('Hermes Agent plugin artifact', () => {
       ['fail', 'CC Safety Net failed closed: analysis exited with status 3.'],
       ['allow-shaped', 'CC Safety Net failed closed: analysis returned an unexpected directive.'],
       ['missing', 'CC Safety Net failed closed: npx was not found on PATH.'],
+      [
+        'start-fail',
+        'CC Safety Net failed closed: analysis could not start (synthetic start failure).',
+      ],
+      ['cleanup-fail', 'CC Safety Net failed closed: analysis timed out after 1s.'],
     ] as const)('%s', (mode, expected) => {
       const run = runPluginCallback(mode, 'terminal', { command: 'rm -rf /' });
       expect(run.result).toEqual(
@@ -437,6 +473,21 @@ describe('Hermes Agent plugin artifact', () => {
       expect(run.grandchildPid).toBeGreaterThan(0);
       expect(isRunning(run.grandchildPid)).toBe(false);
     });
+
+    test.skipIf(process.platform !== 'win32')(
+      '[windows] kills the native analyzer process tree and returns a timeout block',
+      () => {
+        const run = runPluginCallback('native-hang', 'terminal', { command: 'ls' });
+
+        expect(run.result).toEqual({
+          action: 'block',
+          message: 'CC Safety Net failed closed: analysis timed out after 1s.',
+        });
+        expect(run.elapsedSeconds).toBeLessThan(3);
+        expect(run.grandchildPid).toBeGreaterThan(0);
+        expect(isRunning(run.grandchildPid)).toBe(false);
+      },
+    );
 
     // Hermes' own first-command behaviour: no record yet, so the command runs in the process cwd.
     // A repository-local node_modules/.bin/cc-safety-net would otherwise win the `npx` lookup
