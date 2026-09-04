@@ -533,6 +533,61 @@ describe('guard evaluation', () => {
     });
   });
 
+  test.skipIf(process.platform !== 'win32')(
+    '[windows] applies mode-aware secret protection to unknown command candidates',
+    async () => {
+      await withTempDir('cc-safety-net-guard-unknown-metadata-', (cwd) => {
+        const sensitivePath = join(cwd, '.env');
+        const metadataCommands = [`ls ${sensitivePath}`, `stat ${sensitivePath}`];
+
+        metadataCommands.forEach((command) => {
+          expect(evaluateGuard(unknownInvocation(cwd, command))).toEqual({
+            stage: 'non-command',
+            level: 'standard',
+            decision: { kind: 'allow' },
+          });
+          (['strict', 'paranoid'] as const).forEach((level) => {
+            expect(
+              evaluateGuard(unknownInvocation(cwd, command), {
+                dependencies: { getModes: () => testModes(level) },
+              }),
+            ).toMatchObject({
+              stage: 'secret-protection',
+              level,
+              decision: { kind: 'deny', ruleId: 'secret.basename.env' },
+            });
+          });
+        });
+
+        [`cat ${sensitivePath}`, `find "TOKEN" ${sensitivePath}`].forEach((command) => {
+          expect(evaluateGuard(unknownInvocation(cwd, command))).toMatchObject({
+            stage: 'secret-protection',
+            decision: { kind: 'deny', ruleId: 'secret.basename.env' },
+          });
+        });
+
+        const policyPath = getUserPolicyPath();
+        const policyCommand = `rm ${policyPath}`;
+        expect(evaluateGuard(unknownInvocation(cwd, policyCommand))).toEqual(
+          expectedPolicyBlock(policyCommand, policyPath),
+        );
+      });
+    },
+  );
+
+  test.skipIf(process.platform === 'win32')(
+    'keeps non-Windows unknown-route metadata fallback conservative',
+    async () => {
+      await withTempDir('cc-safety-net-guard-unknown-posix-metadata-', (cwd) => {
+        expect(evaluateGuard(unknownInvocation(cwd, `ls ${join(cwd, '.env')}`))).toMatchObject({
+          stage: 'secret-protection',
+          level: 'standard',
+          decision: { kind: 'deny', ruleId: 'secret.basename.env' },
+        });
+      });
+    },
+  );
+
   test('keeps deny paths and built-in secrets protected inside a destructive allow path', async () => {
     await withTempDir('cc-safety-net-guard-allow-path-secret-', (cwd) => {
       // A destructive allow path only relaxes the analyzer; it must never widen
