@@ -12,6 +12,7 @@ const config: KnipConfig = {
     'src/gui/frontend/main.ts!',
     // scripts invoked directly by package.json scripts or GitHub workflows
     'scripts/build.ts!',
+    'scripts/project-bun.ts!',
     'scripts/build-schema.ts!',
     'scripts/prepare-release-files.ts!',
     'scripts/release-assets.ts!',

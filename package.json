@@ -26,7 +26,7 @@
   ],
   "scripts": {
     "audit:dependencies": "bun audit",
-    "build": "bun run clean && bun run scripts/build.ts",
+    "build": "bun run clean && bun scripts/project-bun.ts scripts/build.ts",
     "build:types": "tsc --project tsconfig.build.json --emitDeclarationOnly --declaration",
     "build:schema": "bun run scripts/build-schema.ts",
     "verify:package": "bun run scripts/verify-package.ts",
@@ -97,7 +97,7 @@
   "engines": {
     "node": ">=18"
   },
-  "packageManager": "bun@1.4.0",
+  "packageManager": "bun@1.4.1",
   "keywords": [
     "claude-code",
     "opencode",
