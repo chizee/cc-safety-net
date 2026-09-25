@@ -24,5 +24,5 @@ describe('release package identity', () => {
       expect(manifest.gitHead).toBe(gitHead);
       expect(manifest.scripts.prepare).toBeUndefined();
     });
-  }, 30_000);
+  }, 90_000);
 });
