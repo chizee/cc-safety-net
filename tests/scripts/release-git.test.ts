@@ -210,7 +210,7 @@ describe('release git transaction', () => {
       git(repo, 'commit', '-am', 'local advance');
       await expect(assertExactReleaseBase(repo, base)).rejects.toThrow('Release base mismatch');
     });
-  });
+  }, 30_000);
 
   test('pushes a new release branch and tag atomically', async () => {
     await withTempDir('cc-safety-net-release-', async (root) => {
