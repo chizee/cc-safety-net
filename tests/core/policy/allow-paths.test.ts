@@ -18,7 +18,8 @@ const DENY_BLOCKS_EVERYTHING =
 const ALLOW_DISABLES_EVERYTHING =
   'cannot cover the home directory or a path above it (this would disable secret protection everywhere)';
 const ALLOW_COVERS_GUARD = "cannot cover the guard's own configuration";
-const HAS_GLOB = 'cannot contain glob characters (* or ?); list the exact file or directory';
+const HAS_GLOB =
+  'supports only a folder followed by **/ and an exact file name, such as ~/code/**/.env.local';
 
 type Row = {
   readonly behavior: string;
@@ -180,6 +181,41 @@ const ROWS: readonly Row[] = [
     secretAllow: HAS_GLOB,
   },
   {
+    behavior: 'a recursive basename glob needs a folder before **/',
+    value: '**/.env.local',
+    destructive: NOT_ABSOLUTE,
+    secretDeny: null,
+    secretAllow: HAS_GLOB,
+  },
+  {
+    behavior: 'a recursive basename glob rooted at home would reach home credentials',
+    value: '~/**/config',
+    destructive: null,
+    secretDeny: null,
+    secretAllow: ALLOW_DISABLES_EVERYTHING,
+  },
+  {
+    behavior: 'a recursive basename glob rooted above home would reach home credentials',
+    value: '/**/id_rsa',
+    destructive: null,
+    secretDeny: null,
+    secretAllow: ALLOW_DISABLES_EVERYTHING,
+  },
+  {
+    behavior: 'a recursive basename glob can be limited to a home subdirectory',
+    value: '~/code/**/.env.local',
+    destructive: null,
+    secretDeny: null,
+    secretAllow: null,
+  },
+  {
+    behavior: 'a recursive basename glob cannot target the guard configuration',
+    value: '~/.cc-safety-net/**/.env.local',
+    destructive: null,
+    secretDeny: null,
+    secretAllow: ALLOW_COVERS_GUARD,
+  },
+  {
     behavior: 'a relative glob is rejected by the secret allow list on the glob alone',
     value: 'apps/*/.env',
     destructive: NOT_ABSOLUTE,
@@ -203,6 +239,15 @@ const ROWS: readonly Row[] = [
 ];
 
 describe('allow and deny path entries', () => {
+  test('Windows home aliases with backslashes still protect guard config', () => {
+    if (process.platform !== 'win32') return;
+    for (const alias of ['~', '$HOME', '${HOME}']) {
+      expect(
+        getSecretAllowPathError(`${alias}\\.cc-safety-net\\**\\.env.local`, 'C:\\Users\\tester'),
+      ).toBe(ALLOW_COVERS_GUARD);
+    }
+  });
+
   test.each(ROWS.map((row) => [row.behavior, row] as const))('%s', (_behavior, row) => {
     expect(getDestructiveAllowPathError(row.value, HOME)).toBe(row.destructive);
     expect(getSecretDenyPathError(row.value, HOME)).toBe(row.secretDeny);

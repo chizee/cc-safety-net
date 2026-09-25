@@ -101,6 +101,8 @@ To set a preset, run `npx cc-safety-net gui` and open Policy.
 
 Linked-worktree mode relaxes only local discard. Git discards inside a temp-root repository unrelated to the workspace are allowed like temp deletes (local discards only when that repository is a linked worktree), as is `git worktree remove --force` of an existing temp-root directory unrelated to the workspace. See [Modes](https://ccsafetynet.com/docs/configuration/modes).
 
+To allow one file name you manage at any depth under a folder, add an entry such as `"~/code/**/.env.local"` to `secret_protection.allow_paths` in your user policy. Other env variants stay blocked. The folder before `**/` is required and cannot be your home directory or a folder above it, so home credentials such as `~/.ssh` and `~/.npmrc` stay protected. Only a folder, `**/`, and an exact file name are supported; configured deny paths and Coding CLI protections still win. Many frameworks keep local secrets in `.env.local`, so allow it only if that matches how you use it.
+
 ## Diagnostics
 
 ```bash

@@ -2,6 +2,7 @@ import { isAbsolute, posix, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AnalysisLimit, type Budget, createBudget } from '@/core/budget';
 import { normalizeMsysDrivePath, resolveExistingPath } from '@/core/paths/canonicalization';
+import { parseRecursiveSecretAllowPath } from '@/core/policy/allow-paths';
 import type { SecretProtectionConfig } from '@/core/policy/types';
 import { AWK_INTERPRETERS, GIT_GLOBAL_OPTS_WITH_VALUE } from '@/core/rules/constants';
 import {
@@ -2403,13 +2404,17 @@ function matchesAllowedPath(
 
   if (guardRoot && isSameOrChildPath(normalized, guardRoot)) return false;
   return allowPaths.some((entry) => {
-    const root = comparable(normalizeAbsoluteCandidatePath(entry, configCwd, environment, budget));
+    const recursive = parseRecursiveSecretAllowPath(entry);
+    if (recursive && posix.basename(normalized) !== comparable(recursive.name)) return false;
+    const root = comparable(
+      normalizeAbsoluteCandidatePath(recursive?.root ?? entry, configCwd, environment, budget),
+    );
     if (!root) return false;
 
     if (home && (home === root || home.startsWith(root.endsWith('/') ? root : `${root}/`))) {
       return false;
     }
-    return isSameOrChildPath(normalized, root);
+    return isSameOrChildPath(normalized, root) && !(recursive && normalized === root);
   });
 }
 

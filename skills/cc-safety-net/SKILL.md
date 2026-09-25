@@ -180,9 +180,11 @@ error, so validate against it rather than guessing further fields):
   `overrides` mapping a built-in rule id (`git.reset-hard`, `secret.basename.env`) to `"on"` or
   `"off"`. Get the id for a blocked command from the `ruleId` field of `explain --json`.
 - `destructive_command_protection.allow_paths`: absolute or `~/` paths where recursive delete
-  targets are permitted. `secret_protection.allow_paths`: exact user-managed paths exempted from
-  secret protection, globs rejected. `secret_protection.deny_paths`: extra paths protected like
-  built-in secrets.
+  targets are permitted. `secret_protection.allow_paths`: exact user-managed files or directories,
+  or a folder followed by `**/` and an exact file name (for example `~/code/**/.env.local`; the
+  folder cannot be home or above it), exempted from built-in secret patterns. Deny paths and
+  Coding CLI protections still win. Other glob forms are rejected.
+  `secret_protection.deny_paths`: extra paths protected like built-in secrets.
 - `audit.retention_days`: days of audit history to keep, user scope only.
 
 1. Inspect the current state: `npx -y cc-safety-net status` for the effective policy and the file

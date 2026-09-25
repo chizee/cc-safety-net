@@ -84,7 +84,7 @@ export const USER_POLICY_VALUES: readonly unknown[] = [
   { version: 1, secret_protection: { deny_paths: ['~', '/', '${HOME}', '  ', null] } },
   {
     version: 1,
-    secret_protection: { allow_paths: ['~/**/config', '~/.cc-safety-net/policy.json'] },
+    secret_protection: { allow_paths: ['~/**/config*', '~/.cc-safety-net/policy.json'] },
   },
   { version: 1, secret_protection: { allow_paths: ['$HOME'], deny_paths: ['$HOME/keys'] } },
   { version: 1, audit: null },
