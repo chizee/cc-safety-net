@@ -89,6 +89,8 @@ Keep the `@latest` qualifier. A bare `cc-safety-net` spec can run an older copy 
 
 OpenCode integration supports v1.18.29+ and v2.0.6+. Run `npx -y cc-safety-net@latest install --opencode`; the installer selects the host's plugin commands. See [OpenCode compatibility](docs/opencode-compatibility.md) for v2 shell configuration and host limitations.
 
+OpenClaw integration requires OpenClaw 2026.8.1+. The installer accepts the plugin's declared capabilities for you, and older OpenClaw releases reject that option.
+
 ## Safety presets
 
 To set a preset, run `npx cc-safety-net gui` and open Policy.

@@ -104,8 +104,10 @@ export function resolveOpenClawArtifactDir(
 export function getOpenClawInstallCommands(
   artifactDir: string = resolveOpenClawArtifactDir(),
 ): readonly NativeCommand[] {
+  // OpenClaw >= 2026.8.1 refuses a non-interactive path install until its declared
+  // capabilities are accepted; install records the acceptance that enable then honors.
   return [
-    ['openclaw', 'plugins', 'install', artifactDir, '--force'],
+    ['openclaw', 'plugins', 'install', artifactDir, '--force', '--accept-capabilities'],
     ['openclaw', 'plugins', 'enable', OPENCLAW_PLUGIN_ID],
   ];
 }
