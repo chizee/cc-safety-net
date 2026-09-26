@@ -155,11 +155,11 @@ describe('finding the packaged plugin directory', () => {
     });
   });
 
-  test('drives the same two commands over the packaged directory, accepting capabilities on install', () => {
-    // OpenClaw >= 2026.8.1 refuses a non-interactive path install without capability consent.
+  test('drives one install over the packaged directory, accepting capabilities', () => {
+    // OpenClaw >= 2026.8.1 refuses a non-interactive path install without capability consent,
+    // and install itself enables the plugin; a separate enable races the Gateway's reload.
     expect(getOpenClawInstallCommands('/packaged/dir')).toEqual([
       ['openclaw', 'plugins', 'install', '/packaged/dir', '--force', '--accept-capabilities'],
-      ['openclaw', 'plugins', 'enable', 'cc-safety-net'],
     ]);
   });
 });

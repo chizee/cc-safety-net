@@ -105,11 +105,9 @@ export function getOpenClawInstallCommands(
   artifactDir: string = resolveOpenClawArtifactDir(),
 ): readonly NativeCommand[] {
   // OpenClaw >= 2026.8.1 refuses a non-interactive path install until its declared
-  // capabilities are accepted; install records the acceptance that enable then honors.
-  return [
-    ['openclaw', 'plugins', 'install', artifactDir, '--force', '--accept-capabilities'],
-    ['openclaw', 'plugins', 'enable', OPENCLAW_PLUGIN_ID],
-  ];
+  // capabilities are accepted. Install also enables the plugin; a separate `enable`
+  // can race the Gateway's follow-up reload and fail with "config reload superseded".
+  return [['openclaw', 'plugins', 'install', artifactDir, '--force', '--accept-capabilities']];
 }
 
 function readOpenClawPluginStatus(inspectOutput: string): string | undefined {
