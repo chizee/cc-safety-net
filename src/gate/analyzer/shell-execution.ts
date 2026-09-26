@@ -134,6 +134,54 @@ export function extractPositionalShellSource(
   };
 }
 
+/** Substitutes literal positional arguments for `$N`, `${N}`, `$@` and `$*` in a shell -c body, so
+ *  `sh -c 'rm -rf "$1"' _ /` is analyzed as the command it runs. References inside single quotes
+ *  stay as written. A non-literal argument, or an expansion past the parser input cap, leaves the
+ *  body unchanged. */
+export function bindLiteralPositionalParameters(
+  words: readonly CommandWord[],
+  script: string,
+): string {
+  const scriptIndex = findShellScriptIndex(words);
+  const values = words.slice(scriptIndex + 1);
+  if (scriptIndex === -1 || !values.every(isLiteralWord)) return script;
+  const texts = values.map(wordText);
+  let bound = '';
+  let quote: "'" | '"' | null = null;
+  let index = 0;
+  while (index < script.length) {
+    const char = script[index] ?? '';
+    const reference =
+      quote === "'" ? null : /^\$(?:\{([0-9]+|[@*])\}|([0-9@*]))/.exec(script.slice(index));
+    if (reference) {
+      const parameter = reference[1] ?? reference[2];
+      const quoteValue = (value: string) =>
+        quote === '"' ? value.replace(/["$`\\]/g, '\\$&') : quoteShellWord(value);
+      bound +=
+        parameter === '@' || parameter === '*'
+          ? texts
+              .slice(1)
+              .map(quoteValue)
+              .join(quote === '"' && parameter === '@' ? '" "' : ' ')
+          : quoteValue(texts[Number(parameter)] ?? '');
+      if (bound.length > MAX_POSITIONAL_EXPANSION_CHARACTERS) return script;
+      index += reference[0].length;
+      continue;
+    }
+    if (char === '\\' && quote !== "'") {
+      bound += script.slice(index, index + 2);
+      index += 2;
+      continue;
+    }
+    if ((char === "'" && quote !== '"') || (char === '"' && quote !== "'")) {
+      quote = quote ? null : char;
+    }
+    bound += char;
+    index++;
+  }
+  return bound;
+}
+
 export function extractShellStdinSource(
   words: readonly CommandWord[],
   redirections: readonly CommandRedirection[],

@@ -50,6 +50,7 @@ import {
 } from './rule';
 import {
   extractEvalSource,
+  bindLiteralPositionalParameters,
   extractPositionalShellSource,
   extractShellScriptOperandSource,
   extractShellStdinSource,
@@ -328,7 +329,10 @@ export function analyzeSegment(
       if (dashCArg) {
         const positionalSource = extractPositionalShellSource(words, dashCArg);
         if (positionalSource.kind === 'dynamic') return dynamicShellSourceResult(trace);
-        const source = positionalSource.kind === 'literal' ? positionalSource.source : dashCArg;
+        const source =
+          positionalSource.kind === 'literal'
+            ? positionalSource.source
+            : bindLiteralPositionalParameters(words, dashCArg);
         const traceInnerCommand = unwrapTraceQuotes(source);
         trace?.recordSegment({
           type: 'shell-wrapper',

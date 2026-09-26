@@ -1,4 +1,5 @@
 import { type Budget, createBudget } from '@/core/budget';
+import type { ProtectedGitMetadata } from '@/core/git/metadata';
 import {
   getEffectiveTmpdirValue,
   hasUnsafeTmpdirWordSplitting,
@@ -10,12 +11,14 @@ import {
   filterDestructiveCommandMatch,
 } from '@/core/policy/effective-rules';
 import type { EffectivePolicy } from '@/core/policy/types';
+import { SHELL_WRAPPERS } from '@/core/rules/constants';
 import { destructiveCommandMatch } from '@/core/rules/destructive';
 import type { DestructiveCommandRuleMatch } from '@/core/rules/types';
 import type { CommandWord } from '@/core/shell/model';
 import { getBasename } from '@/core/shell/tokens';
 import type { AnalyzeNestedOverrides, EnvironmentContext } from '@/gate/analysis';
 import {
+  gitMetadataHasEntryNamed,
   isProtectedGitHookNameSelection,
   REASON_GIT_METADATA_PROTECTION,
 } from '@/gate/guards/git-metadata-protection';
@@ -27,7 +30,8 @@ import {
   isTrustedTempDescendantTarget,
   type RecursiveDeleteTargetTrustOptions,
 } from './recursive-delete-targets';
-import { hasRecursiveForceFlags } from './rm-flags';
+import { hasRecursiveForceFlags, hasRecursiveOption } from './rm-flags';
+import { extractDashCArg } from './shell-wrappers';
 import { stripWrappers, stripWrappersForPathScan } from './wrapper-prelude';
 
 const REASON_FIND_DELETE = 'find -delete permanently removes files. Use -print first to preview.';
@@ -188,7 +192,14 @@ function findCatastrophicDeleteMatch(
           'rm -rf targeting root or home directory is extremely dangerous and always blocked.',
         );
       }
-      if (classification.kind === 'git_metadata_target') {
+      if (
+        classification.kind === 'git_metadata_target' &&
+        !nameFilterExcludesGitMetadata(
+          words,
+          targetContext.protectedGitMetadata,
+          context.environment,
+        )
+      ) {
         return destructiveCommandMatch('find.delete-git-metadata', REASON_GIT_METADATA_PROTECTION);
       }
     }
@@ -209,6 +220,87 @@ function findCatastrophicDeleteMatch(
   return null;
 }
 
+/** True when a literal -name or -iname filter, ANDed ahead of the first action, matches no protected
+ *  Git metadata name, so a starting point that contains the metadata (such as `.`) never hands a
+ *  metadata entry to -delete or -exec. A recursive -exec body keeps the block, since it would also
+ *  remove metadata inside a matched ancestor. So do a shell -c body, whose flags are not read, a
+ *  `{}` embedded in a longer argument (`{}/.git/HEAD`), and a fixed path argument to -execdir,
+ *  which resolves beside each match and escapes the nested cwd-relative analysis. An operator, negation, grouping, unrecognized primary
+ *  or non-literal pattern anywhere in the expression keeps the block too. */
+function nameFilterExcludesGitMetadata(
+  words: readonly CommandWord[],
+  metadata: ProtectedGitMetadata | null,
+  environment: EnvironmentContext,
+): boolean {
+  if (!metadata) return false;
+  const tokens = words.map(analysisWordText);
+  const patterns: RegExp[] = [];
+  let actionSeen = false;
+  let index = 1 + (getFindStartingPoints(words)?.length ?? 0);
+  while (index < tokens.length) {
+    const token = tokens[index] ?? '';
+    if (isFindExecPrimary(token)) {
+      const command = getFindExecCommand(tokens, index);
+      const stripped = stripWrappersForPathScan([...command.tokens], environment);
+      if (hasRecursiveOption(stripped)) return false;
+      if (SHELL_WRAPPERS.has(getBasename(stripped[0] ?? '').toLowerCase())) return false;
+      if (command.tokens.some((arg) => arg !== '{}' && arg.includes('{}'))) return false;
+      const directoryRelative = token === '-execdir' || token === '-okdir';
+      if (
+        directoryRelative &&
+        stripped.slice(1).some((arg) => arg !== '{}' && !arg.startsWith('-'))
+      ) {
+        return false;
+      }
+      actionSeen = true;
+      index = command.nextIndex;
+      continue;
+    }
+    if (token === '-delete') {
+      actionSeen = true;
+      index++;
+      continue;
+    }
+    if (token === '-name' || token === '-iname') {
+      const pattern = words[index + 1];
+      if (pattern?.provenance !== 'literal' || /[[\\]/.test(pattern.text)) return false;
+      if (!actionSeen) patterns.push(findNamePatternRegExp(pattern.text, token === '-iname'));
+      index += 2;
+      continue;
+    }
+    if (!FIND_NAME_PASSIVE_PRIMARIES.has(token)) return false;
+    index += 1 + getFindPrimaryArity(token);
+  }
+  return (
+    patterns.length > 0 &&
+    !gitMetadataHasEntryNamed(metadata, (name) => patterns.every((regex) => regex.test(name)))
+  );
+}
+
+const FIND_NAME_PASSIVE_PRIMARIES = new Set([
+  '-a',
+  '-and',
+  '-depth',
+  '-maxdepth',
+  '-mindepth',
+  '-mmin',
+  '-mtime',
+  '-newer',
+  '-size',
+  '-type',
+]);
+
+function findNamePatternRegExp(pattern: string, caseless: boolean): RegExp {
+  const source = pattern.replace(/[*?]|[.+^${}()|\]/]/g, (char) =>
+    char === '*' ? '.*' : char === '?' ? '.' : `\\${char}`,
+  );
+  return new RegExp(`^${source}$`, caseless ? 'isu' : 'su');
+}
+
+/** An rm or rmdir in command position of a shell -c body, which may receive the found path as a
+ *  positional parameter (`sh -c 'rm -rf "$0"' {}`) or an embedded `{}`. */
+const SHELL_RM_COMMAND = /(?:^|[\s;&|(`])\\?(?:\S*\/)?rm(?:dir)?(?=[\s;&|)`]|$)/;
+
 export function findExecRmDeletesFoundPaths(
   tokens: readonly string[],
   environment: EnvironmentContext,
@@ -222,9 +314,11 @@ export function findExecRmDeletesFoundPaths(
     const command = getFindExecCommand(tokens, index);
     const stripped = stripWrappersForPathScan([...command.tokens], environment);
     const head = getBasename(stripped[0] ?? '').toLowerCase();
-    if ((head === 'rm' || head === 'rmdir') && stripped.some((token) => token.includes('{}'))) {
-      return true;
-    }
+    const removes =
+      head === 'rm' ||
+      head === 'rmdir' ||
+      (SHELL_WRAPPERS.has(head) && SHELL_RM_COMMAND.test(extractDashCArg(stripped) ?? ''));
+    if (removes && stripped.some((token) => token.includes('{}'))) return true;
     index = command.nextIndex;
   }
   return false;
