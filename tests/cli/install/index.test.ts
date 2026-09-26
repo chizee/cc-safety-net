@@ -643,7 +643,7 @@ const openclawScript = (status: string) => [
   { command: 'openclaw' },
 ];
 const openclawCalls = [
-  'openclaw plugins install <repo>/dist/openclaw/cc-safety-net --force\t<root>',
+  'openclaw plugins install <repo>/dist/openclaw/cc-safety-net --force --accept-capabilities\t<root>',
   'openclaw plugins enable cc-safety-net\t<root>',
   'openclaw plugins inspect cc-safety-net --runtime --json\t<root>',
 ].sort();
