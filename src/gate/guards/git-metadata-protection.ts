@@ -1,4 +1,5 @@
-import { isAbsolute, relative } from 'node:path';
+import { type Dirent, lstatSync, readdirSync } from 'node:fs';
+import { basename, isAbsolute, join, relative } from 'node:path';
 import type { Budget } from '@/core/budget';
 import { normalizeProtectedPathCandidate } from '@/core/paths/canonicalization';
 import { getBasename } from '@/core/shell/tokens';
@@ -158,6 +159,43 @@ function isProtectedExactOrHookTarget(candidate: string, metadata: ProtectedGitM
 
 function isProtectedHookTarget(candidate: string, metadata: ProtectedGitMetadata): boolean {
   return metadata.hooksDirectories.some((hooks) => isEqualOrWithin(candidate, hooks));
+}
+
+const GIT_METADATA_NAME_SCAN_LIMIT = 50_000;
+
+/** Whether any protected Git metadata entry, or the entry itself, has a name `matches` accepts.
+ *  Answers true when the tree is too large, a root is a symlink, or a directory is unreadable, so a
+ *  caller that relaxes a block on a false answer never does so without having seen every name. */
+export function gitMetadataHasEntryNamed(
+  metadata: ProtectedGitMetadata,
+  matches: (name: string) => boolean,
+): boolean {
+  const pending = [...new Set(protectedRoots(metadata))];
+  if (pending.some((path) => matches(basename(path)))) return true;
+  let scanned = 0;
+  while (pending.length > 0) {
+    const directory = pending.pop() ?? '';
+    const entries = readDirectoryEntries(directory);
+    if (!entries) return true;
+    scanned += entries.length;
+    if (scanned > GIT_METADATA_NAME_SCAN_LIMIT) return true;
+    if (entries.some((entry) => matches(entry.name))) return true;
+    pending.push(
+      ...entries.filter((entry) => entry.isDirectory()).map((entry) => join(directory, entry.name)),
+    );
+  }
+  return false;
+}
+
+function readDirectoryEntries(directory: string): Dirent[] | null {
+  try {
+    const stats = lstatSync(directory, { throwIfNoEntry: false });
+    if (!stats) return [];
+    if (!stats.isDirectory()) return stats.isSymbolicLink() ? null : [];
+    return readdirSync(directory, { withFileTypes: true, encoding: 'utf8' });
+  } catch {
+    return null;
+  }
 }
 
 function protectedRoots(metadata: ProtectedGitMetadata): readonly string[] {

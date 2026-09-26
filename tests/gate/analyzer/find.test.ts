@@ -36,7 +36,9 @@ beforeAll(() => {
   writeTree(root, {
     'home/notes': null,
     'work/logs': null,
-    'work/.git/hooks': null,
+    'work/.git/HEAD': 'ref: refs/heads/main\n',
+    'work/.git/hooks/pre-commit.sample': '#!/bin/sh\n',
+    'work/.git/objects/pack/pack-1.pack': '',
     scratch: null,
   });
   const gitDir = join(workspace, '.git');
@@ -403,6 +405,87 @@ describe('find analysis', () => {
     expect(matchId('find . -exec DANGER {} \\;', off)).toBeNull();
     expect(matchId('find . -exec CUSTOM {} \\;', off)).toBe('custom.nested');
     expect(matchId('find / -delete', off)).toBe('rm.recursive-force-root-or-home');
+  });
+
+  test('a delete filtered by -name reaches git metadata only when a metadata entry matches', () => {
+    const metadata = caseFor('workspace with git metadata');
+    const rows: readonly { readonly source: string; readonly id: string | null }[] = [
+      { source: 'find . -name "*.pyc" -exec rm {} +', id: null },
+      { source: 'find . -name "*.pyc" -exec rm -f {} \\;', id: null },
+      { source: "find . -iname '*.ORIG' -exec rm {} \\;", id: null },
+      { source: 'find . -name "*.pyc" -delete', id: 'find.delete' },
+      {
+        source: 'find . -type d -name __pycache__ -exec rm -rf {} +',
+        id: 'find.delete-git-metadata',
+      },
+      { source: 'find . -name "*.sample" -exec rm {} +', id: 'find.delete-git-metadata' },
+      { source: 'find . -name "pre-*" -exec rm {} +', id: 'find.delete-git-metadata' },
+      { source: 'find . -name HEAD -exec rm {} +', id: 'find.delete-git-metadata' },
+      { source: 'find . -iname head -exec rm {} +', id: 'find.delete-git-metadata' },
+      { source: 'find . -name "*.pack" -delete', id: 'find.delete-git-metadata' },
+      { source: 'find . -name .git -exec rm -rf {} +', id: 'find.delete-git-metadata' },
+      { source: 'find . -name "*" -exec rm {} +', id: 'find.delete-git-metadata' },
+      { source: 'find . -name *.pyc -exec rm {} +', id: 'find.delete-git-metadata' },
+      { source: 'find . -name "*.$EXT" -exec rm {} +', id: 'find.delete-git-metadata' },
+      { source: 'find . ! -name "*.pyc" -exec rm {} +', id: 'find.delete-git-metadata' },
+      { source: 'find . -name "*.pyc" -o -type f -exec rm {} +', id: 'find.delete-git-metadata' },
+      { source: 'find . -type f -exec rm {} +', id: 'find.delete-git-metadata' },
+      { source: 'find .git -name "*.pyc" -exec rm {} +', id: null },
+      { source: 'find .git -name "pre-commit*" -exec rm {} +', id: 'find.delete-git-metadata' },
+      { source: "find . -type d -name 'build-*' -exec rm -r {} +", id: 'find.delete-git-metadata' },
+      { source: "find . -name 'build-*' -exec rm -R -- {} +", id: 'find.delete-git-metadata' },
+      {
+        source: "find . -name 'build-*' -exec rm --recursive {} +",
+        id: 'find.delete-git-metadata',
+      },
+      { source: "find . -name 'build-*' -exec sudo rm -r {} +", id: 'find.delete-git-metadata' },
+      {
+        source: "find . -name 'x*' -exec rm {} + -exec rm -r {} +",
+        id: 'find.delete-git-metadata',
+      },
+      {
+        source: 'find . -maxdepth 0 -name . -exec rm {}/.git/hooks/pre-commit \\;',
+        id: 'find.delete-git-metadata',
+      },
+      {
+        source: 'find . -name "*.pyc" -exec rm -f {}/.git/index {}/.git/HEAD \\;',
+        id: 'find.delete-git-metadata',
+      },
+      {
+        source: 'find . -name "*.pyc" -exec rm {} \\; -execdir rm .git/hooks/pre-commit \\;',
+        id: 'find.delete-git-metadata',
+      },
+      { source: 'find . -name "*.pyc" -execdir rm -f -- {} \\;', id: null },
+      { source: 'find . -exec sh -c \'rm -rf "$0"\' {} \\;', id: 'find.delete-git-metadata' },
+      {
+        source: 'find . -maxdepth 0 -exec bash -c \'rm -rf "$1"/.git\' _ {} \\;',
+        id: 'find.delete-git-metadata',
+      },
+      { source: "find . -exec sh -c '/bin/rm {}' \\;", id: 'find.delete-git-metadata' },
+      {
+        source: "find . -name 'build-*' -exec sh -c 'rm -- \"$@\"' _ {} +",
+        id: 'find.delete-git-metadata',
+      },
+      { source: "find . -name '*.txt' -exec sh -c 'wc -l \"$0\"' {} \\;", id: null },
+      { source: 'find . -exec sh -c \'echo rm "$0"\' {} \\;', id: 'find.delete-git-metadata' },
+      { source: 'find . -exec sh -c \'"rm" -rf "$0"\' {} +', id: 'find.delete-git-metadata' },
+      { source: 'find . -exec sh -c "r\'\'m -rf \\"$0\\"" {} +', id: 'find.delete-git-metadata' },
+      { source: 'find -H . -name "*.pyc" -exec rm {} +', id: null },
+      { source: 'find . . -name "*.pyc" -exec rm {} +', id: null },
+      { source: 'find . -exec sh -c \'exec rm -rf "$0"\' {} +', id: 'find.delete-git-metadata' },
+      {
+        source: 'find . -exec sh -c \'if [ -d "$0" ]; then rm -rf "$0"; fi\' {} +',
+        id: 'find.delete-git-metadata',
+      },
+      {
+        source: 'find . -exec sh -c \'f() { rm "$1"; }; f "$0"\' {} \\;',
+        id: 'find.delete-git-metadata',
+      },
+      { source: 'find -P -- . -name "*.pyc" -exec rm {} +', id: null },
+    ];
+    for (const row of rows) {
+      expect(matchId(row.source, metadata), row.source).toBe(row.id);
+    }
   });
 
   test('the table reaches the delete, exec and git-metadata rules', () => {

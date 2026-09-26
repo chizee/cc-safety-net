@@ -1,9 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { chmodSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createBudget } from '@/core/budget';
 import { type ProtectedGitMetadata, resolveProtectedGitMetadata } from '@/core/git/metadata';
 import {
   findGitMetadataMutationTargetInSemanticFacts,
+  gitMetadataHasEntryNamed,
   isProtectedGitDeleteTarget,
   isProtectedGitHookNameSelection,
   REASON_GIT_METADATA_PROTECTION,
@@ -17,6 +20,7 @@ import {
   type FakeGitFileFixture,
   type LinkedWorktreeFixture,
 } from '../../helpers';
+import { writeTree } from '../../helpers/fixture-tree';
 
 let worktrees: LinkedWorktreeFixture;
 let submodule: FakeGitFileFixture;
@@ -364,5 +368,45 @@ describe('git metadata mutation targets in semantic facts', () => {
     expect(REASON_GIT_METADATA_PROTECTION).toBe(
       'Git metadata and hooks are protected. Ask the user before modifying them.',
     );
+  });
+});
+
+describe('git metadata name scan', () => {
+  const metadataFor = (gitDir: string): ProtectedGitMetadata => ({
+    entries: [gitDir],
+    markerFiles: [],
+    directories: [gitDir],
+    hooksDirectories: [join(gitDir, 'hooks')],
+  });
+
+  test('a name is found at any depth, and the entry itself counts', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'git-name-scan-')));
+    const gitDir = join(root, '.git');
+    writeTree(root, { '.git/HEAD': '', '.git/objects/pack/pack-1.pack': '' });
+    try {
+      const metadata = metadataFor(gitDir);
+      expect(gitMetadataHasEntryNamed(metadata, (name) => name === 'pack-1.pack')).toBeTrue();
+      expect(gitMetadataHasEntryNamed(metadata, (name) => name === '.git')).toBeTrue();
+      expect(gitMetadataHasEntryNamed(metadata, (name) => name.endsWith('.pyc'))).toBeFalse();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('a tree it cannot fully read answers as if the name were there', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'git-name-scan-')));
+    writeTree(root, { 'real/HEAD': '', 'unreadable/HEAD': '' });
+    symlinkSync(join(root, 'real'), join(root, 'linked'));
+    try {
+      const never = () => false;
+      expect(gitMetadataHasEntryNamed(metadataFor(join(root, 'linked')), never)).toBeTrue();
+      expect(gitMetadataHasEntryNamed(metadataFor(join(root, 'real')), never)).toBeFalse();
+      if (process.platform === 'win32' || process.getuid?.() === 0) return;
+      chmodSync(join(root, 'unreadable'), 0o000);
+      expect(gitMetadataHasEntryNamed(metadataFor(join(root, 'unreadable')), never)).toBeTrue();
+    } finally {
+      chmodSync(join(root, 'unreadable'), 0o700);
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
