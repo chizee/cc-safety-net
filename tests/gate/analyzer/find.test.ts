@@ -468,6 +468,8 @@ describe('find analysis', () => {
       },
       { source: "find . -name '*.txt' -exec sh -c 'wc -l \"$0\"' {} \\;", id: null },
       { source: 'find . -exec sh -c \'echo rm "$0"\' {} \\;', id: 'find.delete-git-metadata' },
+      { source: 'find . -exec sh -c \'"rm" -rf "$0"\' {} +', id: 'find.delete-git-metadata' },
+      { source: 'find . -exec sh -c "r\'\'m -rf \\"$0\\"" {} +', id: 'find.delete-git-metadata' },
       { source: 'find -H . -name "*.pyc" -exec rm {} +', id: null },
       { source: 'find . . -name "*.pyc" -exec rm {} +', id: null },
       { source: 'find . -exec sh -c \'exec rm -rf "$0"\' {} +', id: 'find.delete-git-metadata' },

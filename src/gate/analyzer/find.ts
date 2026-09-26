@@ -299,7 +299,8 @@ function findNamePatternRegExp(pattern: string, caseless: boolean): RegExp {
 }
 
 /** rm or rmdir as any word of a shell -c body. A parsed command head misses `exec rm`, `then rm` and
- *  function bodies, so a mention such as `echo rm "$0"` also counts: the check fails closed. */
+ *  function bodies, so a mention such as `echo rm "$0"` also counts, and quotes and backslashes are
+ *  dropped first so `"rm"` and `r''m` count too: the check fails closed. */
 const SHELL_RM_WORD = /(?:^|[\s;&|(`{])\\?(?:\S*\/)?rm(?:dir)?(?=[\s;&|)`}]|$)/;
 
 export function findExecRmDeletesFoundPaths(
@@ -318,7 +319,8 @@ export function findExecRmDeletesFoundPaths(
     const removes =
       head === 'rm' ||
       head === 'rmdir' ||
-      (SHELL_WRAPPERS.has(head) && SHELL_RM_WORD.test(extractDashCArg(stripped) ?? ''));
+      (SHELL_WRAPPERS.has(head) &&
+        SHELL_RM_WORD.test((extractDashCArg(stripped) ?? '').replace(/["'\\]/g, '')));
     if (removes && stripped.some((token) => token.includes('{}'))) return true;
     index = command.nextIndex;
   }
