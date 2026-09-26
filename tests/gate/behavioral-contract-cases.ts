@@ -64,6 +64,12 @@ export function behavioralContractCases(paths: {
     (command) => `bash -c ${JSON.stringify(command)}`,
     'printf safe',
   );
+  const nestedRmRule = {
+    name: 'block-recursive-rm',
+    command: 'rm',
+    block_args: ['-r', '-R', '--recursive'],
+    reason: 'Delete files one at a time.',
+  };
   const invalidConfig = {
     configFallbackReason: 'invalid policy config: fix the file named in the diagnostic.',
   };
@@ -319,6 +325,82 @@ export function behavioralContractCases(paths: {
         reasonIncludes: '[block-docker-prune] Use targeted Docker cleanup.',
         segment: 'docker system prune',
       },
+    },
+    ...[
+      { command: "bash -c 'rm -r ./tmpdir'", segment: 'bash -c rm -r ./tmpdir' },
+      { command: "eval 'rm -r ./tmpdir'", segment: 'eval rm -r ./tmpdir' },
+    ].map((row) => ({
+      name: `applies a custom rule for a built-in-analyzed command nested in ${row.command}`,
+      command: row.command,
+      options: options({ cwd: paths.cwd, policy: { rules: [nestedRmRule] } }),
+      expected: {
+        kind: 'block' as const,
+        ruleId: 'custom.block-recursive-rm',
+        intent: 'manual_only' as const,
+        reasonIncludes: '[block-recursive-rm] Delete files one at a time.',
+        segment: row.segment,
+      },
+    })),
+    {
+      name: 'allows a nested built-in-analyzed command the custom rule does not name',
+      command: "bash -c 'rm ./tmpfile'",
+      options: options({ cwd: paths.cwd, policy: { rules: [nestedRmRule] } }),
+      expected: { kind: 'allow' },
+    },
+    {
+      name: 'applies a custom Git rule nested in a shell wrapper',
+      command: "bash -c 'git commit --amend'",
+      options: options({
+        cwd: paths.cwd,
+        policy: {
+          rules: [
+            {
+              name: 'block-amend',
+              command: 'git',
+              subcommand: 'commit',
+              block_args: ['--amend'],
+              reason: 'Create a new commit instead.',
+            },
+          ],
+        },
+      }),
+      expected: {
+        kind: 'block',
+        ruleId: 'custom.block-amend',
+        intent: 'manual_only',
+        reasonIncludes: '[block-amend] Create a new commit instead.',
+        segment: 'bash -c git commit --amend',
+      },
+    },
+    ...['/usr/bin/env git reset --hard', 'sudo /usr/bin/env git reset --hard'].map((command) => ({
+      name: `unwraps an absolute-path env in ${command}`,
+      command,
+      options: options({ cwd: paths.cwd }),
+      expected: {
+        kind: 'block' as const,
+        ruleId: 'git.reset-hard',
+        intent: 'use_alternative' as const,
+        reasonIncludes: 'destroys all uncommitted changes',
+        segment: command,
+      },
+    })),
+    {
+      name: 'unwraps an absolute-path env before a recursive delete',
+      command: '/usr/bin/env rm -rf ../outside',
+      options: options({ cwd: paths.cwd }),
+      expected: {
+        kind: 'block',
+        ruleId: 'rm.recursive-force-outside-cwd',
+        intent: 'scope_down',
+        reasonIncludes: 'outside cwd is blocked',
+        segment: '/usr/bin/env rm -rf ../outside',
+      },
+    },
+    {
+      name: 'allows an absolute-path env running a safe command',
+      command: '/usr/bin/env -- git status',
+      options: options({ cwd: paths.cwd }),
+      expected: { kind: 'allow' },
     },
     {
       name: 'keeps unrelated built-in protection active when one rule is disabled',
