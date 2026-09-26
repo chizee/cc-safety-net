@@ -3,6 +3,7 @@ import type { CommandView } from '@/core/shell/model';
 import { parseCommand } from '@/core/shell/parse';
 import { textCommandWords } from '@/gate/analyzer/command-words';
 import {
+  bindLiteralPositionalParameters,
   extractEvalSource,
   extractLiteralPrintfOutput,
   extractPositionalShellSource,
@@ -307,5 +308,18 @@ describe('gate/analyzer/shell-execution', () => {
     expect(shellSourceHasDynamicExecutionCarrier('bash -c "$1"', new Set())).toBeTrue();
     expect(shellSourceHasDynamicExecutionCarrier('X=$1; bash -c "$X"', new Set())).toBeTrue();
     expect(shellSourceHasDynamicExecutionCarrier('X=1; bash -c "$X"', new Set())).toBeFalse();
+  });
+
+  test('a -c body binds literal positional arguments the way the shell expands them', () => {
+    const bind = (script: string, ...args: string[]) =>
+      bindLiteralPositionalParameters(textCommandWords(['sh', '-c', script, ...args]), script);
+    expect(bind('rm -rf "$1"/.git', '_', '.')).toBe('rm -rf "."/.git');
+    expect(bind('rm -rf $1', '_', 'a /')).toBe("rm -rf 'a' '/'");
+    expect(bind('rm -rf $@', '_', 'a', ' b ')).toBe("rm -rf 'a' 'b'");
+    expect(bind('rm -rf "$@"', '_', 'a b', '/')).toBe('rm -rf "a b" "/"');
+    expect(bind('rm -rf $2', '_', 'a')).toBe('rm -rf ');
+    expect(bind("echo '$1'", '_', '/')).toBe("echo '$1'");
+    expect(bind('rm -rf $1', '_', '*')).toBe('rm -rf $1');
+    expect(bind('IFS=,; rm -rf $*', '_', 'a,/')).toBe('IFS=,; rm -rf $*');
   });
 });

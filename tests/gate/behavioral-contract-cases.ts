@@ -586,7 +586,11 @@ export function behavioralContractCases(paths: {
         segment: 'eval rm -rf /',
       },
     },
-    ...[`sh -c 'rm -rf "$1"' _ /`, `bash -c 'rm -rf -- "$@"' _ dist /`].map((command) => ({
+    ...[
+      `sh -c 'rm -rf "$1"' _ /`,
+      `bash -c 'rm -rf -- "$@"' _ dist /`,
+      `sh -c 'rm -rf $1' _ 'dist /'`,
+    ].map((command) => ({
       name: `blocks a shell -c body whose literal positional argument is root: ${command}`,
       command,
       options: options({ cwd: paths.cwd }),

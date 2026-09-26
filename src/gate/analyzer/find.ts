@@ -15,7 +15,9 @@ import { SHELL_WRAPPERS } from '@/core/rules/constants';
 import { destructiveCommandMatch } from '@/core/rules/destructive';
 import type { DestructiveCommandRuleMatch } from '@/core/rules/types';
 import type { CommandWord } from '@/core/shell/model';
+import { parseCommand } from '@/core/shell/parse';
 import { getBasename } from '@/core/shell/tokens';
+import { projectSegmentWords } from '@/core/shell/traversal';
 import type { AnalyzeNestedOverrides, EnvironmentContext } from '@/gate/analysis';
 import {
   gitMetadataHasEntryNamed,
@@ -236,7 +238,8 @@ function nameFilterExcludesGitMetadata(
   const tokens = words.map(analysisWordText);
   const patterns: RegExp[] = [];
   let actionSeen = false;
-  let index = 1 + (getFindStartingPoints(words)?.length ?? 0);
+  const lastStartingPoint = getFindStartingPoints(words)?.at(-1);
+  let index = lastStartingPoint ? words.indexOf(lastStartingPoint) + 1 : 1;
   while (index < tokens.length) {
     const token = tokens[index] ?? '';
     if (isFindExecPrimary(token)) {
@@ -297,10 +300,6 @@ function findNamePatternRegExp(pattern: string, caseless: boolean): RegExp {
   return new RegExp(`^${source}$`, caseless ? 'isu' : 'su');
 }
 
-/** An rm or rmdir in command position of a shell -c body, which may receive the found path as a
- *  positional parameter (`sh -c 'rm -rf "$0"' {}`) or an embedded `{}`. */
-const SHELL_RM_COMMAND = /(?:^|[\s;&|(`])\\?(?:\S*\/)?rm(?:dir)?(?=[\s;&|)`]|$)/;
-
 export function findExecRmDeletesFoundPaths(
   tokens: readonly string[],
   environment: EnvironmentContext,
@@ -317,11 +316,21 @@ export function findExecRmDeletesFoundPaths(
     const removes =
       head === 'rm' ||
       head === 'rmdir' ||
-      (SHELL_WRAPPERS.has(head) && SHELL_RM_COMMAND.test(extractDashCArg(stripped) ?? ''));
+      (SHELL_WRAPPERS.has(head) && shellBodyRemoves(extractDashCArg(stripped) ?? '', environment));
     if (removes && stripped.some((token) => token.includes('{}'))) return true;
     index = command.nextIndex;
   }
   return false;
+}
+
+/** Whether a shell -c body runs rm or rmdir as a command, which may receive the found path as a
+ *  positional parameter (`sh -c 'rm -rf "$0"' {}`) or an embedded `{}`. */
+function shellBodyRemoves(script: string, environment: EnvironmentContext): boolean {
+  return projectSegmentWords(parseCommand(script, 'posix')).some((segment) =>
+    ['rm', 'rmdir'].includes(
+      getBasename(stripWrappersForPathScan([...segment], environment)[0] ?? '').toLowerCase(),
+    ),
+  );
 }
 
 function findSelectsHooksByName(tokens: readonly string[]): boolean {

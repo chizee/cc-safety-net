@@ -467,6 +467,9 @@ describe('find analysis', () => {
         id: 'find.delete-git-metadata',
       },
       { source: "find . -name '*.txt' -exec sh -c 'wc -l \"$0\"' {} \\;", id: null },
+      { source: 'find . -exec sh -c \'echo rm "$0"\' {} \\;', id: null },
+      { source: 'find -H . -name "*.pyc" -exec rm {} +', id: null },
+      { source: 'find -P -- . -name "*.pyc" -exec rm {} +', id: null },
     ];
     for (const row of rows) {
       expect(matchId(row.source, metadata), row.source).toBe(row.id);
