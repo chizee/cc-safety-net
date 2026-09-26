@@ -136,7 +136,7 @@ export function extractPositionalShellSource(
 
 /** Substitutes literal positional arguments for `$N`, `${N}`, `$@` and `$*` in a shell -c body, so
  *  `sh -c 'rm -rf "$1"' _ /` is analyzed as the command it runs. An unquoted reference splits on
- *  the default IFS into separate words. References inside single quotes stay as written. A
+ *  the default IFS into separate words, keeping edge whitespace as a word break. References inside single quotes stay as written. A
  *  non-literal argument, a body that mentions IFS, an unquoted value with glob characters, or an
  *  expansion past the parser input cap leaves the body unchanged. */
 export function bindLiteralPositionalParameters(
@@ -165,8 +165,12 @@ export function bindLiteralPositionalParameters(
               .map((field) => field.replace(/["$`\\]/g, '\\$&'))
               .join(parameter === '@' ? '" "' : ' ')
           : fields
-              .flatMap((field) => field.split(/[ \t\n]+/).filter(Boolean))
-              .map(quoteShellWord)
+              .map((field) =>
+                field
+                  .split(/[ \t\n]+/)
+                  .map((part) => (part ? quoteShellWord(part) : ''))
+                  .join(' '),
+              )
               .join(' ');
       if (bound.length > MAX_POSITIONAL_EXPANSION_CHARACTERS) return script;
       index += reference[0].length;

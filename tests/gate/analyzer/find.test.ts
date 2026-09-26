@@ -467,8 +467,18 @@ describe('find analysis', () => {
         id: 'find.delete-git-metadata',
       },
       { source: "find . -name '*.txt' -exec sh -c 'wc -l \"$0\"' {} \\;", id: null },
-      { source: 'find . -exec sh -c \'echo rm "$0"\' {} \\;', id: null },
+      { source: 'find . -exec sh -c \'echo rm "$0"\' {} \\;', id: 'find.delete-git-metadata' },
       { source: 'find -H . -name "*.pyc" -exec rm {} +', id: null },
+      { source: 'find . . -name "*.pyc" -exec rm {} +', id: null },
+      { source: 'find . -exec sh -c \'exec rm -rf "$0"\' {} +', id: 'find.delete-git-metadata' },
+      {
+        source: 'find . -exec sh -c \'if [ -d "$0" ]; then rm -rf "$0"; fi\' {} +',
+        id: 'find.delete-git-metadata',
+      },
+      {
+        source: 'find . -exec sh -c \'f() { rm "$1"; }; f "$0"\' {} \\;',
+        id: 'find.delete-git-metadata',
+      },
       { source: 'find -P -- . -name "*.pyc" -exec rm {} +', id: null },
     ];
     for (const row of rows) {

@@ -15,9 +15,7 @@ import { SHELL_WRAPPERS } from '@/core/rules/constants';
 import { destructiveCommandMatch } from '@/core/rules/destructive';
 import type { DestructiveCommandRuleMatch } from '@/core/rules/types';
 import type { CommandWord } from '@/core/shell/model';
-import { parseCommand } from '@/core/shell/parse';
 import { getBasename } from '@/core/shell/tokens';
-import { projectSegmentWords } from '@/core/shell/traversal';
 import type { AnalyzeNestedOverrides, EnvironmentContext } from '@/gate/analysis';
 import {
   gitMetadataHasEntryNamed,
@@ -300,6 +298,10 @@ function findNamePatternRegExp(pattern: string, caseless: boolean): RegExp {
   return new RegExp(`^${source}$`, caseless ? 'isu' : 'su');
 }
 
+/** rm or rmdir as any word of a shell -c body. A parsed command head misses `exec rm`, `then rm` and
+ *  function bodies, so a mention such as `echo rm "$0"` also counts: the check fails closed. */
+const SHELL_RM_WORD = /(?:^|[\s;&|(`{])\\?(?:\S*\/)?rm(?:dir)?(?=[\s;&|)`}]|$)/;
+
 export function findExecRmDeletesFoundPaths(
   tokens: readonly string[],
   environment: EnvironmentContext,
@@ -316,21 +318,11 @@ export function findExecRmDeletesFoundPaths(
     const removes =
       head === 'rm' ||
       head === 'rmdir' ||
-      (SHELL_WRAPPERS.has(head) && shellBodyRemoves(extractDashCArg(stripped) ?? '', environment));
+      (SHELL_WRAPPERS.has(head) && SHELL_RM_WORD.test(extractDashCArg(stripped) ?? ''));
     if (removes && stripped.some((token) => token.includes('{}'))) return true;
     index = command.nextIndex;
   }
   return false;
-}
-
-/** Whether a shell -c body runs rm or rmdir as a command, which may receive the found path as a
- *  positional parameter (`sh -c 'rm -rf "$0"' {}`) or an embedded `{}`. */
-function shellBodyRemoves(script: string, environment: EnvironmentContext): boolean {
-  return projectSegmentWords(parseCommand(script, 'posix')).some((segment) =>
-    ['rm', 'rmdir'].includes(
-      getBasename(stripWrappersForPathScan([...segment], environment)[0] ?? '').toLowerCase(),
-    ),
-  );
 }
 
 function findSelectsHooksByName(tokens: readonly string[]): boolean {

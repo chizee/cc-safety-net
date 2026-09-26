@@ -315,7 +315,9 @@ describe('gate/analyzer/shell-execution', () => {
       bindLiteralPositionalParameters(textCommandWords(['sh', '-c', script, ...args]), script);
     expect(bind('rm -rf "$1"/.git', '_', '.')).toBe('rm -rf "."/.git');
     expect(bind('rm -rf $1', '_', 'a /')).toBe("rm -rf 'a' '/'");
-    expect(bind('rm -rf $@', '_', 'a', ' b ')).toBe("rm -rf 'a' 'b'");
+    expect(bind('rm -rf $@', '_', 'a', ' b ')).toBe("rm -rf 'a'  'b' ");
+    expect(bind('rm -rf prefix$1', '_', ' /')).toBe("rm -rf prefix '/'");
+    expect(bind('rm -rf $1suffix', '_', 'a ')).toBe("rm -rf 'a' suffix");
     expect(bind('rm -rf "$@"', '_', 'a b', '/')).toBe('rm -rf "a b" "/"');
     expect(bind('rm -rf $2', '_', 'a')).toBe('rm -rf ');
     expect(bind("echo '$1'", '_', '/')).toBe("echo '$1'");
