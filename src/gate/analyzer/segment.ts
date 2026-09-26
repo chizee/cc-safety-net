@@ -655,14 +655,6 @@ export function analyzeSegment(
   trace?.recordSegment({ type: 'fallback-scan', tokensScanned: tokensScanned ?? [] });
 
   if (embedded && child && !child.wrappedByTransparent) return null;
-  if (!child && depth !== 0 && matchedKnown) {
-    trace?.recordSegment({
-      type: 'custom-rules-check',
-      rulesChecked: false,
-      matched: false,
-    });
-    return null;
-  }
 
   const customResult = checkPolicyRuleMatch(stripped, options.policy.rules);
   trace?.recordSegment({

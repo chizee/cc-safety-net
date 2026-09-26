@@ -2,6 +2,7 @@ import { isAbsolute, parse as parsePath } from 'node:path';
 import { LIMITS } from '@/core/budget';
 import { resolveChdirTarget } from '@/core/paths/chdir';
 import type { CommandWord } from '@/core/shell/model';
+import { normalizeCommandToken } from '@/core/shell/tokens';
 import type { EnvironmentContext, PathResolver } from '@/gate/analysis';
 import { analysisWordText, textCommandWords } from './command-words';
 import { parseGitContextAppendEnvAssignment } from './git/env';
@@ -43,7 +44,7 @@ export function stripEnvAssignmentWords(words: readonly CommandWord[]): EnvWordS
 }
 
 function hasWrapperPreludeHead(text: string): boolean {
-  const head = text.toLowerCase();
+  const head = normalizeCommandToken(text);
   return (
     text.includes('=') ||
     head === 'sudo' ||
@@ -101,7 +102,7 @@ export function stripWrapperWords(
     }
     if (result.length === 0) break;
 
-    const head = headText(result).toLowerCase();
+    const head = normalizeCommandToken(headText(result));
 
     if (head !== 'sudo' && head !== 'env' && head !== 'command' && head !== 'builtin') {
       break;
