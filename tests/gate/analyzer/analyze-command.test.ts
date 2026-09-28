@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir as systemTempRoot } from 'node:os';
 import { join, sep } from 'node:path';
 import { REASON_DERIVED_COMMAND_WORK_LIMIT } from '@/core/budget';
@@ -657,6 +657,18 @@ describe('analyzeCommand', () => {
     expect(
       decisionAt(project, 'mkdir -p notes.txt/child; cd notes.txt/child; rm -rf .git', standard),
     ).toMatchObject({ kind: 'deny' });
+  });
+
+  test('a mkdir that may not run or cannot succeed creates nothing a later cd can enter', () => {
+    const scratchPosix = scratch.split(sep).join('/');
+    symlinkSync(join(scratch, 'nowhere'), join(scratch, 'dangling'));
+    for (const command of [
+      `if [ -f missing-config ]; then\nmkdir -p '${scratchPosix}/phantom'\nfi\ncd '${scratchPosix}/phantom'\nrm -rf build`,
+      `mkdir -p '${scratchPosix}/dangling/child'; cd '${scratchPosix}/dangling/child'; rm -rf build`,
+      `mkdir '${scratchPosix}/dangling'; cd '${scratchPosix}/dangling'; rm -rf build`,
+    ]) {
+      expect(decision(command, standard)?.ruleId, command).toBe('rm.recursive-force-outside-cwd');
+    }
   });
 
   test('a mkdir operand with thousands of missing components is not probed one by one', () => {

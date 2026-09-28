@@ -970,7 +970,12 @@ function trackCreatedDirectories(
   paths: PathResolver,
   budget: Budget,
 ): void {
-  if (!isBareCommandWord(commandView.words[0], 'mkdir')) return;
+  if (
+    state.shellGitContextState.bodyDepth > 0 ||
+    !isBareCommandWord(commandView.words[0], 'mkdir')
+  ) {
+    return;
+  }
   const args = commandView.words
     .slice(1)
     .map((word) => fileWordPath(word, state.shellGitContextState.shellAssignments));
@@ -990,7 +995,7 @@ function trackCreatedDirectories(
     const leaf = resolveExistingPath(resolve(cwd ?? '', operand), paths, budget);
     const creates = parents
       ? mkdirParentsCreates(leaf, paths)
-      : paths.isDirectory(dirname(leaf)) && paths.realpath(leaf) === null;
+      : paths.isDirectory(dirname(leaf)) && isMissing(leaf, paths);
     if (creates) state.createdDirectories.add(leaf);
   }
 }
@@ -1003,7 +1008,15 @@ function mkdirParentsCreates(path: string, paths: PathResolver): boolean {
     .filter(Boolean);
   const prefixAt = (index: number) => join(root, ...components.slice(0, index + 1));
   const firstNonDirectory = components.findIndex((_, index) => !paths.isDirectory(prefixAt(index)));
-  return firstNonDirectory === -1 || paths.realpath(prefixAt(firstNonDirectory)) === null;
+  return firstNonDirectory === -1 || isMissing(prefixAt(firstNonDirectory), paths);
+}
+
+function isMissing(path: string, paths: PathResolver): boolean {
+  try {
+    return paths.entryKind(path) === 'missing';
+  } catch {
+    return false;
+  }
 }
 
 function catWritesHeredocVerbatim(words: readonly CommandWord[]): boolean {
