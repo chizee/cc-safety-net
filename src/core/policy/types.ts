@@ -129,7 +129,6 @@ export type CommandAnalysisPolicy = EffectivePolicy & {
   >;
 };
 
-/** @internal */
 export type CustomRuleMetadata = {
   id: string;
   rulebook?: {
