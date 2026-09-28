@@ -6,6 +6,7 @@ import type { IntegrationDenial } from '@/core/denial';
 import { processPathResolver } from '@/core/environment';
 import { getNonCommandToolInputKind, type NonCommandToolInputKind } from '@/core/tool-input';
 import {
+  cwdProblem,
   firstTrustedRoot,
   getToolRoute,
   HOOK_INPUT_MAX_BYTES,
@@ -22,6 +23,8 @@ import type { CommandToolKind } from '@/gate/invocation';
 
 const FAIL_CLOSED_REASON =
   'CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.';
+const SESSION_CWD_UNUSABLE_REASON =
+  "CC Safety Net cannot check tool calls because the session's working directory or workspace root no longer exists, is inaccessible, is not a directory, or uses an unsupported path form. Ask the user to restart the session from an existing directory.";
 
 let root = '';
 const tree = {
@@ -352,16 +355,13 @@ describe('the execution directory a hook call reports', () => {
   });
 
   test.each([
-    ['an empty string', '', ''],
-    ['a blank string', '   ', '   '],
-    ['a path that is not there', 'missing', undefined],
-    ['a file', 'file', undefined],
-    ['a number', 42, 'echo hi'],
-    ['null', null, 'echo hi'],
-    ['an object naming a path', { path: 'workspace' }, 'echo hi'],
-  ] as const)('%s fails closed', (_label, cwdInput, expectedSegment) => {
-    const sent = cwdInput === 'missing' ? tree.missing : cwdInput === 'file' ? tree.file : cwdInput;
-    const resolved = resolve(sent);
+    ['an empty string', ''],
+    ['a blank string', '   '],
+    ['a number', 42],
+    ['null', null],
+    ['an object naming a path', { path: 'workspace' }],
+  ] as const)('%s is a malformed payload and fails closed', (_label, cwdInput) => {
+    const resolved = resolve(cwdInput);
 
     expect(resolved.context).toBeNull();
     expect(resolved.denials).toEqual([
@@ -369,17 +369,51 @@ describe('the execution directory a hook call reports', () => {
         reason: FAIL_CLOSED_REASON,
         intent: 'stop_and_explain',
         command: 'echo hi',
-        segment: expectedSegment === undefined ? (sent as string) : expectedSegment,
+        segment: 'echo hi',
+        toolName: 'Bash',
+      },
+    ]);
+  });
+
+  test.each([
+    ['a path that is not there', () => tree.missing],
+    ['a file', () => tree.file],
+  ] as const)('%s is named as the session directory that cannot be used', (_label, cwd) => {
+    const resolved = resolve(cwd());
+
+    expect(resolved.context).toBeNull();
+    expect(resolved.denials).toEqual([
+      {
+        reason: SESSION_CWD_UNUSABLE_REASON,
+        intent: 'hard_stop',
+        command: 'echo hi',
+        cwd: cwd(),
         toolName: 'Bash',
       },
     ]);
   });
 });
 
+describe('why a requested directory was refused', () => {
+  const problem = (requested: string) => cwdProblem(requested, tree.workspace, processPathResolver);
+
+  test('a directory that exists but lies outside the workspace is outside it', () => {
+    expect(problem(tree.outside)).toBe('outside-workspace');
+    expect(problem(tree.escape)).toBe('outside-workspace');
+    expect(problem('..')).toBe('outside-workspace');
+  });
+
+  test('a path that is missing, a file, or relative to nothing real cannot be used', () => {
+    expect(problem(tree.missing)).toBe('unusable');
+    expect(problem(tree.file)).toBe('unusable');
+    expect(problem('missing')).toBe('unusable');
+  });
+});
+
 describe('the fail-closed denial', () => {
-  const denialFor = (toolInput: unknown, segment?: string) => {
+  const denialFor = (toolInput: unknown) => {
     const denials: IntegrationDenial[] = [];
-    outputFailedClosed((denial) => denials.push(denial), toolInput, 'Bash', segment);
+    outputFailedClosed((denial) => denials.push(denial), toolInput, 'Bash');
     expect(denials).toHaveLength(1);
     return denials[0] as IntegrationDenial;
   };
@@ -392,7 +426,6 @@ describe('the fail-closed denial', () => {
       segment: 'rm -rf /',
       toolName: 'Bash',
     });
-    expect(denialFor({ command: 'rm -rf /' }, '/some/segment').segment).toBe('/some/segment');
   });
 
   test.each([
@@ -414,7 +447,6 @@ describe('the fail-closed denial', () => {
       intent: 'stop_and_explain',
       toolName: 'Bash',
     });
-    expect(denialFor(toolInput, '/some/segment').segment).toBe('/some/segment');
   });
 });
 

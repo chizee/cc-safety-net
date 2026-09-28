@@ -297,6 +297,60 @@ describe('denial renderer', () => {
     );
   });
 
+  test('a directory denial names the directory under its own label, not as a segment', () => {
+    expect(
+      next.formatDenial(
+        next.createCwdDenial(
+          { directory: 'session', problem: 'unusable', cwd: '/gone/worktree' },
+          { toolName: 'Read' },
+        ),
+      ),
+    ).toBe(
+      [
+        'BLOCKED by CC Safety Net',
+        "Reason: CC Safety Net cannot check tool calls because the session's working directory or workspace root no longer exists, is inaccessible, is not a directory, or uses an unsupported path form. Ask the user to restart the session from an existing directory.",
+        'Tool: Read',
+        'Working directory: /gone/worktree',
+        FOOTERS.hard_stop,
+      ].join('\n\n'),
+    );
+    expect(
+      next.formatDenial(
+        next.createCwdDenial(
+          { directory: 'requested', problem: 'unusable', cwd: `/tmp/${TOKEN}` },
+          { command: 'git status', toolName: 'Bash' },
+        ),
+      ),
+    ).toBe(
+      [
+        'BLOCKED by CC Safety Net',
+        'Reason: CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command.',
+        'Tool: Bash',
+        'Command: git status',
+        'Working directory: /tmp/<redacted>',
+        FOOTERS.use_alternative,
+      ].join('\n\n'),
+    );
+  });
+
+  test('a directory outside the workspace is told apart from one that cannot be used', () => {
+    const outside = (directory: 'session' | 'requested') =>
+      next.createCwdDenial({ directory, problem: 'outside-workspace', cwd: '/elsewhere' });
+
+    expect(outside('session')).toMatchObject({
+      reason:
+        "CC Safety Net cannot check tool calls because the session's working directory is outside its workspace roots. Ask the user to restart the session from a directory inside the workspace.",
+      intent: 'hard_stop',
+      cwd: '/elsewhere',
+    });
+    expect(outside('requested')).toMatchObject({
+      reason:
+        "CC Safety Net could not use the requested working directory because it is outside the session's workspace. Use a working directory inside the workspace.",
+      intent: 'use_alternative',
+      cwd: '/elsewhere',
+    });
+  });
+
   test('an integration error reports its message, and anything else its string form', () => {
     expect(next.formatIntegrationError(new Error(`boom ${SECRET_COMMAND}`))).toBe(
       'boom GITHUB_TOKEN=<redacted> git push --force origin main',

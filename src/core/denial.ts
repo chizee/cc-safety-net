@@ -10,6 +10,7 @@ export interface FormatBlockedMessageInput {
   command?: string;
   segment?: string;
   toolName?: string;
+  cwd?: string;
   maxLen?: number;
   redact?: (text: string) => string;
   configWarning?: string;
@@ -44,6 +45,7 @@ export function formatBlockedMessage(input: FormatBlockedMessageInput): string {
     input.segment && input.segment !== input.command
       ? `Segment: ${excerpt(redact(input.segment))}`
       : undefined,
+    input.cwd ? `Working directory: ${excerpt(redact(input.cwd))}` : undefined,
     input.configWarning ? `Config warning: ${redact(input.configWarning)}` : undefined,
     input.askUser
       ? 'Approve only if you expected this command.'
@@ -60,6 +62,7 @@ export type IntegrationDenial = {
   command?: string;
   segment?: string;
   toolName?: string;
+  cwd?: string;
 
   configWarning?: string;
   unverifiedByStandardMode?: true;
@@ -95,6 +98,53 @@ export function createFailedClosedDenial(
     command: options.command,
     segment: options.segment ?? options.command,
     toolName: options.toolName,
+  };
+}
+
+const CWD_DENIALS = {
+  session: {
+    unusable: {
+      reason:
+        "CC Safety Net cannot check tool calls because the session's working directory or workspace root no longer exists, is inaccessible, is not a directory, or uses an unsupported path form. Ask the user to restart the session from an existing directory.",
+      intent: 'hard_stop',
+    },
+    'outside-workspace': {
+      reason:
+        "CC Safety Net cannot check tool calls because the session's working directory is outside its workspace roots. Ask the user to restart the session from a directory inside the workspace.",
+      intent: 'hard_stop',
+    },
+  },
+  requested: {
+    unusable: {
+      reason:
+        'CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command.',
+      intent: 'use_alternative',
+    },
+    'outside-workspace': {
+      reason:
+        "CC Safety Net could not use the requested working directory because it is outside the session's workspace. Use a working directory inside the workspace.",
+      intent: 'use_alternative',
+    },
+  },
+} as const satisfies Record<string, Record<string, { reason: string; intent: BlockIntent }>>;
+
+export type CwdProblem = keyof (typeof CWD_DENIALS)['session'];
+
+export type CwdDenial = {
+  directory: keyof typeof CWD_DENIALS;
+  problem: CwdProblem;
+  cwd: string;
+};
+
+export function createCwdDenial(
+  cause: CwdDenial,
+  options: Pick<IntegrationDenial, 'command' | 'toolName'> = {},
+): IntegrationDenial {
+  return {
+    ...CWD_DENIALS[cause.directory][cause.problem],
+    command: options.command,
+    toolName: options.toolName,
+    cwd: cause.cwd,
   };
 }
 

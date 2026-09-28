@@ -1,6 +1,12 @@
 import { accessSync, constants, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import { createFailedClosedDenial, type IntegrationDenial } from '@/core/denial';
+import {
+  type CwdDenial,
+  type CwdProblem,
+  createCwdDenial,
+  createFailedClosedDenial,
+  type IntegrationDenial,
+} from '@/core/denial';
 import type { PathResolver } from '@/core/environment';
 import { isUnsupportedWindowsNamespacePath } from '@/core/paths/canonicalization';
 import {
@@ -58,6 +64,10 @@ export function firstTrustedRoot(
   paths: PathResolver,
 ): string | undefined {
   return trustedRoots.flatMap((root) => canonicalDirectory(root, paths))[0];
+}
+
+export function cwdProblem(requestedCwd: string, baseCwd: string, paths: PathResolver): CwdProblem {
+  return resolveCanonicalCwd(requestedCwd, baseCwd, paths) ? 'outside-workspace' : 'unusable';
 }
 
 function canonicalDirectory(path: string, paths: PathResolver): string[] {
@@ -135,13 +145,18 @@ export function resolveStandardHookContext(
   processCwd: string,
 ): ToolCallContext | null {
   const requestedCwd = cwdInput === undefined ? processCwd : cwdInput;
-  const cwd =
-    typeof requestedCwd === 'string' && requestedCwd.trim() !== ''
-      ? firstTrustedRoot([requestedCwd], paths)
-      : undefined;
+  if (typeof requestedCwd !== 'string' || requestedCwd.trim() === '') {
+    outputFailedClosed(outputDeny, toolInput, toolName);
+    return null;
+  }
+  const cwd = firstTrustedRoot([requestedCwd], paths);
   if (cwd) return { configCwd: cwd, executionCwd: cwd };
 
-  outputFailedClosed(outputDeny, toolInput, toolName, stringField(requestedCwd));
+  outputCwdDenial(outputDeny, toolInput, toolName, {
+    directory: 'session',
+    problem: 'unusable',
+    cwd: requestedCwd,
+  });
   return null;
 }
 
@@ -149,23 +164,24 @@ export function outputFailedClosed(
   outputDeny: HookDenyOutput,
   toolInput?: unknown,
   toolName?: string,
-  segment?: string,
 ): void {
-  let command: string | undefined;
-  try {
-    command = getCommandFromToolInput(toolInput);
-  } catch (error) {
-    if (!(error instanceof ToolInputLimitError)) throw error;
-  }
-  outputDeny(
-    createFailedClosedDenial({
-      command,
-      segment,
-      toolName,
-    }),
-  );
+  outputDeny(createFailedClosedDenial({ command: readableCommand(toolInput), toolName }));
 }
 
-function stringField(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
+export function outputCwdDenial(
+  outputDeny: HookDenyOutput,
+  toolInput: unknown,
+  toolName: string,
+  cause: CwdDenial,
+): void {
+  outputDeny(createCwdDenial(cause, { command: readableCommand(toolInput), toolName }));
+}
+
+function readableCommand(toolInput: unknown): string | undefined {
+  try {
+    return getCommandFromToolInput(toolInput);
+  } catch (error) {
+    if (!(error instanceof ToolInputLimitError)) throw error;
+    return undefined;
+  }
 }

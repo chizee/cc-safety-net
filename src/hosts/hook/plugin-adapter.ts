@@ -1,4 +1,6 @@
 import {
+  type CwdDenial,
+  createCwdDenial,
   createFailedClosedDenial,
   formatIntegrationError,
   type IntegrationDenial,
@@ -40,9 +42,16 @@ export type PluginToolCallHost<Event, Context, Result> = {
 
 export function malformedToolCall(
   cwd: string | null,
-  denial: Pick<IntegrationDenial, 'command' | 'segment' | 'toolName'> = {},
+  denial: Pick<IntegrationDenial, 'command' | 'toolName'> = {},
 ): MalformedToolCall {
   return { malformed: true, denial: createFailedClosedDenial(denial), cwd };
+}
+
+export function refusedCwdToolCall(
+  cause: CwdDenial,
+  denial: Pick<IntegrationDenial, 'command' | 'toolName'>,
+): MalformedToolCall {
+  return { malformed: true, denial: createCwdDenial(cause, denial), cwd: cause.cwd };
 }
 
 export function createPluginToolCallHandler<Event, Context, Result>(

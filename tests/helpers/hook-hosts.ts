@@ -1,7 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LIMITS } from '@/core/budget';
+import { LIMITS, REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/budget';
+import { createCwdDenial } from '@/core/denial';
 import { createProcessEnvironment } from '@/core/environment';
 import { getUserPolicyPath } from '@/core/policy/paths';
 import { runAntigravityCliHook as portedAntigravityCliHook } from '@/hosts/antigravity-cli/hook';
@@ -19,6 +20,7 @@ export type HookOutcome = {
   document: 'none' | 'allow' | 'deny';
   audit: 'allow' | 'deny' | 'none';
   ruleId?: string;
+  reason?: string;
   stderr?: number;
 };
 
@@ -28,6 +30,35 @@ export type HookRow = {
   env?: Record<string, string | undefined>;
   expected: HookOutcome;
 };
+
+const cwdReason = (directory: 'session' | 'requested', problem: 'unusable' | 'outside-workspace') =>
+  createCwdDenial({ directory, problem, cwd: '' }).reason;
+
+const MALFORMED = {
+  document: 'deny',
+  audit: 'deny',
+  reason: REASON_SAFETY_NET_FAILED_CLOSED,
+} as const;
+const SESSION_UNUSABLE = {
+  document: 'deny',
+  audit: 'deny',
+  reason: cwdReason('session', 'unusable'),
+} as const;
+const SESSION_OUTSIDE = {
+  document: 'deny',
+  audit: 'deny',
+  reason: cwdReason('session', 'outside-workspace'),
+} as const;
+const REQUESTED_UNUSABLE = {
+  document: 'deny',
+  audit: 'deny',
+  reason: cwdReason('requested', 'unusable'),
+} as const;
+const REQUESTED_OUTSIDE = {
+  document: 'deny',
+  audit: 'deny',
+  reason: cwdReason('requested', 'outside-workspace'),
+} as const;
 
 const OUTCOMES: Readonly<Record<string, HookOutcome>> = {
   'a denied command': { document: 'deny', audit: 'deny', ruleId: 'git.push-force' },
@@ -42,7 +73,8 @@ const OUTCOMES: Readonly<Record<string, HookOutcome>> = {
   'a read tool over a relative path': { document: 'none', audit: 'none' },
   'a read tool over a private key': { document: 'deny', audit: 'deny', ruleId: 'secret.home.ssh' },
   'a payload without a cwd': { document: 'none', audit: 'allow' },
-  'a cwd that is a regular file': { document: 'deny', audit: 'deny' },
+  'a cwd that is a regular file': SESSION_UNUSABLE,
+  'a cwd that does not exist': SESSION_UNUSABLE,
   'a denied command under a malformed user policy': {
     document: 'deny',
     audit: 'deny',
@@ -66,9 +98,10 @@ const OUTCOMES: Readonly<Record<string, HookOutcome>> = {
   'a transcript under the Claude config directory': { document: 'none', audit: 'allow' },
   'no transcript under a Claude Code entrypoint': { document: 'none', audit: 'allow' },
   'a tool cwd inside the session cwd': { document: 'none', audit: 'allow' },
-  'a tool cwd outside the session cwd': { document: 'deny', audit: 'deny' },
-  'a blank tool cwd': { document: 'deny', audit: 'deny' },
-  'a tool cwd that is not a string': { document: 'deny', audit: 'deny' },
+  'a tool cwd outside the session cwd': REQUESTED_OUTSIDE,
+  'a tool cwd that does not exist': REQUESTED_UNUSABLE,
+  'a blank tool cwd': MALFORMED,
+  'a tool cwd that is not a string': MALFORMED,
   'tool args that are not a string': { document: 'deny', audit: 'deny' },
   'tool args that are not JSON': { document: 'deny', audit: 'deny' },
   'a powershell command': {
@@ -78,20 +111,24 @@ const OUTCOMES: Readonly<Record<string, HookOutcome>> = {
   },
   'a blank session id': { document: 'none', audit: 'none' },
   'a working directory inside the workspace roots': { document: 'allow', audit: 'allow' },
-  'a working directory outside the workspace roots': { document: 'deny', audit: 'deny' },
-  'a blank working directory': { document: 'deny', audit: 'deny' },
-  'no workspace roots': { document: 'deny', audit: 'deny' },
-  'a cwd outside the workspace roots': { document: 'deny', audit: 'deny' },
+  'a working directory outside the workspace roots': REQUESTED_OUTSIDE,
+  'a working directory that does not exist': REQUESTED_UNUSABLE,
+  'a blank working directory': MALFORMED,
+  'no workspace roots': MALFORMED,
+  'workspace roots that do not exist': SESSION_UNUSABLE,
+  'a cwd outside the workspace roots': SESSION_OUTSIDE,
   'a Cwd inside the workspace paths': { document: 'none', audit: 'allow' },
-  'a Cwd outside the workspace paths': { document: 'deny', audit: 'deny' },
-  'a blank Cwd': { document: 'deny', audit: 'deny' },
+  'a Cwd outside the workspace paths': REQUESTED_OUTSIDE,
+  'a Cwd that does not exist': REQUESTED_UNUSABLE,
+  'no workspace paths': MALFORMED,
+  'a blank Cwd': MALFORMED,
   'view targets past the path-canonicalization budget': { document: 'deny', audit: 'deny' },
   'tool input the host truncated': { document: 'deny', audit: 'deny' },
   'a cwd inside the workspace root': { document: 'allow', audit: 'allow' },
-  'a cwd outside the workspace root': { document: 'deny', audit: 'deny' },
+  'a cwd outside the workspace root': SESSION_OUTSIDE,
   'a workdir that exists': { document: 'none', audit: 'allow' },
-  'a workdir that does not exist': { document: 'deny', audit: 'deny' },
-  'a blank workdir': { document: 'deny', audit: 'deny' },
+  'a workdir that does not exist': REQUESTED_UNUSABLE,
+  'a blank workdir': MALFORMED,
 };
 
 const ANSWERED_OUTCOMES: Readonly<Record<string, HookOutcome>> = {
@@ -114,6 +151,7 @@ export type HookFixture = {
   project: string;
   outside: string;
   file: string;
+  missing: string;
   remove: () => void;
 };
 
@@ -160,6 +198,7 @@ export function createHookFixture(prefix: string): HookFixture {
     project,
     outside: join(root, 'outside'),
     file: join(root, NOT_A_DIRECTORY),
+    missing: join(root, 'gone'),
     remove: () => rmSync(root, { recursive: true, force: true }),
   };
 }
@@ -328,6 +367,7 @@ const HOST_SPECS: readonly HostSpec[] = [
         stdin: kimiPayload(fixture, join(fixture.project, 'sub')),
       },
       { name: 'a tool cwd outside the session cwd', stdin: kimiPayload(fixture, fixture.outside) },
+      { name: 'a tool cwd that does not exist', stdin: kimiPayload(fixture, fixture.missing) },
       { name: 'a blank tool cwd', stdin: kimiPayload(fixture, '') },
       { name: 'a tool cwd that is not a string', stdin: kimiPayload(fixture, 5) },
     ],
@@ -392,12 +432,22 @@ const HOST_SPECS: readonly HostSpec[] = [
         }),
       },
       {
+        name: 'a working directory that does not exist',
+        stdin: cursorPayload(fixture, {
+          tool_input: { command: 'git status', working_directory: fixture.missing },
+        }),
+      },
+      {
         name: 'a blank working directory',
         stdin: cursorPayload(fixture, {
           tool_input: { command: 'git status', working_directory: '' },
         }),
       },
       { name: 'no workspace roots', stdin: cursorPayload(fixture, { workspace_roots: [] }) },
+      {
+        name: 'workspace roots that do not exist',
+        stdin: cursorPayload(fixture, { workspace_roots: [fixture.missing] }),
+      },
       {
         name: 'a cwd outside the workspace roots',
         stdin: cursorPayload(fixture, { cwd: fixture.outside }),
@@ -424,7 +474,19 @@ const HOST_SPECS: readonly HostSpec[] = [
         name: 'a Cwd outside the workspace paths',
         stdin: antigravityPayload(fixture, { Cwd: fixture.outside }),
       },
+      {
+        name: 'a Cwd that does not exist',
+        stdin: antigravityPayload(fixture, { Cwd: fixture.missing }),
+      },
       { name: 'a blank Cwd', stdin: antigravityPayload(fixture, { Cwd: '' }) },
+      {
+        name: 'no workspace paths',
+        stdin: JSON.stringify({
+          conversationId: SESSION,
+          workspacePaths: [],
+          toolCall: { name: 'run_command', args: { CommandLine: 'git status' } },
+        }),
+      },
       {
         name: 'view targets past the path-canonicalization budget',
         stdin: JSON.stringify({
@@ -537,6 +599,7 @@ function commonRows(spec: HostSpec, fixture: HookFixture): Omit<HookRow, 'expect
     },
     { name: 'a payload without a cwd', stdin: commandPayload('git status') },
     { name: 'a cwd that is a regular file', stdin: commandPayload('git status', fixture.file) },
+    { name: 'a cwd that does not exist', stdin: commandPayload('git status', fixture.missing) },
     {
       name: 'a denied command under a malformed user policy',
       stdin: inProject('git reset --hard HEAD~1'),

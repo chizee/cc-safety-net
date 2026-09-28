@@ -1,8 +1,10 @@
 import type { IntegrationDenial } from '@/core/denial';
 import type { Environment } from '@/core/environment';
 import {
+  cwdProblem,
   firstTrustedRoot,
   getToolRoute,
+  outputCwdDenial,
   outputFailedClosed,
   resolveContainedCwd,
 } from '@/gate/intake';
@@ -65,29 +67,38 @@ function resolveGrokBuildContext(
   outputDeny: GrokBuildDenyOutput,
   environment: Environment,
 ): ToolCallContext | null {
-  const root = firstTrustedRoot(requestedGrokBuildRoots(input), environment.paths);
-  if (!root) {
+  const requestedRoot = requestedGrokBuildRoot(input);
+  if (!requestedRoot) {
     outputFailedClosed(outputDeny, toolInput, toolName);
     return null;
   }
+  const root = firstTrustedRoot([requestedRoot], environment.paths);
+  if (!root) {
+    outputCwdDenial(outputDeny, toolInput, toolName, {
+      directory: 'session',
+      problem: 'unusable',
+      cwd: requestedRoot,
+    });
+    return null;
+  }
 
-  const base = resolveContainedCwd(grokBuildBaseCwd(input.cwd), [root], environment.paths);
+  const baseCwd = grokBuildBaseCwd(input.cwd);
+  const base = resolveContainedCwd(baseCwd, [root], environment.paths);
   if (!base) {
-    outputFailedClosed(
-      outputDeny,
-      toolInput,
-      toolName,
-      typeof input.cwd === 'string' ? input.cwd : undefined,
-    );
+    outputCwdDenial(outputDeny, toolInput, toolName, {
+      directory: 'session',
+      problem: cwdProblem(baseCwd, root, environment.paths),
+      cwd: baseCwd,
+    });
     return null;
   }
 
   return { configCwd: base, executionCwd: base };
 }
 
-function requestedGrokBuildRoots(input: GrokBuildHookInput): string[] {
+function requestedGrokBuildRoot(input: GrokBuildHookInput): string | undefined {
   const root = input.workspaceRoot === undefined ? input.cwd : input.workspaceRoot;
-  return typeof root === 'string' && root.trim() !== '' ? [root] : [];
+  return typeof root === 'string' && root.trim() !== '' ? root : undefined;
 }
 
 function grokBuildBaseCwd(cwd: unknown): string {

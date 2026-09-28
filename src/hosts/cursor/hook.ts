@@ -1,8 +1,10 @@
 import type { IntegrationDenial } from '@/core/denial';
-import type { Environment, PathResolver } from '@/core/environment';
+import type { Environment } from '@/core/environment';
 import {
+  cwdProblem,
   firstTrustedRoot,
   getToolRoute,
+  outputCwdDenial,
   outputFailedClosed,
   resolveContainedCwd,
 } from '@/gate/intake';
@@ -62,20 +64,32 @@ function resolveCursorContext(
   outputDeny: CursorDenyOutput,
   environment: Environment,
 ): ToolCallContext | null {
-  const roots = usableCursorRoots(input, environment.paths);
-  if (!roots[0]) {
+  const requestedRoots = requestedCursorRoots(input);
+  if (!requestedRoots[0]) {
     outputFailedClosed(outputDeny, toolInput, toolName);
     return null;
   }
+  const roots = requestedRoots.flatMap((root) => {
+    const canonicalRoot = firstTrustedRoot([root], environment.paths);
+    return canonicalRoot ? [canonicalRoot] : [];
+  });
+  if (!roots[0]) {
+    outputCwdDenial(outputDeny, toolInput, toolName, {
+      directory: 'session',
+      problem: 'unusable',
+      cwd: requestedRoots[0],
+    });
+    return null;
+  }
 
-  const base = resolveContainedCwd(cursorBaseCwd(input.cwd), roots, environment.paths);
+  const baseCwd = cursorBaseCwd(input.cwd);
+  const base = resolveContainedCwd(baseCwd, roots, environment.paths);
   if (!base) {
-    outputFailedClosed(
-      outputDeny,
-      toolInput,
-      toolName,
-      typeof input.cwd === 'string' ? input.cwd : undefined,
-    );
+    outputCwdDenial(outputDeny, toolInput, toolName, {
+      directory: 'session',
+      problem: cwdProblem(baseCwd, roots[0], environment.paths),
+      cwd: baseCwd,
+    });
     return null;
   }
 
@@ -93,17 +107,14 @@ function resolveCursorContext(
   }
   const executionCwd = resolveContainedCwd(workingDirectory, roots, environment.paths);
   if (!executionCwd) {
-    outputFailedClosed(outputDeny, toolInput, toolName, workingDirectory);
+    outputCwdDenial(outputDeny, toolInput, toolName, {
+      directory: 'requested',
+      problem: cwdProblem(workingDirectory, roots[0], environment.paths),
+      cwd: workingDirectory,
+    });
     return null;
   }
   return { configCwd: base, executionCwd };
-}
-
-function usableCursorRoots(input: CursorHookInput, paths: PathResolver): string[] {
-  return requestedCursorRoots(input).flatMap((root) => {
-    const canonicalRoot = firstTrustedRoot([root], paths);
-    return canonicalRoot ? [canonicalRoot] : [];
-  });
 }
 
 function requestedCursorRoots(input: CursorHookInput): string[] {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { createFailedClosedDenial, formatDenial } from '@/core/denial';
+import { createCwdDenial, createFailedClosedDenial, formatDenial } from '@/core/denial';
 import {
   createOpenClawBeforeToolCallHandler as portedHandler,
   registerOpenClawPlugin as portedRegister,
@@ -16,6 +16,8 @@ const SESSION = 'openclaw-1';
 const WORKSPACE_FAILURE = 'injected workspace failure';
 const ANALYZER_FAILURE = 'injected analyzer failure';
 const CONTEXT_FAILURE = 'injected context failure';
+const cwdReason = (directory: 'session' | 'requested', problem: 'unusable' | 'outside-workspace') =>
+  createCwdDenial({ directory, problem, cwd: '' }).reason;
 
 type Ctx = {
   toolName: string;
@@ -28,7 +30,7 @@ type Row = {
   name: string;
   event: (fixture: HookFixture) => unknown;
   ctx?: (fixture: HookFixture) => Ctx;
-  workspace?: 'throws';
+  workspace?: 'throws' | 'missing';
   breaks?: boolean;
   env?: Record<string, string | undefined>;
   contains?: string;
@@ -44,7 +46,9 @@ const exec = (params: unknown) => ({ toolName: 'exec', params });
 
 function createFakeApi(fixture: HookFixture, workspace: Row['workspace']) {
   const calls: unknown[][] = [];
-  const workspaceByAgent: Record<string, string> = { [AGENT]: fixture.project };
+  const workspaceByAgent: Record<string, string> = {
+    [AGENT]: workspace === 'missing' ? fixture.missing : fixture.project,
+  };
   return {
     calls,
     api: {
@@ -120,13 +124,21 @@ const ROWS: readonly Row[] = [
   {
     name: 'a workdir outside the workspace',
     event: (fixture) => exec({ command: 'git status', workdir: fixture.outside }),
-    contains: 'Segment:',
+    contains: cwdReason('requested', 'outside-workspace'),
+    blocked: true,
+    lines: 1,
+  },
+  {
+    name: 'a workdir that does not exist',
+    event: () => exec({ command: 'git status', workdir: 'missing' }),
+    contains: cwdReason('requested', 'unusable'),
     blocked: true,
     lines: 1,
   },
   {
     name: 'a blank workdir',
     event: () => exec({ command: 'git status', workdir: '' }),
+    contains: 'failed closed',
     blocked: true,
     lines: 1,
   },
@@ -172,6 +184,14 @@ const ROWS: readonly Row[] = [
     name: 'a workspace lookup that throws',
     event: () => exec({ command: 'git status' }),
     workspace: 'throws',
+    blocked: true,
+    lines: 1,
+  },
+  {
+    name: 'a workspace that does not exist',
+    event: () => exec({ command: 'git status' }),
+    workspace: 'missing',
+    contains: cwdReason('session', 'unusable'),
     blocked: true,
     lines: 1,
   },

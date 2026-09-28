@@ -1,4 +1,10 @@
-import { getToolRoute, outputFailedClosed, resolveContainedCwd } from '@/gate/intake';
+import {
+  cwdProblem,
+  getToolRoute,
+  outputCwdDenial,
+  outputFailedClosed,
+  resolveContainedCwd,
+} from '@/gate/intake';
 import type { CommandToolKind } from '@/gate/invocation';
 import { getStandardHookContext } from '@/hosts/hook/common';
 import { runPreToolUseHook } from '@/hosts/hook/pre-tool-use';
@@ -27,7 +33,11 @@ export async function runKimiCodeHook(): Promise<void> {
       }
       const containedCwd = resolveContainedCwd(cwd, [context.configCwd], environment.paths);
       if (!containedCwd) {
-        outputFailedClosed(outputDeny, toolInput, toolName, cwd);
+        outputCwdDenial(outputDeny, toolInput, toolName, {
+          directory: 'requested',
+          problem: cwdProblem(cwd, context.configCwd, environment.paths),
+          cwd,
+        });
         return null;
       }
       return { configCwd: context.configCwd, executionCwd: containedCwd };

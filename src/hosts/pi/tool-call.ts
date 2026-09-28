@@ -9,6 +9,7 @@ import {
   type MalformedToolCall,
   malformedToolCall,
   type PluginHandlerOptions,
+  refusedCwdToolCall,
   type PluginToolCallHost,
 } from '@/hosts/hook/plugin-adapter';
 
@@ -72,11 +73,16 @@ function getPiToolCall(
     return malformedPiToolCall(ctx);
   }
 
-  const validContextCwd =
-    typeof ctx.cwd === 'string' && ctx.cwd.trim() !== ''
-      ? resolveContainedCwd('.', [ctx.cwd], paths)
-      : undefined;
-  if (!validContextCwd) return malformedPiToolCall(ctx, toolCall.toolName);
+  if (typeof ctx.cwd !== 'string' || ctx.cwd.trim() === '') {
+    return malformedPiToolCall(ctx, toolCall.toolName);
+  }
+  const validContextCwd = resolveContainedCwd('.', [ctx.cwd], paths);
+  if (!validContextCwd) {
+    return refusedCwdToolCall(
+      { directory: 'session', problem: 'unusable', cwd: ctx.cwd },
+      { toolName: toolCall.toolName },
+    );
+  }
 
   const shell = PI_COMMAND_TOOL_ADAPTERS.get(toolCall.toolName);
   if (!toolCall.input || typeof toolCall.input !== 'object') {

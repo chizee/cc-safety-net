@@ -188,7 +188,7 @@ const ROWS: readonly Row[] = [
         tool: 'sh',
         tool_input: { command: 'git status' },
       }),
-    contains: 'Segment:',
+    contains: 'Working directory:',
     lines: 1,
   },
   {

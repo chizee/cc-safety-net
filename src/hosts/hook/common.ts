@@ -121,7 +121,7 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
       agent,
       shape,
       toolName,
-      cwd: auditCwd,
+      cwd: denial.cwd ?? auditCwd,
     });
     adapter.outputDeny(denial);
   };
