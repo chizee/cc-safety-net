@@ -329,7 +329,10 @@ function analyzeProgram(
             isConditionalConnector(nextConnector),
           ),
         );
-        if (tracksCommandOutcome) {
+        const enteredExistingDirectory =
+          typeof analyzedState.effectiveCwd === 'string' &&
+          analyzedState.effectiveCwd !== commandState.effectiveCwd;
+        if (tracksCommandOutcome && !enteredExistingDirectory) {
           failureStates.push(state);
           failureStates.push(
             ...functionAnalysis.states.map((functionState) =>

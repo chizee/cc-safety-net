@@ -603,6 +603,15 @@ describe('analyzeCommand', () => {
     );
   });
 
+  test('a cd into an existing directory is treated as unable to fail', () => {
+    const scratchPosix = scratch.split(sep).join('/');
+    expect(decision(`cd '${scratchPosix}' || git reset --hard`, standard)).toBeNull();
+    expect(decision(`cd '${scratchPosix}/missing' || git reset --hard`, standard)?.ruleId).toBe(
+      'git.reset-hard',
+    );
+    expect(decision(`cd '${scratchPosix}' && printf ready; rm -rf build`, standard)).toBeNull();
+  });
+
   test('a cd operand built from literal assignments is tracked', () => {
     const scratchPosix = scratch.split(sep).join('/');
     const workspacePosix = workspace.split(sep).join('/');

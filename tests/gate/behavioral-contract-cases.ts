@@ -1114,8 +1114,26 @@ export function behavioralContractCases(paths: {
       expected: { kind: 'allow' },
     },
     {
-      name: 'blocks a Git discard that a failed cd reaches through an || pipeline',
-      command: `cd ${tempRepo} || printf retry | cat; git reset --hard`,
+      name: 'blocks a delete that a cd into a missing directory reaches through an || pipeline',
+      command: `cd ${tempParent}/missing || printf retry | cat; rm -rf build`,
+      options: options({ cwd: paths.cwd }),
+      expected: {
+        kind: 'block',
+        ruleId: 'rm.recursive-force-outside-cwd',
+        intent: 'scope_down',
+        reasonIncludes: 'rm -rf outside cwd is blocked',
+        segment: 'rm -rf build',
+      },
+    },
+    {
+      name: 'allows a find delete a later line runs in the directory an && chain entered',
+      command: `cd ${tempRepo} && printf ready\nfind . -maxdepth 1 -name 'still-*.jpg' -delete`,
+      options: options({ cwd: paths.cwd }),
+      expected: { kind: 'allow' },
+    },
+    {
+      name: 'blocks a Git discard a later line runs after an && chain whose cd target is missing',
+      command: `cd ${tempParent}/missing && printf ready\ngit reset --hard`,
       options: options({ cwd: paths.cwd }),
       expected: {
         kind: 'block',
