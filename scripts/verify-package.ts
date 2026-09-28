@@ -123,7 +123,13 @@ export async function verifyPackage(): Promise<void> {
         tarball,
         '@opencode-ai/plugin@1.18.29',
         ...(VERIFY_OPENCODE_V2
-          ? ['@opencode/plugin@2.0.6', '@opencode/core@2.0.6', '@effect/platform-node@4.0.0-rc.112']
+          ? [
+              '@opencode/plugin@2.0.6',
+              '@opencode/core@2.0.6',
+              '@effect/platform-node@4.0.0-rc.112',
+              '@effect/platform-node-shared@4.0.0-rc.112',
+              'effect@4.0.0-rc.112',
+            ]
           : []),
         '@types/node@18',
         '@types/json-schema',
