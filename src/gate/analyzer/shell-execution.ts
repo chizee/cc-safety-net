@@ -8,6 +8,7 @@ import type {
 import { DEFAULT_COMMAND_PARSER_LIMITS, parseCommand } from '@/core/shell/parse';
 import { getBasename, normalizeCommandToken, parseShellArgv } from '@/core/shell/tokens';
 import { analysisWordText, isLiteralExecutionSourceWord } from './command-words';
+import { expandKnownVariableWord } from './shell-git-env';
 import { isStandardCommandWrapper } from './transparent-wrappers';
 import { parseEnvAssignment } from './wrapper-prelude';
 
@@ -219,12 +220,15 @@ export function extractShellStdinSource(
 
 export function extractShellScriptOperandSource(
   words: readonly CommandWord[],
+  shellAssignments: ReadonlyMap<string, string> = new Map(),
 ): ShellExecutionSource {
   const scriptIndex = parseShellArgv(words.map(analysisWordText)).scriptIndex;
   if (scriptIndex === null) return NO_SOURCE;
   const word = words[scriptIndex];
   const source = wordText(word);
-  return isLiteralExecutionSourceWord(word, source) ? { kind: 'literal', source } : DYNAMIC_SOURCE;
+  if (isLiteralExecutionSourceWord(word, source)) return { kind: 'literal', source };
+  const expanded = word ? expandKnownVariableWord(word, shellAssignments) : null;
+  return expanded === null ? DYNAMIC_SOURCE : { kind: 'literal', source: expanded };
 }
 
 const REMOTE_FETCHERS = new Set([

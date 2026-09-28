@@ -3,7 +3,7 @@ import type { PathResolver } from '@/core/environment';
 import { isPathOrSubpath, isTrustedTempPath, isTrustedTempRootPath } from '@/core/paths/tmpdir';
 import type { CommandWord } from '@/core/shell/model';
 import { analysisWordText } from '../command-words';
-import { substituteKnownShellVariables } from '../shell-git-env';
+import { expandKnownVariableWord } from '../shell-git-env';
 import { extractGitSubcommandAndRest, splitAtDoubleDash } from './parse';
 import type { GitRuleMatch } from './rules';
 import { getGitExecutionContext, hasGitContextEnvOverride } from './worktree';
@@ -18,7 +18,11 @@ export function getGitTempRootRelaxationForMatch(
   match: GitRuleMatch,
   options: GitAnalyzeOptions,
 ): GitRelaxation | null {
-  const tokens = words.map(analysisWordText);
+  const tokens = words.map(
+    (word) =>
+      expandKnownVariableWord(word, options.shellAssignments ?? new Map()) ??
+      analysisWordText(word),
+  );
   const paths = options.environment.paths;
   const context = getGitExecutionContext(tokens, options.cwd, paths);
   const workspace = options.originalCwd ? paths.realpath(resolve(options.originalCwd)) : null;
@@ -85,12 +89,8 @@ function worktreeRemoveOperand(
   const operands = [...before.filter((token) => !token.startsWith('-')), ...after];
   const operand = operands.length === 1 ? (operands[0] ?? '') : '';
   const operandWord = words.find((word) => word.text === operand);
-  const everyDollarIsParsedExpansion =
-    operandWord?.provenance === 'variable' &&
-    operandWord.parts.every((part) => part.provenance !== 'literal' || !/[$`]/.test(part.raw));
-  const expanded = everyDollarIsParsedExpansion
-    ? substituteKnownShellVariables(operand, shellAssignments ?? new Map())
-    : operand;
+  const expanded =
+    (operandWord && expandKnownVariableWord(operandWord, shellAssignments ?? new Map())) ?? operand;
   if (
     !isAbsolute(expanded) ||
     /[\s$`*?[]/.test(expanded) ||

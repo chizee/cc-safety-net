@@ -166,6 +166,24 @@ describe('analyzeCommand', () => {
       ruleId: 'git.reset-hard',
     });
   });
+  test('a tee heredoc writer named through a literal assignment still exposes the script it runs', () => {
+    expect(
+      decision(`S=${scratch}; tee $S/a.sh <<'EOF'\ngit reset --hard\nEOF\nbash $S/a.sh`, standard),
+    ).toMatchObject({
+      kind: 'deny',
+      ruleId: 'git.reset-hard',
+    });
+  });
+  test('a script path from a literal assignment resolves inside a command substitution', () => {
+    expect(
+      decision(`S=${scratch}; F=$(bash $S/make-fixture.sh) && echo "$F"`, standard),
+    ).toBeNull();
+    expect(decision(`S=${scratch}; bash "$S/make-fixture.sh"`, standard)).toBeNull();
+    expect(decision(`S=$(pwd); bash $S/make-fixture.sh`, standard)).toMatchObject({
+      kind: 'deny',
+      intent: 'stop_and_explain',
+    });
+  });
   test('a command substitution inside arithmetic still receives destructive command analysis', () => {
     const options = {
       environment,

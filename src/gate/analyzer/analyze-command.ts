@@ -49,6 +49,7 @@ import {
   applyShellGitContextEnvSegment,
   cloneShellGitContextEnvState,
   createShellGitContextEnvState,
+  expandKnownVariableWord,
   getSegmentGitContextEnvAssignments,
   type ShellGitContextEnvState,
   segmentTokensWithExpandedAssignments,
@@ -854,8 +855,11 @@ function trackLiteralHeredocFiles(
   )?.heredoc;
   if (!heredoc) return;
 
-  for (const target of getLiteralHeredocOutputTargets(commandView)) {
-    const path = resolveTrackedHeredocPath(target.text, state.effectiveCwd, paths, budget);
+  for (const target of getLiteralHeredocOutputTargets(
+    commandView,
+    state.shellGitContextState.shellAssignments,
+  )) {
+    const path = resolveTrackedHeredocPath(target, state.effectiveCwd, paths, budget);
     if (!path || !isPersistentHeredocFilePath(path)) continue;
     if (
       !state.literalHeredocFiles.has(path) &&
@@ -867,24 +871,35 @@ function trackLiteralHeredocFiles(
   }
 }
 
-function getLiteralHeredocOutputTargets(commandView: CommandView): CommandWord[] {
-  const stdoutTarget = getFinalStdoutRedirection(commandView.redirections)?.target;
-  const literalStdoutTarget = isTrackableLiteralFileWord(stdoutTarget) ? [stdoutTarget] : [];
+function getLiteralHeredocOutputTargets(
+  commandView: CommandView,
+  assignments: ReadonlyMap<string, string>,
+): string[] {
+  const stdoutTarget = heredocOutputPath(
+    getFinalStdoutRedirection(commandView.redirections)?.target,
+    assignments,
+  );
+  const stdoutTargets = stdoutTarget === undefined ? [] : [stdoutTarget];
   if (isBareCommandWord(commandView.words[0], 'cat')) {
-    return catWritesHeredocVerbatim(commandView.words) ? literalStdoutTarget : [];
+    return catWritesHeredocVerbatim(commandView.words) ? stdoutTargets : [];
   }
   if (!isBareCommandWord(commandView.words[0], 'tee')) return [];
 
-  const teeArguments = getTeeArguments(commandView.words.slice(1));
-  if (
-    !teeArguments ||
-    teeArguments.append ||
-    teeArguments.hasUnsupportedOptions ||
-    !teeArguments.operands.every(isTrackableLiteralFileWord)
-  ) {
-    return [];
-  }
-  return [...teeArguments.operands, ...literalStdoutTarget];
+  const teeArguments = getTeeArguments(commandView.words.slice(1), assignments);
+  if (!teeArguments || teeArguments.append || teeArguments.hasUnsupportedOptions) return [];
+  const operandPaths = teeArguments.operands.map((operand) =>
+    heredocOutputPath(operand, assignments),
+  );
+  if (!operandPaths.every((path): path is string => path !== undefined)) return [];
+  return [...operandPaths, ...stdoutTargets];
+}
+
+function heredocOutputPath(
+  word: CommandWord | undefined,
+  assignments: ReadonlyMap<string, string>,
+): string | undefined {
+  if (isTrackableLiteralFileWord(word)) return word.text;
+  return (word && expandKnownVariableWord(word, assignments)) ?? undefined;
 }
 
 function catWritesHeredocVerbatim(words: readonly CommandWord[]): boolean {
@@ -910,7 +925,10 @@ function getFinalStdoutRedirection(
   return redirection?.operator === '>' || redirection?.operator === '>|' ? redirection : undefined;
 }
 
-function getTeeArguments(words: readonly CommandWord[]):
+function getTeeArguments(
+  words: readonly CommandWord[],
+  assignments: ReadonlyMap<string, string> = new Map(),
+):
   | {
       operands: CommandWord[];
       append: boolean;
@@ -922,7 +940,9 @@ function getTeeArguments(words: readonly CommandWord[]):
   let append = false;
   let hasUnsupportedOptions = false;
   for (const word of words) {
-    if (word.provenance !== 'literal') return undefined;
+    if (word.provenance !== 'literal' && expandKnownVariableWord(word, assignments) === null) {
+      return undefined;
+    }
     if (parsesOptions && isBareCommandWord(word, '--')) {
       parsesOptions = false;
       continue;

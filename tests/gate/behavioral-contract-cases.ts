@@ -1074,6 +1074,40 @@ export function behavioralContractCases(paths: {
       },
     },
     {
+      name: 'allows a shell script whose path expands from a literal assignment',
+      command: `S=${tempParent}; bash $S/make-fixture.sh`,
+      options: options({ cwd: paths.cwd }),
+      expected: { kind: 'allow' },
+    },
+    {
+      name: 'blocks a heredoc script written and run through a literal-assignment path',
+      command: `S=${tempParent}; cat > $S/cleanup.sh <<'EOF'\nrm -rf ~\nEOF\nbash $S/cleanup.sh`,
+      options: options({ cwd: paths.cwd }),
+      expected: {
+        kind: 'block',
+        ruleId: 'rm.recursive-force-root-or-home',
+        intent: 'hard_stop',
+        reasonIncludes: 'rm -rf',
+      },
+    },
+    {
+      name: 'blocks a shell script whose path expands from an unbound variable',
+      command: 'bash $S/make-fixture.sh',
+      options: options({ cwd: paths.cwd }),
+      expected: {
+        kind: 'block',
+        ruleId: undefined,
+        intent: 'stop_and_explain',
+        reasonIncludes: 'shell execution source cannot be verified',
+      },
+    },
+    {
+      name: 'allows a Git discard in a temp-root repository named by a literal-assignment git -C',
+      command: `S=${tempRepo}; git -C $S checkout -- README.md`,
+      options: options({ cwd: paths.cwd }),
+      expected: { kind: 'allow' },
+    },
+    {
       name: 'blocks a Git discard after a cd through an unbound variable',
       command: `cd ${tempParent}/$c; git reset --hard`,
       options: options({ cwd: paths.cwd }),

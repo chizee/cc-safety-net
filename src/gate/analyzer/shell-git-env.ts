@@ -51,13 +51,25 @@ export function segmentTokensWithExpandedAssignments(
   );
 }
 
-export function substituteKnownShellVariables(
+function substituteKnownShellVariables(
   text: string,
   assignments: ReadonlyMap<string, string>,
 ): string {
   return text.replace(SHELL_VARIABLE_RE, (match, braced?: string, bare?: string) => {
     return assignments.get(braced ?? bare ?? '') ?? match;
   });
+}
+
+export function expandKnownVariableWord(
+  word: CommandWord,
+  assignments: ReadonlyMap<string, string>,
+): string | null {
+  const everyDollarIsParsedExpansion = word.parts.every(
+    (part) => part.provenance !== 'literal' || !/[$`]/.test(part.raw),
+  );
+  if (word.provenance !== 'variable' || !everyDollarIsParsedExpansion) return null;
+  const expanded = substituteKnownShellVariables(word.text, assignments);
+  return expanded.startsWith('~') || /[\s$`*?[]/.test(expanded) ? null : expanded;
 }
 
 export function createShellGitContextEnvState(
