@@ -120,6 +120,10 @@ const OUTCOMES: Readonly<Record<string, HookOutcome>> = {
   'a Cwd inside the workspace paths': { document: 'none', audit: 'allow' },
   'a Cwd outside the workspace paths': REQUESTED_OUTSIDE,
   'a Cwd that does not exist': REQUESTED_UNUSABLE,
+  'a Cwd whose name starts with two dots inside the workspace paths': {
+    document: 'none',
+    audit: 'allow',
+  },
   'no workspace paths': MALFORMED,
   'a blank Cwd': MALFORMED,
   'view targets past the path-canonicalization budget': { document: 'deny', audit: 'deny' },
@@ -163,6 +167,7 @@ const SESSION = 's1';
 const MISSING_PREFIX = Array.from({ length: 14 }, (_, index) => `m${index}`).join('/');
 const BAD_CONFIG_DIR = 'bad-config';
 const NOT_A_DIRECTORY = 'not-a-directory';
+const DOTTED_DIRECTORY = '..cache';
 const OVERSIZED_PAYLOAD = `{"pad":"${'x'.repeat(8 * 1024 * 1024 - 9)}"}`;
 
 export function createHookFixture(prefix: string): HookFixture {
@@ -175,6 +180,7 @@ export function createHookFixture(prefix: string): HookFixture {
     join(home, '.claude', 'projects'),
     join(home, '.ssh'),
     join(project, 'sub'),
+    join(project, DOTTED_DIRECTORY),
     join(root, 'outside'),
     join(root, BAD_CONFIG_DIR),
   ]) {
@@ -473,6 +479,10 @@ const HOST_SPECS: readonly HostSpec[] = [
       {
         name: 'a Cwd outside the workspace paths',
         stdin: antigravityPayload(fixture, { Cwd: fixture.outside }),
+      },
+      {
+        name: 'a Cwd whose name starts with two dots inside the workspace paths',
+        stdin: antigravityPayload(fixture, { Cwd: join(fixture.project, DOTTED_DIRECTORY) }),
       },
       {
         name: 'a Cwd that does not exist',

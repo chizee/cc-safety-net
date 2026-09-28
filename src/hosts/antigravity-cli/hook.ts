@@ -1,4 +1,4 @@
-import { isAbsolute, join, relative } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { AnalysisLimit, createBudget } from '@/core/budget';
 import {
   type CwdDenial,
@@ -13,7 +13,13 @@ import {
   extractPathLikeToolValues,
   ToolInputLimitError,
 } from '@/core/tool-input';
-import { cwdProblem, firstTrustedRoot, getToolRoute, resolveContainedCwd } from '@/gate/intake';
+import {
+  cwdProblem,
+  firstTrustedRoot,
+  getToolRoute,
+  isSameOrInsidePath,
+  resolveContainedCwd,
+} from '@/gate/intake';
 import type { CommandToolKind, ToolCallContext } from '@/gate/invocation';
 import { runConfiguredHookAdapter } from '@/hosts/hook/common';
 
@@ -181,14 +187,9 @@ function resolveAntigravityTargetRoot(
 function mostSpecificContainingRoot(path: string, roots: readonly string[]): string | null {
   return (
     roots
-      .filter((root) => isSameOrInside(path, root))
+      .filter((root) => isSameOrInsidePath(path, root))
       .reduce((best, root) => (root.length > best.length ? root : best), '') || null
   );
-}
-
-function isSameOrInside(path: string, root: string): boolean {
-  const rel = relative(root, path);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
 function outputAntigravityCwdDeny(
