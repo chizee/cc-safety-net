@@ -1102,6 +1102,30 @@ export function behavioralContractCases(paths: {
       },
     },
     {
+      name: 'allows a shell script whose assignment starts an && chain that crosses a pipeline',
+      command: `S=${tempParent} && git status | head -1 && bash $S/make-fixture.sh`,
+      options: options({ cwd: paths.cwd }),
+      expected: { kind: 'allow' },
+    },
+    {
+      name: 'allows a Git discard in a temp-root repository an && chain reaches across a pipeline',
+      command: `cd ${tempRepo} && git status | head -1 && git reset --hard`,
+      options: options({ cwd: paths.cwd }),
+      expected: { kind: 'allow' },
+    },
+    {
+      name: 'blocks a Git discard that a failed cd reaches through an || pipeline',
+      command: `cd ${tempRepo} || printf retry | cat; git reset --hard`,
+      options: options({ cwd: paths.cwd }),
+      expected: {
+        kind: 'block',
+        ruleId: 'git.reset-hard',
+        intent: 'use_alternative',
+        reasonIncludes: 'destroys all uncommitted changes',
+        segment: 'git reset --hard',
+      },
+    },
+    {
       name: 'allows a Git discard in a temp-root repository named by a literal-assignment git -C',
       command: `S=${tempRepo}; git -C $S checkout -- README.md`,
       options: options({ cwd: paths.cwd }),

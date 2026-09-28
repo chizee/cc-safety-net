@@ -148,6 +148,12 @@ type ConditionalAnalysisStates = {
   failure: AnalysisState[];
 };
 
+type ControlFlowOutcome = {
+  connector: string | undefined;
+  skippedSuccessStates: readonly AnalysisState[];
+  skippedFailureStates: readonly AnalysisState[];
+};
+
 function analyzeProgram(
   program: CommandProgram,
   depth: number,
@@ -158,6 +164,7 @@ function analyzeProgram(
   let states = [...initialStates];
   let conditionalStates: ConditionalAnalysisStates | undefined;
   let previousConnector: string | undefined;
+  let pipelineOutcome: ControlFlowOutcome | undefined;
   for (const [nodeIndex, node] of program.nodes.entries()) {
     if (node.kind === 'connector') {
       previousConnector = node.operator;
@@ -184,7 +191,21 @@ function analyzeProgram(
       previousConnector === '||' ? (priorConditionalStates?.success ?? []) : [];
     const skippedFailureStates =
       previousConnector === '&&' ? (priorConditionalStates?.failure ?? []) : [];
-    const tracksCommandOutcome = conditional || isConditionalConnector(nextConnector);
+    const connectorOutcome = {
+      connector: previousConnector,
+      skippedSuccessStates,
+      skippedFailureStates,
+    };
+    if (isPipelineConnector(nextConnector) && !isPipelineConnector(previousConnector)) {
+      pipelineOutcome = connectorOutcome;
+    }
+    const outcome = isPipelineConnector(nextConnector)
+      ? { connector: undefined, skippedSuccessStates: [], skippedFailureStates: [] }
+      : isPipelineConnector(previousConnector)
+        ? (pipelineOutcome ?? connectorOutcome)
+        : connectorOutcome;
+    const tracksCommandOutcome =
+      isConditionalConnector(outcome.connector) || isConditionalConnector(nextConnector);
 
     if (node.kind === 'function') {
       const successStates = executionStates.flatMap((state) => {
@@ -201,9 +222,9 @@ function analyzeProgram(
       const next = finishControlFlowStep(
         successStates,
         [],
-        skippedSuccessStates,
-        skippedFailureStates,
-        previousConnector,
+        outcome.skippedSuccessStates,
+        outcome.skippedFailureStates,
+        outcome.connector,
         nextConnector,
       );
       states = next.states;
@@ -241,9 +262,9 @@ function analyzeProgram(
       const next = finishControlFlowStep(
         successStates,
         failureStates,
-        skippedSuccessStates,
-        skippedFailureStates,
-        previousConnector,
+        outcome.skippedSuccessStates,
+        outcome.skippedFailureStates,
+        outcome.connector,
         nextConnector,
       );
       states = next.states;
@@ -321,9 +342,9 @@ function analyzeProgram(
     const next = finishControlFlowStep(
       successStates,
       failureStates,
-      skippedSuccessStates,
-      skippedFailureStates,
-      previousConnector,
+      outcome.skippedSuccessStates,
+      outcome.skippedFailureStates,
+      outcome.connector,
       nextConnector,
     );
     states = next.states;
