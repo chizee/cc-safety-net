@@ -594,14 +594,14 @@ function readWord(
       )
         .map((run) => (typeof run === 'string' ? run : run.text))
         .join('');
-      // The substitution stays word text, but a heredoc body its command hands over is masked
-      // out of that text, so the handover events still have to reach the consumer.
-      const handovers = nested
+      const maskedHeredocHandovers = nested
         ? readProgram(nested, context).filter(
             (event) => event.kind === 'redirection' && event.body !== undefined,
           )
         : [];
-      if (handovers.length > 0) events.push(SCOPE_ENTER, ...handovers, SCOPE_EXIT);
+      if (maskedHeredocHandovers.length > 0) {
+        events.push(SCOPE_ENTER, ...maskedHeredocHandovers, SCOPE_EXIT);
+      }
       continue;
     }
     const inner = nested ? readProgram(nested, context) : [];
@@ -815,8 +815,6 @@ export function isCodeInterpreter(command: string): boolean {
   return CODE_INTERPRETERS.has(command) || /^python\d/.test(command);
 }
 
-// Each wrapper's value-taking options, so `sudo -u root` and `env --unset X` do not name the
-// command while `command -p` keeps its next word.
 const WRAPPER_VALUE_OPTIONS = new Map([
   [
     'sudo',
@@ -851,8 +849,6 @@ function skipWrapperOptions(wrapper: string, words: readonly string[]): readonly
   return skipWrapperOptions(wrapper, words.slice(takesValue ? 2 : 1));
 }
 
-// Drops leading wrappers (`env`, `sudo`, `command`, `builtin`) with their options and option
-// values, and `NAME=value` assignments, so the first remaining word is the command.
 function stripConsumerWrappers(words: readonly string[]): string[] {
   const word = words[0];
   if (word === undefined) return [];
@@ -861,8 +857,6 @@ function stripConsumerWrappers(words: readonly string[]): string[] {
   return stripConsumerWrappers(skipWrapperOptions(word, words.slice(1)));
 }
 
-// The words of the command that owns a heredoc, from the consumer on: `time`/`-p`/`--`/`!`
-// come off through getCalledCommandName, wrappers through stripConsumerWrappers.
 function heredocConsumerWords(view: CommandView): string[] {
   const name = getCalledCommandName(view);
   const called = view.words.findIndex(
@@ -888,7 +882,6 @@ function collectDataSinkHeredocSpans(program: CommandProgram): CommandSpan[] {
     const quotedBodies = node.redirections.flatMap((redirection) =>
       redirection.heredoc?.quotedDelimiter ? [redirection.heredoc.bodySpan] : [],
     );
-    // An interpreter reads its heredoc as code, so shell-reading the body invents shell words.
     if (isCodeInterpreterHeredocConsumer(node)) return [...nestedSpans, ...quotedBodies];
     const next = program.nodes[index + 1];
     const piped = next?.kind === 'connector' && (next.operator === '|' || next.operator === '|&');

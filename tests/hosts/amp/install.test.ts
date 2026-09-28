@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { AMP_MANAGED_HEADER } from '@/hosts/amp/artifact';
 import {
   ampArtifactCandidates,
-  getAmpPluginPath,
+  getMaskingLocalFilePath,
   installAmp,
   resolveAmpArtifactPath,
   uninstallAmp,
@@ -222,7 +222,7 @@ describe('clearing a local plugin that masks the personal one', () => {
           {
             seed: {},
           },
-          (environment) => getAmpPluginPath(environment),
+          (environment) => getMaskingLocalFilePath(environment),
         )
       ).outcome,
     ).toEqual({ kind: 'returned', value: local(LEGACY) });

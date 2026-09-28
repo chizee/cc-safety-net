@@ -564,11 +564,7 @@ describe('the carriers a candidate path can arrive through', () => {
     ]);
   });
 
-  test('a heredoc to a stdin-script interpreter is scanned as code, not shell', () => {
-    // Representative reductions of the two recorded Claude Code commands. Both denied on main
-    // because the quoted heredoc body was re-parsed as shell text: the mis-paired triple quotes
-    // exposed `$(echo .env)` and `$HOME/.ssh/config` as bare shell words of the `python3 -`
-    // segment. Nothing in either body reads a sensitive file.
+  test('recorded Claude Code heredocs to a stdin-script interpreter are scanned as code, not shell', () => {
     const recordedEnvReduction = `cd ${repo}
 python3 - <<'EOF'
 p='tests/gate/secret/secret-protection.test.ts'
@@ -601,9 +597,6 @@ assert old in s; s=s.replace(old,new); open(p,'w').write(s)
 EOF
 bun test tests/gate/secret/secret-protection.test.ts 2>&1 | grep -E "expect\\(|pass|fail" | head -40`;
 
-    // Both recorded commands are allowed in standard mode, which is what they were denied in.
-    // Strict still denies them: it inspects inside literal text, and the quoted test source these
-    // bodies edit names a path there. That trade-off is accepted.
     expect(secretIn(recordedEnvReduction, STANDARD)).toBeNull();
     expect(secretIn(recordedEnvReduction, STRICT)).toStrictEqual(env('.env'));
     expect(secretIn(recordedEnvReduction, UNSET)).toStrictEqual(env('.env'));
@@ -662,7 +655,6 @@ bun test tests/gate/secret/secret-protection.test.ts 2>&1 | grep -E "expect\\(|p
         expected: env('.env'),
       },
       {
-        // Strict reads the path inside the command text; only standard treats it as data.
         name: 'a python heredoc whose literal is inert command text in standard mode',
         command: "python3 - <<'EOF'\nx = 'cat .env'\nEOF",
         expected: env('.env'),
@@ -788,14 +780,12 @@ bun test tests/gate/secret/secret-protection.test.ts 2>&1 | grep -E "expect\\(|p
         name: 'a python triple-quoted literal holding test source is inert in standard mode',
         command: 'python3 -c \'x = """a\nb = env(".env")\n"""\'',
         expected: env('.env'),
-        // Strict reads inside the literal text, so the quoted source still names a path there.
         relaxedInStandard: true,
       },
       {
         name: 'a python literal that is inert command text in standard mode',
         command: 'python3 -c "x = \'cat .env\'"',
         expected: env('.env'),
-        // Strict reads the path inside the command text, as it did before this rule.
         relaxedInStandard: true,
       },
       {
@@ -921,7 +911,6 @@ bun test tests/gate/secret/secret-protection.test.ts 2>&1 | grep -E "expect\\(|p
         name: 'a base64 literal decoded inside python code',
         command: 'python3 -c \'import base64; base64.b64decode("LmVudg==")\'',
         expected: env('.env'),
-        // A b64decode call is not a read, exec or eval marker, so standard treats it as data.
         relaxedInStandard: true,
       },
       {
@@ -1119,7 +1108,6 @@ bun test tests/gate/secret/secret-protection.test.ts 2>&1 | grep -E "expect\\(|p
         name: 'a perl open of a literal holding a path and a read mode',
         command: 'perl -e \'open(F, "<.env"); print <F>\'',
         expected: env('.env'),
-        // Standard keeps the literal whole, `<.env`; only strict reads the path inside it.
         relaxedInStandard: true,
       },
       {
@@ -1699,7 +1687,6 @@ describe('a jq program is a filter, not a file operand', () => {
         name: 'an unknown option keeps every token inspected',
         command: "jq --unknown-opt 'to_entries[] | .key' data.json",
         expected: key('to_entries[] | .key'),
-        // Standard mode inspects the token too, but a spaced word off disk is program text.
         relaxedInStandard: true,
       },
       {
@@ -1716,7 +1703,6 @@ describe('a jq program is a filter, not a file operand', () => {
         name: 'a write redirection',
         command: "jq '.a' data.json > secrets.key",
         expected: key('secrets.key'),
-        // Standard mode lets a redirection create a secret-named file that does not exist yet.
         relaxedInStandard: true,
       },
       {

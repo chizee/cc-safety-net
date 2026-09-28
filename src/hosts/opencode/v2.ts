@@ -46,8 +46,7 @@ export function createOpenCodeV2Plugin() {
               new Tool.Error({ message: error instanceof Error ? error.message : String(error) }),
           }),
         );
-        // The tool event does not expose the resolved executable. Check the dialect
-        // at spawn, without correlating concurrent calls or inventing a session ID.
+        // The tool event does not expose the resolved executable.
         yield* ctx.shell.hook('create.before', (event) => {
           if (resolveOpenCodeShellRoute(event.shell) === shell) return Effect.void;
           return Effect.die(

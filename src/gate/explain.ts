@@ -232,12 +232,7 @@ interface GetConfigSourceOptions {
   userConfigDir?: string;
 }
 
-/**
- * Get the config source path and validity status.
- * Checks project config first, falls back to user config.
- *
- * @internal
- */
+/** @internal */
 export function getConfigSource(
   environment: Environment,
   options: GetConfigSourceOptions,

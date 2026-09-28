@@ -18,11 +18,7 @@ const SEGMENT_MAX_LENGTH = 2_000;
 const TOOL_NAME_MAX_LENGTH = 256;
 const CWD_MAX_LENGTH = 32_768;
 
-/**
- * Sanitize session ID to prevent path traversal attacks.
- * Returns null if the session ID is invalid.
- * @internal Exported for testing
- */
+/** @internal */
 export function sanitizeSessionIdForFilename(sessionId: string): string | null {
   const raw = sessionId.trim();
   if (!raw) {
@@ -40,7 +36,7 @@ export function sanitizeSessionIdForFilename(sessionId: string): string | null {
   return safe;
 }
 
-/** @internal Exported for testing */
+/** @internal */
 export function encodeCwdForLogDirname(cwd: string | null): string {
   const encoded = (cwd ?? '').replace(/[^A-Za-z0-9]/g, '-').slice(0, 180);
   return encoded || 'no-cwd';

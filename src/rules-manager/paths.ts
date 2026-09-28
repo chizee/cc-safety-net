@@ -26,7 +26,7 @@ export interface ScopePaths {
   lockTarget: PolicyFilesystemTarget;
 }
 
-/** @internal Where a v2 install published its lockfile; kept for reading those leftovers. */
+/** @internal */
 export function getRulesLockPathForConfigPath(configPath: string): string {
   return join(dirname(configPath), RULES_LOCK_FILE);
 }

@@ -259,12 +259,6 @@ export const USER_POLICY_FIELDS = [
   'audit',
 ];
 
-/**
- * The runtime's only acceptance of a policy document: every recognized valid field survives,
- * everything else falls back to its protective default and is named in `issues`. The degraded
- * snapshot renders those issues in the salvage wording; `user-policy-diagnostics.ts` renders the
- * same issues for the diagnostic surfaces.
- */
 export function validateUserPolicy(
   value: unknown,
   home: string,

@@ -239,8 +239,6 @@ export function readHermesDirective(
   return { allowed: false, reason: String(directive.message) };
 }
 
-// A Hermes gate cold-starts the CLI install, python3, the fake npx, and the node hook in one test.
-// Bun's default 5s budget expired on a Windows runner (main run 35104050732).
 const HERMES_GATE_TIMEOUT_MS = 60_000;
 
 export function describeHermesGates(

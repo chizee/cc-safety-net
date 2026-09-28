@@ -14,9 +14,6 @@ function isBuildChunkArtifact(path: string): boolean {
   return /^dist\/chunks\/[A-Za-z0-9_-]+\.js$/.test(path);
 }
 
-// Every module specifier the source actually imports or requires at runtime.
-// Only import (`from "x"`), dynamic import (`import("x")`), and require (`require("x")`)
-// positions are matched, so the word "import" appearing inside a string literal is ignored.
 /** @internal */
 export function getRuntimeImportSpecifiers(source: string): string[] {
   return [
@@ -28,9 +25,6 @@ export function getRuntimeImportSpecifiers(source: string): string[] {
     .filter((specifier): specifier is string => specifier !== undefined);
 }
 
-// A self-contained artifact may only import Node built-ins; any other specifier
-// (a repository `@/` alias, a shared `./chunks/` file, `@ampcode/plugin`) means
-// a runtime dependency leaked into the bundle.
 /** @internal */
 export function unbundledRuntimeImports(source: string): string[] {
   return [

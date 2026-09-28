@@ -6,9 +6,9 @@ import { createBudget } from '@/core/budget';
 import { type ProtectedGitMetadata, resolveProtectedGitMetadata } from '@/core/git/metadata';
 import {
   findGitMetadataMutationTargetInSemanticFacts,
-  gitMetadataHasEntryNamed,
   isProtectedGitDeleteTarget,
   isProtectedGitHookNameSelection,
+  mayHaveGitMetadataEntryNamed,
   REASON_GIT_METADATA_PROTECTION,
 } from '@/gate/guards/git-metadata-protection';
 import { createSemanticFacts } from '@/gate/guards/semantic-facts';
@@ -385,9 +385,9 @@ describe('git metadata name scan', () => {
     writeTree(root, { '.git/HEAD': '', '.git/objects/pack/pack-1.pack': '' });
     try {
       const metadata = metadataFor(gitDir);
-      expect(gitMetadataHasEntryNamed(metadata, (name) => name === 'pack-1.pack')).toBeTrue();
-      expect(gitMetadataHasEntryNamed(metadata, (name) => name === '.git')).toBeTrue();
-      expect(gitMetadataHasEntryNamed(metadata, (name) => name.endsWith('.pyc'))).toBeFalse();
+      expect(mayHaveGitMetadataEntryNamed(metadata, (name) => name === 'pack-1.pack')).toBeTrue();
+      expect(mayHaveGitMetadataEntryNamed(metadata, (name) => name === '.git')).toBeTrue();
+      expect(mayHaveGitMetadataEntryNamed(metadata, (name) => name.endsWith('.pyc'))).toBeFalse();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -399,11 +399,11 @@ describe('git metadata name scan', () => {
     symlinkSync(join(root, 'real'), join(root, 'linked'));
     try {
       const never = () => false;
-      expect(gitMetadataHasEntryNamed(metadataFor(join(root, 'linked')), never)).toBeTrue();
-      expect(gitMetadataHasEntryNamed(metadataFor(join(root, 'real')), never)).toBeFalse();
+      expect(mayHaveGitMetadataEntryNamed(metadataFor(join(root, 'linked')), never)).toBeTrue();
+      expect(mayHaveGitMetadataEntryNamed(metadataFor(join(root, 'real')), never)).toBeFalse();
       if (process.platform === 'win32' || process.getuid?.() === 0) return;
       chmodSync(join(root, 'unreadable'), 0o000);
-      expect(gitMetadataHasEntryNamed(metadataFor(join(root, 'unreadable')), never)).toBeTrue();
+      expect(mayHaveGitMetadataEntryNamed(metadataFor(join(root, 'unreadable')), never)).toBeTrue();
     } finally {
       chmodSync(join(root, 'unreadable'), 0o700);
       rmSync(root, { recursive: true, force: true });

@@ -22,10 +22,7 @@ export interface AnalyzeResult {
 
 export type EnvironmentContext = Environment;
 
-/**
- * Options for command analysis.
- * @internal
- */
+/** @internal */
 export interface AnalyzeOptions {
   policySnapshot: PolicySnapshot;
 

@@ -100,6 +100,8 @@ const DEFAULT_DEPENDENCIES: GuardDependencies = {
   getModes: getCCSafetyNetEnvModes,
 };
 
+const BARE_SHELL_READING_STDIN = /^(?:\S*\/)?(?:ba|da|z|k)?sh(?:\s+-[A-Za-z-]*)*$/;
+
 export function evaluateGuard(invocation: ToolInvocation, options: GuardOptions): GuardEvaluation {
   const dependencies = { ...DEFAULT_DEPENDENCIES, ...options.dependencies };
   const inputCommand = getInputCommandOrFail(invocation);
@@ -270,23 +272,19 @@ export function evaluateGuard(invocation: ToolInvocation, options: GuardOptions)
     ),
   );
   if (analysis.decision) {
-    // Standard safety hands an unverifiable command to the user rather than to the agent: any
-    // unparseable text, whose destructive pattern the prompt shows, and a dynamic shell source
-    // unless it feeds a shell from stdin or its text names a destructive command outright.
-    const unverifiable =
+    const unverifiedByStandardMode =
       !modes.strict &&
-      analysis.decision.kind === 'deny' &&
       (analysis.decision.ruleId === 'raw-text.dangerous-command' ||
         (analysis.decision.reason === REASON_DYNAMIC_SHELL_SOURCE &&
-          !/^(?:\S*\/)?(?:ba|da|z|k)?sh(?:\s+-[A-Za-z-]*)*$/.test(
-            analysis.decision.evidence?.segment ?? '',
-          ) &&
+          !BARE_SHELL_READING_STDIN.test(analysis.decision.evidence?.segment ?? '') &&
           dangerousInTextMatch(invocation.command as string) === null));
     return {
       stage: 'command-analysis',
       ...reported,
       ...('errorCode' in analysis ? { errorCode: analysis.errorCode } : {}),
-      decision: unverifiable ? { ...analysis.decision, ask: true } : analysis.decision,
+      decision: unverifiedByStandardMode
+        ? { ...analysis.decision, unverifiedByStandardMode: true }
+        : analysis.decision,
     };
   }
   return { stage: 'command-analysis', ...reported, decision: { kind: 'allow' } };

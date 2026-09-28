@@ -47,9 +47,8 @@ const PATH_ROOT_COMMANDS = new Set(['find']);
 const SHELL_RESERVED_WORDS = new Set(['!', 'do', 'elif', 'else', 'if', 'then', 'until', 'while']);
 const FIND_EXEC_PRIMARIES = new Set(['-exec', '-execdir']);
 const FIND_EXEC_TERMINATORS = new Set([';', '+']);
-const FIND_NON_METADATA_ACTIONS = new Set([
+const FIND_NON_METADATA_ARGS = new Set([
   '-delete',
-  // Reads start points out of a file and prints them, so the file's content reaches the output.
   '-files0-from',
   '-exec',
   '-execdir',
@@ -144,7 +143,6 @@ const INTERPRETERS_BY_CLUSTERED_CODE_EVAL_FLAG = new Map([
 ]);
 
 const PATTERN_FIRST_COMMANDS = new Set(['grep', 'rg']);
-// Flags whose value is search text, a title, a message or a filter, never a file name.
 const GH_TEXT_FLAGS = new Set(['--search', '-S', '--title', '-t', '--body', '-b', '--jq', '-q']);
 const GIT_MESSAGE_SUBCOMMANDS = new Set(['commit', 'merge', 'notes', 'stash', 'tag']);
 const GIT_MESSAGE_FLAGS = new Set(['-m', '--message']);
@@ -168,12 +166,10 @@ const PATTERN_ARG_LONG = new Set([
 const PIPE_INPUT_PATH_MARKER = '__CC_SAFETY_NET_PIPE_INPUT__';
 const BARE_PATH_PATTERN = /[\w./~@+-]*[./~][\w./~@+-]*/g;
 const PYTHON_STRING_PREFIX = /(?:^|[^\w])([rRbBuUfF]{1,2})$/;
-// Ruby/Perl/PHP forms whose bodies may hold unbalanced quotes, so masking cannot be trusted.
 const UNMASKABLE_SIMPLE_CODE = /^(?:`|%[qQwWiIxX]?[([{<|!/]|<<<?[~-]?['"]?[A-Za-z_])/;
 const SIMPLE_INTERPOLATION = /#\{|\$\{|\{\$|[$@][A-Za-z_]/;
 const SHELL_EXEC_CALL =
   /\b(?:subprocess\s*\.\s*(?:run|call|Popen|check_output|check_call|getoutput|getstatusoutput)|(?:[\w$]+\s*\.\s*)*(?:exec(?:File)?(?:Sync)?|spawn(?:File)?(?:Sync)?|system|popen|shell_exec|passthru|child_process|eval))\s*\(/g;
-// Ruby and Perl also take the command without parentheses: `system 'cat x'`.
 const SHELL_EXEC_PREFIX = /\b(?:system|exec|spawn|popen)\s*$/;
 const LANGUAGE_EVAL_CALL = /\b(?:eval|exec)\s*\(/g;
 const LANGUAGE_EVAL_PREFIX = /\b(?:eval|exec)\s*$/;
@@ -195,8 +191,7 @@ type SecretTarget = {
 type SecretCandidate = {
   readonly target: string;
   readonly cwd: string;
-  // An output redirection target, which the command writes rather than reads.
-  readonly written?: true;
+  readonly isRedirectionWriteTarget?: true;
 };
 
 type SecretProtectionPolicy = {
@@ -213,13 +208,14 @@ type LiteralFamily = 'python' | 'javascript' | 'simple' | 'opaque';
 
 type CodeLiteral = { readonly start: number; readonly text: string };
 
-type MaskedCode = { readonly masked: string; readonly literals: readonly CodeLiteral[] };
+type MaskedCode =
+  | { readonly kind: 'masked'; readonly masked: string; readonly literals: readonly CodeLiteral[] }
+  | { readonly kind: 'unmaskable' };
 
 type PathExtractionOptions = {
-  // Standard mode: inline-code literals and metadata-only segments are not read candidates.
-  readonly standard?: boolean;
-  // Inside `$( )` an echo/printf operand is captured output, not display text.
-  readonly capturedOutput?: boolean;
+  readonly skipMetadataOnlySegments?: boolean;
+  readonly inlineLiteralsPresumedData?: boolean;
+  readonly displayOperandsAreCapturedOutput?: boolean;
 };
 
 /** @internal */
@@ -264,27 +260,29 @@ function findSensitivePolicyPathTarget(
     if (activeDefaultTargets && !activeDefaultTargets.has(target)) continue;
     const ruleId = isSensitivePath(target, candidate.cwd, config, environment, budget);
     if (ruleId) {
-      // Standard mode: a secret file name matched on a directory names a folder, and written to
-      // where no file exists creates it; a spaced word neither path-shaped nor on disk is text.
-      const fileNameRule = !ruleId.startsWith('secret.home.') && !ruleId.startsWith('secret.cli.');
-      if (
-        activeDefaultTargets &&
-        ((fileNameRule &&
-          environment.paths.isDirectory(
-            candidateAbsolutePath(target, candidate.cwd, environment, budget),
-          )) ||
-          (fileNameRule &&
-            candidate.written === true &&
-            !target.includes('$') &&
-            !candidateExistsOnDisk(target, candidate.cwd, environment, budget)) ||
-          (fileNameRule &&
-            /\s/.test(target) &&
-            !target.includes('$') &&
-            !/^(?:[~./]|[A-Za-z]:[\\/])/.test(target) &&
-            !candidateExistsOnDisk(target, candidate.cwd, environment, budget)))
-      ) {
-        continue;
-      }
+      const standardModeFileNameRule =
+        activeDefaultTargets !== undefined &&
+        !ruleId.startsWith('secret.home.') &&
+        !ruleId.startsWith('secret.cli.');
+      const matchedDirectory =
+        standardModeFileNameRule &&
+        environment.paths.isDirectory(
+          candidateAbsolutePath(target, candidate.cwd, environment, budget),
+        );
+      if (matchedDirectory) continue;
+      const writeCreatesNewFile =
+        standardModeFileNameRule &&
+        candidate.isRedirectionWriteTarget === true &&
+        !target.includes('$') &&
+        !candidateExistsOnDisk(target, candidate.cwd, environment, budget);
+      if (writeCreatesNewFile) continue;
+      const spacedNonPathWord =
+        standardModeFileNameRule &&
+        /\s/.test(target) &&
+        !target.includes('$') &&
+        !/^(?:[~./]|[A-Za-z]:[\\/])/.test(target) &&
+        !candidateExistsOnDisk(target, candidate.cwd, environment, budget);
+      if (spacedNonPathWord) continue;
       if (
         !ruleId.startsWith('secret.cli.') &&
         matchesAllowedPath(
@@ -366,9 +364,10 @@ export function findSensitiveTargetInSemanticFacts(
     environment,
     budget,
     new Set(
-      extractToolPathTargets(facts, environment, budget, { standard: true }).map(
-        (candidate) => candidate.target,
-      ),
+      extractToolPathTargets(facts, environment, budget, {
+        skipMetadataOnlySegments: true,
+        inlineLiteralsPresumedData: true,
+      }).map((candidate) => candidate.target),
     ),
   );
   return refinedTarget?.ruleId !== 'secret.deny-path' && isMetadataOnlyCommand(facts, environment)
@@ -402,7 +401,6 @@ function isMetadataOnlyCommand(facts: SemanticFacts, environment: EnvironmentCon
   return isMetadataOnlyArgv(command, stripped.slice(1));
 }
 
-// A look at names, existence, or ignore status that never reads file content.
 function isMetadataOnlyArgv(command: string, args: readonly string[]): boolean {
   if (command === 'ls' || command === 'stat') return true;
   if (command === 'test') return args.length === 2 && (args[0] === '-e' || args[0] === '-f');
@@ -411,7 +409,7 @@ function isMetadataOnlyArgv(command: string, args: readonly string[]): boolean {
   }
   if (command === 'git') return args[0] === 'check-ignore';
   if (command !== 'find') return false;
-  return !args.some((arg) => FIND_NON_METADATA_ACTIONS.has(arg));
+  return !args.some((arg) => FIND_NON_METADATA_ARGS.has(arg));
 }
 
 function extractToolPathTargets(
@@ -516,7 +514,7 @@ function extractCommandPathTargets(
             state.cwd,
             budget,
             (body) =>
-              heredocHandoverFallback(
+              rewalkInterpreterHeredocAsShell(
                 redirection.consumer ?? [],
                 body,
                 store,
@@ -532,7 +530,7 @@ function extractCommandPathTargets(
       targets.push({
         target: map(redirection.target),
         cwd: state.cwd,
-        ...(redirection.role === 'file-write' ? { written: true as const } : {}),
+        ...(redirection.role === 'file-write' ? { isRedirectionWriteTarget: true as const } : {}),
       });
       return null;
     },
@@ -584,14 +582,13 @@ function extractSegmentPathTargets(
   const executable = stripped[0] ?? '';
   const command = basename(executable).toLowerCase();
   const post = stripped.slice(1);
-  // The walk keeps a compound's reserved words, as in `if [ -f x ]` or `then ls x`.
-  const lookStart = stripped.findIndex((token) => !SHELL_RESERVED_WORDS.has(token));
+  const firstNonReservedWordIndex = stripped.findIndex((token) => !SHELL_RESERVED_WORDS.has(token));
   if (
-    options.standard === true &&
-    lookStart !== -1 &&
+    options.skipMetadataOnlySegments === true &&
+    firstNonReservedWordIndex !== -1 &&
     isMetadataOnlyArgv(
-      basename(stripped[lookStart] ?? '').toLowerCase(),
-      stripped.slice(lookStart + 1),
+      basename(stripped[firstNonReservedWordIndex] ?? '').toLowerCase(),
+      stripped.slice(firstNonReservedWordIndex + 1),
     )
   ) {
     return assignmentValues;
@@ -603,7 +600,7 @@ function extractSegmentPathTargets(
   }
 
   if (NON_PATH_OPERAND_COMMANDS.has(command)) {
-    return options.capturedOutput === true
+    return options.displayOperandsAreCapturedOutput === true
       ? [...assignmentValues, ...extractDisplayCommandOperands(tokens).map(here)]
       : assignmentValues;
   }
@@ -729,16 +726,16 @@ function extractPipeCarrierPathTargets(
   budget: Budget,
 ): SecretCandidate[] {
   if (xargsReadsPipeInputAsPath(consumer, store, options, environment, cwd, budget)) {
-    // A metadata-only producer's operands are dropped from its own segment in standard mode,
-    // but the names it prints become paths the xargs child reads.
     const stripped = stripLeadingWrappersAndEnvAssignments(producer);
-    const listed = isMetadataOnlyArgv(basename(stripped[0] ?? '').toLowerCase(), stripped.slice(1))
+    const namesListedByMetadataProducer = isMetadataOnlyArgv(
+      basename(stripped[0] ?? '').toLowerCase(),
+      stripped.slice(1),
+    )
       ? stripped.slice(1).filter((token) => !token.startsWith('-'))
       : [];
-    return [...extractDisplayCommandOperands(producer), ...listed].map((target) => ({
-      target,
-      cwd,
-    }));
+    return [...extractDisplayCommandOperands(producer), ...namesListedByMetadataProducer].map(
+      (target) => ({ target, cwd }),
+    );
   }
 
   return extractStdinScriptPathTargets(
@@ -753,10 +750,7 @@ function extractPipeCarrierPathTargets(
   );
 }
 
-// An interpreter's quoted heredoc body is masked out of the enclosing shell walk. When that
-// interpreter turns out not to read stdin as a script, nobody would scan the body, so it is walked
-// as shell text again, the way it was before masking. A data-sink consumer keeps its body inert.
-function heredocHandoverFallback(
+function rewalkInterpreterHeredocAsShell(
   consumer: readonly string[],
   body: string,
   store: SemanticFactStore,
@@ -778,12 +772,10 @@ function extractStdinScriptPathTargets(
   environment: EnvironmentContext,
   cwd: string,
   budget: Budget,
-  // A heredoc body its consumer does not read as a script is still shell-walked, the way it was
-  // before the body was masked out of the enclosing walk; a piped body has no such carrier.
-  fallback: (body: string) => SecretCandidate[],
+  rewalkNonScriptHeredocBody: (body: string) => SecretCandidate[],
 ): SecretCandidate[] {
   const interpreter = getStdinScriptInterpreter(consumer);
-  if (interpreter === null) return bodies.flatMap(fallback);
+  if (interpreter === null) return bodies.flatMap(rewalkNonScriptHeredocBody);
 
   return bodies.flatMap((body) =>
     SHELL_STDIN_INTERPRETERS.has(interpreter)
@@ -1260,8 +1252,7 @@ function extractAwkGetlineRedirectTargets(code: string): string[] {
     .filter((value): value is string => value !== undefined && value !== '');
 }
 
-// Fallback for code no masker can read: every quoted and bare path-like token stays a candidate.
-function extractPathLiteralsFromCode(code: string): string[] {
+function extractAllPathCandidatesUnmasked(code: string): string[] {
   const quoted = Array.from(code.matchAll(/(['"`])((?:\\.|(?!\1).)*)\1/g))
     .map((match) => match[2])
     .filter((value): value is string => value !== undefined && value !== '');
@@ -1283,7 +1274,7 @@ function extractInlineCodePathTargets(
 ): SecretCandidate[] {
   const here = (target: string) => ({ target, cwd });
   const masked = maskStringLiterals(code, literalFamily(command));
-  if (masked === null) return extractPathLiteralsFromCode(code).map(here);
+  if (masked.kind === 'unmaskable') return extractAllPathCandidatesUnmasked(code).map(here);
 
   const shellExec =
     masked.masked.match(SHELL_EXEC_CALL) !== null ||
@@ -1295,22 +1286,22 @@ function extractInlineCodePathTargets(
     masked.literals.some((literal) =>
       LANGUAGE_EVAL_PREFIX.test(masked.masked.slice(0, literal.start)),
     );
-  const refine = options.standard === true && !SHELL_STDIN_INTERPRETERS.has(command);
-  // Standard mode: literals are data unless the code as a whole holds a read, exec or eval marker.
+  const literalsPresumedData =
+    options.inlineLiteralsPresumedData === true && !SHELL_STDIN_INTERPRETERS.has(command);
   const literals =
-    refine && !(containsRecognizableInlineAccess(masked.masked) || shellExec || languageEval)
+    literalsPresumedData &&
+    !(containsRecognizableInlineAccess(masked.masked) || shellExec || languageEval)
       ? []
       : masked.literals;
-  // Standard mode walks as shell only what an exec call receives: every literal when the call's
-  // first argument holds a name, otherwise the literals inside the call's parentheses.
-  const execCalls = refine
+  const execCalls = literalsPresumedData
     ? Array.from(masked.masked.matchAll(SHELL_EXEC_CALL), (call) => {
         const start = call.index + call[0].length;
         return { start, end: closingParenthesis(masked.masked, start) };
       })
     : [];
-  const shellLiterals =
-    !refine || execCalls.some((call) => firstArgumentHasName(masked.masked, call.start))
+  const literalsExecCallsReceive =
+    !literalsPresumedData ||
+    execCalls.some((call) => firstArgumentHasName(masked.masked, call.start))
       ? masked.literals
       : masked.literals.filter(
           (literal) =>
@@ -1323,22 +1314,19 @@ function extractInlineCodePathTargets(
       .filter((text) => text !== '')
       .map(here),
     ...literals.flatMap((literal) => decodeBase64PathCandidate(literal.text)).map(here),
-    // Strict and unset also read inside the literal text, where a path can sit among other words.
-    ...(refine
+    ...(literalsPresumedData
       ? []
       : masked.literals
           .flatMap((literal) => literal.text.match(BARE_PATH_PATTERN) ?? [])
           .map(here)),
     ...(shellExec
-      ? shellLiterals.flatMap(
+      ? literalsExecCallsReceive.flatMap(
           (literal) =>
             walkShellText(literal.text, store, options, environment, cwd, budget) ?? [
               here(literal.text),
             ],
         )
       : []),
-    // A language-level eval/exec argument is more code in the same interpreter; the literal is
-    // strictly shorter than the code holding it, so the recursion bottoms out.
     ...(languageEval
       ? masked.literals.flatMap((literal) =>
           extractInlineCodePathTargets(
@@ -1361,45 +1349,43 @@ function extractInlineCodePathTargets(
 function literalFamily(command: string): LiteralFamily {
   const normalized = normalizeInterpreterName(command);
   if (normalized === 'python') return 'python';
-  // AppleScript strings are not modelled, so osascript code keeps the full literal scan.
   if (normalized === 'osascript') return 'opaque';
   return normalized === 'node' || normalized === 'bun' || normalized === 'deno'
     ? 'javascript'
     : 'simple';
 }
 
-// Blanks every string literal so the bare-path regex reads code, not data. Null means the code
-// holds a form this masker cannot delimit, and the caller keeps every candidate.
-function maskStringLiterals(code: string, family: LiteralFamily): MaskedCode | null {
-  if (family === 'opaque') return null;
+function maskStringLiterals(code: string, family: LiteralFamily): MaskedCode {
+  if (family === 'opaque') return { kind: 'unmaskable' };
   const masked = code.split('');
   const literals: CodeLiteral[] = [];
   for (let index = 0; index < code.length; index++) {
     const char = code[index] ?? '';
     if (family === 'simple' && (char === '`' || char === '%' || char === '<')) {
-      if (UNMASKABLE_SIMPLE_CODE.test(code.slice(index))) return null;
+      if (UNMASKABLE_SIMPLE_CODE.test(code.slice(index))) return { kind: 'unmaskable' };
     }
     const quote =
       char === "'" || char === '"' || (family === 'javascript' && char === '`') ? char : null;
     if (quote === null) continue;
-    if (quote === '`' && isTaggedTemplate(code, index)) return null;
+    if (quote === '`' && isTaggedTemplate(code, index)) return { kind: 'unmaskable' };
 
     const prefix = family === 'python' ? pythonStringPrefix(code, index) : '';
     const delimiter =
       family === 'python' && code.startsWith(quote.repeat(3), index) ? quote.repeat(3) : quote;
     const start = index + delimiter.length;
     const end = findLiteralEnd(code, start, delimiter);
-    if (end === null) return null;
+    if (end === null) return { kind: 'unmaskable' };
 
     const text = code.slice(start, end);
-    if (/[fF]/.test(prefix) && text.includes('{')) return null;
-    // Ruby `#{}`, Perl `$x`/`@x`, and PHP `$x`/`{$x}` run code inside double quotes.
-    if (family === 'simple' && quote === '"' && SIMPLE_INTERPOLATION.test(text)) return null;
+    if (/[fF]/.test(prefix) && text.includes('{')) return { kind: 'unmaskable' };
+    if (family === 'simple' && quote === '"' && SIMPLE_INTERPOLATION.test(text)) {
+      return { kind: 'unmaskable' };
+    }
     literals.push({ start, text });
     for (let cursor = index; cursor < end + delimiter.length; cursor++) masked[cursor] = ' ';
     index = end + delimiter.length - 1;
   }
-  return { masked: masked.join(''), literals };
+  return { kind: 'masked', masked: masked.join(''), literals };
 }
 
 function pythonStringPrefix(code: string, index: number): string {
@@ -1478,7 +1464,7 @@ function extractCommandSubstitutionPathTargets(
       ...extractCommandPathTargets(
         syntax,
         store,
-        { ...options, capturedOutput: true },
+        { ...options, displayOperandsAreCapturedOutput: true },
         environment,
         cwd,
         budget,

@@ -163,10 +163,7 @@ function isProtectedHookTarget(candidate: string, metadata: ProtectedGitMetadata
 
 const GIT_METADATA_NAME_SCAN_LIMIT = 50_000;
 
-/** Whether any protected Git metadata entry, or the entry itself, has a name `matches` accepts.
- *  Answers true when the tree is too large, a root is a symlink, or a directory is unreadable, so a
- *  caller that relaxes a block on a false answer never does so without having seen every name. */
-export function gitMetadataHasEntryNamed(
+export function mayHaveGitMetadataEntryNamed(
   metadata: ProtectedGitMetadata,
   matches: (name: string) => boolean,
 ): boolean {

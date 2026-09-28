@@ -31,8 +31,6 @@ export function verifyCoverageSummary(
   summary: CoverageSummary,
   threshold = COVERAGE_THRESHOLD,
 ): CoverageSummary {
-  // 0/0 divides to NaN, and NaN compares below no threshold, so an empty
-  // report would otherwise pass at any threshold.
   const unmeasured = (['lines', 'functions'] as const).filter(
     (metric) => summary[metric].total === 0,
   );

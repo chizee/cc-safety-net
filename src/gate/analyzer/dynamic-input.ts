@@ -1,9 +1,3 @@
-/**
- * Pieces shared by the xargs and GNU Parallel dynamic-input rules. Each tool keeps its own
- * candidate envelope and budget behavior; only the arithmetic below is identical between them.
- */
-
-/** Inner text a dynamic-input slot at `token[start, start + length)` must take for the token to become `target`, or null. */
 export function solveDynamicInput(
   token: string,
   start: number,
@@ -17,7 +11,6 @@ export function solveDynamicInput(
     : null;
 }
 
-/** True when substituting any candidate yields an executable source the original parse did not have. */
 export function substitutionAddsExecutableSource<
   T extends { kind: string; tokenIndex: number; value: string },
 >(

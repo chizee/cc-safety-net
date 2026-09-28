@@ -212,7 +212,6 @@ describe('gate/guards/guard-walk', () => {
     expect(bodies("python3 - <<'EOF'\ncat .env\nEOF")).toStrictEqual(['cat .env\n']);
     expect(bodies("bash <<'EOF'\ncat .env\nEOF")).toStrictEqual([undefined]);
 
-    // The body travels with the words of the command that owns it, wrappers included.
     const consumers = (source: string) => {
       const seen: (readonly string[] | undefined)[] = [];
       observe(source, {

@@ -1,4 +1,3 @@
-/** Runs the packed adapter through OpenCode 2.0.6's actual hook and tool registry. */
 export const OPENCODE_V2_HOST_SCRIPT = `
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';

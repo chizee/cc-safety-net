@@ -12,7 +12,6 @@ export interface ShellGitContextEnvState {
   env: ReadonlyMap<string, string>;
   effectiveEnvAssignments?: ReadonlyMap<string, string>;
   shellAssignments: Map<string, string>;
-  /** Open `then`/`do`/`case` bodies; names bound inside them are forgotten when the last one closes. */
   bodyDepth: number;
   bodyAssignments: Set<string>;
 }
@@ -41,10 +40,6 @@ const COMPOUND_CLOSE_KEYWORDS = new Set(['done', 'fi', 'esac']);
 
 const SHELL_VARIABLE_RE = /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g;
 
-/**
- * The segment's tokens with each unquoted `NAME=...$VAR...` assignment expanded from the known
- * values, as a shell does at assignment time; a quoted or escaped `$` stays literal.
- */
 export function segmentTokensWithExpandedAssignments(
   words: readonly CommandWord[],
   state: ShellGitContextEnvState,
@@ -56,7 +51,6 @@ export function segmentTokensWithExpandedAssignments(
   );
 }
 
-/** Replaces every `$NAME`/`${NAME}` whose value is known; unknown references stay in place. */
 export function substituteKnownShellVariables(
   text: string,
   assignments: ReadonlyMap<string, string>,

@@ -107,7 +107,6 @@ export const GIT_RULE_SUBCOMMANDS = new Set([
   'worktree',
 ]);
 
-/** `isCheckoutPath` reports whether a bare checkout operand names an entry in the working tree. */
 export function analyzeGitRule(
   tokens: readonly string[],
   isCheckoutPath: (operand: string) => boolean,
@@ -199,7 +198,6 @@ function analyzeGitCheckout(
     return destructiveCommandMatch('git.checkout-ambiguous', REASON_CHECKOUT_AMBIGUOUS);
   }
 
-  // A lone operand is a branch switch unless it is spelled as a path or names an existing entry.
   const operand = positionalArgs[0];
   if (
     operand === undefined ||

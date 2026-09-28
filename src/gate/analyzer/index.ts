@@ -67,13 +67,7 @@ export function analyzeOrCapBreach(
   }
 }
 
-/**
- * An analysis limit the analyzer owns, read back as the denial the shipped analyzer returns for
- * it: the whole command as evidence, the cap's wording, and an error step on the open segment or
- * globally when none is. Every other cause is not this function's to answer and gets `null`.
- *
- * @internal
- */
+/** @internal */
 export function analyzerCapBreach(
   cause: unknown,
   command: string,

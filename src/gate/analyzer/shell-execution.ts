@@ -134,18 +134,16 @@ export function extractPositionalShellSource(
   };
 }
 
-/** Substitutes literal positional arguments for `$N`, `${N}`, `$@` and `$*` in a shell -c body, so
- *  `sh -c 'rm -rf "$1"' _ /` is analyzed as the command it runs. An unquoted reference splits on
- *  the default IFS into separate words, keeping edge whitespace as a word break. References inside single quotes stay as written. A
- *  non-literal argument, a body that mentions IFS, an unquoted value with glob characters, or an
- *  expansion past the parser input cap leaves the body unchanged. */
 export function bindLiteralPositionalParameters(
   words: readonly CommandWord[],
   script: string,
 ): string {
   const scriptIndex = findShellScriptIndex(words);
   const values = words.slice(scriptIndex + 1);
-  if (scriptIndex === -1 || !values.every(isLiteralWord) || /\bIFS\b/.test(script)) return script;
+  const bodyCanChangeFieldSplitting = /\bIFS\b/.test(script);
+  if (scriptIndex === -1 || !values.every(isLiteralWord) || bodyCanChangeFieldSplitting) {
+    return script;
+  }
   const texts = values.map(wordText);
   let bound = '';
   let quote: "'" | '"' | null = null;
@@ -158,7 +156,8 @@ export function bindLiteralPositionalParameters(
       const parameter = reference[1] ?? reference[2];
       const fields =
         parameter === '@' || parameter === '*' ? texts.slice(1) : [texts[Number(parameter)] ?? ''];
-      if (quote !== '"' && fields.some((field) => /[*?[]/.test(field))) return script;
+      const unquotedValueWouldGlob = quote !== '"' && fields.some((field) => /[*?[]/.test(field));
+      if (unquotedValueWouldGlob) return script;
       bound +=
         quote === '"'
           ? fields

@@ -56,7 +56,7 @@ export class ToolInputLimitError extends Error {
   }
 }
 
-/** @internal Generous fail-closed bounds for untrusted recursive tool input. */
+/** @internal */
 export const TOOL_INPUT_LIMITS = Object.freeze({
   maxDepth: 64,
   maxNodes: 10_000,

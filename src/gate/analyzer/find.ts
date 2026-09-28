@@ -18,8 +18,8 @@ import type { CommandWord } from '@/core/shell/model';
 import { getBasename } from '@/core/shell/tokens';
 import type { AnalyzeNestedOverrides, EnvironmentContext } from '@/gate/analysis';
 import {
-  gitMetadataHasEntryNamed,
   isProtectedGitHookNameSelection,
+  mayHaveGitMetadataEntryNamed,
   REASON_GIT_METADATA_PROTECTION,
 } from '@/gate/guards/git-metadata-protection';
 import { analysisWordText, textCommandWords } from './command-words';
@@ -220,13 +220,6 @@ function findCatastrophicDeleteMatch(
   return null;
 }
 
-/** True when a literal -name or -iname filter, ANDed ahead of the first action, matches no protected
- *  Git metadata name, so a starting point that contains the metadata (such as `.`) never hands a
- *  metadata entry to -delete or -exec. A recursive -exec body keeps the block, since it would also
- *  remove metadata inside a matched ancestor. So do a shell -c body, whose flags are not read, a
- *  `{}` embedded in a longer argument (`{}/.git/HEAD`), and a fixed path argument to -execdir,
- *  which resolves beside each match and escapes the nested cwd-relative analysis. An operator, negation, grouping, unrecognized primary
- *  or non-literal pattern anywhere in the expression keeps the block too. */
 function nameFilterExcludesGitMetadata(
   words: readonly CommandWord[],
   metadata: ProtectedGitMetadata | null,
@@ -243,13 +236,19 @@ function nameFilterExcludesGitMetadata(
     if (isFindExecPrimary(token)) {
       const command = getFindExecCommand(tokens, index);
       const stripped = stripWrappersForPathScan([...command.tokens], environment);
-      if (hasRecursiveOption(stripped)) return false;
-      if (SHELL_WRAPPERS.has(getBasename(stripped[0] ?? '').toLowerCase())) return false;
-      if (command.tokens.some((arg) => arg !== '{}' && arg.includes('{}'))) return false;
-      const directoryRelative = token === '-execdir' || token === '-okdir';
+      const recursesIntoMatchedDirectories = hasRecursiveOption(stripped);
+      const execRunsUnanalyzedShell = SHELL_WRAPPERS.has(
+        getBasename(stripped[0] ?? '').toLowerCase(),
+      );
+      const derivesPathFromMatch = command.tokens.some((arg) => arg !== '{}' && arg.includes('{}'));
+      const execdirFixedPathEscapesCwdAnalysis =
+        (token === '-execdir' || token === '-okdir') &&
+        stripped.slice(1).some((arg) => arg !== '{}' && !arg.startsWith('-'));
       if (
-        directoryRelative &&
-        stripped.slice(1).some((arg) => arg !== '{}' && !arg.startsWith('-'))
+        recursesIntoMatchedDirectories ||
+        execRunsUnanalyzedShell ||
+        derivesPathFromMatch ||
+        execdirFixedPathEscapesCwdAnalysis
       ) {
         return false;
       }
@@ -264,21 +263,23 @@ function nameFilterExcludesGitMetadata(
     }
     if (token === '-name' || token === '-iname') {
       const pattern = words[index + 1];
-      if (pattern?.provenance !== 'literal' || /[[\\]/.test(pattern.text)) return false;
+      const translatableLiteralGlob =
+        pattern?.provenance === 'literal' && !/[[\\]/.test(pattern.text);
+      if (!translatableLiteralGlob) return false;
       if (!actionSeen) patterns.push(findNamePatternRegExp(pattern.text, token === '-iname'));
       index += 2;
       continue;
     }
-    if (!FIND_NAME_PASSIVE_PRIMARIES.has(token)) return false;
+    if (!FIND_PRIMARIES_THAT_NEVER_WIDEN.has(token)) return false;
     index += 1 + getFindPrimaryArity(token);
   }
   return (
     patterns.length > 0 &&
-    !gitMetadataHasEntryNamed(metadata, (name) => patterns.every((regex) => regex.test(name)))
+    !mayHaveGitMetadataEntryNamed(metadata, (name) => patterns.every((regex) => regex.test(name)))
   );
 }
 
-const FIND_NAME_PASSIVE_PRIMARIES = new Set([
+const FIND_PRIMARIES_THAT_NEVER_WIDEN = new Set([
   '-a',
   '-and',
   '-depth',
@@ -298,10 +299,7 @@ function findNamePatternRegExp(pattern: string, caseless: boolean): RegExp {
   return new RegExp(`^${source}$`, caseless ? 'isu' : 'su');
 }
 
-/** rm or rmdir as any word of a shell -c body. A parsed command head misses `exec rm`, `then rm` and
- *  function bodies, so a mention such as `echo rm "$0"` also counts, and quotes and backslashes are
- *  dropped first so `"rm"` and `r''m` count too: the check fails closed. */
-const SHELL_RM_WORD = /(?:^|[\s;&|(`{])\\?(?:\S*\/)?rm(?:dir)?(?=[\s;&|)`}]|$)/;
+const RM_AS_ANY_WORD = /(?:^|[\s;&|(`{])\\?(?:\S*\/)?rm(?:dir)?(?=[\s;&|)`}]|$)/;
 
 export function findExecRmDeletesFoundPaths(
   tokens: readonly string[],
@@ -316,11 +314,10 @@ export function findExecRmDeletesFoundPaths(
     const command = getFindExecCommand(tokens, index);
     const stripped = stripWrappersForPathScan([...command.tokens], environment);
     const head = getBasename(stripped[0] ?? '').toLowerCase();
-    const removes =
-      head === 'rm' ||
-      head === 'rmdir' ||
-      (SHELL_WRAPPERS.has(head) &&
-        SHELL_RM_WORD.test((extractDashCArg(stripped) ?? '').replace(/["'\\]/g, '')));
+    const shellBodyMentionsRmAfterUnquoting =
+      SHELL_WRAPPERS.has(head) &&
+      RM_AS_ANY_WORD.test((extractDashCArg(stripped) ?? '').replace(/["'\\]/g, ''));
+    const removes = head === 'rm' || head === 'rmdir' || shellBodyMentionsRmAfterUnquoting;
     if (removes && stripped.some((token) => token.includes('{}'))) return true;
     index = command.nextIndex;
   }

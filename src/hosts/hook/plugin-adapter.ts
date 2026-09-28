@@ -45,7 +45,6 @@ export function malformedToolCall(
   return { malformed: true, denial: createFailedClosedDenial(denial), cwd };
 }
 
-/** The plugin hosts return their verdict to the agent instead of writing it out, so a throw here would escape into the host; this boundary turns it into a failed-closed block. */
 export function createPluginToolCallHandler<Event, Context, Result>(
   host: PluginToolCallHost<Event, Context, Result>,
   options: PluginHandlerOptions = {},

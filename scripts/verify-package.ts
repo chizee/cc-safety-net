@@ -23,14 +23,8 @@ const PACKAGE_ROOT_FILES = [
   'package/README.md',
   'package/package.json',
 ] as const;
-// The four Node entries share their code through chunks rather than through the bin, so the
-// tarball is materially larger than the entries alone.
-// Current size is 563,401 bytes; the cap leaves ~57 KB of headroom.
 const MAX_TARBALL_BYTES = 620_000;
-// The OpenCode v2 peers pull ~55k files through npm, which Windows runners extract at roughly
-// 20x the Linux cost (14-31 min vs ~1 min). The v2 host check and its consumer fixture are
-// platform-independent module wiring, so Windows verifies the tarball without them.
-const VERIFY_OPENCODE_V2 = process.platform !== 'win32';
+const SKIP_OPENCODE_V2_PEER_INSTALL_ON_WINDOWS = process.platform === 'win32';
 
 interface PackResult {
   filename: string;
@@ -128,9 +122,15 @@ export async function verifyPackage(): Promise<void> {
         '--no-fund',
         tarball,
         '@opencode-ai/plugin@1.18.29',
-        ...(VERIFY_OPENCODE_V2
-          ? ['@opencode/plugin@2.0.6', '@opencode/core@2.0.6', '@effect/platform-node@4.0.0-rc.112']
-          : []),
+        ...(SKIP_OPENCODE_V2_PEER_INSTALL_ON_WINDOWS
+          ? []
+          : [
+              '@opencode/plugin@2.0.6',
+              '@opencode/core@2.0.6',
+              '@effect/platform-node@4.0.0-rc.112',
+              '@effect/platform-node-shared@4.0.0-rc.112',
+              'effect@4.0.0-rc.112',
+            ]),
         '@types/node@18',
         '@types/json-schema',
         'typescript@5',
@@ -159,7 +159,7 @@ export async function verifyPackage(): Promise<void> {
       amp: join(packageRoot, 'dist', 'amp', AMP_PLUGIN_ENTRY),
       env: packageVerificationEnv,
     });
-    if (VERIFY_OPENCODE_V2) {
+    if (!SKIP_OPENCODE_V2_PEER_INSTALL_ON_WINDOWS) {
       const v2 = run(
         [
           process.execPath,
@@ -204,8 +204,6 @@ export async function verifyPackage(): Promise<void> {
       join(directory, '.cc-safety-net', 'rules', 'rule.json'),
       JSON.stringify({ version: 1, rules: ['package-limits'] }),
     );
-    // Rulebooks are live files with no sync step, so `rule verify` is the command
-    // that must fail closed on an over-limit rulebook without echoing its content.
     const ruleLimitResult = run(['node', cli, 'rule', 'verify'], directory, [1]);
     const ruleLimitOutput = `${ruleLimitResult.stdout.toString()}${ruleLimitResult.stderr.toString()}`;
     if (
@@ -375,7 +373,6 @@ export async function verifyPackage(): Promise<void> {
   }
 }
 
-// Installing both peers masks declarations that leak the other generation's types.
 function verifyIsolatedConsumers(tarball: string): void {
   for (const fixture of [
     {
@@ -398,7 +395,8 @@ function verifyIsolatedConsumers(tarball: string): void {
     },
   ].filter(
     (fixture) =>
-      VERIFY_OPENCODE_V2 || !fixture.peers.some((peer) => peer.startsWith('@opencode/plugin@')),
+      !SKIP_OPENCODE_V2_PEER_INSTALL_ON_WINDOWS ||
+      !fixture.peers.some((peer) => peer.startsWith('@opencode/plugin@')),
   )) {
     const directory = mkdtempSync(join(tmpdir(), 'cc-safety-net-consumer-'));
     try {

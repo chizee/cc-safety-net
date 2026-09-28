@@ -501,15 +501,12 @@ export function containsDangerousCode(
   if (interpreterCodeHasDangerousText(strippedCode, scanWork)) return true;
   chargeNativeLinearPass(scanWork, strippedCode);
   if (!INTERPRETER_EXEC_SINK.test(strippedCode)) return false;
-  // Standard safety: a dangerous string literal counts only where an exec call can receive it.
   return !standard || execCallReceivesDangerousLiteral(executableCode, scanWork);
 }
 
-// True when an exec call's first argument holds a name, which may carry any literal, or when a
-// literal inside an exec call's parentheses, or after a paren-less sink, is dangerous text.
-// Backticks, `%x` and `qx` execute their own text, so code holding them always counts.
 function execCallReceivesDangerousLiteral(code: string, scanWork?: { units: number }): boolean {
-  if (/`|%x|\bqx\b/.test(code)) return true;
+  const hasSelfExecutingLiteral = /`|%x|\bqx\b/.test(code);
+  if (hasSelfExecutingLiteral) return true;
   const masked = code.split('');
   const literals: { start: number; text: string }[] = [];
   for (let index = 0; index < code.length; index++) {
@@ -531,19 +528,24 @@ function execCallReceivesDangerousLiteral(code: string, scanWork?: { units: numb
       const start = call.index + call[0].length;
       return { start, end: closingParenthesis(plain, start) };
     });
-  if (calls.some((call) => firstArgumentHasName(plain, call.start))) return true;
-  return literals.some(
-    (literal) =>
-      (/\b(?:system|exec|spawn|popen)\s*$/.test(plain.slice(0, literal.start)) ||
-        calls.some((call) => literal.start >= call.start && literal.start < call.end)) &&
-      interpreterCodeHasDangerousText(literal.text, scanWork),
+  const execCallMayReceiveAnyLiteral = calls.some((call) =>
+    firstArgumentHasName(plain, call.start),
   );
+  if (execCallMayReceiveAnyLiteral) return true;
+  return literals.some((literal) => {
+    const followsParenlessSink = /\b(?:system|exec|spawn|popen)\s*$/.test(
+      plain.slice(0, literal.start),
+    );
+    const insideExecCall = calls.some(
+      (call) => literal.start >= call.start && literal.start < call.end,
+    );
+    return (
+      (followsParenlessSink || insideExecCall) &&
+      interpreterCodeHasDangerousText(literal.text, scanWork)
+    );
+  });
 }
 
-/**
- * The index of the `)` closing a call whose arguments start at `start`, in code whose string
- * literals are already masked; unbalanced code runs to its end.
- */
 export function closingParenthesis(masked: string, start: number): number {
   let depth = 1;
   for (let index = start; index < masked.length; index++) {
@@ -554,11 +556,6 @@ export function closingParenthesis(masked: string, start: number): number {
   return masked.length;
 }
 
-/**
- * Whether the first argument of a call whose arguments start at `start` holds a name, in code
- * whose string literals are already masked: `run(cmd)` or `run(['sh', '-c', cmd])` can carry a
- * string bound anywhere earlier, so every literal may reach the call.
- */
 export function firstArgumentHasName(masked: string, start: number): boolean {
   let depth = 0;
   for (let index = start; index < masked.length; index++) {

@@ -78,7 +78,7 @@ export async function syncRulesConfig(
   );
 }
 
-/** @internal Runs synchronization with an explicit operation for deterministic transport tests. */
+/** @internal */
 export async function syncRulesConfigWithOperation(
   environment: Environment,
   options: SyncRulesConfigOptions,
@@ -92,7 +92,7 @@ export async function syncRulesConfigWithOperation(
   );
 }
 
-/** @internal Runs synchronization with explicit fault hooks. */
+/** @internal */
 export async function syncRulesConfigWithHooks(
   environment: Environment,
   options: SyncRulesConfigOptions,
@@ -314,7 +314,7 @@ export async function addRulebookSource(
   );
 }
 
-/** @internal Adds a source with an explicit operation for deterministic transport tests. */
+/** @internal */
 export async function addRulebookSourceWithOperation(
   environment: Environment,
   source: string,
@@ -324,7 +324,7 @@ export async function addRulebookSourceWithOperation(
   return addRulebookSourceInternal(environment, source, projectAddOptions(options), operation);
 }
 
-/** @internal Adds a source with explicit fault hooks. */
+/** @internal */
 export async function addRulebookSourceWithHooks(
   environment: Environment,
   source: string,
@@ -468,7 +468,7 @@ function getConfiguredRepositorySpec(
   return configured.find((spec) => spec === pinned);
 }
 
-/** @internal Maps rulebook sources with bounded fanout and ordered results. */
+/** @internal */
 export async function mapRulebookSources<T, U>(
   sources: readonly T[],
   mapper: (source: T, index: number, signal: AbortSignal) => Promise<U>,
@@ -548,7 +548,7 @@ export async function removeRulebookSource(
   }
 }
 
-/** @internal Removes a source with explicit fault hooks. */
+/** @internal */
 export async function removeRulebookSourceWithHooks(
   environment: Environment,
   match: string,

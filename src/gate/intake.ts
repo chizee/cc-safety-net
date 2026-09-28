@@ -71,7 +71,7 @@ export function isSameOrInsidePath(path: string, root: string): boolean {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-/** @internal Maximum raw stdin accepted from hook hosts before fail-closed denial (8 MiB). */
+/** @internal */
 export const HOOK_INPUT_MAX_BYTES = 8 * 1024 * 1024;
 
 export async function readBoundedHookInput(

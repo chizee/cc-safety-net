@@ -184,7 +184,6 @@ function xargsInputCanChangeExecutedSource(
   wrapperEnvAssignments: ReadonlyMap<string, string>,
   dynamicInput: boolean,
   environment: EnvironmentContext,
-  // Standard safety only: analyzes a shell body whose input sits in argument position.
   analyzeNested?: XargsAnalyzeContext['analyzeNested'],
 ): boolean {
   if (SHELL_WRAPPERS.has(childHead)) {
@@ -260,9 +259,6 @@ function xargsInputCanChangeExecutedSource(
   return false;
 }
 
-// Standard safety treats input spliced into a shell body as a data word when it never starts a
-// command and the body stays harmless with the worst-case input, `/`, in its place. Input that
-// carries shell syntax of its own is crafted, which standard safety does not cover.
 function replacementIsInertShellArgument(
   source: string,
   replacementToken: string,
@@ -270,13 +266,11 @@ function replacementIsInertShellArgument(
 ): boolean {
   if (analyzeNested === undefined) return false;
   const token = replacementToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Any spot where a command word may stand: after an operator, a group or `!`, a keyword or
-  // command prefix, or leading assignments.
-  const commandPosition = new RegExp(
+  const replacementCanStartCommand = new RegExp(
     `(?:^|[;&|({!\`\\n]|\\b(?:then|do|else|elif|if|while|until|time|command|builtin|nohup|eval|exec|source))\\s*(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*["']?${token}`,
-  );
+  ).test(source);
   // A case arm's `)` also opens a command word, but a substitution's `)` does not.
-  if (commandPosition.test(source) || /\bcase\b/.test(source)) return false;
+  if (replacementCanStartCommand || /\bcase\b/.test(source)) return false;
   const worstCase = source.replaceAll(replacementToken, '/');
   return dangerousInTextMatch(worstCase) === null && analyzeNested(worstCase) === null;
 }

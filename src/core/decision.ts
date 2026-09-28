@@ -16,6 +16,5 @@ export type Decision =
       intent: BlockIntent;
       ruleId?: string;
       evidence?: { command: string; segment?: string };
-      // Standard safety could not verify the command; a host that can prompt may ask instead.
-      ask?: true;
+      unverifiedByStandardMode?: true;
     };

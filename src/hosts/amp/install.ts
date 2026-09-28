@@ -22,30 +22,18 @@ import { getPackageVersion } from '@/hosts/system-info';
 const AMP_LEGACY_PLUGIN_FILE = 'cc-safety-net.ts';
 const AMP_ARTIFACT_RELATIVE = join('amp', AMP_PLUGIN_ENTRY);
 
-/**
- * Local system-scope plugin path. Nothing installs here anymore; a leftover file masks the
- * personal plugin, so install and uninstall clean it up when it is one of ours. Spelled out
- * rather than sharing the repository migration constant: this path is permanent.
- * @internal
- */
-export function getAmpPluginPath(environment: Environment): string {
+/** @internal */
+export function getMaskingLocalFilePath(environment: Environment): string {
   return join(environment.home, '.config', 'amp', 'plugins', 'cc-safety-net.ts');
 }
 
-/**
- * Candidate locations of the packaged Amp artifact, resolved relative to the
- * installed CLI module (never the user's project). Bun may hoist this module
- * into `dist/cli.js` at the dist root or emit it under `dist/chunks/`; the dev
- * entrypoint runs from `src/hosts/amp/`.
- * @internal
- */
+/** @internal */
 export function ampArtifactCandidates(): string[] {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
-  return [
-    join(moduleDir, AMP_ARTIFACT_RELATIVE),
-    join(moduleDir, '..', AMP_ARTIFACT_RELATIVE),
-    join(moduleDir, '..', '..', '..', 'dist', AMP_ARTIFACT_RELATIVE),
-  ];
+  const hoistedIntoDistCli = join(moduleDir, AMP_ARTIFACT_RELATIVE);
+  const emittedUnderDistChunks = join(moduleDir, '..', AMP_ARTIFACT_RELATIVE);
+  const loadedFromSource = join(moduleDir, '..', '..', '..', 'dist', AMP_ARTIFACT_RELATIVE);
+  return [hoistedIntoDistCli, emittedUnderDistChunks, loadedFromSource];
 }
 
 /** @internal */
@@ -222,7 +210,7 @@ function keepUnmanagedLocalPlugin(local: string, onUnmanaged: 'fail' | 'keep'): 
 }
 
 function removeMaskingLocalFile(environment: Environment, onUnmanaged: 'fail' | 'keep'): void {
-  const local = getAmpPluginPath(environment);
+  const local = getMaskingLocalFilePath(environment);
   const info = lstatOrUndefined(local);
   if (!info) return;
   if (!info.isSymbolicLink() && info.isFile() && isManagedAmpArtifact(readFileSync(local))) {

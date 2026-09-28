@@ -1346,8 +1346,6 @@ function expandLiteralCommandWord(
   }
 
   const texts = expanded.values.map((value) => decodePosixLiteralWord(value, maxDepth));
-  // A value that does not re-lex as one literal word leaves the word unexpanded, as before the
-  // command position shared the quote-aware scanner.
   if (texts.some((text) => text === null)) return undefined;
   return {
     words: texts
@@ -1358,7 +1356,6 @@ function expandLiteralCommandWord(
   };
 }
 
-/** Splices brace alternatives until no active expansion is left, or a parser cap is reached. */
 function expandBraceValues(
   raw: string,
   maxWords: number,

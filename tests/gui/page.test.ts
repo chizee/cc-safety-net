@@ -21,7 +21,7 @@ describe('the served GUI page', () => {
 
     expect(rendered.replace(`{"token":"${TOKEN}"}`, '')).toBe(guiDocument);
     const ported = normalizePage(rendered, TOKEN);
-    expect(ported.modules).toHaveLength(4);
+    expect(ported.modules).toHaveLength(7);
     expect(ported.head).toContain(
       '<script id="ccsn-data" type="application/json">{"token":"<token>"}</script>',
     );

@@ -134,7 +134,7 @@ export function getRulesConfigRuntimeErrorsForConfig(
   ];
 }
 
-/** @internal - exported for test coverage */
+/** @internal */
 export function getUnknownOverrideErrorsForConfig(
   configPath: string,
   filesystemScope?: PolicyFilesystemScope,

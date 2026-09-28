@@ -13,15 +13,12 @@ export function updateReleaseManifests(cwd: string, requestedVersion: string): v
     'kimi.plugin.json',
   ].forEach((relativePath) => {
     const path = resolve(cwd, relativePath);
-    // Reserializing would fight the committed formatting (JSON.stringify expands arrays that
-    // oxfmt collapses, so the release commit fails the formatting check on the tag); only the
-    // version value changes. A failed replacement leaves the old version, which the release
-    // transaction rejects before any git mutation.
-    writeFileSync(
-      path,
-      readFileSync(path, 'utf8').replace(/("version"\s*:\s*")[^"]+(")/, `$1${version}$2`),
-    );
+    writeFileSync(path, replaceVersionPreservingFormat(readFileSync(path, 'utf8'), version));
   });
+}
+
+function replaceVersionPreservingFormat(text: string, version: string) {
+  return text.replace(/("version"\s*:\s*")[^"]+(")/, `$1${version}$2`);
 }
 
 if (import.meta.main) {

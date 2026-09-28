@@ -463,7 +463,6 @@ describe('temp-root relaxation', () => {
       assignments?: ReadonlyMap<string, string>;
       shellAssignments?: ReadonlyMap<string, string>;
       dynamicArguments?: boolean;
-      /** How a `$VAR` word reached the analyzer: an expansion, or literal text the shell keeps. */
       variableProvenance?: 'variable' | 'literal';
     } = {},
   ) =>
@@ -645,8 +644,6 @@ describe('temp-root relaxation', () => {
   });
 
   test('a literal dollar fragment inside a partly expanded operand withholds the relaxation', () => {
-    // `"$A"'$B'`: the shell expands $A and passes $B literally, so the analyzed path must not be
-    // the fully substituted one.
     const [base, ...words] = textCommandWords(['$A$B', 'git', 'worktree', 'remove', '--force']);
     if (base === undefined) throw new Error('unreachable');
     const operand = {

@@ -13,7 +13,6 @@ export interface FormatBlockedMessageInput {
   maxLen?: number;
   redact?: (text: string) => string;
   configWarning?: string;
-  // Worded for the user's approval prompt instead of the agent's block message.
   askUser?: boolean;
 }
 
@@ -63,7 +62,7 @@ export type IntegrationDenial = {
   toolName?: string;
 
   configWarning?: string;
-  ask?: true;
+  unverifiedByStandardMode?: true;
 };
 
 export function projectGuardDenial(
@@ -81,7 +80,9 @@ export function projectGuardDenial(
     toolName: options.toolName,
 
     ...(evaluation.configFallback ? { configWarning: evaluation.configFallback.reason } : {}),
-    ...(evaluation.decision.ask ? { ask: true as const } : {}),
+    ...(evaluation.decision.unverifiedByStandardMode
+      ? { unverifiedByStandardMode: true as const }
+      : {}),
   };
 }
 

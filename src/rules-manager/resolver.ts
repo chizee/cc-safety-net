@@ -43,7 +43,7 @@ export interface DiscoveredGitHubRepository {
 
 type GitHubResourceKind = 'metadata' | 'commit' | 'tree' | 'raw';
 
-/** @internal Generous byte and time limits for untrusted GitHub rulebook responses. */
+/** @internal */
 export const GITHUB_FETCH_LIMITS = Object.freeze({
   timeoutMs: 15_000,
   metadataBytes: 512 * 1024,
@@ -267,7 +267,7 @@ async function resolveGitHubCommit(
   return commitJson.sha;
 }
 
-/** @internal Fetches and consumes a bounded body under one mandatory timeout. */
+/** @internal */
 export async function fetchGitHubResource(
   url: string,
   kind: GitHubResourceKind,
@@ -324,7 +324,7 @@ function fetchRuleSyncResource(
   });
 }
 
-/** @internal Reads a response body without trusting Content-Length or buffering past its cap. */
+/** @internal */
 export async function readGitHubResponseText(
   response: Response,
   kind: GitHubResourceKind,

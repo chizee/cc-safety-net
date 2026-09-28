@@ -50,7 +50,7 @@ export function registerToolCallEvent(pi: PiApi): void {
   pi.on('tool_call', handlePiToolCall);
 }
 
-/** @internal - exported for test coverage */
+/** @internal */
 export const handlePiToolCall = createPiToolCallHandler();
 
 /** @internal */
