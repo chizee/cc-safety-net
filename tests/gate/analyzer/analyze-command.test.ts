@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir as systemTempRoot } from 'node:os';
 import { join, sep } from 'node:path';
 import { REASON_DERIVED_COMMAND_WORK_LIMIT } from '@/core/budget';
@@ -610,6 +610,17 @@ describe('analyzeCommand', () => {
       'git.reset-hard',
     );
     expect(decision(`cd '${scratchPosix}' && printf ready; rm -rf build`, standard)).toBeNull();
+  });
+
+  test('a cd into a regular file leaves the cwd unknown', () => {
+    writeFileSync(join(project, 'notes.txt'), '');
+    for (const command of [
+      'cd notes.txt; rm -rf .git',
+      'cd notes.txt && printf x; rm -rf .git',
+      'cd notes.txt || rm -rf .git',
+    ]) {
+      expect(decisionAt(project, command, standard), command).toMatchObject({ kind: 'deny' });
+    }
   });
 
   test('a cd operand built from literal assignments is tracked', () => {

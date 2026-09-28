@@ -1055,7 +1055,8 @@ function resolveKnownCwdTarget(
   }
 
   try {
-    return resolveChdirTarget(cwd, target, paths);
+    const resolved = resolveChdirTarget(cwd, target, paths);
+    return paths.isDirectory(resolved) ? resolved : null;
   } catch {
     return null;
   }
