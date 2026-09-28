@@ -97,6 +97,9 @@ for (const host of HOOK_HOSTS) {
         DENY_DOCUMENT_KEYS[host.id] as string[],
       );
       expect(ported.stdout[0]).toContain('BLOCKED by CC Safety Net');
+      if (row.expected.reason !== undefined) {
+        expect(ported.stdout[0]).toContain(`Reason: ${row.expected.reason}`);
+      }
     }, 30_000);
   }
 
@@ -114,6 +117,28 @@ for (const host of HOOK_HOSTS) {
     expect((await runSide(host, rowNamed(host, ALLOWED))).audit).toHaveLength(1);
   });
 }
+
+test('a session directory that no longer exists is named as the working directory', async () => {
+  const host = HOOK_HOSTS[0] as HookHost;
+  const ported = await runSide(host, rowNamed(host, 'a cwd that does not exist'));
+  const message = JSON.parse(ported.stdout[0] as string).hookSpecificOutput
+    .permissionDecisionReason as string;
+
+  expect(message).toContain(`Working directory: ${fixture.missing}`);
+  expect(message).not.toContain('Segment:');
+  expect(ported.audit[0]?.entry).toMatchObject({ decision: 'deny', cwd: fixture.missing });
+});
+
+test('the audit records the requested directory a call was refused for', async () => {
+  const host = HOOK_HOSTS.find((candidate) => candidate.id === 'kimi-code') as HookHost;
+  const ported = await runSide(host, rowNamed(host, 'a tool cwd that does not exist'));
+
+  expect(ported.audit[0]?.entry).toMatchObject({
+    decision: 'deny',
+    command: 'git status',
+    cwd: fixture.missing,
+  });
+});
 
 test("the debug detail is each implementation's own limit message", async () => {
   const host = HOOK_HOSTS[0] as HookHost;

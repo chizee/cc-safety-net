@@ -1,12 +1,13 @@
 import { formatDenial, type IntegrationDenial } from '@/core/denial';
 import type { PathResolver } from '@/core/environment';
-import { resolveContainedCwd } from '@/gate/intake';
+import { cwdProblem, resolveContainedCwd } from '@/gate/intake';
 import { createToolInvocation, type ToolInvocation } from '@/gate/invocation';
 import {
   createPluginToolCallHandler,
   type MalformedToolCall,
   malformedToolCall,
   type PluginHandlerOptions,
+  refusedCwdToolCall,
   type PluginToolCallHost,
 } from '@/hosts/hook/plugin-adapter';
 
@@ -99,16 +100,31 @@ function getOpenClawToolCall(
     return malformedToolCall(null, { command, toolName });
   }
 
-  const workspace = resolveOpenClawWorkspace(api, ctx.agentId, paths);
-  if (!workspace) return malformedToolCall(null, { command, toolName });
+  const workspaceDir = resolveOpenClawWorkspaceDir(api, ctx.agentId);
+  if (!workspaceDir) return malformedToolCall(null, { command, toolName });
+  const workspace = resolveContainedCwd('.', [workspaceDir], paths);
+  if (!workspace) {
+    return refusedCwdToolCall(
+      { directory: 'session', problem: 'unusable', cwd: workspaceDir },
+      { command, toolName },
+    );
+  }
 
-  const executionCwd = resolveOpenClawExecutionCwd(workspace, execParams, paths);
+  const workdir = execParams.workdir;
+  if (workdir !== undefined && (typeof workdir !== 'string' || workdir.trim() === '')) {
+    return malformedToolCall(workspace, { command, toolName });
+  }
+  const requestedCwd = typeof workdir === 'string' ? workdir : '.';
+  const executionCwd = resolveContainedCwd(requestedCwd, [workspace], paths);
   if (!executionCwd) {
-    return malformedToolCall(workspace, {
-      command,
-      segment: typeof execParams.workdir === 'string' ? execParams.workdir : undefined,
-      toolName,
-    });
+    return refusedCwdToolCall(
+      {
+        directory: 'requested',
+        problem: cwdProblem(requestedCwd, workspace, paths),
+        cwd: requestedCwd,
+      },
+      { command, toolName },
+    );
   }
 
   return createToolInvocation(
@@ -121,30 +137,16 @@ function getOpenClawToolCall(
   );
 }
 
-function resolveOpenClawWorkspace(
-  api: OpenClawPluginApi,
-  agentId: unknown,
-  paths: PathResolver,
-): string | undefined {
+function resolveOpenClawWorkspaceDir(api: OpenClawPluginApi, agentId: unknown): string | undefined {
   if (typeof agentId !== 'string' || agentId.trim() === '') return undefined;
   try {
     const workspaceDir = api.runtime.agent.resolveAgentWorkspaceDir(api.config, agentId);
-    if (typeof workspaceDir !== 'string' || workspaceDir.trim() === '') return undefined;
-    return resolveContainedCwd('.', [workspaceDir], paths);
+    return typeof workspaceDir === 'string' && workspaceDir.trim() !== ''
+      ? workspaceDir
+      : undefined;
   } catch {
     return undefined;
   }
-}
-
-function resolveOpenClawExecutionCwd(
-  workspace: string,
-  execParams: Record<string, unknown>,
-  paths: PathResolver,
-): string | undefined {
-  if (!Object.hasOwn(execParams, 'workdir') || execParams.workdir === undefined) return workspace;
-  const workdir = execParams.workdir;
-  if (typeof workdir !== 'string' || workdir.trim() === '') return undefined;
-  return resolveContainedCwd(workdir, [workspace], paths);
 }
 
 function blockOpenClawToolCall(denial: IntegrationDenial): OpenClawBeforeToolCallResult {

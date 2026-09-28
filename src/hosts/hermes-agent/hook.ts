@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import type { IntegrationDenial } from '@/core/denial';
 import type { Environment } from '@/core/environment';
-import { firstTrustedRoot, getToolRoute, outputFailedClosed } from '@/gate/intake';
+import { firstTrustedRoot, getToolRoute, outputCwdDenial, outputFailedClosed } from '@/gate/intake';
 import type { CommandToolKind, ToolCallContext } from '@/gate/invocation';
 import { getStandardHookContext, runConfiguredHookAdapter } from '@/hosts/hook/common';
 import { HERMES_AGENT_HOOK_EVENT } from '@/hosts/hook/constants';
@@ -53,7 +53,11 @@ function resolveHermesAgentContext(
 
   const executionCwd = firstTrustedRoot([resolve(context.configCwd, workdir)], environment.paths);
   if (!executionCwd) {
-    outputFailedClosed(outputDeny, toolInput, toolName, workdir);
+    outputCwdDenial(outputDeny, toolInput, toolName, {
+      directory: 'requested',
+      problem: 'unusable',
+      cwd: workdir,
+    });
     return null;
   }
   return { ...context, executionCwd };

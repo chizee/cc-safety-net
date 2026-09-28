@@ -9,6 +9,7 @@ import {
   type MalformedToolCall,
   malformedToolCall,
   type PluginHandlerOptions,
+  refusedCwdToolCall,
   type PluginToolCallHost,
 } from '@/hosts/hook/plugin-adapter';
 
@@ -61,8 +62,15 @@ function getAmpToolInvocation(
     return malformedToolCall(null, { toolName: toolCall.tool });
   }
 
-  const workspaceRoot = resolveAmpWorkspaceRoot(amp, paths);
-  if (!workspaceRoot) return malformedToolCall(null, { toolName: toolCall.tool });
+  const rootPath = resolveAmpWorkspaceRootPath(amp);
+  if (!rootPath) return malformedToolCall(null, { toolName: toolCall.tool });
+  const workspaceRoot = resolveContainedCwd('.', [rootPath], paths);
+  if (!workspaceRoot) {
+    return refusedCwdToolCall(
+      { directory: 'session', problem: 'unusable', cwd: rootPath },
+      { toolName: toolCall.tool },
+    );
+  }
 
   const shell = extractAmpShellCommand(amp, event);
   if (!shell.ok) return malformedToolCall(workspaceRoot, { toolName: toolCall.tool });
@@ -81,23 +89,13 @@ function getAmpToolInvocation(
     return malformedToolCall(workspaceRoot, { toolName: toolCall.tool });
   }
 
-  const executionCwd =
-    typeof shell.command.dir === 'string'
-      ? resolveCanonicalCwd(shell.command.dir, workspaceRoot, paths)
-      : workspaceRoot;
+  const requestedCwd = typeof shell.command.dir === 'string' ? shell.command.dir : '.';
+  const executionCwd = resolveCanonicalCwd(requestedCwd, workspaceRoot, paths);
   if (!executionCwd) {
-    return {
-      malformed: true,
-      denial: {
-        reason:
-          'CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command.',
-        intent: 'use_alternative',
-        command: shell.command.command,
-        segment: shell.command.dir,
-        toolName: toolCall.tool,
-      },
-      cwd: workspaceRoot,
-    };
+    return refusedCwdToolCall(
+      { directory: 'requested', problem: 'unusable', cwd: requestedCwd },
+      { command: shell.command.command, toolName: toolCall.tool },
+    );
   }
 
   return createToolInvocation(
@@ -109,13 +107,12 @@ function getAmpToolInvocation(
   );
 }
 
-function resolveAmpWorkspaceRoot(amp: AmpApi, paths: PathResolver): string | undefined {
+function resolveAmpWorkspaceRootPath(amp: AmpApi): string | undefined {
   const workspaceRoot = amp.system.workspaceRoot;
   if (!workspaceRoot) return undefined;
   try {
     const rootPath = amp.helpers.filePathFromURI(workspaceRoot);
-    if (typeof rootPath !== 'string' || rootPath.trim() === '') return undefined;
-    return resolveContainedCwd('.', [rootPath], paths);
+    return typeof rootPath === 'string' && rootPath.trim() !== '' ? rootPath : undefined;
   } catch {
     return undefined;
   }

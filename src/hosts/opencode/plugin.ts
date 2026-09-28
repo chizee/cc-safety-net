@@ -1,6 +1,8 @@
 import { resolve } from 'node:path';
 import type { Plugin, PluginInput } from '@opencode-ai/plugin';
 import {
+  type CwdDenial,
+  createCwdDenial,
   createFailedClosedDenial,
   formatDenial,
   type IntegrationDenial,
@@ -112,9 +114,27 @@ export function evaluateOpenCodeTool({
     if (!(error instanceof ToolInputLimitError)) throw error;
     throwPreflightDenial(createFailedClosedDenial({ toolName: tool }), tool);
   }
+  if (!isUsableDirectory(configCwd)) {
+    throwPreflightDenial(
+      createCwdDenial(
+        { directory: 'session', problem: 'unusable', cwd: configCwd },
+        { command, toolName: tool },
+      ),
+      tool,
+    );
+    return;
+  }
   const executionCwd = resolveOpenCodeExecutionCwd(configCwd, toolInput);
-  if (!isUsableDirectory(configCwd) || !executionCwd) {
+  if (executionCwd === null) {
     throwPreflightDenial(createFailedClosedDenial({ command, toolName: tool }), tool);
+    return;
+  }
+  if (typeof executionCwd !== 'string') {
+    throwPreflightDenial(
+      createCwdDenial(executionCwd, { command, toolName: tool }),
+      tool,
+      executionCwd.cwd,
+    );
     return;
   }
   const context: ToolCallContext = { configCwd, executionCwd };
@@ -170,7 +190,10 @@ function getOpenCodeToolRoute(toolName: string, shell: CommandToolKind): ToolRou
   return { kind: getNonCommandToolInputKind(toolName) };
 }
 
-function resolveOpenCodeExecutionCwd(configCwd: string, toolInput: unknown): string | null {
+function resolveOpenCodeExecutionCwd(
+  configCwd: string,
+  toolInput: unknown,
+): string | CwdDenial | null {
   if (!toolInput || typeof toolInput !== 'object' || Array.isArray(toolInput)) return configCwd;
   if (!Object.hasOwn(toolInput, 'workdir')) return configCwd;
 
@@ -180,7 +203,9 @@ function resolveOpenCodeExecutionCwd(configCwd: string, toolInput: unknown): str
     process.platform === 'win32' ? normalizeOpenCodeWindowsWorkdir(workdir) : workdir;
 
   const executionCwd = resolve(configCwd, resolvedWorkdir);
-  return isUsableDirectory(executionCwd) ? executionCwd : null;
+  return isUsableDirectory(executionCwd)
+    ? executionCwd
+    : { directory: 'requested', problem: 'unusable', cwd: workdir };
 }
 
 /** @internal */

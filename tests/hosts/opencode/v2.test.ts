@@ -99,7 +99,7 @@ function callTool(runtime: ReturnType<typeof host>, tool: string, input: unknown
 
 test.each([
   ['shell', { command: 'git reset --hard' }, 'git.reset-hard'],
-  ['shell', { command: 'git status', workdir: 'missing' }, 'failed closed'],
+  ['shell', { command: 'git status', workdir: 'missing' }, 'Working directory: missing'],
   ['shell', { command: 'x'.repeat(1_048_577) }, 'limit exceeded'],
   ['read', { path: '~/.ssh/id_rsa' }, 'secret.home.ssh'],
   ['write', { path: '~/.cc-safety-net/policy.json', content: '{}' }, 'protected policy'],

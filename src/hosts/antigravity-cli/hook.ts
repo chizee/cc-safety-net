@@ -1,6 +1,11 @@
-import { isAbsolute, join, relative } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { AnalysisLimit, createBudget } from '@/core/budget';
-import { createFailedClosedDenial, type IntegrationDenial } from '@/core/denial';
+import {
+  type CwdDenial,
+  createCwdDenial,
+  createFailedClosedDenial,
+  type IntegrationDenial,
+} from '@/core/denial';
 import type { Environment, PathResolver } from '@/core/environment';
 import { resolveExistingPath } from '@/core/paths/canonicalization';
 import {
@@ -8,7 +13,13 @@ import {
   extractPathLikeToolValues,
   ToolInputLimitError,
 } from '@/core/tool-input';
-import { firstTrustedRoot, getToolRoute, resolveContainedCwd } from '@/gate/intake';
+import {
+  cwdProblem,
+  firstTrustedRoot,
+  getToolRoute,
+  isSameOrInsidePath,
+  resolveContainedCwd,
+} from '@/gate/intake';
 import type { CommandToolKind, ToolCallContext } from '@/gate/invocation';
 import { runConfiguredHookAdapter } from '@/hosts/hook/common';
 
@@ -78,13 +89,21 @@ function resolveAntigravityContext(
   outputDeny: AntigravityDenyOutput,
   environment: Environment,
 ): ToolCallContext | null {
-  const trustedRoots = usableWorkspacePaths(input, environment.paths);
-  const configRoots = trustedRoots.flatMap((root) => {
+  const workspacePaths = requestedWorkspacePaths(input);
+  if (!workspacePaths[0]) {
+    outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
+    return null;
+  }
+  const configRoots = workspacePaths.flatMap((root) => {
     const canonicalRoot = firstTrustedRoot([root], environment.paths);
     return canonicalRoot ? [canonicalRoot] : [];
   });
   if (!configRoots[0]) {
-    outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
+    outputAntigravityCwdDeny(outputDeny, toolInput, toolName, {
+      directory: 'session',
+      problem: 'unusable',
+      cwd: workspacePaths[0],
+    });
     return null;
   }
   if (toolName !== 'run_command') {
@@ -126,13 +145,17 @@ function resolveAntigravityContext(
   if (containedCwd) {
     const configCwd = mostSpecificContainingRoot(containedCwd, configRoots);
     if (!configCwd) {
-      outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd);
+      outputAntigravityCwdDeny(outputDeny, toolInput, toolName);
       return null;
     }
     return { configCwd, executionCwd: containedCwd };
   }
 
-  outputAntigravityCwdDeny(outputDeny, toolInput, toolName, cwd);
+  outputAntigravityCwdDeny(outputDeny, toolInput, toolName, {
+    directory: 'requested',
+    problem: cwdProblem(cwd, configRoots[0], environment.paths),
+    cwd,
+  });
   return null;
 }
 
@@ -164,41 +187,30 @@ function resolveAntigravityTargetRoot(
 function mostSpecificContainingRoot(path: string, roots: readonly string[]): string | null {
   return (
     roots
-      .filter((root) => isSameOrInside(path, root))
+      .filter((root) => isSameOrInsidePath(path, root))
       .reduce((best, root) => (root.length > best.length ? root : best), '') || null
   );
-}
-
-function isSameOrInside(path: string, root: string): boolean {
-  const rel = relative(root, path);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
 function outputAntigravityCwdDeny(
   outputDeny: AntigravityDenyOutput,
   toolInput: unknown,
   toolName: string,
-  cwd?: string,
+  cause?: CwdDenial,
 ): void {
   const command =
     toolInput && typeof toolInput === 'object'
       ? (toolInput as Record<string, unknown>).command
       : undefined;
-  outputDeny(
-    createFailedClosedDenial({
-      command: typeof command === 'string' ? command : undefined,
-      segment: cwd,
-      toolName,
-    }),
-  );
+  const evidence = { command: typeof command === 'string' ? command : undefined, toolName };
+  outputDeny(cause ? createCwdDenial(cause, evidence) : createFailedClosedDenial(evidence));
 }
 
-function usableWorkspacePaths(input: AntigravityCliHookInput, paths: PathResolver): string[] {
+function requestedWorkspacePaths(input: AntigravityCliHookInput): string[] {
   if (input.workspacePaths === undefined) return [process.cwd()];
-  const workspacePaths = Array.isArray(input.workspacePaths)
+  return Array.isArray(input.workspacePaths)
     ? input.workspacePaths.filter((path) => typeof path === 'string' && path.trim() !== '')
     : [];
-  return firstTrustedRoot(workspacePaths, paths) ? workspacePaths : [];
 }
 
 function normalizeAntigravityToolArgs(

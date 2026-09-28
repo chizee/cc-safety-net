@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createCwdDenial } from '@/core/denial';
 import { loadBuiltinCommands } from '@/hosts/opencode/builtin-commands/commands';
 import {
   createCCSafetyNetPlugin as portedCreate,
@@ -15,6 +16,8 @@ import { auditHomeFor, captureInProcessCall, describeDifferential } from '../../
 const SESSION = 'opencode-1';
 const POLICY_FAILURE = 'boom';
 const ANALYZER_FAILURE = 'injected analyzer failure';
+const cwdReason = (directory: 'session' | 'requested') =>
+  createCwdDenial({ directory, problem: 'unusable', cwd: '' }).reason;
 
 type Row = {
   name: string;
@@ -73,13 +76,14 @@ const ROWS: readonly Row[] = [
   {
     name: 'a workdir that does not exist',
     args: () => ({ command: 'git status', workdir: 'missing' }),
-    contains: 'failed closed',
+    contains: cwdReason('requested'),
     blocked: true,
     lines: 1,
   },
   {
     name: 'a blank workdir',
     args: () => ({ command: 'git status', workdir: '' }),
+    contains: 'failed closed',
     blocked: true,
     lines: 1,
   },
@@ -94,6 +98,15 @@ const ROWS: readonly Row[] = [
     name: 'a project directory that is a regular file',
     args: () => ({ command: 'git status' }),
     directory: (fixture) => fixture.file,
+    contains: cwdReason('session'),
+    blocked: true,
+    lines: 1,
+  },
+  {
+    name: 'a project directory that no longer exists',
+    args: () => ({ command: 'git status' }),
+    directory: (fixture) => fixture.missing,
+    contains: cwdReason('session'),
     blocked: true,
     lines: 1,
   },

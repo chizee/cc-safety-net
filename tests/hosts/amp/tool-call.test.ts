@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { createFailedClosedDenial, formatDenial } from '@/core/denial';
+import { createCwdDenial, createFailedClosedDenial, formatDenial } from '@/core/denial';
 import { createAmpToolCallHandler as portedHandler } from '@/hosts/amp/tool-call';
 import { createHookFixture, type HookFixture } from '../../helpers/hook-hosts';
 import {
@@ -23,7 +23,7 @@ type ShellEvent = { tool?: unknown; input?: unknown; thread?: { id?: unknown } }
 type Row = {
   name: string;
   event: (fixture: HookFixture) => unknown;
-  api?: 'no-root' | 'uri-throws' | 'extractor-throws';
+  api?: 'no-root' | 'missing-root' | 'uri-throws' | 'extractor-throws';
   breaks?: 'analyzer' | 'secret-scan';
   env?: Record<string, string | undefined>;
   contains?: string;
@@ -51,7 +51,7 @@ function createFakeAmp(fixture: HookFixture, api: Row['api']) {
     helpers: {
       filePathFromURI: () => {
         if (api === 'uri-throws') throw new Error(URI_FAILURE);
-        return fixture.project;
+        return api === 'missing-root' ? fixture.missing : fixture.project;
       },
       shellCommandFromToolCall: (event: ShellEvent) => {
         if (api === 'extractor-throws') throw new Error(EXTRACTOR_FAILURE);
@@ -99,7 +99,7 @@ const ROWS: readonly Row[] = [
   {
     name: 'a directory that does not exist',
     event: () => shell('git status', 'missing'),
-    contains: 'Segment: missing',
+    contains: 'Working directory: missing',
     rejected: true,
     lines: 1,
   },
@@ -113,6 +113,15 @@ const ROWS: readonly Row[] = [
     name: 'a workspace without a root',
     event: () => shell('git status'),
     api: 'no-root',
+    contains: 'failed closed',
+    rejected: true,
+    lines: 1,
+  },
+  {
+    name: 'a workspace root that does not exist',
+    event: () => shell('git status'),
+    api: 'missing-root',
+    contains: createCwdDenial({ directory: 'session', problem: 'unusable', cwd: '' }).reason,
     rejected: true,
     lines: 1,
   },

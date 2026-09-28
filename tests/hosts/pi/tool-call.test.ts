@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createFailedClosedDenial, formatDenial } from '@/core/denial';
+import { createCwdDenial, createFailedClosedDenial, formatDenial } from '@/core/denial';
 import { createProcessEnvironment } from '@/core/environment';
 import { getUserPolicyPath } from '@/core/policy/paths';
 import {
@@ -20,6 +20,11 @@ const SESSION = 'pi-1';
 const ANALYZER_FAILURE = 'injected analyzer failure';
 const SECRET_SCAN_FAILURE = 'injected secret scan failure';
 const CONTEXT_FAILURE = 'injected context failure';
+const SESSION_UNUSABLE = createCwdDenial({
+  directory: 'session',
+  problem: 'unusable',
+  cwd: '',
+}).reason;
 
 type Row = {
   name: string;
@@ -113,6 +118,15 @@ const ROWS: readonly Row[] = [
     name: 'a context directory that is a regular file',
     event: () => bash('git status'),
     cwd: (fixture) => fixture.file,
+    contains: SESSION_UNUSABLE,
+    blocked: true,
+    lines: 1,
+  },
+  {
+    name: 'a context directory that does not exist',
+    event: () => bash('git status'),
+    cwd: (fixture) => fixture.missing,
+    contains: SESSION_UNUSABLE,
     blocked: true,
     lines: 1,
   },
@@ -120,6 +134,7 @@ const ROWS: readonly Row[] = [
     name: 'a context without a directory',
     event: () => bash('git status'),
     cwd: () => '',
+    contains: 'failed closed',
     blocked: true,
     lines: 1,
   },
@@ -222,7 +237,10 @@ test('the debug line names the failing Pi event', async () => {
 test('an unusable context directory is the one the audit records', async () => {
   const row = ROWS.find((candidate) => candidate.cwd?.(fixture) === fixture.file) as Row;
 
-  expect((await runSide(row)).entries[0]?.entry).toMatchObject({
+  const blocked = await runSide(row);
+
+  expect(blocked.returned?.reason).toContain(`Working directory: ${fixture.file}`);
+  expect(blocked.entries[0]?.entry).toMatchObject({
     decision: 'deny',
     agent: 'pi',
     cwd: fixture.file,

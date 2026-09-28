@@ -1,6 +1,6 @@
 import { isAbsolute, resolve } from 'node:path';
-import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/budget';
 import type { Decision } from '@/core/decision';
+import { createCwdDenial } from '@/core/denial';
 import { createProcessEnvironment } from '@/core/environment';
 import { isUsableDirectory } from '@/gate/intake';
 import { createToolInvocation } from '@/gate/invocation';
@@ -28,7 +28,10 @@ export function checkCommand(input: CheckCommandInput): CheckCommandResult {
 
   const cwd = resolve(input.cwd);
   if (!isUsableDirectory(cwd)) {
-    return { kind: 'deny', reason: REASON_SAFETY_NET_FAILED_CLOSED };
+    return {
+      kind: 'deny',
+      reason: createCwdDenial({ directory: 'requested', problem: 'unusable', cwd }).reason,
+    };
   }
   return projectDecision(
     evaluateCommandGuard(

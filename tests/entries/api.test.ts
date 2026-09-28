@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { REASON_SAFETY_NET_FAILED_CLOSED } from '@/core/budget';
+import { createCwdDenial } from '@/core/denial';
 import { type CheckCommandResult, checkCommand as portedCheckCommand } from '@/entries/api';
 import { withEnv } from '../helpers';
 import { createHookFixture, hostEnv } from '../helpers/hook-hosts';
@@ -18,8 +18,11 @@ afterAll(() => {
   fixture.remove();
 });
 
-const failedClosed: Outcome = {
-  returned: { kind: 'deny', reason: REASON_SAFETY_NET_FAILED_CLOSED },
+const unusableCwd: Outcome = {
+  returned: {
+    kind: 'deny',
+    reason: createCwdDenial({ directory: 'requested', problem: 'unusable', cwd: '' }).reason,
+  },
 };
 const allowed: Outcome = { returned: { kind: 'allow' } };
 
@@ -57,12 +60,12 @@ const ROWS: readonly Row[] = [
   {
     name: 'a cwd that is a regular file',
     input: { command: 'ls', cwd: fixture.file },
-    expected: failedClosed,
+    expected: unusableCwd,
   },
   {
     name: 'a cwd that does not exist',
     input: { command: 'ls', cwd: join(fixture.root, 'missing') },
-    expected: failedClosed,
+    expected: unusableCwd,
   },
   {
     name: 'an allowed command',
