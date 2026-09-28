@@ -355,7 +355,10 @@ export function analyzeSegment(
           : null;
       }
 
-      const scriptSource = extractShellScriptOperandSource(words, options.shellAssignments);
+      const scriptSource = extractShellScriptOperandSource(
+        words,
+        options.strict ? undefined : options.shellAssignments,
+      );
       if (scriptSource.kind === 'dynamic') return dynamicShellSourceResult(trace);
       if (scriptSource.kind === 'literal') {
         return analyzeTrackedHeredocScript(

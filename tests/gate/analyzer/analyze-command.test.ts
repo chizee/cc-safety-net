@@ -184,6 +184,13 @@ describe('analyzeCommand', () => {
       intent: 'stop_and_explain',
     });
   });
+  test('strict mode keeps a variable shell-script path a dynamic shell source', () => {
+    expect(decision(`S=${scratch}; bash $S/make-fixture.sh`, standard)).toBeNull();
+    expect(decision(`S=${scratch}; bash $S/make-fixture.sh`, strict)).toMatchObject({
+      kind: 'deny',
+      intent: 'stop_and_explain',
+    });
+  });
   test('a variable that expands to an option stays a dynamic shell source', () => {
     for (const command of [
       "S=-c; bash $S 'git reset --hard'",
