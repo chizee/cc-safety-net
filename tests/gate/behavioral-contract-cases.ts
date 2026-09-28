@@ -1186,6 +1186,48 @@ export function behavioralContractCases(paths: {
       },
     },
     {
+      name: 'allows a delete inside a temp directory that an earlier mkdir -p created and cd entered',
+      command: `S=${tempParent}; mkdir -p $S/fresh/src && cd $S/fresh && rm -rf src/folder.ts`,
+      options: options({ cwd: paths.cwd }),
+      expected: { kind: 'allow' },
+    },
+    {
+      name: 'blocks a delete after a cd into a directory a parentless mkdir cannot create',
+      command: `mkdir ${tempParent}/absent/leaf; cd ${tempParent}/absent/leaf; rm -rf build`,
+      options: options({ cwd: paths.cwd }),
+      expected: {
+        kind: 'block',
+        ruleId: 'rm.recursive-force-outside-cwd',
+        intent: 'scope_down',
+        reasonIncludes: 'rm -rf outside cwd is blocked',
+        segment: 'rm -rf build',
+      },
+    },
+    {
+      name: 'blocks a delete after a cd into a directory whose mkdir may have failed',
+      command: `mkdir -p ${tempParent}/fresh || true; cd ${tempParent}/fresh; rm -rf build`,
+      options: options({ cwd: paths.cwd }),
+      expected: {
+        kind: 'block',
+        ruleId: 'rm.recursive-force-outside-cwd',
+        intent: 'scope_down',
+        reasonIncludes: 'rm -rf outside cwd is blocked',
+        segment: 'rm -rf build',
+      },
+    },
+    {
+      name: 'blocks deleting the workspace from a directory an earlier mkdir -p created',
+      command: `mkdir -p ${tempParent}/fresh && cd ${tempParent}/fresh && rm -rf ../${basename(paths.cwd)}`,
+      options: options({ cwd: paths.cwd }),
+      expected: {
+        kind: 'block',
+        ruleId: 'rm.recursive-force-cwd-self',
+        intent: 'scope_down',
+        reasonIncludes: 'rm -rf outside cwd is blocked',
+        segment: `rm -rf ../${basename(paths.cwd)}`,
+      },
+    },
+    {
       name: 'allows a Git discard in a temp-root repository named by a literal-assignment git -C',
       command: `S=${tempRepo}; git -C $S checkout -- README.md`,
       options: options({ cwd: paths.cwd }),

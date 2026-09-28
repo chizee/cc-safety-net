@@ -1,4 +1,6 @@
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { AnalysisLimit, type Budget, LIMITS } from '@/core/budget';
+import { resolveExistingPath } from '@/core/paths/canonicalization';
 import {
   destructiveCommandRuleIsEnabled,
   filterDestructiveCommandMatch,
@@ -127,6 +129,7 @@ export function analyzeCommandInternal(
       shellGitContextState,
       literalHeredocFiles: new Map(options.literalHeredocFiles),
       functionDefinitions: new Map(options.functionDefinitions),
+      createdDirectories: new Set(),
     },
   ]).result;
 }
@@ -136,6 +139,7 @@ type AnalysisState = {
   shellGitContextState: ShellGitContextEnvState;
   literalHeredocFiles: Map<string, string>;
   functionDefinitions: Map<string, CommandProgram>;
+  createdDirectories: Set<string>;
 };
 
 type ProgramAnalysis = {
@@ -418,6 +422,7 @@ function isolateFilesystemState(
   return {
     ...initialState,
     literalHeredocFiles: new Map(analyzedState.literalHeredocFiles),
+    createdDirectories: new Set(analyzedState.createdDirectories),
   };
 }
 
@@ -638,7 +643,15 @@ function analyzeCommandView(
 ): AnalyzeResult | null {
   const options = {
     ...inheritedOptions,
-    environment: { ...inheritedOptions.environment, env: state.shellGitContextState.env },
+    environment: {
+      ...inheritedOptions.environment,
+      env: state.shellGitContextState.env,
+      paths: withCreatedDirectories(
+        inheritedOptions.environment.paths,
+        state.createdDirectories,
+        inheritedOptions.budget,
+      ),
+    },
   };
   const heredocReason = getHeredocReason(commandView, !options.strict);
   if (heredocReason && options.strict) {
@@ -811,6 +824,7 @@ function finalizeAnalyzedCommandView(
     options.environment.paths,
     options.budget,
   );
+  trackCreatedDirectories(commandView, state, options.environment.paths, options.budget);
   updateCwdAfterCommandView(
     commandView,
     state,
@@ -904,7 +918,7 @@ function getLiteralHeredocOutputTargets(
   commandView: CommandView,
   assignments: ReadonlyMap<string, string>,
 ): string[] {
-  const stdoutTarget = heredocOutputPath(
+  const stdoutTarget = fileWordPath(
     getFinalStdoutRedirection(commandView.redirections)?.target,
     assignments,
   );
@@ -916,19 +930,74 @@ function getLiteralHeredocOutputTargets(
 
   const teeArguments = getTeeArguments(commandView.words.slice(1), assignments);
   if (!teeArguments || teeArguments.append || teeArguments.hasUnsupportedOptions) return [];
-  const operandPaths = teeArguments.operands.map((operand) =>
-    heredocOutputPath(operand, assignments),
-  );
+  const operandPaths = teeArguments.operands.map((operand) => fileWordPath(operand, assignments));
   if (!operandPaths.every((path): path is string => path !== undefined)) return [];
   return [...operandPaths, ...stdoutTargets];
 }
 
-function heredocOutputPath(
+function fileWordPath(
   word: CommandWord | undefined,
   assignments: ReadonlyMap<string, string>,
 ): string | undefined {
   if (isTrackableLiteralFileWord(word)) return word.text;
   return (word && expandKnownVariableWord(word, assignments)) ?? undefined;
+}
+
+function withCreatedDirectories(
+  paths: PathResolver,
+  created: ReadonlySet<string>,
+  budget: Budget,
+): PathResolver {
+  if (created.size === 0) return paths;
+  const isCreated = (path: string) => created.has(resolveExistingPath(path, paths, budget));
+  return {
+    realpath: (path) =>
+      paths.realpath(path) ?? (isCreated(path) ? resolveExistingPath(path, paths, budget) : null),
+    entryKind: (path) => {
+      const kind = paths.entryKind(path);
+      return kind === 'missing' && isCreated(path) ? 'present' : kind;
+    },
+    isDirectory: (path) => paths.isDirectory(path) || isCreated(path),
+  };
+}
+
+function trackCreatedDirectories(
+  commandView: CommandView,
+  state: AnalysisState,
+  paths: PathResolver,
+  budget: Budget,
+): void {
+  if (!isBareCommandWord(commandView.words[0], 'mkdir')) return;
+  const args = commandView.words
+    .slice(1)
+    .map((word) => fileWordPath(word, state.shellGitContextState.shellAssignments));
+  if (!args.every((arg): arg is string => arg !== undefined)) return;
+  const optionEnd = args.findIndex((arg) => arg === '--' || arg === '-' || !arg.startsWith('-'));
+  const options = args.slice(0, optionEnd);
+  if (
+    optionEnd === -1 ||
+    !options.every((option) => /^(?:-[pv]+|--parents|--verbose)$/.test(option))
+  ) {
+    return;
+  }
+  const parents = options.some((option) => option === '--parents' || /^-v*p/.test(option));
+  const cwd = state.effectiveCwd;
+  for (const operand of args.slice(args[optionEnd] === '--' ? optionEnd + 1 : optionEnd)) {
+    if (operand.split(/[\\/]/).includes('..') || (!isAbsolute(operand) && !cwd)) continue;
+    const missing = missingPathChain(
+      resolveExistingPath(resolve(cwd ?? '', operand), paths, budget),
+      paths,
+    );
+    if (!parents && missing.length !== 1) continue;
+    for (const path of missing) state.createdDirectories.add(path);
+  }
+}
+
+function missingPathChain(path: string, paths: PathResolver): string[] {
+  const parent = dirname(path);
+  return paths.entryKind(path) !== 'missing' || parent === path
+    ? []
+    : [path, ...missingPathChain(parent, paths)];
 }
 
 function catWritesHeredocVerbatim(words: readonly CommandWord[]): boolean {
@@ -1257,6 +1326,7 @@ function cloneAnalysisState(state: AnalysisState): AnalysisState {
     shellGitContextState: cloneShellGitContextEnvState(state.shellGitContextState),
     literalHeredocFiles: new Map(state.literalHeredocFiles),
     functionDefinitions: new Map(state.functionDefinitions),
+    createdDirectories: new Set(state.createdDirectories),
   };
 }
 
@@ -1288,12 +1358,16 @@ function analysisStatesEqual(left: AnalysisState, right: AnalysisState): boolean
       right.shellGitContextState.shellAssignments,
     ) &&
     left.shellGitContextState.bodyDepth === right.shellGitContextState.bodyDepth &&
-    left.shellGitContextState.bodyAssignments.size ===
-      right.shellGitContextState.bodyAssignments.size &&
-    [...left.shellGitContextState.bodyAssignments].every((name) =>
-      right.shellGitContextState.bodyAssignments.has(name),
-    )
+    setsEqual(
+      left.shellGitContextState.bodyAssignments,
+      right.shellGitContextState.bodyAssignments,
+    ) &&
+    setsEqual(left.createdDirectories, right.createdDirectories)
   );
+}
+
+function setsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return left.size === right.size && [...left].every((value) => right.has(value));
 }
 
 function optionalMapsEqual<T>(

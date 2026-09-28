@@ -630,6 +630,28 @@ describe('analyzeCommand', () => {
     }
   });
 
+  test('a directory an earlier mkdir created counts as existing for a later cd', () => {
+    const scratchPosix = scratch.split(sep).join('/');
+    for (const command of [
+      `mkdir -pv '${scratchPosix}/made/a' && cd '${scratchPosix}/made/a' && rm -rf build`,
+      `mkdir -- '${scratchPosix}/solo' && cd '${scratchPosix}/solo' && rm -rf build`,
+      `mkdir '${scratchPosix}/p' && mkdir '${scratchPosix}/p/q' && cd '${scratchPosix}/p/q' && rm -rf build`,
+      `cd '${scratchPosix}' && mkdir -p rel/dir && cd rel/dir && rm -rf build`,
+      `(mkdir -p '${scratchPosix}/sub') && cd '${scratchPosix}/sub' && rm -rf build`,
+      `D='${scratchPosix}/var'; mkdir -p "$D" && cd "$D" && rm -rf build`,
+    ]) {
+      expect(decision(command, standard), command).toBeNull();
+    }
+    for (const command of [
+      `mkdir -m 700 '${scratchPosix}/moded' && cd '${scratchPosix}/moded' && rm -rf build`,
+      `mkdir -p '${scratchPosix}/x/../dotdot' && cd '${scratchPosix}/dotdot' && rm -rf build`,
+      `cd '${scratchPosix}' && mkdir -p '~/x' && cd ~/x && rm -rf build`,
+      `mkdir -p $UNSET/y && cd '${scratchPosix}/y' && rm -rf build`,
+    ]) {
+      expect(decision(command, standard)?.ruleId, command).toBe('rm.recursive-force-outside-cwd');
+    }
+  });
+
   test('a cd operand built from literal assignments is tracked', () => {
     const scratchPosix = scratch.split(sep).join('/');
     const workspacePosix = workspace.split(sep).join('/');

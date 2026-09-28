@@ -1050,7 +1050,13 @@ function resolveKnownCwdTarget(
   cwd: string,
   paths: PathResolver,
 ): string | null {
-  if (!target || target === '-' || target.includes('$') || target.includes('`')) {
+  if (
+    !target ||
+    target === '-' ||
+    target.startsWith('~') ||
+    target.includes('$') ||
+    target.includes('`')
+  ) {
     return null;
   }
 
