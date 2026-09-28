@@ -1162,6 +1162,18 @@ export function behavioralContractCases(paths: {
       },
     },
     {
+      name: 'blocks a find delete from a workspace subdirectory a tracked cd entered',
+      command: 'cd src && find . -delete',
+      options: options({ cwd: paths.cwd }),
+      expected: {
+        kind: 'block',
+        ruleId: 'find.delete',
+        intent: 'scope_down',
+        reasonIncludes: 'Use -print first',
+        segment: 'find . -delete',
+      },
+    },
+    {
       name: 'blocks a find delete from a temp-root workspace without a cd',
       command: "find . -name '*.jpg' -delete",
       options: options({ cwd: paths.tempRepos[0] }),

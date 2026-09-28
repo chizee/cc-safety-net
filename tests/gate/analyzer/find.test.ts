@@ -491,6 +491,10 @@ describe('find analysis', () => {
   test('a find starting at . after a tracked cd is judged by the directory the cd entered', () => {
     const scratch = { label: 'tracked cd into a temp directory', cwd: join(root, 'scratch') };
     const parent = { label: 'tracked cd into the temp parent of the workspace', cwd: root };
+    const workspaceSubdirectory = {
+      label: 'tracked cd into a workspace subdirectory',
+      cwd: join(workspace, 'logs'),
+    };
     const rows: readonly {
       readonly source: string;
       readonly row: FindCase;
@@ -500,6 +504,7 @@ describe('find analysis', () => {
       { source: 'find ./ -maxdepth 1 -name "still-*.jpg" -delete', row: scratch, id: null },
       { source: 'find -L . -delete', row: scratch, id: 'find.delete' },
       { source: 'find . -delete', row: parent, id: 'find.delete' },
+      { source: 'find . -delete', row: workspaceSubdirectory, id: 'find.delete' },
       { source: 'find . -delete', row: caseFor('workspace'), id: 'find.delete' },
     ];
     for (const { source, row, id } of rows) {
