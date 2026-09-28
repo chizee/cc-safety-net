@@ -17,8 +17,8 @@ const COMMENTS_ALLOWED_WITHOUT_ENTRY = [
 const SOURCE_FILE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const ALLOWLIST_PATH = 'scripts/comment-allowlist.json';
 
-const SAY_IT_IN_CODE = `Make the code say it with a clearer name, a named value or a type, and delete the comment. Only the maintainer adds entries to ${ALLOWLIST_PATH}, for facts about external tools the code cannot express.`;
-const DELETE_STALE_ENTRIES = `Delete the stale entries from ${ALLOWLIST_PATH}: the comments they allowed are gone.`;
+const SAY_IT_IN_CODE = `Make the code say it with a clearer name, a named value or a type, and delete the comment. Only the maintainer adds entries to ${ALLOWLIST_PATH}, for facts about external tools the code cannot express. Fix each one by following .agents/skills/ccsn-no-comments/SKILL.md.`;
+const FIX_STALE_ENTRIES = `A stale entry's comment is gone, edited, moved to another file or hidden by a syntax error. Fix each one by following .agents/skills/ccsn-no-comments/SKILL.md.`;
 
 export function checkComments(
   files: readonly { path: string; text: string }[],
@@ -76,7 +76,7 @@ if (import.meta.main) {
     ...result.staleAllowlistEntries.map(
       (entry) => `${ALLOWLIST_PATH}  stale entry for ${entry.path}: ${firstLine(entry.text)}`,
     ),
-    ...(result.staleAllowlistEntries.length > 0 ? [DELETE_STALE_ENTRIES] : []),
+    ...(result.staleAllowlistEntries.length > 0 ? [FIX_STALE_ENTRIES] : []),
   ];
   if (report.length > 0) {
     console.error(report.join('\n'));

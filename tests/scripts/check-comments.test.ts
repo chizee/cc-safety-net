@@ -7,10 +7,10 @@ import { runGit, withTempDir } from '../helpers';
 const checkCommentsScript = join(import.meta.dir, '../../scripts/check-comments.ts');
 
 const SAY_IT_IN_CODE =
-  'Make the code say it with a clearer name, a named value or a type, and delete the comment. Only the maintainer adds entries to scripts/comment-allowlist.json, for facts about external tools the code cannot express.';
+  'Make the code say it with a clearer name, a named value or a type, and delete the comment. Only the maintainer adds entries to scripts/comment-allowlist.json, for facts about external tools the code cannot express. Fix each one by following .agents/skills/ccsn-no-comments/SKILL.md.';
 
-const DELETE_STALE_ENTRIES =
-  'Delete the stale entries from scripts/comment-allowlist.json: the comments they allowed are gone.';
+const FIX_STALE_ENTRIES =
+  "A stale entry's comment is gone, edited, moved to another file or hidden by a syntax error. Fix each one by following .agents/skills/ccsn-no-comments/SKILL.md.";
 
 function commentTexts(path: string, text: string) {
   return checkComments([{ path, text }], {}).disallowedComments.map((comment) => comment.text);
@@ -130,7 +130,7 @@ describe('checkComments', () => {
     });
   });
 
-  test('reports a file it cannot parse, since the parser returns none of its comments', () => {
+  test('reports a file it cannot parse and misses the comments after the syntax error', () => {
     expect(
       checkComments(
         [
@@ -221,7 +221,7 @@ describe('check-comments command', () => {
           'src/view.jsx:1:18  // v',
           SAY_IT_IN_CODE,
           'scripts/comment-allowlist.json  stale entry for src/gone.ts: /**',
-          DELETE_STALE_ENTRIES,
+          FIX_STALE_ENTRIES,
           '',
         ].join('\n'),
       });
