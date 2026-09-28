@@ -208,10 +208,13 @@ type LiteralFamily = 'python' | 'javascript' | 'simple' | 'opaque';
 
 type CodeLiteral = { readonly start: number; readonly text: string };
 
-type MaskedCode = { readonly masked: string; readonly literals: readonly CodeLiteral[] };
+type MaskedCode =
+  | { readonly kind: 'masked'; readonly masked: string; readonly literals: readonly CodeLiteral[] }
+  | { readonly kind: 'unmaskable' };
 
 type PathExtractionOptions = {
-  readonly standard?: boolean;
+  readonly skipMetadataOnlySegments?: boolean;
+  readonly inlineLiteralsPresumedData?: boolean;
   readonly displayOperandsAreCapturedOutput?: boolean;
 };
 
@@ -257,25 +260,29 @@ function findSensitivePolicyPathTarget(
     if (activeDefaultTargets && !activeDefaultTargets.has(target)) continue;
     const ruleId = isSensitivePath(target, candidate.cwd, config, environment, budget);
     if (ruleId) {
-      const fileNameRule = !ruleId.startsWith('secret.home.') && !ruleId.startsWith('secret.cli.');
-      if (
-        activeDefaultTargets &&
-        ((fileNameRule &&
-          environment.paths.isDirectory(
-            candidateAbsolutePath(target, candidate.cwd, environment, budget),
-          )) ||
-          (fileNameRule &&
-            candidate.isRedirectionWriteTarget === true &&
-            !target.includes('$') &&
-            !candidateExistsOnDisk(target, candidate.cwd, environment, budget)) ||
-          (fileNameRule &&
-            /\s/.test(target) &&
-            !target.includes('$') &&
-            !/^(?:[~./]|[A-Za-z]:[\\/])/.test(target) &&
-            !candidateExistsOnDisk(target, candidate.cwd, environment, budget)))
-      ) {
-        continue;
-      }
+      const standardModeFileNameRule =
+        activeDefaultTargets !== undefined &&
+        !ruleId.startsWith('secret.home.') &&
+        !ruleId.startsWith('secret.cli.');
+      const matchedDirectory =
+        standardModeFileNameRule &&
+        environment.paths.isDirectory(
+          candidateAbsolutePath(target, candidate.cwd, environment, budget),
+        );
+      if (matchedDirectory) continue;
+      const writeCreatesNewFile =
+        standardModeFileNameRule &&
+        candidate.isRedirectionWriteTarget === true &&
+        !target.includes('$') &&
+        !candidateExistsOnDisk(target, candidate.cwd, environment, budget);
+      if (writeCreatesNewFile) continue;
+      const spacedNonPathWord =
+        standardModeFileNameRule &&
+        /\s/.test(target) &&
+        !target.includes('$') &&
+        !/^(?:[~./]|[A-Za-z]:[\\/])/.test(target) &&
+        !candidateExistsOnDisk(target, candidate.cwd, environment, budget);
+      if (spacedNonPathWord) continue;
       if (
         !ruleId.startsWith('secret.cli.') &&
         matchesAllowedPath(
@@ -357,9 +364,10 @@ export function findSensitiveTargetInSemanticFacts(
     environment,
     budget,
     new Set(
-      extractToolPathTargets(facts, environment, budget, { standard: true }).map(
-        (candidate) => candidate.target,
-      ),
+      extractToolPathTargets(facts, environment, budget, {
+        skipMetadataOnlySegments: true,
+        inlineLiteralsPresumedData: true,
+      }).map((candidate) => candidate.target),
     ),
   );
   return refinedTarget?.ruleId !== 'secret.deny-path' && isMetadataOnlyCommand(facts, environment)
@@ -576,7 +584,7 @@ function extractSegmentPathTargets(
   const post = stripped.slice(1);
   const firstNonReservedWordIndex = stripped.findIndex((token) => !SHELL_RESERVED_WORDS.has(token));
   if (
-    options.standard === true &&
+    options.skipMetadataOnlySegments === true &&
     firstNonReservedWordIndex !== -1 &&
     isMetadataOnlyArgv(
       basename(stripped[firstNonReservedWordIndex] ?? '').toLowerCase(),
@@ -719,13 +727,15 @@ function extractPipeCarrierPathTargets(
 ): SecretCandidate[] {
   if (xargsReadsPipeInputAsPath(consumer, store, options, environment, cwd, budget)) {
     const stripped = stripLeadingWrappersAndEnvAssignments(producer);
-    const listed = isMetadataOnlyArgv(basename(stripped[0] ?? '').toLowerCase(), stripped.slice(1))
+    const namesListedByMetadataProducer = isMetadataOnlyArgv(
+      basename(stripped[0] ?? '').toLowerCase(),
+      stripped.slice(1),
+    )
       ? stripped.slice(1).filter((token) => !token.startsWith('-'))
       : [];
-    return [...extractDisplayCommandOperands(producer), ...listed].map((target) => ({
-      target,
-      cwd,
-    }));
+    return [...extractDisplayCommandOperands(producer), ...namesListedByMetadataProducer].map(
+      (target) => ({ target, cwd }),
+    );
   }
 
   return extractStdinScriptPathTargets(
@@ -1264,7 +1274,7 @@ function extractInlineCodePathTargets(
 ): SecretCandidate[] {
   const here = (target: string) => ({ target, cwd });
   const masked = maskStringLiterals(code, literalFamily(command));
-  if (masked === null) return extractAllPathCandidatesUnmasked(code).map(here);
+  if (masked.kind === 'unmaskable') return extractAllPathCandidatesUnmasked(code).map(here);
 
   const shellExec =
     masked.masked.match(SHELL_EXEC_CALL) !== null ||
@@ -1276,19 +1286,22 @@ function extractInlineCodePathTargets(
     masked.literals.some((literal) =>
       LANGUAGE_EVAL_PREFIX.test(masked.masked.slice(0, literal.start)),
     );
-  const refine = options.standard === true && !SHELL_STDIN_INTERPRETERS.has(command);
+  const literalsPresumedData =
+    options.inlineLiteralsPresumedData === true && !SHELL_STDIN_INTERPRETERS.has(command);
   const literals =
-    refine && !(containsRecognizableInlineAccess(masked.masked) || shellExec || languageEval)
+    literalsPresumedData &&
+    !(containsRecognizableInlineAccess(masked.masked) || shellExec || languageEval)
       ? []
       : masked.literals;
-  const execCalls = refine
+  const execCalls = literalsPresumedData
     ? Array.from(masked.masked.matchAll(SHELL_EXEC_CALL), (call) => {
         const start = call.index + call[0].length;
         return { start, end: closingParenthesis(masked.masked, start) };
       })
     : [];
-  const shellLiterals =
-    !refine || execCalls.some((call) => firstArgumentHasName(masked.masked, call.start))
+  const literalsExecCallsReceive =
+    !literalsPresumedData ||
+    execCalls.some((call) => firstArgumentHasName(masked.masked, call.start))
       ? masked.literals
       : masked.literals.filter(
           (literal) =>
@@ -1301,13 +1314,13 @@ function extractInlineCodePathTargets(
       .filter((text) => text !== '')
       .map(here),
     ...literals.flatMap((literal) => decodeBase64PathCandidate(literal.text)).map(here),
-    ...(refine
+    ...(literalsPresumedData
       ? []
       : masked.literals
           .flatMap((literal) => literal.text.match(BARE_PATH_PATTERN) ?? [])
           .map(here)),
     ...(shellExec
-      ? shellLiterals.flatMap(
+      ? literalsExecCallsReceive.flatMap(
           (literal) =>
             walkShellText(literal.text, store, options, environment, cwd, budget) ?? [
               here(literal.text),
@@ -1342,35 +1355,37 @@ function literalFamily(command: string): LiteralFamily {
     : 'simple';
 }
 
-function maskStringLiterals(code: string, family: LiteralFamily): MaskedCode | null {
-  if (family === 'opaque') return null;
+function maskStringLiterals(code: string, family: LiteralFamily): MaskedCode {
+  if (family === 'opaque') return { kind: 'unmaskable' };
   const masked = code.split('');
   const literals: CodeLiteral[] = [];
   for (let index = 0; index < code.length; index++) {
     const char = code[index] ?? '';
     if (family === 'simple' && (char === '`' || char === '%' || char === '<')) {
-      if (UNMASKABLE_SIMPLE_CODE.test(code.slice(index))) return null;
+      if (UNMASKABLE_SIMPLE_CODE.test(code.slice(index))) return { kind: 'unmaskable' };
     }
     const quote =
       char === "'" || char === '"' || (family === 'javascript' && char === '`') ? char : null;
     if (quote === null) continue;
-    if (quote === '`' && isTaggedTemplate(code, index)) return null;
+    if (quote === '`' && isTaggedTemplate(code, index)) return { kind: 'unmaskable' };
 
     const prefix = family === 'python' ? pythonStringPrefix(code, index) : '';
     const delimiter =
       family === 'python' && code.startsWith(quote.repeat(3), index) ? quote.repeat(3) : quote;
     const start = index + delimiter.length;
     const end = findLiteralEnd(code, start, delimiter);
-    if (end === null) return null;
+    if (end === null) return { kind: 'unmaskable' };
 
     const text = code.slice(start, end);
-    if (/[fF]/.test(prefix) && text.includes('{')) return null;
-    if (family === 'simple' && quote === '"' && SIMPLE_INTERPOLATION.test(text)) return null;
+    if (/[fF]/.test(prefix) && text.includes('{')) return { kind: 'unmaskable' };
+    if (family === 'simple' && quote === '"' && SIMPLE_INTERPOLATION.test(text)) {
+      return { kind: 'unmaskable' };
+    }
     literals.push({ start, text });
     for (let cursor = index; cursor < end + delimiter.length; cursor++) masked[cursor] = ' ';
     index = end + delimiter.length - 1;
   }
-  return { masked: masked.join(''), literals };
+  return { kind: 'masked', masked: masked.join(''), literals };
 }
 
 function pythonStringPrefix(code: string, index: number): string {
