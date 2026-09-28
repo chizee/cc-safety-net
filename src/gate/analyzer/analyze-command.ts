@@ -331,7 +331,8 @@ function analyzeProgram(
         );
         const enteredExistingDirectory =
           typeof analyzedState.effectiveCwd === 'string' &&
-          analyzedState.effectiveCwd !== commandState.effectiveCwd;
+          analyzedState.effectiveCwd !== commandState.effectiveCwd &&
+          node.redirections.every((redirection) => redirection.target?.text === '/dev/null');
         if (tracksCommandOutcome && !enteredExistingDirectory) {
           failureStates.push(state);
           failureStates.push(

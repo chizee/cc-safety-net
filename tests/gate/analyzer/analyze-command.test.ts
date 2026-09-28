@@ -610,6 +610,13 @@ describe('analyzeCommand', () => {
       'git.reset-hard',
     );
     expect(decision(`cd '${scratchPosix}' && printf ready; rm -rf build`, standard)).toBeNull();
+    expect(decision(`cd '${scratchPosix}' 2>/dev/null || git reset --hard`, standard)).toBeNull();
+    expect(
+      decision(
+        `cd '${scratchPosix}' < '${scratchPosix}/missing-input' || git reset --hard`,
+        standard,
+      )?.ruleId,
+    ).toBe('git.reset-hard');
   });
 
   test('a cd into a regular file leaves the cwd unknown', () => {
