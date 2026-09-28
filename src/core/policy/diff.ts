@@ -7,13 +7,7 @@ import { salvageUserPolicy } from './user-policy-diagnostics';
 
 export type PolicyDiffRow = { field: string; before?: string; after?: string };
 
-/**
- * The whole diff: the policy file shape is fixed and small, so one flat map of
- * `field.path` to displayed value covers it without a diff library. Audit belongs
- * to the user scope only and drops out of a project-scope comparison.
- *
- * @internal
- */
+/** @internal */
 export function flattenPolicy(policy: GuiPolicy, includeAudit: boolean): Record<string, string> {
   return {
     'safety.level': policy.safety.level,

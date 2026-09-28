@@ -501,13 +501,9 @@ export function containsDangerousCode(
   if (interpreterCodeHasDangerousText(strippedCode, scanWork)) return true;
   chargeNativeLinearPass(scanWork, strippedCode);
   if (!INTERPRETER_EXEC_SINK.test(strippedCode)) return false;
-  // Standard safety: a dangerous string literal counts only where an exec call can receive it.
   return !standard || execCallReceivesDangerousLiteral(executableCode, scanWork);
 }
 
-// True when an exec call's first argument holds a name, which may carry any literal, or when a
-// literal inside an exec call's parentheses, or after a paren-less sink, is dangerous text.
-// Backticks, `%x` and `qx` execute their own text, so code holding them always counts.
 function execCallReceivesDangerousLiteral(code: string, scanWork?: { units: number }): boolean {
   if (/`|%x|\bqx\b/.test(code)) return true;
   const masked = code.split('');
@@ -540,10 +536,6 @@ function execCallReceivesDangerousLiteral(code: string, scanWork?: { units: numb
   );
 }
 
-/**
- * The index of the `)` closing a call whose arguments start at `start`, in code whose string
- * literals are already masked; unbalanced code runs to its end.
- */
 export function closingParenthesis(masked: string, start: number): number {
   let depth = 1;
   for (let index = start; index < masked.length; index++) {
@@ -554,11 +546,6 @@ export function closingParenthesis(masked: string, start: number): number {
   return masked.length;
 }
 
-/**
- * Whether the first argument of a call whose arguments start at `start` holds a name, in code
- * whose string literals are already masked: `run(cmd)` or `run(['sh', '-c', cmd])` can carry a
- * string bound anywhere earlier, so every literal may reach the call.
- */
 export function firstArgumentHasName(masked: string, start: number): boolean {
   let depth = 0;
   for (let index = start; index < masked.length; index++) {

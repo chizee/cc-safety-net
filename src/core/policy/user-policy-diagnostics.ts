@@ -1,10 +1,6 @@
 import { formatIssues, sortIssues } from './rules-config';
 import { USER_POLICY_FIELDS, validateUserPolicy } from './store';
 
-/**
- * One salvage pass answering both surfaces: the normalized policy and the diagnostics its
- * degraded fields produced. Callers that need both must not validate the same document twice.
- */
 export function salvageUserPolicy(config: unknown, home: string) {
   const validated = validateUserPolicy(config, home);
   return {

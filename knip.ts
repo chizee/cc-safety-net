@@ -10,9 +10,7 @@ const config: KnipConfig = {
     'src/entries/pi.ts!',
     'src/entries/amp.ts!',
     'src/entries/openclaw.ts!',
-    // Built for the browser by src/gui/assets.ts, so no module imports it.
     'src/gui/frontend/main.ts!',
-    // scripts invoked directly by package.json scripts or GitHub workflows
     'scripts/build.ts!',
     'scripts/project-bun.ts!',
     'scripts/prepare-release-files.ts!',

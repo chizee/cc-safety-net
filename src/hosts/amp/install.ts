@@ -22,23 +22,12 @@ import { getPackageVersion } from '@/hosts/system-info';
 const AMP_LEGACY_PLUGIN_FILE = 'cc-safety-net.ts';
 const AMP_ARTIFACT_RELATIVE = join('amp', AMP_PLUGIN_ENTRY);
 
-/**
- * Local system-scope plugin path. Nothing installs here anymore; a leftover file masks the
- * personal plugin, so install and uninstall clean it up when it is one of ours. Spelled out
- * rather than sharing the repository migration constant: this path is permanent.
- * @internal
- */
+/** @internal */
 export function getAmpPluginPath(environment: Environment): string {
   return join(environment.home, '.config', 'amp', 'plugins', 'cc-safety-net.ts');
 }
 
-/**
- * Candidate locations of the packaged Amp artifact, resolved relative to the
- * installed CLI module (never the user's project). Bun may hoist this module
- * into `dist/cli.js` at the dist root or emit it under `dist/chunks/`; the dev
- * entrypoint runs from `src/hosts/amp/`.
- * @internal
- */
+/** @internal */
 export function ampArtifactCandidates(): string[] {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
   return [

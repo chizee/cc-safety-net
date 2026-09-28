@@ -221,7 +221,7 @@ export function removeEmptyPolicyDirectory(target: PolicyFilesystemTarget): void
   });
 }
 
-/** @internal Retained for the v2 cache cleanup the migration command performs. */
+/** @internal */
 export function validatePolicyDirectoryRemoval(target: PolicyFilesystemTarget): boolean {
   return guarded(target.scope.label, () => {
     if (!validateTarget(target, 'directory')) return false;

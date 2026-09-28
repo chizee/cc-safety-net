@@ -67,7 +67,6 @@ function evaluateGit(
   }
 
   const match = analyzeGitRule(resolvedTokens, (operand) => {
-    // Alias expansion drops leading global options, so -C is read from the original tokens.
     const gitCwd = getGitExecutionContext(tokens, options.cwd, options.environment.paths).gitCwd;
     return (
       gitCwd !== null && options.environment.paths.entryKind(resolve(gitCwd, operand)) !== 'missing'

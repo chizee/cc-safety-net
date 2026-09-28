@@ -13,7 +13,6 @@ export interface FormatBlockedMessageInput {
   maxLen?: number;
   redact?: (text: string) => string;
   configWarning?: string;
-  // Worded for the user's approval prompt instead of the agent's block message.
   askUser?: boolean;
 }
 

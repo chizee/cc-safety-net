@@ -56,7 +56,6 @@ export interface ChildProvenance {
   readonly rmDynamicMatch?: DestructiveCommandRuleMatch;
 }
 
-/** Provenance a dynamic-input producer (xargs, GNU Parallel) attaches to the child command it runs. */
 export function childProvenance(
   childCommand: NormalizedChildCommand,
   context: NestedCommandAnalyzeContext,

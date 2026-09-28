@@ -220,13 +220,6 @@ function findCatastrophicDeleteMatch(
   return null;
 }
 
-/** True when a literal -name or -iname filter, ANDed ahead of the first action, matches no protected
- *  Git metadata name, so a starting point that contains the metadata (such as `.`) never hands a
- *  metadata entry to -delete or -exec. A recursive -exec body keeps the block, since it would also
- *  remove metadata inside a matched ancestor. So do a shell -c body, whose flags are not read, a
- *  `{}` embedded in a longer argument (`{}/.git/HEAD`), and a fixed path argument to -execdir,
- *  which resolves beside each match and escapes the nested cwd-relative analysis. An operator, negation, grouping, unrecognized primary
- *  or non-literal pattern anywhere in the expression keeps the block too. */
 function nameFilterExcludesGitMetadata(
   words: readonly CommandWord[],
   metadata: ProtectedGitMetadata | null,
@@ -298,9 +291,6 @@ function findNamePatternRegExp(pattern: string, caseless: boolean): RegExp {
   return new RegExp(`^${source}$`, caseless ? 'isu' : 'su');
 }
 
-/** rm or rmdir as any word of a shell -c body. A parsed command head misses `exec rm`, `then rm` and
- *  function bodies, so a mention such as `echo rm "$0"` also counts, and quotes and backslashes are
- *  dropped first so `"rm"` and `r''m` count too: the check fails closed. */
 const SHELL_RM_WORD = /(?:^|[\s;&|(`{])\\?(?:\S*\/)?rm(?:dir)?(?=[\s;&|)`}]|$)/;
 
 export function findExecRmDeletesFoundPaths(

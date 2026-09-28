@@ -9,7 +9,6 @@ const result = Bun.spawnSync(
   {
     env: {
       ...process.env,
-      // Nested build commands must use this runtime even when Bun was started by absolute path.
       [pathKey]: `${dirname(process.execPath)}${delimiter}${process.env[pathKey] ?? ''}`,
     },
     stdin: 'inherit',

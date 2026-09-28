@@ -108,10 +108,7 @@ export function projectSensitiveShellText(source: string, environment: Environme
   return expandSupportedPathEnvironmentVariables(source, environment);
 }
 
-/**
- * Shared cache that parses each unique command/dialect pair at most once.
- * @internal
- */
+/** @internal */
 export function createSemanticFactStore(): SemanticFactStore {
   const shellFacts = new Map<string, GuardSyntax>();
   const commandPrograms = new Map<string, CommandProgram>();

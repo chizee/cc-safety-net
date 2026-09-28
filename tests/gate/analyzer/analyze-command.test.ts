@@ -528,7 +528,6 @@ describe('analyzeCommand', () => {
       'xargs git status',
       "cat <<'EOF'\nrm -rf ~ remains inert prose\nEOF",
       'TMPDIR=/tmp rm -rf $TMPDIR/test-dir',
-      // Interpreter code whose shell re-parse opens a heredoc at a stray `<<` (issue #111).
       "node -e 'const s = `t\\n---\\n<<declare hp = 3>>`; console.log(s);'",
       "echo x | node -e 'const s = `t\\n---\\n<<declare hp = 3>>`; console.log(s);'",
     ];
@@ -739,7 +738,6 @@ describe('analyzeCommand', () => {
       expect(denial?.intent, command).toBe('stop_and_explain');
       expect(denial?.reason, command).toContain('strict mode');
     }
-    // A stray `<<` in interpreter code is noise only while its quotes balance.
     const heredoc = "node -e 'x = `helm uninstall foo <<X; echo \"unclosed`'";
     expect(decision(heredoc, standard)).toBeNull();
     expect(decision(heredoc, strict)).toMatchObject({

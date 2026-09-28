@@ -130,7 +130,6 @@ export type CommandAnalysisPolicy = EffectivePolicy & {
 };
 
 /** @internal */
-/** Provenance for a custom rule: its rulebook, public source, and reason override. */
 export type CustomRuleMetadata = {
   id: string;
   rulebook?: {

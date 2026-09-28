@@ -16,7 +16,7 @@ export type GitConfigCountResolution =
   | { state: 'invalid' }
   | { state: 'valid'; count: number };
 
-/** @internal - exported for test coverage */
+/** @internal */
 export const GIT_CONFIG_AFFECTING_ENV_NAMES: ReadonlySet<string> = new Set([
   'GIT_CONFIG_GLOBAL',
   'GIT_CONFIG_NOSYSTEM',

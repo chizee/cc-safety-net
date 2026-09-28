@@ -134,10 +134,7 @@ export function formatEngineSelfTestSection(selfTest: SelfTestSummary): string {
   return lines.join('\n');
 }
 
-/**
- * @internal Exported for testing
- * Format effective rules as an ASCII table.
- */
+/** @internal */
 export function formatRulesTable(rules: EffectiveRule[]): string {
   if (rules.length === 0) {
     return '   (no custom rules)';

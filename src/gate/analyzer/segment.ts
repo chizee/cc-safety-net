@@ -781,11 +781,6 @@ function analyzeStreamInterpreterChild(
   return childDynamicSourceResult(child, options.policy);
 }
 
-// Interpreter code is not shell, so the opportunistic shell re-parse of a code
-// argument only counts when it finds a real command. Text-rule hits are
-// re-scanned by containsDangerousCode, and parse failures (strict-unparseable
-// or a heredoc opened by a stray `<<`) are noise unless the quotes themselves
-// are unbalanced.
 function isInterpreterShellParseNoise(nested: AnalyzeBlockResult, codeArg: string): boolean {
   if (nested.ruleId === 'raw-text.dangerous-command') return true;
   return (

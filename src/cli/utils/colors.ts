@@ -1,8 +1,4 @@
-/**
- * Determines if color output should be used.
- * Evaluated lazily to allow tests to control via environment variables.
- * @internal Exported for testing
- */
+/** @internal */
 export function shouldUseColor(): boolean {
   return Boolean(process.stdout.isTTY && !process.env.NO_COLOR);
 }
@@ -53,13 +49,7 @@ function getShuffledPalette(seed: number): number[] {
   return palette;
 }
 
-/**
- * Generate a distinct color for a given index using a curated palette.
- * @param index - The index of the token (0-based)
- * @param seed - Seed for randomization (defaults to 0 for consistent order)
- * @returns ANSI escape sequence for the color
- * @internal Exported for testing
- */
+/** @internal */
 export function generateDistinctColor(index: number, seed = 0): string {
   if (!shouldUseColor()) return '';
 

@@ -58,13 +58,7 @@ const RULEBOOK_REASON_ERROR = `required non-empty string up to ${MAX_REASON_LENG
 const TOKEN_LIST_ERROR = 'must be a non-empty array of unique non-empty strings';
 const COMMAND_PATH_ERROR = 'required non-empty array of non-empty strings';
 
-/**
- * Rulebook acceptance, in the wording rulebook authors read. A rulebook is loaded on the
- * hook's path; the legacy `.safety-net.json` inline rules it resembles are validated in
- * `config-file.ts` under their own wording.
- *
- * @internal
- */
+/** @internal */
 export function validateRulebook(rulebook: unknown): { errors: string[]; ruleNames: Set<string> } {
   if (!isRecord(rulebook)) {
     return { errors: ['Rulebook must be an object'], ruleNames: new Set() };

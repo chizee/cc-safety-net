@@ -109,17 +109,7 @@ function artifactVersion(content: string): string | undefined {
   return /^\/\/ version:\s*(.+)$/m.exec(content)?.[1]?.trim();
 }
 
-/**
- * A managed header, our id, and an entry path are not a plugin: an `index.js` truncated below its
- * header registers no hook, and a manifest reduced to `{"id":"cc-safety-net"}` is not the shape
- * OpenClaw loads — both still pass every check above. The packaged directory is the counterpart of
- * an install carrying its version stamp (in a released install, the running package version), so
- * when the stamps agree every managed file must match it byte for byte. A differing stamp is an
- * outdated install, reported as such by the caller, and a checkout that was never built has no
- * counterpart to compare against at all.
- *
- * @internal
- */
+/** @internal */
 export function modifiedFileErrors(
   dir: string,
   installedVersion: string | undefined,

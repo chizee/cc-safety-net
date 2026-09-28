@@ -724,11 +724,7 @@ function detectHooksFromSystemInfo(environment: Environment, systemInfo: SystemI
   });
 }
 
-/**
- * The update check for the Overview strip. Its own route so refreshing the Integrations tab
- * does not fire the network check; the strip's hook rows come from /api/integrations.
- * @internal
- */
+/** @internal */
 export async function fetchHealth(
   probe: { checkUpdates?: () => Promise<UpdateInfo> } = {},
 ): Promise<HealthStatus> {

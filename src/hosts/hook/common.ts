@@ -27,7 +27,6 @@ type HookAdapter<T> = {
   agent: string;
   getAgent?: (input: T, environment: Environment) => string;
   outputDeny: HookDenyOutput;
-  // Answers an askable denial with the host's own approval prompt; false keeps the deny.
   outputAsk?: (input: T, denial: IntegrationDenial) => boolean;
   outputAllow?: () => void;
   guardDependencies?: Partial<GuardDependencies>;
@@ -51,7 +50,6 @@ type HookAdapter<T> = {
 
 type ConfiguredHookAdapter<T> = Omit<HookAdapter<T>, 'outputDeny' | 'outputAsk' | 'outputAllow'> & {
   createDenyOutput: (message: string) => object;
-  // Null when this input's host session would not show the prompt to a person.
   createAskOutput?: (input: T, message: string) => object | null;
   createAllowOutput?: () => object;
 };

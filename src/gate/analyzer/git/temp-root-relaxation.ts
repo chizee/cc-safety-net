@@ -33,8 +33,6 @@ export function getGitTempRootRelaxationForMatch(
     return null;
   }
 
-  // `git worktree remove --force <path>` runs in the workspace repository, so the disposable
-  // subject is the operand rather than the repository root.
   const subject =
     match.id === 'git.worktree-remove-force'
       ? worktreeRemoveOperand(words, options.shellAssignments, paths)
@@ -54,13 +52,6 @@ export function getGitTempRootRelaxationForMatch(
   return { kind: 'temp-root', originalReason: match.reason, gitCwd: context.gitCwd };
 }
 
-/**
- * A repository whose `.git` is a present directory entry, or a linked worktree for a rule that
- * only discards local state: branch, stash and tag operations in a linked worktree mutate the
- * repository it belongs to, which may be the workspace. The worktree facts reader admits only a
- * `.git` file whose gitdir points back at it, so a planted `gitdir: <workspace>/.git` is refused,
- * and the linked-worktree filter keeps the discards that move a branch or recurse into submodules.
- */
 function isDisposableRepository(
   root: string,
   tokens: readonly string[],
@@ -76,13 +67,8 @@ function isDisposableRepository(
 }
 
 /**
- * The single absolute literal path `git worktree remove` targets, expanded from the carried
- * assignments, which must already be a directory rather than a symlink. A relative operand is
- * refused: git also accepts a unique trailing path component of any registered worktree, so
- * `remove --force victim` can name a worktree far from the cwd. A missing or symlinked operand is
- * refused because git deletes the registered worktree the operand resolves to when it runs. Only a
- * word the parser marked as a variable expansion is substituted; a quoted or escaped `$` reaches
- * git literally and keeps the rule.
+ * git accepts a unique trailing path component of any registered worktree as `<worktree>`, and
+ * removes the registered worktree a symlinked operand resolves to.
  */
 function worktreeRemoveOperand(
   words: readonly CommandWord[],
@@ -94,9 +80,6 @@ function worktreeRemoveOperand(
   const operands = [...before.filter((token) => !token.startsWith('-')), ...after];
   const operand = operands.length === 1 ? (operands[0] ?? '') : '';
   const operandWord = words.find((word) => word.text === operand);
-  // Substitute only when every `$` in the word belongs to an expansion the parser saw; a literal
-  // fragment such as `'$B'` in `"$A"'$B'` reaches git unexpanded, so the text is left as is and
-  // the dynamic-text check below keeps the rule.
   const expanded =
     operandWord?.provenance === 'variable' &&
     operandWord.parts.every((part) => part.provenance !== 'literal' || !/[$`]/.test(part.raw))
@@ -113,7 +96,6 @@ function worktreeRemoveOperand(
   return paths.realpath(expanded);
 }
 
-/** The nearest directory at or above `directory` that holds a `.git` entry of any kind. */
 function findGitRepositoryRoot(directory: string, paths: PathResolver): string | null {
   if (paths.entryKind(join(directory, '.git')) !== 'missing') return directory;
   const parent = dirname(directory);

@@ -1,9 +1,4 @@
 #!/usr/bin/env bun
-/**
- * Build script that injects __PKG_VERSION__ at compile time
- * to avoid embedding the full package.json in the bundle.
- */
-
 import { renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { AMP_PLUGIN_ENTRY } from '../src/hosts/amp/artifact';
@@ -40,7 +35,6 @@ if (!openClawResult.success) {
   process.exit(1);
 }
 
-// Run build:types
 const typesResult = Bun.spawnSync(['bun', 'run', 'build:types']);
 if (typesResult.exitCode !== 0) {
   console.error(formatSubprocessFailure('build:types', typesResult));
@@ -50,8 +44,6 @@ if (typesResult.exitCode !== 0) {
 for await (const path of new Bun.Glob('dist/**/*.d.ts').scan('.')) {
   if (!isPublicDeclarationOutput(path)) await Bun.file(path).delete();
 }
-// tsc names a declaration after its source directory relative to rootDir, so an entry that
-// lives in a subdirectory is emitted into one; the package exposes both at the outdir root.
 for (const name of ['index', 'api', 'opencode-v2']) {
   renameSync(join('dist', 'entries', `${name}.d.ts`), join('dist', `${name}.d.ts`));
 }

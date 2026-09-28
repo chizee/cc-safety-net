@@ -175,7 +175,7 @@ function sameFilesystemPath(left: string, right: string): boolean {
   );
 }
 
-/** @internal Exported for testing */
+/** @internal */
 export function normalizePathForComparison(path: string): string {
   const normalized = path
     .replace(/^\\\\\?\\UNC\\/i, '//')

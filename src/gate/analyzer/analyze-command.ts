@@ -852,7 +852,6 @@ function trackLiteralHeredocFiles(
   const heredoc = commandView.redirections.find(
     (redirection) => redirection.operator === '<<' || redirection.operator === '<<-',
   )?.heredoc;
-  // A heredoc with no reason is literal, or at standard safety expands variables only.
   if (!heredoc) return;
 
   for (const target of getLiteralHeredocOutputTargets(commandView)) {
@@ -970,8 +969,6 @@ function getHeredocReason(commandView: CommandView, standard: boolean): string |
 
   const heredoc = heredocs[0];
   if (!heredoc?.heredoc) return REASON_UNSUPPORTED_HEREDOC;
-  // Standard safety: variable expansion in an unquoted body is data; only a command substitution
-  // runs anything.
   if (!isLiteralHeredoc(heredoc.heredoc) && !(standard && !/\$\(|`/.test(heredoc.heredoc.body))) {
     return REASON_UNQUOTED_HEREDOC;
   }
@@ -1071,14 +1068,12 @@ function analyzeInterpreterHeredocMatch(
   ) {
     return undefined;
   }
-  // `uv run python -` launches the same interpreter on the same stdin.
   const words =
     isBareCommandWord(commandView.words[0], 'uv') && isBareCommandWord(commandView.words[1], 'run')
       ? commandView.words.slice(2)
       : commandView.words;
   const head = words[0];
   if (head?.provenance !== 'literal' || !isInterpreterCommand(head.text)) return undefined;
-  // Options, then an optional `-` that names stdin as the program; words after it are its argv.
   const stdinMarker = words.findIndex((word) => isBareCommandWord(word, '-'));
   const stdinIsProgram = words
     .slice(1, stdinMarker === -1 ? undefined : stdinMarker)

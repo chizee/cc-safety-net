@@ -56,11 +56,7 @@ export async function withTempDir<T>(prefix: string, fn: (dir: string) => T | Pr
   }
 }
 
-/**
- * Mock version fetcher for testing.
- * Returns predefined versions instantly without spawning processes.
- * @internal Exported for testing
- */
+/** @internal */
 export const mockVersionFetcher: VersionFetcher = async (args: string[]) => {
   if (args[0] === 'claude' && args[1] === 'plugin') {
     return `Installed plugins:
