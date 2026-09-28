@@ -69,7 +69,7 @@ export function expandKnownVariableWord(
   );
   if (word.provenance !== 'variable' || !everyDollarIsParsedExpansion) return null;
   const expanded = substituteKnownShellVariables(word.text, assignments);
-  return expanded.startsWith('~') || /[\s$`*?[]/.test(expanded) ? null : expanded;
+  return /^[~-]/.test(expanded) || /[\s$`*?[]/.test(expanded) ? null : expanded;
 }
 
 export function createShellGitContextEnvState(

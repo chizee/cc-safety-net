@@ -184,6 +184,14 @@ describe('analyzeCommand', () => {
       intent: 'stop_and_explain',
     });
   });
+  test('a variable that expands to an option stays a dynamic shell source', () => {
+    for (const command of [
+      "S=-c; bash $S 'git reset --hard'",
+      'S=-; printf \'git reset --hard\\n\' | bash "$S"',
+    ]) {
+      expect(decision(command, standard), command).toMatchObject({ kind: 'deny' });
+    }
+  });
   test('a command substitution inside arithmetic still receives destructive command analysis', () => {
     const options = {
       environment,
