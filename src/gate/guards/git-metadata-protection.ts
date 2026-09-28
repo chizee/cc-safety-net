@@ -163,7 +163,7 @@ function isProtectedHookTarget(candidate: string, metadata: ProtectedGitMetadata
 
 const GIT_METADATA_NAME_SCAN_LIMIT = 50_000;
 
-export function gitMetadataHasEntryNamed(
+export function mayHaveGitMetadataEntryNamed(
   metadata: ProtectedGitMetadata,
   matches: (name: string) => boolean,
 ): boolean {

@@ -61,9 +61,14 @@ function isDisposableRepository(
   const paths = options.environment.paths;
   const gitEntry = join(root, '.git');
   if (paths.entryKind(gitEntry) !== 'present') return false;
-  if (paths.isDirectory(gitEntry)) return true;
-  const facts = match.localDiscard ? options.environment.worktreeFacts(root) : null;
-  return facts !== null && !isNonRelaxableLocalDiscard(tokens, options, facts);
+  const ownsItsGitDirectory = paths.isDirectory(gitEntry);
+  if (ownsItsGitDirectory) return true;
+  if (!match.localDiscard) return false;
+  const linkedWorktreeWithMatchingBacklink = options.environment.worktreeFacts(root);
+  return (
+    linkedWorktreeWithMatchingBacklink !== null &&
+    !isNonRelaxableLocalDiscard(tokens, options, linkedWorktreeWithMatchingBacklink)
+  );
 }
 
 /**
@@ -80,11 +85,12 @@ function worktreeRemoveOperand(
   const operands = [...before.filter((token) => !token.startsWith('-')), ...after];
   const operand = operands.length === 1 ? (operands[0] ?? '') : '';
   const operandWord = words.find((word) => word.text === operand);
-  const expanded =
+  const everyDollarIsParsedExpansion =
     operandWord?.provenance === 'variable' &&
-    operandWord.parts.every((part) => part.provenance !== 'literal' || !/[$`]/.test(part.raw))
-      ? substituteKnownShellVariables(operand, shellAssignments ?? new Map())
-      : operand;
+    operandWord.parts.every((part) => part.provenance !== 'literal' || !/[$`]/.test(part.raw));
+  const expanded = everyDollarIsParsedExpansion
+    ? substituteKnownShellVariables(operand, shellAssignments ?? new Map())
+    : operand;
   if (
     !isAbsolute(expanded) ||
     /[\s$`*?[]/.test(expanded) ||
