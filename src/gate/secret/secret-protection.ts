@@ -47,7 +47,7 @@ const PATH_ROOT_COMMANDS = new Set(['find']);
 const SHELL_RESERVED_WORDS = new Set(['!', 'do', 'elif', 'else', 'if', 'then', 'until', 'while']);
 const FIND_EXEC_PRIMARIES = new Set(['-exec', '-execdir']);
 const FIND_EXEC_TERMINATORS = new Set([';', '+']);
-const FIND_NON_METADATA_ACTIONS = new Set([
+const FIND_NON_METADATA_ARGS = new Set([
   '-delete',
   '-files0-from',
   '-exec',
@@ -191,7 +191,7 @@ type SecretTarget = {
 type SecretCandidate = {
   readonly target: string;
   readonly cwd: string;
-  readonly written?: true;
+  readonly isRedirectionWriteTarget?: true;
 };
 
 type SecretProtectionPolicy = {
@@ -212,7 +212,7 @@ type MaskedCode = { readonly masked: string; readonly literals: readonly CodeLit
 
 type PathExtractionOptions = {
   readonly standard?: boolean;
-  readonly capturedOutput?: boolean;
+  readonly displayOperandsAreCapturedOutput?: boolean;
 };
 
 /** @internal */
@@ -265,7 +265,7 @@ function findSensitivePolicyPathTarget(
             candidateAbsolutePath(target, candidate.cwd, environment, budget),
           )) ||
           (fileNameRule &&
-            candidate.written === true &&
+            candidate.isRedirectionWriteTarget === true &&
             !target.includes('$') &&
             !candidateExistsOnDisk(target, candidate.cwd, environment, budget)) ||
           (fileNameRule &&
@@ -401,7 +401,7 @@ function isMetadataOnlyArgv(command: string, args: readonly string[]): boolean {
   }
   if (command === 'git') return args[0] === 'check-ignore';
   if (command !== 'find') return false;
-  return !args.some((arg) => FIND_NON_METADATA_ACTIONS.has(arg));
+  return !args.some((arg) => FIND_NON_METADATA_ARGS.has(arg));
 }
 
 function extractToolPathTargets(
@@ -506,7 +506,7 @@ function extractCommandPathTargets(
             state.cwd,
             budget,
             (body) =>
-              heredocHandoverFallback(
+              rewalkInterpreterHeredocAsShell(
                 redirection.consumer ?? [],
                 body,
                 store,
@@ -522,7 +522,7 @@ function extractCommandPathTargets(
       targets.push({
         target: map(redirection.target),
         cwd: state.cwd,
-        ...(redirection.role === 'file-write' ? { written: true as const } : {}),
+        ...(redirection.role === 'file-write' ? { isRedirectionWriteTarget: true as const } : {}),
       });
       return null;
     },
@@ -574,13 +574,13 @@ function extractSegmentPathTargets(
   const executable = stripped[0] ?? '';
   const command = basename(executable).toLowerCase();
   const post = stripped.slice(1);
-  const lookStart = stripped.findIndex((token) => !SHELL_RESERVED_WORDS.has(token));
+  const firstNonReservedWordIndex = stripped.findIndex((token) => !SHELL_RESERVED_WORDS.has(token));
   if (
     options.standard === true &&
-    lookStart !== -1 &&
+    firstNonReservedWordIndex !== -1 &&
     isMetadataOnlyArgv(
-      basename(stripped[lookStart] ?? '').toLowerCase(),
-      stripped.slice(lookStart + 1),
+      basename(stripped[firstNonReservedWordIndex] ?? '').toLowerCase(),
+      stripped.slice(firstNonReservedWordIndex + 1),
     )
   ) {
     return assignmentValues;
@@ -592,7 +592,7 @@ function extractSegmentPathTargets(
   }
 
   if (NON_PATH_OPERAND_COMMANDS.has(command)) {
-    return options.capturedOutput === true
+    return options.displayOperandsAreCapturedOutput === true
       ? [...assignmentValues, ...extractDisplayCommandOperands(tokens).map(here)]
       : assignmentValues;
   }
@@ -740,7 +740,7 @@ function extractPipeCarrierPathTargets(
   );
 }
 
-function heredocHandoverFallback(
+function rewalkInterpreterHeredocAsShell(
   consumer: readonly string[],
   body: string,
   store: SemanticFactStore,
@@ -762,10 +762,10 @@ function extractStdinScriptPathTargets(
   environment: EnvironmentContext,
   cwd: string,
   budget: Budget,
-  fallback: (body: string) => SecretCandidate[],
+  rewalkNonScriptHeredocBody: (body: string) => SecretCandidate[],
 ): SecretCandidate[] {
   const interpreter = getStdinScriptInterpreter(consumer);
-  if (interpreter === null) return bodies.flatMap(fallback);
+  if (interpreter === null) return bodies.flatMap(rewalkNonScriptHeredocBody);
 
   return bodies.flatMap((body) =>
     SHELL_STDIN_INTERPRETERS.has(interpreter)
@@ -1242,7 +1242,7 @@ function extractAwkGetlineRedirectTargets(code: string): string[] {
     .filter((value): value is string => value !== undefined && value !== '');
 }
 
-function extractPathLiteralsFromCode(code: string): string[] {
+function extractAllPathCandidatesUnmasked(code: string): string[] {
   const quoted = Array.from(code.matchAll(/(['"`])((?:\\.|(?!\1).)*)\1/g))
     .map((match) => match[2])
     .filter((value): value is string => value !== undefined && value !== '');
@@ -1264,7 +1264,7 @@ function extractInlineCodePathTargets(
 ): SecretCandidate[] {
   const here = (target: string) => ({ target, cwd });
   const masked = maskStringLiterals(code, literalFamily(command));
-  if (masked === null) return extractPathLiteralsFromCode(code).map(here);
+  if (masked === null) return extractAllPathCandidatesUnmasked(code).map(here);
 
   const shellExec =
     masked.masked.match(SHELL_EXEC_CALL) !== null ||
@@ -1449,7 +1449,7 @@ function extractCommandSubstitutionPathTargets(
       ...extractCommandPathTargets(
         syntax,
         store,
-        { ...options, capturedOutput: true },
+        { ...options, displayOperandsAreCapturedOutput: true },
         environment,
         cwd,
         budget,
