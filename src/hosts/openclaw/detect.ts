@@ -118,8 +118,9 @@ export function modifiedFileErrors(
   if (packagedDir === undefined) return [];
 
   const packagedEntry = readPluginFile(packagedDir, OPENCLAW_PLUGIN_ENTRY_FILE);
-  if ('error' in packagedEntry || artifactVersion(packagedEntry.content) !== installedVersion)
-    return [];
+  const packagedStampMatchesInstalled =
+    'content' in packagedEntry && artifactVersion(packagedEntry.content) === installedVersion;
+  if (!packagedStampMatchesInstalled) return [];
 
   return [
     OPENCLAW_PLUGIN_ENTRY_FILE,
