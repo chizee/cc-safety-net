@@ -7,7 +7,7 @@ const config: KnipConfig = {
     'src/entries/index.ts!',
     'src/entries/opencode-v2.ts!',
     'src/entries/api.ts!',
-    'src/entries/pi.ts!',
+    'src/entries/pi/index.ts!',
     'src/entries/amp.ts!',
     'src/entries/openclaw.ts!',
     'src/gui/frontend/main.ts!',

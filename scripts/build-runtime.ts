@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import { dirname, join, posix } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { BunPlugin } from 'bun';
 import pkg from '../package.json';
 import { AMP_PLUGIN_ENTRY, buildAmpArtifactHeader } from '../src/hosts/amp/artifact';
@@ -9,7 +9,7 @@ import {
   OPENCLAW_PLUGIN_ENTRY_FILE,
   OPENCLAW_PLUGIN_ID,
 } from '../src/hosts/openclaw/artifact';
-import { guiAssetsPlugin, skillTemplatePlugin } from './gui-assets';
+import { freezeGuiAssetsPlugin, freezeSkillTemplatePlugin } from './gui-assets';
 
 // Bun 1.4.0 intermittently drops the tsconfig `@/*` mapping inside `bun test` (f9671a17).
 const aliasPlugin: BunPlugin = {
@@ -21,18 +21,13 @@ const aliasPlugin: BunPlugin = {
   },
 };
 
-const chunkSpecifier = (path: string) => {
-  const specifier = posix.relative(posix.dirname(path), 'chunks');
-  return `${specifier.startsWith('.') ? specifier : `./${specifier}`}/`;
-};
-
 export async function buildRuntimeBundles(outdir: string) {
   const result = await Bun.build({
     entrypoints: [
       'src/entries/index.ts',
       'src/entries/api.ts',
       'src/entries/cli.ts',
-      'src/entries/pi.ts',
+      'src/entries/pi/index.ts',
     ],
     outdir,
     target: 'node',
@@ -45,40 +40,31 @@ export async function buildRuntimeBundles(outdir: string) {
     define: {
       __PKG_VERSION__: JSON.stringify(pkg.version),
     },
-    plugins: [aliasPlugin, await guiAssetsPlugin(), await skillTemplatePlugin()],
+    plugins: [aliasPlugin, await freezeGuiAssetsPlugin(), await freezeSkillTemplatePlugin()],
   });
   if (!result.success) return result;
-  const moves = [['pi.js', 'pi/index.js']] as const;
-  await Promise.all(
-    moves.map(async ([from, to]) => {
-      const emitted = Bun.file(join(outdir, from));
-      await Bun.write(
-        join(outdir, to),
-        (await emitted.text()).replaceAll(`"${chunkSpecifier(from)}`, `"${chunkSpecifier(to)}`),
-      );
-      await emitted.delete();
-    }),
-  );
-  await Promise.all(
-    result.outputs
-      .filter((output) => output.kind === 'chunk')
-      .map(async (output) => {
-        const source = await Bun.file(output.path).text();
-        await Bun.write(
-          output.path,
-          moves.reduce(
-            (current, [from, to]) => current.replaceAll(`"../${from}"`, `"../${to}"`),
-            source,
-          ),
-        );
-      }),
-  );
   const bin = await buildBinBundle(outdir);
   return bin.success ? result : bin;
 }
 
 const BIN_HOOK_BUNDLE = 'hook.js';
 const BIN_CLI_SPECIFIER = '../cli.js';
+const BIN_COMPILE_CACHE_LOADER = [
+  '#!/usr/bin/env node',
+  "'use strict';",
+  "const { enableCompileCache } = require('node:module');",
+  'if (enableCompileCache !== undefined) {',
+  "  const { join } = require('node:path');",
+  '  enableCompileCache(',
+  '    join(',
+  "      process.env.CC_SAFETY_NET_HOME || join(require('node:os').homedir(), '.cc-safety-net'),",
+  "      'compile-cache',",
+  '    ),',
+  '  );',
+  '}',
+  `require('./${BIN_HOOK_BUNDLE}');`,
+  '',
+].join('\n');
 
 // Node caches bytecode only for modules compiled after `enableCompileCache` runs, so the module
 // that calls it cannot be the bundle.
@@ -113,25 +99,7 @@ async function buildBinBundle(outdir: string) {
   await Promise.all([
     Bun.write(join(directory, BIN_HOOK_BUNDLE), await artifact.text()),
     Bun.write(join(directory, 'package.json'), `${JSON.stringify({ type: 'commonjs' })}\n`),
-    Bun.write(
-      join(directory, 'cc-safety-net.js'),
-      [
-        '#!/usr/bin/env node',
-        "'use strict';",
-        "const { enableCompileCache } = require('node:module');",
-        'if (enableCompileCache !== undefined) {',
-        "  const { join } = require('node:path');",
-        '  enableCompileCache(',
-        '    join(',
-        "      process.env.CC_SAFETY_NET_HOME || join(require('node:os').homedir(), '.cc-safety-net'),",
-        "      'compile-cache',",
-        '    ),',
-        '  );',
-        '}',
-        `require('./${BIN_HOOK_BUNDLE}');`,
-        '',
-      ].join('\n'),
-    ),
+    Bun.write(join(directory, 'cc-safety-net.js'), BIN_COMPILE_CACHE_LOADER),
   ]);
   return result;
 }

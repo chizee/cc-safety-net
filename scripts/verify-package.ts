@@ -24,7 +24,7 @@ const PACKAGE_ROOT_FILES = [
   'package/package.json',
 ] as const;
 const MAX_TARBALL_BYTES = 620_000;
-const VERIFY_OPENCODE_V2 = process.platform !== 'win32';
+const SKIP_OPENCODE_V2_PEER_INSTALL_ON_WINDOWS = process.platform === 'win32';
 
 interface PackResult {
   filename: string;
@@ -122,15 +122,15 @@ export async function verifyPackage(): Promise<void> {
         '--no-fund',
         tarball,
         '@opencode-ai/plugin@1.18.29',
-        ...(VERIFY_OPENCODE_V2
-          ? [
+        ...(SKIP_OPENCODE_V2_PEER_INSTALL_ON_WINDOWS
+          ? []
+          : [
               '@opencode/plugin@2.0.6',
               '@opencode/core@2.0.6',
               '@effect/platform-node@4.0.0-rc.112',
               '@effect/platform-node-shared@4.0.0-rc.112',
               'effect@4.0.0-rc.112',
-            ]
-          : []),
+            ]),
         '@types/node@18',
         '@types/json-schema',
         'typescript@5',
@@ -159,7 +159,7 @@ export async function verifyPackage(): Promise<void> {
       amp: join(packageRoot, 'dist', 'amp', AMP_PLUGIN_ENTRY),
       env: packageVerificationEnv,
     });
-    if (VERIFY_OPENCODE_V2) {
+    if (!SKIP_OPENCODE_V2_PEER_INSTALL_ON_WINDOWS) {
       const v2 = run(
         [
           process.execPath,
@@ -395,7 +395,8 @@ function verifyIsolatedConsumers(tarball: string): void {
     },
   ].filter(
     (fixture) =>
-      VERIFY_OPENCODE_V2 || !fixture.peers.some((peer) => peer.startsWith('@opencode/plugin@')),
+      !SKIP_OPENCODE_V2_PEER_INSTALL_ON_WINDOWS ||
+      !fixture.peers.some((peer) => peer.startsWith('@opencode/plugin@')),
   )) {
     const directory = mkdtempSync(join(tmpdir(), 'cc-safety-net-consumer-'));
     try {

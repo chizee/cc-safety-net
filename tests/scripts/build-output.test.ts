@@ -6,6 +6,6 @@ describe('isPublicDeclarationOutput', () => {
     expect(isPublicDeclarationOutput('dist\\entries\\index.d.ts')).toBeTrue();
     expect(isPublicDeclarationOutput('dist\\entries\\api.d.ts')).toBeTrue();
     expect(isPublicDeclarationOutput('dist\\api.d.ts')).toBeFalse();
-    expect(isPublicDeclarationOutput('dist\\entries\\pi.d.ts')).toBeFalse();
+    expect(isPublicDeclarationOutput('dist\\entries\\pi\\index.d.ts')).toBeFalse();
   });
 });

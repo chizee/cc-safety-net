@@ -1,30 +1,23 @@
 import type { BunPlugin } from 'bun';
 
-export async function guiAssetsPlugin(): Promise<BunPlugin> {
-  const contents = Object.entries(await import('../src/gui/assets'))
+function freezeModulePlugin(namespace: object, filter: RegExp): BunPlugin {
+  const contents = Object.entries(namespace)
     .map(([name, value]) => `export const ${name} = ${JSON.stringify(value)};`)
     .join('\n');
   return {
-    name: 'gui-assets',
+    name: `freeze ${filter.source}`,
     setup(build) {
-      // `args.path` is native, so the separator is a backslash on Windows.
-      build.onLoad({ filter: /src[\\/]gui[\\/]assets\.ts$/ }, () => ({ contents, loader: 'js' }));
+      build.onLoad({ filter }, () => ({ contents, loader: 'js' }));
     },
   };
 }
 
-export async function skillTemplatePlugin(): Promise<BunPlugin> {
-  const contents = Object.entries(await import('../src/hosts/templates/cc-safety-net'))
-    .map(([name, value]) => `export const ${name} = ${JSON.stringify(value)};`)
-    .join('\n');
-  return {
-    name: 'skill-template',
-    setup(build) {
-      // `args.path` is native, so the separator is a backslash on Windows.
-      build.onLoad({ filter: /src[\\/]hosts[\\/]templates[\\/]cc-safety-net\.ts$/ }, () => ({
-        contents,
-        loader: 'js',
-      }));
-    },
-  };
-}
+// `args.path` is native, so the separator is a backslash on Windows.
+export const freezeGuiAssetsPlugin = async () =>
+  freezeModulePlugin(await import('../src/gui/assets'), /src[\\/]gui[\\/]assets\.ts$/);
+
+export const freezeSkillTemplatePlugin = async () =>
+  freezeModulePlugin(
+    await import('../src/hosts/templates/cc-safety-net'),
+    /src[\\/]hosts[\\/]templates[\\/]cc-safety-net\.ts$/,
+  );

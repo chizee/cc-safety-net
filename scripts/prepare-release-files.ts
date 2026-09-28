@@ -13,11 +13,12 @@ export function updateReleaseManifests(cwd: string, requestedVersion: string): v
     'kimi.plugin.json',
   ].forEach((relativePath) => {
     const path = resolve(cwd, relativePath);
-    writeFileSync(
-      path,
-      readFileSync(path, 'utf8').replace(/("version"\s*:\s*")[^"]+(")/, `$1${version}$2`),
-    );
+    writeFileSync(path, replaceVersionPreservingFormat(readFileSync(path, 'utf8'), version));
   });
+}
+
+function replaceVersionPreservingFormat(text: string, version: string) {
+  return text.replace(/("version"\s*:\s*")[^"]+(")/, `$1${version}$2`);
 }
 
 if (import.meta.main) {
