@@ -12,6 +12,7 @@ const config: KnipConfig = {
     'src/entries/openclaw.ts!',
     'src/gui/frontend/main.ts!',
     'scripts/build.ts!',
+    'scripts/check-comments.ts!',
     'scripts/project-bun.ts!',
     'scripts/prepare-release-files.ts!',
     'scripts/release-assets.ts!',

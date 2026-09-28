@@ -168,6 +168,7 @@ bun run check
 
 # Individual commands
 bun run lint          # Lint (Oxlint, type-aware)
+bun run lint:comments # Code-comment check (see "Comments" in AGENTS.md)
 bun run format        # Format (Oxfmt)
 bun run format:check  # Formatting check (Oxfmt)
 bun run typecheck     # Type check

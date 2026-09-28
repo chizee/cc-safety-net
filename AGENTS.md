@@ -1,5 +1,5 @@
 - Run focused tests during development, including the failing and passing tests required by Red-Green TDD.
-- After all implementation changes, run `bun run check`. This is the required final check for lint, formatting, typecheck, knip, duplication, and tests. Do not run its components separately as additional final checks.
+- After all implementation changes, run `bun run check`. This is the required final check for lint, code comments, formatting, typecheck, knip, duplication, and tests. Do not run its components separately as additional final checks.
 - Ignore the dist folder; it gets auto-rebuilt by lefthook's pre-commit hook.
 - Keep implementation modular; put tests in `tests/` mirroring `src/`, not colocated in `src/`.
 - Files in `docs/` use lowercase kebab-case names.
@@ -51,9 +51,21 @@ rules governs all code: machinery exists to stop a demonstrated failure, not an 
 - Avoid `try`/`catch`, the `any` type, and `else` branches (prefer early returns).
 - Rely on type inference; avoid explicit annotations or interfaces unless necessary for exports or clarity.
 - Prefer functional array methods (flatMap, filter, map) over for loops; use type guards on filter to maintain type inference downstream.
-- Inline values used only once instead of naming them.
+- Inline values used only once instead of naming them, unless the name says what would otherwise
+  need a comment.
 - Prefer `const` over `let`; use ternaries or early returns instead of reassignment.
 - Avoid unnecessary destructuring; use dot notation to preserve context.
+
+## Comments
+
+- Do not write code comments. Say it in code: a clearer name, a named value, a type.
+- Only three directives are allowed: a bare `/** @internal */`,
+  `// oxlint-disable-next-line <rules> -- <reason>` and `// @ts-expect-error <reason>`.
+- A fact about an external tool that code cannot express stays only when the maintainer adds it to
+  `scripts/comment-allowlist.json`. Never add entries there yourself, just as you never add
+  `ignoreIssues` entries to `knip.ts`. Deleting an entry whose comment is gone is fine.
+- `bun run lint:comments`, part of `bun run check`, enforces this. To fix a failure, follow
+  `.agents/skills/ccsn-no-comments/SKILL.md`.
 
 ## Knip
 
