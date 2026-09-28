@@ -14,7 +14,7 @@ const COMMENTS_ALLOWED_WITHOUT_ENTRY = [
   EXPECTED_TYPE_ERROR_WITH_REASON,
 ];
 
-const SOURCE_FILE = /\.(?:ts|tsx|js|mjs|cjs)$/;
+const SOURCE_FILE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const ALLOWLIST_PATH = 'scripts/comment-allowlist.json';
 
 const SAY_IT_IN_CODE = `Make the code say it with a clearer name, a named value or a type, and delete the comment. Only the maintainer adds entries to ${ALLOWLIST_PATH}, for facts about external tools the code cannot express.`;
