@@ -564,7 +564,7 @@ describe('the carriers a candidate path can arrive through', () => {
     ]);
   });
 
-  test('a heredoc to a stdin-script interpreter is scanned as code, not shell', () => {
+  test('recorded Claude Code heredocs to a stdin-script interpreter are scanned as code, not shell', () => {
     const recordedEnvReduction = `cd ${repo}
 python3 - <<'EOF'
 p='tests/gate/secret/secret-protection.test.ts'

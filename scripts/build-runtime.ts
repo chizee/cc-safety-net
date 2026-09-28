@@ -11,6 +11,7 @@ import {
 } from '../src/hosts/openclaw/artifact';
 import { guiAssetsPlugin, skillTemplatePlugin } from './gui-assets';
 
+// Bun 1.4.0 intermittently drops the tsconfig `@/*` mapping inside `bun test` (f9671a17).
 const aliasPlugin: BunPlugin = {
   name: 'alias',
   setup(build) {
@@ -79,6 +80,8 @@ export async function buildRuntimeBundles(outdir: string) {
 const BIN_HOOK_BUNDLE = 'hook.js';
 const BIN_CLI_SPECIFIER = '../cli.js';
 
+// Node caches bytecode only for modules compiled after `enableCompileCache` runs, so the module
+// that calls it cannot be the bundle.
 async function buildBinBundle(outdir: string) {
   const result = await Bun.build({
     entrypoints: ['src/entries/bin.ts'],
