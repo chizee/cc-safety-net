@@ -228,7 +228,7 @@ describe('the policy GUI server', () => {
       contentType: 'text/html; charset=utf-8',
       cacheControl: 'no-store',
     });
-    expect(page.modules).toHaveLength(4);
+    expect(page.modules).toHaveLength(7);
     expect(page.head).toContain(
       '<script id="ccsn-data" type="application/json">{"token":"<token>"}</script>',
     );

@@ -8,11 +8,3 @@ export function normalizePage(html: string, token: string) {
     tail: (pieces[pieces.length - 1] ?? '').replace(/[\s\S]*\n(?= {2}<\/script>)/, '[bundle]\n'),
   };
 }
-
-export function sliceBlock(html: string, start: string, end: string): string {
-  const from = html.indexOf(start);
-  if (from < 0) throw new Error(`page block start not found: ${start}`);
-  const to = html.indexOf(end, from);
-  if (to < 0) throw new Error(`page block end not found: ${end}`);
-  return html.slice(from, to).trimEnd();
-}

@@ -738,9 +738,10 @@ describe('analyzeCommand', () => {
       expect(denial?.intent, command).toBe('stop_and_explain');
       expect(denial?.reason, command).toContain('strict mode');
     }
-    const heredoc = "node -e 'x = `helm uninstall foo <<X; echo \"unclosed`'";
-    expect(decision(heredoc, standard)).toBeNull();
-    expect(decision(heredoc, strict)).toMatchObject({
+    const strayHeredocWithUnbalancedQuotes =
+      "node -e 'x = `helm uninstall foo <<X; echo \"unclosed`'";
+    expect(decision(strayHeredocWithUnbalancedQuotes, standard)).toBeNull();
+    expect(decision(strayHeredocWithUnbalancedQuotes, strict)).toMatchObject({
       intent: 'stop_and_explain',
       reason: expect.stringContaining('heredoc'),
     });

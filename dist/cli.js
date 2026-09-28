@@ -3421,6 +3421,128 @@ var runtimeHookIntegrationMetadata = catalog.filter((integration) => ("runtime" 
 var installIntegrationMetadata = catalog.slice().sort((a, b) => a.install.order - b.install.order).map((integration) => ({ id: integration.id, ...integration.install })).map(({ order: _, ...integration }) => integration);
 var integrationDisplayNames = Object.fromEntries(catalog.map((integration) => [integration.id, integration.displayName]));
 
+// src/gui/frontend/project-draft.ts
+var clonePolicy = (policy) => JSON.parse(JSON.stringify(policy));
+var markedOverrides = (marked, section, overrides) => Object.fromEntries(Object.entries(overrides).filter(([key, value]) => value !== undefined && marked.has(\`\${section}.overrides.\${key}\`)));
+var withOverrides = (overrides) => Object.keys(overrides).length > 0 ? { overrides } : {};
+var collectProjectProposal = (marked, policy) => {
+  const sections = {
+    safety: {
+      ...marked.has("safety.level") ? { level: policy.safety.level } : {},
+      ...withOverrides(markedOverrides(marked, "safety", policy.safety.overrides))
+    },
+    workflow: marked.has("workflow.worktree_mode") ? { worktree_mode: policy.workflow.worktree_mode } : {},
+    destructive_command_protection: {
+      ...marked.has("destructive_command_protection.enabled") ? { enabled: policy.destructive_command_protection.enabled } : {},
+      ...withOverrides(markedOverrides(marked, "destructive_command_protection", policy.destructive_command_protection.overrides)),
+      ...marked.has("destructive_command_protection.allow_paths") ? { allow_paths: policy.destructive_command_protection.allow_paths } : {}
+    },
+    secret_protection: {
+      ...marked.has("secret_protection.enabled") ? { enabled: policy.secret_protection.enabled } : {},
+      ...withOverrides(markedOverrides(marked, "secret_protection", policy.secret_protection.overrides)),
+      ...marked.has("secret_protection.deny_paths") ? { deny_paths: policy.secret_protection.deny_paths } : {},
+      ...marked.has("secret_protection.allow_paths") ? { allow_paths: policy.secret_protection.allow_paths } : {}
+    }
+  };
+  return {
+    version: 1,
+    ...Object.fromEntries(Object.entries(sections).filter(([, fields]) => Object.keys(fields).length > 0))
+  };
+};
+var projectMarkedFields = (projection) => {
+  const destructive = projection.destructive_command_protection ?? {};
+  const secret = projection.secret_protection ?? {};
+  return [
+    ...projection.safety?.level === undefined ? [] : ["safety.level"],
+    ...Object.keys(projection.safety?.overrides ?? {}).map((key) => \`safety.overrides.\${key}\`),
+    ...projection.workflow?.worktree_mode === undefined ? [] : ["workflow.worktree_mode"],
+    ...destructive.enabled === undefined ? [] : ["destructive_command_protection.enabled"],
+    ...Object.keys(destructive.overrides ?? {}).map((id) => \`destructive_command_protection.overrides.\${id}\`),
+    ...destructive.allow_paths === undefined ? [] : ["destructive_command_protection.allow_paths"],
+    ...secret.enabled === undefined ? [] : ["secret_protection.enabled"],
+    ...Object.keys(secret.overrides ?? {}).map((id) => \`secret_protection.overrides.\${id}\`),
+    ...secret.deny_paths === undefined ? [] : ["secret_protection.deny_paths"],
+    ...secret.allow_paths === undefined ? [] : ["secret_protection.allow_paths"]
+  ];
+};
+var overlayProjectProposal = (baseline, proposal) => {
+  const displayed = clonePolicy(baseline);
+  const destructive = proposal.destructive_command_protection ?? {};
+  const secret = proposal.secret_protection ?? {};
+  if (proposal.safety?.level)
+    displayed.safety.level = proposal.safety.level;
+  Object.assign(displayed.safety.overrides, proposal.safety?.overrides ?? {});
+  if (proposal.workflow?.worktree_mode !== undefined)
+    displayed.workflow.worktree_mode = proposal.workflow.worktree_mode;
+  if (destructive.enabled !== undefined)
+    displayed.destructive_command_protection.enabled = destructive.enabled;
+  Object.assign(displayed.destructive_command_protection.overrides, destructive.overrides ?? {});
+  if (destructive.allow_paths)
+    displayed.destructive_command_protection.allow_paths = destructive.allow_paths;
+  if (secret.enabled !== undefined)
+    displayed.secret_protection.enabled = secret.enabled;
+  Object.assign(displayed.secret_protection.overrides, secret.overrides ?? {});
+  if (secret.deny_paths)
+    displayed.secret_protection.deny_paths = secret.deny_paths;
+  if (secret.allow_paths)
+    displayed.secret_protection.allow_paths = secret.allow_paths;
+  return displayed;
+};
+var seedProjectDraft = (data) => {
+  if (!data.baseline)
+    return null;
+  if (!Array.isArray(data.userPolicyDiagnostics) || data.userPolicyDiagnostics.length > 0)
+    return null;
+  const marked = new Set(projectMarkedFields(data.projection ?? {}));
+  const policy = overlayProjectProposal(data.baseline, data.projection ?? {});
+  return {
+    baseline: data.baseline,
+    marked,
+    policy,
+    snapshot: JSON.stringify(collectProjectProposal(marked, policy))
+  };
+};
+
+// src/gui/frontend/report.ts
+var reportIssueUrl = "https://github.com/kenryu42/cc-safety-net/issues/new?template=false_positive.yml";
+var reportUrlLimit = 8000;
+var endsAtPathBoundary = (following) => following === "" || /^[/\\\\\\s'"]/.test(following);
+var scrubReportPaths = (text, cwd, home) => [
+  [cwd, "<project>"],
+  [home, "~"]
+].reduce((scrubbed, [from, to]) => from ? scrubbed.split(from).reduce((joined, part) => joined + (endsAtPathBoundary(part) ? to : from) + part) : scrubbed, text);
+var buildReportUrl = (fields) => {
+  const url = new URL(reportIssueUrl);
+  Object.entries(fields).filter(([, value]) => value).forEach(([field, value]) => {
+    url.searchParams.set(field, value);
+  });
+  return url.toString();
+};
+var buildReportRequest = (fields, dropped = []) => {
+  const url = buildReportUrl(fields);
+  if (url.length <= reportUrlLimit)
+    return { url, dropped };
+  const largest = Object.entries(fields).filter(([, value]) => value).sort((left, right) => right[1].length - left[1].length)[0];
+  if (!largest)
+    return { url, dropped };
+  return buildReportRequest({ ...fields, [largest[0]]: "" }, [...dropped, largest[0]]);
+};
+
+// src/gui/frontend/rule-prompt.ts
+var rulePromptText = (prompt) => {
+  const names = prompt.rulesData?.rulebooks.map((rulebook) => rulebook.name) ?? [];
+  return [
+    "Use the cc-safety-net skill for this request.",
+    "If that skill is not available, run \`npx -y cc-safety-net rule doc\` first and treat its output as the source of truth for schema, paths, and validation.",
+    "",
+    prompt.rulesScope === "project" ? \`Scope: this project - \${prompt.projectPath.trim()}\` : "Scope: all projects (user scope)",
+    \`Existing rulebooks (names must stay unique across both scopes): \${names.length > 0 ? names.join(", ") : "none"}\`,
+    "",
+    prompt.request.trim()
+  ].join(\`
+\`);
+};
+
 // src/gui/frontend/main.ts
 var token = JSON.parse(document.getElementById("ccsn-data").textContent).token;
 var fallbackRepoUrl = "https://github.com/kenryu42/cc-safety-net";
@@ -3571,90 +3693,10 @@ var escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
   '"': "&quot;",
   "'": "&#39;"
 })[char] ?? char);
-var clonePolicy = (policy) => JSON.parse(JSON.stringify(policy));
 var pathLines = (value) => value.split(\`
 \`).map((line) => line.trim()).filter(Boolean);
 var formatPolicy = (policy) => \`\${JSON.stringify(policy, null, 2)}
 \`;
-var markedOverrides = (marked, section, overrides) => Object.fromEntries(Object.entries(overrides).filter(([key, value]) => value !== undefined && marked.has(\`\${section}.overrides.\${key}\`)));
-var withOverrides = (overrides) => Object.keys(overrides).length > 0 ? { overrides } : {};
-var collectProjectProposal = (marked, policy) => {
-  const sections = {
-    safety: {
-      ...marked.has("safety.level") ? { level: policy.safety.level } : {},
-      ...withOverrides(markedOverrides(marked, "safety", policy.safety.overrides))
-    },
-    workflow: marked.has("workflow.worktree_mode") ? { worktree_mode: policy.workflow.worktree_mode } : {},
-    destructive_command_protection: {
-      ...marked.has("destructive_command_protection.enabled") ? { enabled: policy.destructive_command_protection.enabled } : {},
-      ...withOverrides(markedOverrides(marked, "destructive_command_protection", policy.destructive_command_protection.overrides)),
-      ...marked.has("destructive_command_protection.allow_paths") ? { allow_paths: policy.destructive_command_protection.allow_paths } : {}
-    },
-    secret_protection: {
-      ...marked.has("secret_protection.enabled") ? { enabled: policy.secret_protection.enabled } : {},
-      ...withOverrides(markedOverrides(marked, "secret_protection", policy.secret_protection.overrides)),
-      ...marked.has("secret_protection.deny_paths") ? { deny_paths: policy.secret_protection.deny_paths } : {},
-      ...marked.has("secret_protection.allow_paths") ? { allow_paths: policy.secret_protection.allow_paths } : {}
-    }
-  };
-  return {
-    version: 1,
-    ...Object.fromEntries(Object.entries(sections).filter(([, fields]) => Object.keys(fields).length > 0))
-  };
-};
-var projectMarkedFields = (projection) => {
-  const destructive = projection.destructive_command_protection ?? {};
-  const secret = projection.secret_protection ?? {};
-  return [
-    ...projection.safety?.level === undefined ? [] : ["safety.level"],
-    ...Object.keys(projection.safety?.overrides ?? {}).map((key) => \`safety.overrides.\${key}\`),
-    ...projection.workflow?.worktree_mode === undefined ? [] : ["workflow.worktree_mode"],
-    ...destructive.enabled === undefined ? [] : ["destructive_command_protection.enabled"],
-    ...Object.keys(destructive.overrides ?? {}).map((id) => \`destructive_command_protection.overrides.\${id}\`),
-    ...destructive.allow_paths === undefined ? [] : ["destructive_command_protection.allow_paths"],
-    ...secret.enabled === undefined ? [] : ["secret_protection.enabled"],
-    ...Object.keys(secret.overrides ?? {}).map((id) => \`secret_protection.overrides.\${id}\`),
-    ...secret.deny_paths === undefined ? [] : ["secret_protection.deny_paths"],
-    ...secret.allow_paths === undefined ? [] : ["secret_protection.allow_paths"]
-  ];
-};
-var overlayProjectProposal = (baseline, proposal) => {
-  const displayed = clonePolicy(baseline);
-  const destructive = proposal.destructive_command_protection ?? {};
-  const secret = proposal.secret_protection ?? {};
-  if (proposal.safety?.level)
-    displayed.safety.level = proposal.safety.level;
-  Object.assign(displayed.safety.overrides, proposal.safety?.overrides ?? {});
-  if (proposal.workflow?.worktree_mode !== undefined)
-    displayed.workflow.worktree_mode = proposal.workflow.worktree_mode;
-  if (destructive.enabled !== undefined)
-    displayed.destructive_command_protection.enabled = destructive.enabled;
-  Object.assign(displayed.destructive_command_protection.overrides, destructive.overrides ?? {});
-  if (destructive.allow_paths)
-    displayed.destructive_command_protection.allow_paths = destructive.allow_paths;
-  if (secret.enabled !== undefined)
-    displayed.secret_protection.enabled = secret.enabled;
-  Object.assign(displayed.secret_protection.overrides, secret.overrides ?? {});
-  if (secret.deny_paths)
-    displayed.secret_protection.deny_paths = secret.deny_paths;
-  if (secret.allow_paths)
-    displayed.secret_protection.allow_paths = secret.allow_paths;
-  return displayed;
-};
-var seedProjectDraft = (data) => {
-  if (!data.baseline)
-    return null;
-  if (!Array.isArray(data.userPolicyDiagnostics) || data.userPolicyDiagnostics.length > 0)
-    return null;
-  const marked = new Set(projectMarkedFields(data.projection ?? {}));
-  const policy = overlayProjectProposal(data.baseline, data.projection ?? {});
-  return {
-    baseline: data.baseline,
-    marked,
-    policy,
-    snapshot: JSON.stringify(collectProjectProposal(marked, policy))
-  };
-};
 var collectFormPolicy = () => ({
   version: 1,
   safety: {
@@ -4150,19 +4192,6 @@ var setRulesScope = (scope) => {
   });
   qs("rules-project-path-field").hidden = scope !== "project";
 };
-var rulePromptText = () => {
-  const names = rulesData?.rulebooks.map((rulebook) => rulebook.name) ?? [];
-  return [
-    "Use the cc-safety-net skill for this request.",
-    "If that skill is not available, run \`npx -y cc-safety-net rule doc\` first and treat its output as the source of truth for schema, paths, and validation.",
-    "",
-    rulesScope === "project" ? \`Scope: this project - \${qs("rules-project-path").value.trim()}\` : "Scope: all projects (user scope)",
-    \`Existing rulebooks (names must stay unique across both scopes): \${names.length > 0 ? names.join(", ") : "none"}\`,
-    "",
-    qs("rules-composer-input").value.trim()
-  ].join(\`
-\`);
-};
 var chooseProjectDirectory = async () => {
   const button = qs("rules-choose-directory");
   if (button.disabled)
@@ -4196,7 +4225,12 @@ var copyRulePrompt = async () => {
   }
   qs("rules-copy-prompt").disabled = true;
   try {
-    await navigator.clipboard.writeText(rulePromptText());
+    await navigator.clipboard.writeText(rulePromptText({
+      rulesData,
+      rulesScope,
+      projectPath: qs("rules-project-path").value,
+      request: qs("rules-composer-input").value
+    }));
     qs("rules-composer-input").value = "";
     setAppStatus("Prompt copied - paste it into your coding CLI", "ok");
   } catch {
@@ -4308,29 +4342,6 @@ var resetFeedCopy = () => {
     button.innerHTML = rawCopyIcons.copy;
     button.setAttribute("aria-label", "Copy log entry as JSON");
   });
-};
-var reportIssueUrl = "https://github.com/kenryu42/cc-safety-net/issues/new?template=false_positive.yml";
-var reportUrlLimit = 8000;
-var endsAtPathBoundary = (following) => following === "" || /^[/\\\\\\s'"]/.test(following);
-var scrubReportPaths = (text, cwd, home) => [
-  [cwd, "<project>"],
-  [home, "~"]
-].reduce((scrubbed, [from, to]) => from ? scrubbed.split(from).reduce((joined, part) => joined + (endsAtPathBoundary(part) ? to : from) + part) : scrubbed, text);
-var buildReportUrl = (fields) => {
-  const url = new URL(reportIssueUrl);
-  Object.entries(fields).filter(([, value]) => value).forEach(([field, value]) => {
-    url.searchParams.set(field, value);
-  });
-  return url.toString();
-};
-var buildReportRequest = (fields, dropped = []) => {
-  const url = buildReportUrl(fields);
-  if (url.length <= reportUrlLimit)
-    return { url, dropped };
-  const largest = Object.entries(fields).filter(([, value]) => value).sort((left, right) => right[1].length - left[1].length)[0];
-  if (!largest)
-    return { url, dropped };
-  return buildReportRequest({ ...fields, [largest[0]]: "" }, [...dropped, largest[0]]);
 };
 var openReportDialog = (button) => {
   const entry = renderedFeedEntries[Number(button.dataset.reportFp)];

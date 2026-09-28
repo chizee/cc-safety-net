@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { commandSignature, formatRelativeTime } from '@/audit/display';
+import { commandSignature, findSuspectEntries, formatRelativeTime } from '@/audit/display';
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -40,5 +40,59 @@ describe('audit display parity', () => {
 
   test('formatRelativeTime has nothing to say about an unparseable timestamp', () => {
     expect(formatRelativeTime('not a timestamp')).toBe('');
+  });
+});
+
+type Entry = {
+  command: string;
+  decision: string;
+  sessionId?: string;
+  segment?: string;
+  failureStage?: string;
+};
+
+const suspectCommands = (entries: readonly Entry[]) =>
+  [...findSuspectEntries(entries)].map((entry) => entry.command);
+
+describe('findSuspectEntries', () => {
+  test('flags a denial that failed inside the gate on its own', () => {
+    const entries: Entry[] = [
+      { command: 'terraform destroy', decision: 'deny', sessionId: 's1', failureStage: 'analysis' },
+      { command: 'terraform plan', decision: 'deny', sessionId: 's1' },
+    ];
+
+    expect(suspectCommands(entries)).toStrictEqual(['terraform destroy']);
+  });
+
+  test('flags a signature one session was denied twice for, reading the segment first', () => {
+    const entries: Entry[] = [
+      {
+        command: 'cd /srv && git push --force origin main',
+        segment: 'git push --force origin main',
+        decision: 'deny',
+        sessionId: 's1',
+      },
+      {
+        command: 'FOO=1 git push --force',
+        segment: 'git push --force',
+        decision: 'deny',
+        sessionId: 's1',
+      },
+    ];
+
+    expect(findSuspectEntries(entries).size).toBe(2);
+  });
+
+  test('leaves one denial per session and every allow alone', () => {
+    const entries: Entry[] = [
+      { command: 'git push --force', decision: 'deny', sessionId: 's1' },
+      { command: 'git push --force', decision: 'deny', sessionId: 's2' },
+      { command: 'git status', decision: 'allow', sessionId: 's3', failureStage: 'analysis' },
+      { command: 'git status', decision: 'allow', sessionId: 's3' },
+      { command: 'git push --force', decision: 'deny' },
+      { command: 'git push --force', decision: 'deny' },
+    ];
+
+    expect(suspectCommands(entries)).toStrictEqual([]);
   });
 });
