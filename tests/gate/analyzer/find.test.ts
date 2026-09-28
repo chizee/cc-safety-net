@@ -488,6 +488,33 @@ describe('find analysis', () => {
     }
   });
 
+  test('a find starting at . after a tracked cd is judged by the directory the cd entered', () => {
+    const scratch = { label: 'tracked cd into a temp directory', cwd: join(root, 'scratch') };
+    const parent = { label: 'tracked cd into the temp parent of the workspace', cwd: root };
+    const rows: readonly {
+      readonly source: string;
+      readonly row: FindCase;
+      readonly id: string | null;
+    }[] = [
+      { source: 'find . -delete', row: scratch, id: null },
+      { source: 'find ./ -maxdepth 1 -name "still-*.jpg" -delete', row: scratch, id: null },
+      { source: 'find -L . -delete', row: scratch, id: 'find.delete' },
+      { source: 'find . -delete', row: parent, id: 'find.delete' },
+      { source: 'find . -delete', row: caseFor('workspace'), id: 'find.delete' },
+    ];
+    for (const { source, row, id } of rows) {
+      expect(matchId(source, row), `${row.label}: ${source}`).toBe(id);
+    }
+  });
+
+  test.skipIf(process.platform === 'win32')(
+    'a find starting at . after a tracked cd into a temp root stays blocked',
+    () => {
+      const tempRoot = { label: 'tracked cd into a temp root', cwd: realpathSync('/tmp') };
+      expect(matchId('find . -name "*.jpg" -delete', tempRoot)).toBe('find.delete');
+    },
+  );
+
   test('the table reaches the delete, exec and git-metadata rules', () => {
     const reported = new Set(
       findCases().flatMap((row) =>

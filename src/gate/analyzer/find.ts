@@ -345,7 +345,7 @@ function hasOnlyTrustedTempDeleteTargets(
     context.trustedTmpdirValue ?? isTmpdirValueTrusted(envAssignments, context.environment);
   const allowTmpdirVar =
     context.allowTmpdirVar ?? !isTmpdirOverriddenToNonTemp(envAssignments, context.environment);
-  const targetContext = createRecursiveDeleteTargetContext({
+  const targetOptions = {
     environment: context.environment,
     protectedGitMetadata: context.protectedGitMetadata,
     cwd: context.cwd,
@@ -359,18 +359,29 @@ function hasOnlyTrustedTempDeleteTargets(
       hasUnsafeTmpdirWordSplitting(envAssignments, context.environment),
     trustedTmpdirValue,
     budget: context.budget,
+  };
+  const targetContext = createRecursiveDeleteTargetContext(targetOptions);
+  const workspaceContext = createRecursiveDeleteTargetContext({
+    ...targetOptions,
+    cwd: context.originalCwd ?? context.cwd,
   });
 
   return targets.every((target) => {
     const facts = deleteTargetWordFacts(target);
     if (facts.unsafeBraceExpansion) return false;
-    return (facts.expandedTargets ?? [analysisWordText(target)]).every((expandedTarget) =>
-      isTrustedTempDescendantTarget(expandedTarget, targetContext, {
-        containmentTarget: expandTmpdirTarget(expandedTarget, effectiveTmpdirValue),
-        targetIsLiteral: facts.expandedTargets !== undefined || facts.targetIsLiteral,
-        tmpdirWordSplittingProtected: facts.tmpdirWordSplittingProtected,
-      }),
-    );
+    return (facts.expandedTargets ?? [analysisWordText(target)]).every((expandedTarget) => {
+      const trackedCwd = /^\.\/*$/.test(expandedTarget) ? context.cwd : undefined;
+      const startingPoint = trackedCwd ?? expandedTarget;
+      return isTrustedTempDescendantTarget(
+        startingPoint,
+        trackedCwd ? workspaceContext : targetContext,
+        {
+          containmentTarget: expandTmpdirTarget(startingPoint, effectiveTmpdirValue),
+          targetIsLiteral: facts.expandedTargets !== undefined || facts.targetIsLiteral,
+          tmpdirWordSplittingProtected: facts.tmpdirWordSplittingProtected,
+        },
+      );
+    });
   });
 }
 

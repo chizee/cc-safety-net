@@ -1126,6 +1126,36 @@ export function behavioralContractCases(paths: {
       },
     },
     {
+      name: 'allows a find delete from the directory a tracked cd entered under a temp root',
+      command: `cd ${tempRepo} && find . -maxdepth 1 -name 'still-*.jpg' -delete`,
+      options: options({ cwd: paths.cwd }),
+      expected: { kind: 'allow' },
+    },
+    {
+      name: 'blocks a find delete from a tracked cd into a temp directory holding the workspace',
+      command: `cd ${tempParent} && find . -name '*.jpg' -delete`,
+      options: options({ cwd: paths.cwd }),
+      expected: {
+        kind: 'block',
+        ruleId: 'find.delete',
+        intent: 'scope_down',
+        reasonIncludes: 'Use -print first',
+        segment: 'find . -name *.jpg -delete',
+      },
+    },
+    {
+      name: 'blocks a find delete from a temp-root workspace without a cd',
+      command: "find . -name '*.jpg' -delete",
+      options: options({ cwd: paths.tempRepos[0] }),
+      expected: {
+        kind: 'block',
+        ruleId: 'find.delete',
+        intent: 'scope_down',
+        reasonIncludes: 'Use -print first',
+        segment: 'find . -name *.jpg -delete',
+      },
+    },
+    {
       name: 'allows a Git discard in a temp-root repository named by a literal-assignment git -C',
       command: `S=${tempRepo}; git -C $S checkout -- README.md`,
       options: options({ cwd: paths.cwd }),
