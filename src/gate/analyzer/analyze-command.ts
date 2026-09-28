@@ -969,7 +969,8 @@ function getHeredocReason(commandView: CommandView, standard: boolean): string |
 
   const heredoc = heredocs[0];
   if (!heredoc?.heredoc) return REASON_UNSUPPORTED_HEREDOC;
-  if (!isLiteralHeredoc(heredoc.heredoc) && !(standard && !/\$\(|`/.test(heredoc.heredoc.body))) {
+  const bodyHasCommandSubstitution = /\$\(|`/.test(heredoc.heredoc.body);
+  if (!isLiteralHeredoc(heredoc.heredoc) && (!standard || bodyHasCommandSubstitution)) {
     return REASON_UNQUOTED_HEREDOC;
   }
   if (heredoc.fd !== undefined && heredoc.fd !== 0) return REASON_UNSUPPORTED_HEREDOC;

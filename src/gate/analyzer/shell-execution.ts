@@ -140,7 +140,10 @@ export function bindLiteralPositionalParameters(
 ): string {
   const scriptIndex = findShellScriptIndex(words);
   const values = words.slice(scriptIndex + 1);
-  if (scriptIndex === -1 || !values.every(isLiteralWord) || /\bIFS\b/.test(script)) return script;
+  const bodyCanChangeFieldSplitting = /\bIFS\b/.test(script);
+  if (scriptIndex === -1 || !values.every(isLiteralWord) || bodyCanChangeFieldSplitting) {
+    return script;
+  }
   const texts = values.map(wordText);
   let bound = '';
   let quote: "'" | '"' | null = null;
@@ -153,7 +156,8 @@ export function bindLiteralPositionalParameters(
       const parameter = reference[1] ?? reference[2];
       const fields =
         parameter === '@' || parameter === '*' ? texts.slice(1) : [texts[Number(parameter)] ?? ''];
-      if (quote !== '"' && fields.some((field) => /[*?[]/.test(field))) return script;
+      const unquotedValueWouldGlob = quote !== '"' && fields.some((field) => /[*?[]/.test(field));
+      if (unquotedValueWouldGlob) return script;
       bound +=
         quote === '"'
           ? fields

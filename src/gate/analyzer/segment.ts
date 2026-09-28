@@ -782,12 +782,12 @@ function analyzeStreamInterpreterChild(
 }
 
 function isInterpreterShellParseNoise(nested: AnalyzeBlockResult, codeArg: string): boolean {
-  if (nested.ruleId === 'raw-text.dangerous-command') return true;
-  return (
+  const textHitRescannedAsCode = nested.ruleId === 'raw-text.dangerous-command';
+  const parseFailureOnBalancedQuotes =
     (nested.reason.startsWith(REASON_UNSUPPORTED_HEREDOC_SYNTAX) ||
       nested.reason === REASON_STRICT_UNPARSEABLE) &&
-    !hasUnclosedQuotes(codeArg)
-  );
+    !hasUnclosedQuotes(codeArg);
+  return textHitRescannedAsCode || parseFailureOnBalancedQuotes;
 }
 
 function childShellDynamicResult(

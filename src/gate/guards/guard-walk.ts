@@ -594,12 +594,14 @@ function readWord(
       )
         .map((run) => (typeof run === 'string' ? run : run.text))
         .join('');
-      const handovers = nested
+      const maskedHeredocHandovers = nested
         ? readProgram(nested, context).filter(
             (event) => event.kind === 'redirection' && event.body !== undefined,
           )
         : [];
-      if (handovers.length > 0) events.push(SCOPE_ENTER, ...handovers, SCOPE_EXIT);
+      if (maskedHeredocHandovers.length > 0) {
+        events.push(SCOPE_ENTER, ...maskedHeredocHandovers, SCOPE_EXIT);
+      }
       continue;
     }
     const inner = nested ? readProgram(nested, context) : [];

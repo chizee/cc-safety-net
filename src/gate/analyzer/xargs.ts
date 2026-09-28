@@ -266,11 +266,11 @@ function replacementIsInertShellArgument(
 ): boolean {
   if (analyzeNested === undefined) return false;
   const token = replacementToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const commandPosition = new RegExp(
+  const replacementCanStartCommand = new RegExp(
     `(?:^|[;&|({!\`\\n]|\\b(?:then|do|else|elif|if|while|until|time|command|builtin|nohup|eval|exec|source))\\s*(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*["']?${token}`,
-  );
+  ).test(source);
   // A case arm's `)` also opens a command word, but a substitution's `)` does not.
-  if (commandPosition.test(source) || /\bcase\b/.test(source)) return false;
+  if (replacementCanStartCommand || /\bcase\b/.test(source)) return false;
   const worstCase = source.replaceAll(replacementToken, '/');
   return dangerousInTextMatch(worstCase) === null && analyzeNested(worstCase) === null;
 }

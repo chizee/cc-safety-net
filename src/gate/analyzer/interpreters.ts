@@ -505,7 +505,8 @@ export function containsDangerousCode(
 }
 
 function execCallReceivesDangerousLiteral(code: string, scanWork?: { units: number }): boolean {
-  if (/`|%x|\bqx\b/.test(code)) return true;
+  const hasSelfExecutingLiteral = /`|%x|\bqx\b/.test(code);
+  if (hasSelfExecutingLiteral) return true;
   const masked = code.split('');
   const literals: { start: number; text: string }[] = [];
   for (let index = 0; index < code.length; index++) {
@@ -527,13 +528,22 @@ function execCallReceivesDangerousLiteral(code: string, scanWork?: { units: numb
       const start = call.index + call[0].length;
       return { start, end: closingParenthesis(plain, start) };
     });
-  if (calls.some((call) => firstArgumentHasName(plain, call.start))) return true;
-  return literals.some(
-    (literal) =>
-      (/\b(?:system|exec|spawn|popen)\s*$/.test(plain.slice(0, literal.start)) ||
-        calls.some((call) => literal.start >= call.start && literal.start < call.end)) &&
-      interpreterCodeHasDangerousText(literal.text, scanWork),
+  const execCallMayReceiveAnyLiteral = calls.some((call) =>
+    firstArgumentHasName(plain, call.start),
   );
+  if (execCallMayReceiveAnyLiteral) return true;
+  return literals.some((literal) => {
+    const followsParenlessSink = /\b(?:system|exec|spawn|popen)\s*$/.test(
+      plain.slice(0, literal.start),
+    );
+    const insideExecCall = calls.some(
+      (call) => literal.start >= call.start && literal.start < call.end,
+    );
+    return (
+      (followsParenlessSink || insideExecCall) &&
+      interpreterCodeHasDangerousText(literal.text, scanWork)
+    );
+  });
 }
 
 export function closingParenthesis(masked: string, start: number): number {
