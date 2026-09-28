@@ -27,7 +27,8 @@ type HookAdapter<T> = {
   agent: string;
   getAgent?: (input: T, environment: Environment) => string;
   outputDeny: HookDenyOutput;
-  outputAsk?: (input: T, denial: IntegrationDenial) => boolean;
+  canPromptPerson?: (input: T) => boolean;
+  outputAsk?: (denial: IntegrationDenial) => void;
   outputAllow?: () => void;
   guardDependencies?: Partial<GuardDependencies>;
   isSupported: (input: T) => boolean;
@@ -50,7 +51,7 @@ type HookAdapter<T> = {
 
 type ConfiguredHookAdapter<T> = Omit<HookAdapter<T>, 'outputDeny' | 'outputAsk' | 'outputAllow'> & {
   createDenyOutput: (message: string) => object;
-  createAskOutput?: (input: T, message: string) => object | null;
+  createAskOutput?: (message: string) => object;
   createAllowOutput?: () => object;
 };
 
@@ -181,7 +182,14 @@ async function runHookAdapter<T>(adapter: HookAdapter<T>): Promise<void> {
       toolName: evaluation.stage === 'command-analysis' ? undefined : toolName,
     });
     if (denial) {
-      if (denial.ask && adapter.outputAsk?.(input, denial)) return;
+      if (
+        denial.unverifiedByStandardMode &&
+        adapter.outputAsk &&
+        adapter.canPromptPerson?.(input)
+      ) {
+        adapter.outputAsk(denial);
+        return;
+      }
       adapter.outputDeny(denial);
       return;
     }
@@ -242,12 +250,8 @@ export async function runConfiguredHookAdapter<T>(
   const outputDeny: HookDenyOutput = (denial) => outputHookDeny(adapter.createDenyOutput, denial);
   const createAskOutput = adapter.createAskOutput;
   const outputAsk = createAskOutput
-    ? (input: T, denial: IntegrationDenial) => {
-        const output = createAskOutput(input, formatAskPrompt(denial));
-        if (output === null) return false;
-        console.log(JSON.stringify(output));
-        return true;
-      }
+    ? (denial: IntegrationDenial) =>
+        console.log(JSON.stringify(createAskOutput(formatAskPrompt(denial))))
     : undefined;
   const createAllowOutput = adapter.createAllowOutput;
   const outputAllow = createAllowOutput

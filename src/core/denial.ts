@@ -62,7 +62,7 @@ export type IntegrationDenial = {
   toolName?: string;
 
   configWarning?: string;
-  ask?: true;
+  unverifiedByStandardMode?: true;
 };
 
 export function projectGuardDenial(
@@ -80,7 +80,9 @@ export function projectGuardDenial(
     toolName: options.toolName,
 
     ...(evaluation.configFallback ? { configWarning: evaluation.configFallback.reason } : {}),
-    ...(evaluation.decision.ask ? { ask: true as const } : {}),
+    ...(evaluation.decision.unverifiedByStandardMode
+      ? { unverifiedByStandardMode: true as const }
+      : {}),
   };
 }
 

@@ -17,7 +17,8 @@ export async function runClaudeCodeHook(): Promise<void> {
     agent: 'claude-code',
     getAgent: (input, environment) => detectClaudeShapeAgent(input.transcript_path, environment),
     // Modes where an ask reaches a person; bypass, dontAsk and auto may resolve it unattended.
-    canAsk: (input) => ['default', 'acceptEdits', 'plan'].includes(input.permission_mode ?? ''),
+    canPromptPerson: (input) =>
+      ['default', 'acceptEdits', 'plan'].includes(input.permission_mode ?? ''),
     getToolRoute: getClaudeCodeToolRoute,
   });
 }

@@ -16,5 +16,5 @@ export type Decision =
       intent: BlockIntent;
       ruleId?: string;
       evidence?: { command: string; segment?: string };
-      ask?: true;
+      unverifiedByStandardMode?: true;
     };

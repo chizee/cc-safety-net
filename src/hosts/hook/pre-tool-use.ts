@@ -31,7 +31,7 @@ export async function runPreToolUseHook(options: {
   agent: string;
   getAgent?: (input: PreToolUseHookInput, environment: Environment) => string;
   // Only a host that prompts on `ask` may use it; Codex rejects it and runs the tool.
-  canAsk?: (input: PreToolUseHookInput) => boolean;
+  canPromptPerson?: (input: PreToolUseHookInput) => boolean;
   getToolRoute: (toolName: string) => ToolRoute;
   getContext?: (
     input: PreToolUseHookInput,
@@ -51,18 +51,16 @@ export async function runPreToolUseHook(options: {
         permissionDecisionReason: message,
       },
     }),
-    ...(options.canAsk
+    ...(options.canPromptPerson
       ? {
-          createAskOutput: (input: PreToolUseHookInput, message: string) =>
-            options.canAsk?.(input)
-              ? {
-                  hookSpecificOutput: {
-                    hookEventName: PRE_TOOL_USE_HOOK_EVENT,
-                    permissionDecision: 'ask',
-                    permissionDecisionReason: message,
-                  },
-                }
-              : null,
+          canPromptPerson: options.canPromptPerson,
+          createAskOutput: (message: string) => ({
+            hookSpecificOutput: {
+              hookEventName: PRE_TOOL_USE_HOOK_EVENT,
+              permissionDecision: 'ask',
+              permissionDecisionReason: message,
+            },
+          }),
         }
       : {}),
     isSupported: (input) => input.hook_event_name === PRE_TOOL_USE_HOOK_EVENT,
