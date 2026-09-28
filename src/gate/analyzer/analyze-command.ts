@@ -1,4 +1,4 @@
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, join, parse as parsePath, resolve, sep } from 'node:path';
 import { AnalysisLimit, type Budget, LIMITS } from '@/core/budget';
 import { resolveExistingPath } from '@/core/paths/canonicalization';
 import {
@@ -949,7 +949,10 @@ function withCreatedDirectories(
   budget: Budget,
 ): PathResolver {
   if (created.size === 0) return paths;
-  const isCreated = (path: string) => created.has(resolveExistingPath(path, paths, budget));
+  const isCreated = (path: string) => {
+    const canonical = resolveExistingPath(path, paths, budget);
+    return [...created].some((leaf) => leaf === canonical || leaf.startsWith(`${canonical}${sep}`));
+  };
   return {
     realpath: (path) =>
       paths.realpath(path) ?? (isCreated(path) ? resolveExistingPath(path, paths, budget) : null),
@@ -984,20 +987,23 @@ function trackCreatedDirectories(
   const cwd = state.effectiveCwd;
   for (const operand of args.slice(args[optionEnd] === '--' ? optionEnd + 1 : optionEnd)) {
     if (operand.split(/[\\/]/).includes('..') || (!isAbsolute(operand) && !cwd)) continue;
-    const missing = missingPathChain(
-      resolveExistingPath(resolve(cwd ?? '', operand), paths, budget),
-      paths,
-    );
-    if (!parents && missing.length !== 1) continue;
-    for (const path of missing) state.createdDirectories.add(path);
+    const leaf = resolveExistingPath(resolve(cwd ?? '', operand), paths, budget);
+    const creates = parents
+      ? mkdirParentsCreates(leaf, paths)
+      : paths.isDirectory(dirname(leaf)) && paths.realpath(leaf) === null;
+    if (creates) state.createdDirectories.add(leaf);
   }
 }
 
-function missingPathChain(path: string, paths: PathResolver): string[] {
-  const parent = dirname(path);
-  return paths.entryKind(path) !== 'missing' || parent === path
-    ? []
-    : [path, ...missingPathChain(parent, paths)];
+function mkdirParentsCreates(path: string, paths: PathResolver): boolean {
+  const root = parsePath(path).root;
+  const components = path
+    .slice(root.length)
+    .split(/[\\/]+/)
+    .filter(Boolean);
+  const prefixAt = (index: number) => join(root, ...components.slice(0, index + 1));
+  const firstNonDirectory = components.findIndex((_, index) => !paths.isDirectory(prefixAt(index)));
+  return firstNonDirectory === -1 || paths.realpath(prefixAt(firstNonDirectory)) === null;
 }
 
 function catWritesHeredocVerbatim(words: readonly CommandWord[]): boolean {

@@ -652,6 +652,18 @@ describe('analyzeCommand', () => {
     }
   });
 
+  test('a mkdir under a regular file creates nothing a later cd can enter', () => {
+    writeFileSync(join(project, 'notes.txt'), '');
+    expect(
+      decisionAt(project, 'mkdir -p notes.txt/child; cd notes.txt/child; rm -rf .git', standard),
+    ).toMatchObject({ kind: 'deny' });
+  });
+
+  test('a mkdir operand with thousands of missing components is not probed one by one', () => {
+    const scratchPosix = scratch.split(sep).join('/');
+    expect(decision(`mkdir -p '${scratchPosix}/${'a/'.repeat(7_000)}'`, standard)).toBeNull();
+  });
+
   test('a cd operand built from literal assignments is tracked', () => {
     const scratchPosix = scratch.split(sep).join('/');
     const workspacePosix = workspace.split(sep).join('/');
