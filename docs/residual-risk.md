@@ -169,8 +169,8 @@ to change what command text means at execution time. Tracking is limited to simp
 variables (a binding made inside a `then`/`do`/`case` body is forgotten when that body closes),
 literal `for` lists of at most eight words, explicit `cd` whose operand is literal or expands from
 those variables (a `cd` into a directory that exists at analysis time, with no redirection other
-than to `/dev/null`, is assumed to succeed, so an `||` fallback after it is never analyzed and a
-line after `cd X && A` runs in X), and the
+than a plain `<`, `>`, `>>` or `>|` to `/dev/null`, is assumed to succeed, so an `||` fallback
+after it is never analyzed and a line after `cd X && A` runs in X), and the
 documented shell-state factors; the linear dangerous-text scans still
 catch recognizable destructive text regardless of surrounding structure.
 

@@ -332,7 +332,11 @@ function analyzeProgram(
         const enteredExistingDirectory =
           typeof analyzedState.effectiveCwd === 'string' &&
           analyzedState.effectiveCwd !== commandState.effectiveCwd &&
-          node.redirections.every((redirection) => redirection.target?.text === '/dev/null');
+          node.redirections.every(
+            (redirection) =>
+              ['<', '>', '>>', '>|'].includes(redirection.operator) &&
+              redirection.target?.text === '/dev/null',
+          );
         if (tracksCommandOutcome && !enteredExistingDirectory) {
           failureStates.push(state);
           failureStates.push(
