@@ -612,6 +612,45 @@ test('OpenCode v2 first install does not run plugin update and succeeds', async 
   ]);
 });
 
+test('OpenCode v2 reinstall verifies the plugin row listed after the update', async () => {
+  const listingAfterUpdate = [
+    {
+      command: 'opencode',
+      args: ['plugin', 'list'],
+      stdout: 'ID  VERSION  SOURCE\n-  2.4.3  cc-safety-net@latest\n',
+    },
+  ];
+  const result = await flow({
+    invoke: 'install',
+    args: ['--opencode'],
+    seedTmp: { 'after-update/fake-script.json': JSON.stringify(listingAfterUpdate) },
+    script: [
+      { command: 'opencode', args: ['--version'], stdout: '2.0.19\n' },
+      {
+        command: 'opencode',
+        args: ['plugin', 'add', 'cc-safety-net@latest'],
+        stdout:
+          'Plugin "cc-safety-net@latest" is already configured in <home>/.config/opencode/opencode.json\n',
+      },
+      {
+        command: 'opencode',
+        args: ['plugin', 'update', 'cc-safety-net@latest'],
+        seedDir: '<root>/tmp/after-update',
+        seedInto: '<root>',
+      },
+      {
+        command: 'opencode',
+        args: ['plugin', 'list'],
+        stdout: 'ID  VERSION  SOURCE\ncc-safety-net  2.4.1  cc-safety-net@latest\n',
+      },
+    ],
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.errors).toEqual([
+    'OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.',
+  ]);
+});
+
 test('OpenCode v2 install waits for the plugin row to appear', async () => {
   const result = await flow({
     invoke: 'install',

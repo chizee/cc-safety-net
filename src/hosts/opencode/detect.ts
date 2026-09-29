@@ -2,11 +2,17 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { stripJsonComments } from '@/core/io/jsonc';
 import type { DetectContext, HookDetection } from '@/hosts/detect/context';
-import { getOpenCodeConfigPaths, hasOpenCodePlugin } from '@/hosts/opencode/install';
+import {
+  getOpenCodeConfigPaths,
+  getOpenCodeV2ConfigPaths,
+  hasOpenCodePlugin,
+} from '@/hosts/opencode/install';
 
 export function detect(context: DetectContext): HookDetection {
   const errors: string[] = [];
-  for (const configPath of getOpenCodeConfigPaths(context.environment)) {
+  for (const configPath of context.openCodeVersion?.startsWith('2.')
+    ? getOpenCodeV2ConfigPaths(context.environment)
+    : getOpenCodeConfigPaths(context.environment)) {
     if (existsSync(configPath)) {
       try {
         const content = readFileSync(configPath, 'utf-8');

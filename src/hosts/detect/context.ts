@@ -19,6 +19,7 @@ export interface DetectContext {
   ampPluginListOutput?: string | null;
   codexPluginListOutput?: string | null;
   copilotCliVersion?: string | null;
+  openCodeVersion?: string | null;
 }
 
 export function readStateFile(

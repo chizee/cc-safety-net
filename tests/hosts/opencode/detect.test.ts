@@ -116,6 +116,16 @@ describe('with OPENCODE_CONFIG_DIR naming another directory', () => {
     );
   });
 
+  test('ignores the XDG config on v2, which reads only the override directory', async () => {
+    const detectionOnV2 = detectionRunner((environment) =>
+      detectOpenCode({ environment, cwd: environment.home, openCodeVersion: '2.0.19' }),
+    );
+    expect(await detectionOnV2({ [JSON_FILE]: v2Entry }, nativeConfigDir)).toEqual({
+      kind: 'returned' as const,
+      value: { platform: 'opencode', status: 'n/a', errors: undefined } satisfies HookDetection,
+    });
+  });
+
   test('reads the override directory before the XDG config', async () => {
     expect(
       await detection(

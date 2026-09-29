@@ -37,6 +37,10 @@ export function getOpenCodeConfigDir(environment: Environment) {
   return environment.env.get('OPENCODE_CONFIG_DIR') || getOpenCodeXdgConfigDir(environment);
 }
 
+export function getOpenCodeV2ConfigPaths(environment: Environment) {
+  return OPENCODE_CONFIG_FILES.map((filename) => join(getOpenCodeConfigDir(environment), filename));
+}
+
 export function getOpenCodeConfigPaths(environment: Environment) {
   return [
     ...new Set([getOpenCodeConfigDir(environment), getOpenCodeXdgConfigDir(environment)]),
@@ -74,9 +78,7 @@ export async function getOpenCodeInstallPlan(environment: Environment) {
     );
   }
   if (major === 2) {
-    for (const configPath of OPENCODE_CONFIG_FILES.map((filename) =>
-      join(getOpenCodeConfigDir(environment), filename),
-    )) {
+    for (const configPath of getOpenCodeV2ConfigPaths(environment)) {
       if (!existsSync(configPath)) continue;
       const config = parseOpenCodeConfig(readFileSync(configPath, 'utf-8'), configPath);
       const conflicting = ['plugin', 'plugins'].some((key) => {
@@ -104,10 +106,10 @@ export async function getOpenCodeInstallPlan(environment: Environment) {
           ['opencode', 'plugin', 'add', OPENCODE_CACHE_PACKAGE],
           { stdoutOnly: true },
         );
-        const output = await waitForOpenCodePluginRow();
         if (added.includes('is already configured in')) {
           await runNativeCommand(['opencode', 'plugin', 'update', OPENCODE_CACHE_PACKAGE]);
         }
+        const output = await waitForOpenCodePluginRow();
         if (/^cc-safety-net\s+\S+\s+cc-safety-net@latest\s*$/m.test(output)) return;
         throw new Error(
           'OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.',

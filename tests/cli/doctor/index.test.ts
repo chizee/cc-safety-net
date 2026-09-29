@@ -14,6 +14,7 @@ import {
   seedFiles,
 } from '../../helpers/cli-differential';
 import { json } from '../../helpers/cli-fixtures';
+import { createFakeBin } from '../../helpers/fake-bin';
 import { foldWindowsPosture, normalizeDoctorJson } from '../../helpers/doctor-json';
 import { environmentFor, removeTempRoots } from '../../helpers/temp-home';
 
@@ -119,6 +120,26 @@ describe('doctor --json', () => {
     expect(report.hooks.filter((hook) => hook.configured).map((hook) => hook.platform)).toEqual([
       'cursor',
     ]);
+  }, 120_000);
+
+  test('an OpenCode v2 entry outside OPENCODE_CONFIG_DIR is not reported configured', async () => {
+    const result = await runCliCommand(
+      {
+        args: ['doctor', '--json', '--skip-update-check'],
+        seed: (side) => {
+          side.env.OPENCODE_CONFIG_DIR = join(side.home, 'native-config');
+          createFakeBin(side.root, [
+            { command: 'opencode', args: ['--version'], stdout: '2.0.19\n' },
+          ]);
+          seedFiles(side, {
+            'home/.config/opencode/opencode.json': '{"plugins":["cc-safety-net@latest"]}',
+          });
+        },
+      },
+      (environment) => runDoctor(environment, { json: true, skipUpdateCheck: true }),
+    );
+    const report = JSON.parse(result.stdout) as DoctorReport;
+    expect(report.hooks.find((hook) => hook.platform === 'opencode')?.configured).toBe(false);
   }, 120_000);
 
   test('both scopes report their own invalid rule config', async () => {

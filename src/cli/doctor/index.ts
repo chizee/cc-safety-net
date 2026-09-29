@@ -70,6 +70,7 @@ async function collectDoctorReport(
     ampPluginListOutput: system.ampPluginListOutput,
     codexPluginListOutput: system.codexPluginListOutput,
     copilotCliVersion: system.versions['copilot-cli'],
+    openCodeVersion: system.versions.opencode,
   });
   const configInfo = getConfigInfo(environment, cwd);
   const environmentInfo = getEnvironmentInfo(environment);

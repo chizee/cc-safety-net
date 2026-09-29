@@ -721,6 +721,7 @@ function detectHooksFromSystemInfo(environment: Environment, systemInfo: SystemI
     ampPluginListOutput: systemInfo.ampPluginListOutput,
     codexPluginListOutput: systemInfo.codexPluginListOutput,
     copilotCliVersion: systemInfo.versions['copilot-cli'],
+    openCodeVersion: systemInfo.versions.opencode,
   });
 }
 
