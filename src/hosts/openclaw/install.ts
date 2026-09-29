@@ -14,6 +14,8 @@ import {
 
 const OPENCLAW_ARTIFACT_RELATIVE = join('openclaw', OPENCLAW_PLUGIN_ID);
 
+export const OPENCLAW_ENABLE_HINT = `run \`openclaw plugins enable ${OPENCLAW_PLUGIN_ID}\``;
+
 const INSTALLED_PLUGIN_FILES = [
   OPENCLAW_PLUGIN_ENTRY_FILE,
   OPENCLAW_PLUGIN_MANIFEST_FILE,
@@ -144,7 +146,9 @@ export async function verifyOpenClawPluginRuntime(enableIfDisabled: boolean): Pr
     `${
       status === undefined
         ? `The ${OPENCLAW_PLUGIN_ID} plugin's load state could not be verified: OpenClaw's runtime inspect report was unreadable.`
-        : `OpenClaw reports the ${OPENCLAW_PLUGIN_ID} plugin with status "${status}".`
+        : status === 'disabled'
+          ? `OpenClaw reports the ${OPENCLAW_PLUGIN_ID} plugin with status "disabled"; ${OPENCLAW_ENABLE_HINT}.`
+          : `OpenClaw reports the ${OPENCLAW_PLUGIN_ID} plugin with status "${status}".`
     } Run \`openclaw plugins inspect ${OPENCLAW_PLUGIN_ID} --runtime\` for details.`,
   );
 }

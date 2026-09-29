@@ -293,7 +293,7 @@ describe('verifying that the installed plugin actually loads', () => {
     expect(await verify([reportStatus('disabled'), enableSucceeds], true)).toEqual({
       outcome: {
         kind: 'threw',
-        message: `OpenClaw reports the cc-safety-net plugin with status "disabled". ${INSPECT_HINT}`,
+        message: `OpenClaw reports the cc-safety-net plugin with status "disabled"; run \`openclaw plugins enable cc-safety-net\`. ${INSPECT_HINT}`,
       },
       calls: [INSPECT_CALL, ENABLE_CALL, INSPECT_CALL],
     });
@@ -303,7 +303,7 @@ describe('verifying that the installed plugin actually loads', () => {
     expect(await verify([reportStatus('disabled'), enableSucceeds])).toEqual({
       outcome: {
         kind: 'threw',
-        message: `OpenClaw reports the cc-safety-net plugin with status "disabled". ${INSPECT_HINT}`,
+        message: `OpenClaw reports the cc-safety-net plugin with status "disabled"; run \`openclaw plugins enable cc-safety-net\`. ${INSPECT_HINT}`,
       },
       calls: [INSPECT_CALL],
     });

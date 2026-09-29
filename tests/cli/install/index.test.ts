@@ -820,7 +820,7 @@ test('an installed OpenClaw plugin the user disabled stays disabled', async () =
   expect(result).toMatchObject({
     exitCode: 1,
     errors: [
-      'OpenClaw reports the cc-safety-net plugin with status "disabled". Run `openclaw plugins inspect cc-safety-net --runtime` for details.',
+      'OpenClaw reports the cc-safety-net plugin with status "disabled"; run `openclaw plugins enable cc-safety-net`. Run `openclaw plugins inspect cc-safety-net --runtime` for details.',
     ],
     log: openclawCalls,
   });
