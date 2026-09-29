@@ -2104,24 +2104,16 @@ function matchesCodingCliPath(
           );
         }
         case 'secret.cli.opencode.config': {
-          const configRoot = environment.env.get('OPENCODE_CONFIG_DIR')
-            ? codingCliRoot(
-                environment.env.get('OPENCODE_CONFIG_DIR'),
-                '~/.config/opencode',
-                cwd,
-                environment,
-                budget,
-              )
-            : appendPath(
-                codingCliRoot(
-                  environment.env.get('XDG_CONFIG_HOME'),
-                  '~/.config',
-                  cwd,
-                  environment,
-                  budget,
-                ),
-                'opencode',
-              );
+          const xdgConfigRoot = appendPath(
+            codingCliRoot(
+              environment.env.get('XDG_CONFIG_HOME'),
+              '~/.config',
+              cwd,
+              environment,
+              budget,
+            ),
+            'opencode',
+          );
           const programDataConfig = environment.env.get('ProgramData')
             ? [
                 appendPath(
@@ -2135,7 +2127,7 @@ function matchesCodingCliPath(
           const opencodeConfig = environment.env.get('OPENCODE_CONFIG');
           return (
             configNames.includes(comparable(normalized).split('/').at(-1) ?? '') ||
-            matchesFileInRoot(normalized, configRoot, configNames) ||
+            matchesFileInRoot(normalized, xdgConfigRoot, ['config.json']) ||
             (opencodeConfig?.trim()
               ? matchesExactPath(normalized, opencodeConfig, cwd, environment, budget)
               : false) ||

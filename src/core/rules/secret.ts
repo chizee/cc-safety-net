@@ -299,6 +299,7 @@ export const SECRET_CODING_CLI_RULES = [
     paths: [
       '~/.config/opencode/opencode.json',
       '~/.config/opencode/opencode.jsonc',
+      '~/.config/opencode/config.json',
       '/Library/Application Support/opencode/opencode.json',
       '/etc/opencode/opencode.json',
       '<project>/opencode.json',
