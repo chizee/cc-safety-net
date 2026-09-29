@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir as systemTempRoot } from 'node:os';
 import { join, sep } from 'node:path';
 import { REASON_DERIVED_COMMAND_WORK_LIMIT } from '@/core/budget';
@@ -165,6 +165,39 @@ describe('analyzeCommand', () => {
       kind: 'deny',
       ruleId: 'git.reset-hard',
     });
+  });
+  test('a tee heredoc writer named through a literal assignment still exposes the script it runs', () => {
+    expect(
+      decision(`S=${scratch}; tee $S/a.sh <<'EOF'\ngit reset --hard\nEOF\nbash $S/a.sh`, standard),
+    ).toMatchObject({
+      kind: 'deny',
+      ruleId: 'git.reset-hard',
+    });
+  });
+  test('a script path from a literal assignment resolves inside a command substitution', () => {
+    expect(
+      decision(`S=${scratch}; F=$(bash $S/make-fixture.sh) && echo "$F"`, standard),
+    ).toBeNull();
+    expect(decision(`S=${scratch}; bash "$S/make-fixture.sh"`, standard)).toBeNull();
+    expect(decision(`S=$(pwd); bash $S/make-fixture.sh`, standard)).toMatchObject({
+      kind: 'deny',
+      intent: 'stop_and_explain',
+    });
+  });
+  test('strict mode keeps a variable shell-script path a dynamic shell source', () => {
+    expect(decision(`S=${scratch}; bash $S/make-fixture.sh`, standard)).toBeNull();
+    expect(decision(`S=${scratch}; bash $S/make-fixture.sh`, strict)).toMatchObject({
+      kind: 'deny',
+      intent: 'stop_and_explain',
+    });
+  });
+  test('a variable that expands to an option stays a dynamic shell source', () => {
+    for (const command of [
+      "S=-c; bash $S 'git reset --hard'",
+      'S=-; printf \'git reset --hard\\n\' | bash "$S"',
+    ]) {
+      expect(decision(command, standard), command).toMatchObject({ kind: 'deny' });
+    }
   });
   test('a command substitution inside arithmetic still receives destructive command analysis', () => {
     const options = {
@@ -568,6 +601,79 @@ describe('analyzeCommand', () => {
     expect(decision('cd .. && rm -rf build', standard)?.ruleId).toBe(
       'rm.recursive-force-outside-cwd',
     );
+  });
+
+  test('a cd into an existing directory is treated as unable to fail', () => {
+    const scratchPosix = scratch.split(sep).join('/');
+    expect(decision(`cd '${scratchPosix}' || git reset --hard`, standard)).toBeNull();
+    expect(decision(`cd '${scratchPosix}/missing' || git reset --hard`, standard)?.ruleId).toBe(
+      'git.reset-hard',
+    );
+    expect(decision(`cd '${scratchPosix}' && printf ready; rm -rf build`, standard)).toBeNull();
+    expect(decision(`cd '${scratchPosix}' 2>/dev/null || git reset --hard`, standard)).toBeNull();
+    for (const redirection of [`< '${scratchPosix}/missing-input'`, '<&/dev/null']) {
+      expect(
+        decision(`cd '${scratchPosix}' ${redirection} || git reset --hard`, standard)?.ruleId,
+        redirection,
+      ).toBe('git.reset-hard');
+    }
+  });
+
+  test('a cd into a regular file leaves the cwd unknown', () => {
+    writeFileSync(join(project, 'notes.txt'), '');
+    for (const command of [
+      'cd notes.txt; rm -rf .git',
+      'cd notes.txt && printf x; rm -rf .git',
+      'cd notes.txt || rm -rf .git',
+    ]) {
+      expect(decisionAt(project, command, standard), command).toMatchObject({ kind: 'deny' });
+    }
+  });
+
+  test('a directory an earlier mkdir created counts as existing for a later cd', () => {
+    const scratchPosix = scratch.split(sep).join('/');
+    for (const command of [
+      `mkdir -pv '${scratchPosix}/made/a' && cd '${scratchPosix}/made/a' && rm -rf build`,
+      `mkdir -- '${scratchPosix}/solo' && cd '${scratchPosix}/solo' && rm -rf build`,
+      `mkdir '${scratchPosix}/p' && mkdir '${scratchPosix}/p/q' && cd '${scratchPosix}/p/q' && rm -rf build`,
+      `cd '${scratchPosix}' && mkdir -p rel/dir && cd rel/dir && rm -rf build`,
+      `(mkdir -p '${scratchPosix}/sub') && cd '${scratchPosix}/sub' && rm -rf build`,
+      `D='${scratchPosix}/var'; mkdir -p "$D" && cd "$D" && rm -rf build`,
+    ]) {
+      expect(decision(command, standard), command).toBeNull();
+    }
+    for (const command of [
+      `mkdir -m 700 '${scratchPosix}/moded' && cd '${scratchPosix}/moded' && rm -rf build`,
+      `mkdir -p '${scratchPosix}/x/../dotdot' && cd '${scratchPosix}/dotdot' && rm -rf build`,
+      `cd '${scratchPosix}' && mkdir -p '~/x' && cd ~/x && rm -rf build`,
+      `mkdir -p $UNSET/y && cd '${scratchPosix}/y' && rm -rf build`,
+    ]) {
+      expect(decision(command, standard)?.ruleId, command).toBe('rm.recursive-force-outside-cwd');
+    }
+  });
+
+  test('a mkdir under a regular file creates nothing a later cd can enter', () => {
+    writeFileSync(join(project, 'notes.txt'), '');
+    expect(
+      decisionAt(project, 'mkdir -p notes.txt/child; cd notes.txt/child; rm -rf .git', standard),
+    ).toMatchObject({ kind: 'deny' });
+  });
+
+  test('a mkdir that may not run or cannot succeed creates nothing a later cd can enter', () => {
+    const scratchPosix = scratch.split(sep).join('/');
+    symlinkSync(join(scratch, 'nowhere'), join(scratch, 'dangling'));
+    for (const command of [
+      `if [ -f missing-config ]; then\nmkdir -p '${scratchPosix}/phantom'\nfi\ncd '${scratchPosix}/phantom'\nrm -rf build`,
+      `mkdir -p '${scratchPosix}/dangling/child'; cd '${scratchPosix}/dangling/child'; rm -rf build`,
+      `mkdir '${scratchPosix}/dangling'; cd '${scratchPosix}/dangling'; rm -rf build`,
+    ]) {
+      expect(decision(command, standard)?.ruleId, command).toBe('rm.recursive-force-outside-cwd');
+    }
+  });
+
+  test('a mkdir operand with thousands of missing components is not probed one by one', () => {
+    const scratchPosix = scratch.split(sep).join('/');
+    expect(decision(`mkdir -p '${scratchPosix}/${'a/'.repeat(7_000)}'`, standard)).toBeNull();
   });
 
   test('a cd operand built from literal assignments is tracked', () => {

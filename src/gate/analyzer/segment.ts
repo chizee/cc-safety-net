@@ -58,7 +58,7 @@ import {
   isVerifiableLocalGeneratorSource,
   shellSourceHasUnresolvedDynamicExecutionCarrier,
 } from './shell-execution';
-import { substituteKnownShellVariables } from './shell-git-env';
+import { expandKnownVariableWord } from './shell-git-env';
 import {
   extractDashCArg,
   extractShellStartupLoaderMetadata,
@@ -355,7 +355,10 @@ export function analyzeSegment(
           : null;
       }
 
-      const scriptSource = extractShellScriptOperandSource(words);
+      const scriptSource = extractShellScriptOperandSource(
+        words,
+        options.strict ? undefined : options.shellAssignments,
+      );
       if (scriptSource.kind === 'dynamic') return dynamicShellSourceResult(trace);
       if (scriptSource.kind === 'literal') {
         return analyzeTrackedHeredocScript(
@@ -1028,11 +1031,10 @@ export function resolveCwdAfterCommandView(
   const targets = rest[0] === '--' ? rest.slice(1) : rest;
   if (targets.length !== 1) return null;
   const rawTarget = targets[0] ?? '';
-  const target = commandView.words.some(
+  const targetWord = commandView.words.find(
     (word) => word.provenance === 'variable' && word.text === rawTarget,
-  )
-    ? expandCdOperand(rawTarget, shellAssignments)
-    : rawTarget;
+  );
+  const target = targetWord ? expandKnownVariableWord(targetWord, shellAssignments) : rawTarget;
   if (target === null) return null;
   if (
     !/^(?:[./]|[A-Za-z]:[\\/])/.test(target) &&
@@ -1043,22 +1045,24 @@ export function resolveCwdAfterCommandView(
   return resolveKnownCwdTarget(target, cwd, environment.paths);
 }
 
-function expandCdOperand(target: string, assignments: ReadonlyMap<string, string>): string | null {
-  const expanded = substituteKnownShellVariables(target, assignments);
-  return expanded.startsWith('~') || /[\s$`*?[]/.test(expanded) ? null : expanded;
-}
-
 function resolveKnownCwdTarget(
   target: string | undefined,
   cwd: string,
   paths: PathResolver,
 ): string | null {
-  if (!target || target === '-' || target.includes('$') || target.includes('`')) {
+  if (
+    !target ||
+    target === '-' ||
+    target.startsWith('~') ||
+    target.includes('$') ||
+    target.includes('`')
+  ) {
     return null;
   }
 
   try {
-    return resolveChdirTarget(cwd, target, paths);
+    const resolved = resolveChdirTarget(cwd, target, paths);
+    return paths.isDirectory(resolved) ? resolved : null;
   } catch {
     return null;
   }

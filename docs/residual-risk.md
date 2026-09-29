@@ -154,8 +154,9 @@ interpreter bodies").
 
 Glob, brace, extglob, arithmetic, and `IFS` word-splitting semantics. Standard applies bounded
 conservative checks and the documented compatibility exceptions (the only expansion it performs is
-literal `$VAR`/`${VAR}` substitution of a `cd` operand from literal assignments and literal `for`
-lists of at most eight words) but never exact expansion emulation; crafted expansion tricks that
+literal `$VAR`/`${VAR}` substitution, from literal assignments and literal `for` lists of at most
+eight words, of a `cd` operand, a `git -C` or `git worktree remove` operand, a shell-script operand
+(standard mode only), and the file a heredoc writer creates) but never exact expansion emulation; crafted expansion tricks that
 survive those checks are residual, and strict-tier fail-closed behavior owns the adversarial case.
 
 Adjudicated 2026-07-22. Sources: `SECURITY.md` non-goals ("does not expand shell globs or
@@ -167,7 +168,11 @@ Aliases, shell functions, `PATH` or `IFS` mutation, sourced files, and disabled 
 to change what command text means at execution time. Tracking is limited to simple assignment-only
 variables (a binding made inside a `then`/`do`/`case` body is forgotten when that body closes),
 literal `for` lists of at most eight words, explicit `cd` whose operand is literal or expands from
-those variables, and the documented shell-state factors; the linear dangerous-text scans still
+those variables (a `cd` into a directory that exists at analysis time, or that an earlier `mkdir`
+in the same command created, with no redirection other than a plain `<`, `>`, `>>` or `>|` to
+`/dev/null`, is assumed to succeed, so an `||` fallback after it is never analyzed and a line after
+`cd X && A` runs in X), and the
+documented shell-state factors; the linear dangerous-text scans still
 catch recognizable destructive text regardless of surrounding structure.
 
 Adjudicated 2026-07-22. Sources: `REVIEW.md` threat model (runtime mutation); `SECURITY.md`

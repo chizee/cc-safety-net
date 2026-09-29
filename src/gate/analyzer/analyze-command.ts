@@ -1,4 +1,6 @@
+import { dirname, isAbsolute, join, parse as parsePath, resolve, sep } from 'node:path';
 import { AnalysisLimit, type Budget, LIMITS } from '@/core/budget';
+import { resolveExistingPath } from '@/core/paths/canonicalization';
 import {
   destructiveCommandRuleIsEnabled,
   filterDestructiveCommandMatch,
@@ -49,6 +51,7 @@ import {
   applyShellGitContextEnvSegment,
   cloneShellGitContextEnvState,
   createShellGitContextEnvState,
+  expandKnownVariableWord,
   getSegmentGitContextEnvAssignments,
   type ShellGitContextEnvState,
   segmentTokensWithExpandedAssignments,
@@ -126,6 +129,7 @@ export function analyzeCommandInternal(
       shellGitContextState,
       literalHeredocFiles: new Map(options.literalHeredocFiles),
       functionDefinitions: new Map(options.functionDefinitions),
+      createdDirectories: new Set(),
     },
   ]).result;
 }
@@ -135,6 +139,7 @@ type AnalysisState = {
   shellGitContextState: ShellGitContextEnvState;
   literalHeredocFiles: Map<string, string>;
   functionDefinitions: Map<string, CommandProgram>;
+  createdDirectories: Set<string>;
 };
 
 type ProgramAnalysis = {
@@ -147,6 +152,12 @@ type ConditionalAnalysisStates = {
   failure: AnalysisState[];
 };
 
+type ControlFlowOutcome = {
+  connector: string | undefined;
+  skippedSuccessStates: readonly AnalysisState[];
+  skippedFailureStates: readonly AnalysisState[];
+};
+
 function analyzeProgram(
   program: CommandProgram,
   depth: number,
@@ -157,6 +168,7 @@ function analyzeProgram(
   let states = [...initialStates];
   let conditionalStates: ConditionalAnalysisStates | undefined;
   let previousConnector: string | undefined;
+  let pipelineOutcome: ControlFlowOutcome | undefined;
   for (const [nodeIndex, node] of program.nodes.entries()) {
     if (node.kind === 'connector') {
       previousConnector = node.operator;
@@ -183,7 +195,21 @@ function analyzeProgram(
       previousConnector === '||' ? (priorConditionalStates?.success ?? []) : [];
     const skippedFailureStates =
       previousConnector === '&&' ? (priorConditionalStates?.failure ?? []) : [];
-    const tracksCommandOutcome = conditional || isConditionalConnector(nextConnector);
+    const connectorOutcome = {
+      connector: previousConnector,
+      skippedSuccessStates,
+      skippedFailureStates,
+    };
+    if (isPipelineConnector(nextConnector) && !isPipelineConnector(previousConnector)) {
+      pipelineOutcome = connectorOutcome;
+    }
+    const outcome = isPipelineConnector(nextConnector)
+      ? { connector: undefined, skippedSuccessStates: [], skippedFailureStates: [] }
+      : isPipelineConnector(previousConnector)
+        ? (pipelineOutcome ?? connectorOutcome)
+        : connectorOutcome;
+    const tracksCommandOutcome =
+      isConditionalConnector(outcome.connector) || isConditionalConnector(nextConnector);
 
     if (node.kind === 'function') {
       const successStates = executionStates.flatMap((state) => {
@@ -200,9 +226,9 @@ function analyzeProgram(
       const next = finishControlFlowStep(
         successStates,
         [],
-        skippedSuccessStates,
-        skippedFailureStates,
-        previousConnector,
+        outcome.skippedSuccessStates,
+        outcome.skippedFailureStates,
+        outcome.connector,
         nextConnector,
       );
       states = next.states;
@@ -240,9 +266,9 @@ function analyzeProgram(
       const next = finishControlFlowStep(
         successStates,
         failureStates,
-        skippedSuccessStates,
-        skippedFailureStates,
-        previousConnector,
+        outcome.skippedSuccessStates,
+        outcome.skippedFailureStates,
+        outcome.connector,
         nextConnector,
       );
       states = next.states;
@@ -307,7 +333,15 @@ function analyzeProgram(
             isConditionalConnector(nextConnector),
           ),
         );
-        if (tracksCommandOutcome) {
+        const enteredExistingDirectory =
+          typeof analyzedState.effectiveCwd === 'string' &&
+          analyzedState.effectiveCwd !== commandState.effectiveCwd &&
+          node.redirections.every(
+            (redirection) =>
+              ['<', '>', '>>', '>|'].includes(redirection.operator) &&
+              redirection.target?.text === '/dev/null',
+          );
+        if (tracksCommandOutcome && !enteredExistingDirectory) {
           failureStates.push(state);
           failureStates.push(
             ...functionAnalysis.states.map((functionState) =>
@@ -320,9 +354,9 @@ function analyzeProgram(
     const next = finishControlFlowStep(
       successStates,
       failureStates,
-      skippedSuccessStates,
-      skippedFailureStates,
-      previousConnector,
+      outcome.skippedSuccessStates,
+      outcome.skippedFailureStates,
+      outcome.connector,
       nextConnector,
     );
     states = next.states;
@@ -388,6 +422,7 @@ function isolateFilesystemState(
   return {
     ...initialState,
     literalHeredocFiles: new Map(analyzedState.literalHeredocFiles),
+    createdDirectories: new Set(analyzedState.createdDirectories),
   };
 }
 
@@ -608,7 +643,15 @@ function analyzeCommandView(
 ): AnalyzeResult | null {
   const options = {
     ...inheritedOptions,
-    environment: { ...inheritedOptions.environment, env: state.shellGitContextState.env },
+    environment: {
+      ...inheritedOptions.environment,
+      env: state.shellGitContextState.env,
+      paths: withCreatedDirectories(
+        inheritedOptions.environment.paths,
+        state.createdDirectories,
+        inheritedOptions.budget,
+      ),
+    },
   };
   const heredocReason = getHeredocReason(commandView, !options.strict);
   if (heredocReason && options.strict) {
@@ -781,6 +824,7 @@ function finalizeAnalyzedCommandView(
     options.environment.paths,
     options.budget,
   );
+  trackCreatedDirectories(commandView, state, options.environment.paths, options.budget);
   updateCwdAfterCommandView(
     commandView,
     state,
@@ -854,8 +898,11 @@ function trackLiteralHeredocFiles(
   )?.heredoc;
   if (!heredoc) return;
 
-  for (const target of getLiteralHeredocOutputTargets(commandView)) {
-    const path = resolveTrackedHeredocPath(target.text, state.effectiveCwd, paths, budget);
+  for (const target of getLiteralHeredocOutputTargets(
+    commandView,
+    state.shellGitContextState.shellAssignments,
+  )) {
+    const path = resolveTrackedHeredocPath(target, state.effectiveCwd, paths, budget);
     if (!path || !isPersistentHeredocFilePath(path)) continue;
     if (
       !state.literalHeredocFiles.has(path) &&
@@ -867,24 +914,109 @@ function trackLiteralHeredocFiles(
   }
 }
 
-function getLiteralHeredocOutputTargets(commandView: CommandView): CommandWord[] {
-  const stdoutTarget = getFinalStdoutRedirection(commandView.redirections)?.target;
-  const literalStdoutTarget = isTrackableLiteralFileWord(stdoutTarget) ? [stdoutTarget] : [];
+function getLiteralHeredocOutputTargets(
+  commandView: CommandView,
+  assignments: ReadonlyMap<string, string>,
+): string[] {
+  const stdoutTarget = fileWordPath(
+    getFinalStdoutRedirection(commandView.redirections)?.target,
+    assignments,
+  );
+  const stdoutTargets = stdoutTarget === undefined ? [] : [stdoutTarget];
   if (isBareCommandWord(commandView.words[0], 'cat')) {
-    return catWritesHeredocVerbatim(commandView.words) ? literalStdoutTarget : [];
+    return catWritesHeredocVerbatim(commandView.words) ? stdoutTargets : [];
   }
   if (!isBareCommandWord(commandView.words[0], 'tee')) return [];
 
-  const teeArguments = getTeeArguments(commandView.words.slice(1));
+  const teeArguments = getTeeArguments(commandView.words.slice(1), assignments);
+  if (!teeArguments || teeArguments.append || teeArguments.hasUnsupportedOptions) return [];
+  const operandPaths = teeArguments.operands.map((operand) => fileWordPath(operand, assignments));
+  if (!operandPaths.every((path): path is string => path !== undefined)) return [];
+  return [...operandPaths, ...stdoutTargets];
+}
+
+function fileWordPath(
+  word: CommandWord | undefined,
+  assignments: ReadonlyMap<string, string>,
+): string | undefined {
+  if (isTrackableLiteralFileWord(word)) return word.text;
+  return (word && expandKnownVariableWord(word, assignments)) ?? undefined;
+}
+
+function withCreatedDirectories(
+  paths: PathResolver,
+  created: ReadonlySet<string>,
+  budget: Budget,
+): PathResolver {
+  if (created.size === 0) return paths;
+  const isCreated = (path: string) => {
+    const canonical = resolveExistingPath(path, paths, budget);
+    return [...created].some((leaf) => leaf === canonical || leaf.startsWith(`${canonical}${sep}`));
+  };
+  return {
+    realpath: (path) =>
+      paths.realpath(path) ?? (isCreated(path) ? resolveExistingPath(path, paths, budget) : null),
+    entryKind: (path) => {
+      const kind = paths.entryKind(path);
+      return kind === 'missing' && isCreated(path) ? 'present' : kind;
+    },
+    isDirectory: (path) => paths.isDirectory(path) || isCreated(path),
+  };
+}
+
+function trackCreatedDirectories(
+  commandView: CommandView,
+  state: AnalysisState,
+  paths: PathResolver,
+  budget: Budget,
+): void {
   if (
-    !teeArguments ||
-    teeArguments.append ||
-    teeArguments.hasUnsupportedOptions ||
-    !teeArguments.operands.every(isTrackableLiteralFileWord)
+    state.shellGitContextState.bodyDepth > 0 ||
+    !isBareCommandWord(commandView.words[0], 'mkdir')
   ) {
-    return [];
+    return;
   }
-  return [...teeArguments.operands, ...literalStdoutTarget];
+  const args = commandView.words
+    .slice(1)
+    .map((word) => fileWordPath(word, state.shellGitContextState.shellAssignments));
+  if (!args.every((arg): arg is string => arg !== undefined)) return;
+  const optionEnd = args.findIndex((arg) => arg === '--' || arg === '-' || !arg.startsWith('-'));
+  const options = args.slice(0, optionEnd);
+  if (
+    optionEnd === -1 ||
+    !options.every((option) => /^(?:-[pv]+|--parents|--verbose)$/.test(option))
+  ) {
+    return;
+  }
+  const parents = options.some((option) => option === '--parents' || /^-v*p/.test(option));
+  const cwd = state.effectiveCwd;
+  for (const operand of args.slice(args[optionEnd] === '--' ? optionEnd + 1 : optionEnd)) {
+    if (operand.split(/[\\/]/).includes('..') || (!isAbsolute(operand) && !cwd)) continue;
+    const leaf = resolveExistingPath(resolve(cwd ?? '', operand), paths, budget);
+    const creates = parents
+      ? mkdirParentsCreates(leaf, paths)
+      : paths.isDirectory(dirname(leaf)) && isMissing(leaf, paths);
+    if (creates) state.createdDirectories.add(leaf);
+  }
+}
+
+function mkdirParentsCreates(path: string, paths: PathResolver): boolean {
+  const root = parsePath(path).root;
+  const components = path
+    .slice(root.length)
+    .split(/[\\/]+/)
+    .filter(Boolean);
+  const prefixAt = (index: number) => join(root, ...components.slice(0, index + 1));
+  const firstNonDirectory = components.findIndex((_, index) => !paths.isDirectory(prefixAt(index)));
+  return firstNonDirectory === -1 || isMissing(prefixAt(firstNonDirectory), paths);
+}
+
+function isMissing(path: string, paths: PathResolver): boolean {
+  try {
+    return paths.entryKind(path) === 'missing';
+  } catch {
+    return false;
+  }
 }
 
 function catWritesHeredocVerbatim(words: readonly CommandWord[]): boolean {
@@ -910,7 +1042,10 @@ function getFinalStdoutRedirection(
   return redirection?.operator === '>' || redirection?.operator === '>|' ? redirection : undefined;
 }
 
-function getTeeArguments(words: readonly CommandWord[]):
+function getTeeArguments(
+  words: readonly CommandWord[],
+  assignments: ReadonlyMap<string, string> = new Map(),
+):
   | {
       operands: CommandWord[];
       append: boolean;
@@ -922,7 +1057,9 @@ function getTeeArguments(words: readonly CommandWord[]):
   let append = false;
   let hasUnsupportedOptions = false;
   for (const word of words) {
-    if (word.provenance !== 'literal') return undefined;
+    if (word.provenance !== 'literal' && expandKnownVariableWord(word, assignments) === null) {
+      return undefined;
+    }
     if (parsesOptions && isBareCommandWord(word, '--')) {
       parsesOptions = false;
       continue;
@@ -1208,6 +1345,7 @@ function cloneAnalysisState(state: AnalysisState): AnalysisState {
     shellGitContextState: cloneShellGitContextEnvState(state.shellGitContextState),
     literalHeredocFiles: new Map(state.literalHeredocFiles),
     functionDefinitions: new Map(state.functionDefinitions),
+    createdDirectories: new Set(state.createdDirectories),
   };
 }
 
@@ -1239,12 +1377,16 @@ function analysisStatesEqual(left: AnalysisState, right: AnalysisState): boolean
       right.shellGitContextState.shellAssignments,
     ) &&
     left.shellGitContextState.bodyDepth === right.shellGitContextState.bodyDepth &&
-    left.shellGitContextState.bodyAssignments.size ===
-      right.shellGitContextState.bodyAssignments.size &&
-    [...left.shellGitContextState.bodyAssignments].every((name) =>
-      right.shellGitContextState.bodyAssignments.has(name),
-    )
+    setsEqual(
+      left.shellGitContextState.bodyAssignments,
+      right.shellGitContextState.bodyAssignments,
+    ) &&
+    setsEqual(left.createdDirectories, right.createdDirectories)
   );
+}
+
+function setsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return left.size === right.size && [...left].every((value) => right.has(value));
 }
 
 function optionalMapsEqual<T>(
