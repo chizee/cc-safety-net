@@ -89,6 +89,24 @@ describe('gate/guards/semantic-facts', () => {
         paths: ['/etc', '*.txt'],
       },
       {
+        toolName: 'Grep',
+        input: { pattern: 'key', paths: ['/home/agent/.ssh', '/etc'] },
+        route: { kind: 'grep' },
+        paths: ['/home/agent/.ssh', '/etc'],
+      },
+      {
+        toolName: 'download_thread_file',
+        input: { thread: 'T-1', path: 'notes.md', destination: '.git/hooks/pre-commit' },
+        route: { kind: 'unknown' },
+        paths: ['notes.md', '.git/hooks/pre-commit'],
+      },
+      {
+        toolName: 'Edit',
+        input: '*** Begin Patch\n*** Update File: /home/agent/.ssh/id_rsa\n',
+        route: { kind: 'path' },
+        paths: ['/home/agent/.ssh/id_rsa'],
+      },
+      {
         toolName: 'Glob',
         input: { pattern: '**/*.env', path: '/srv' },
         route: { kind: 'glob' },

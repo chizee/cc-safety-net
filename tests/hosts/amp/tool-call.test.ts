@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { realpathSync } from 'node:fs';
+import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { createCwdDenial, createFailedClosedDenial, formatDenial } from '@/core/denial';
 import { createAmpToolCallHandler as portedHandler } from '@/hosts/amp/tool-call';
@@ -157,6 +157,28 @@ const ROWS: readonly Row[] = [
     rejected: true,
     lines: 1,
   },
+  {
+    name: 'a thread download into a Git hook',
+    event: () => ({
+      tool: 'download_thread_file',
+      input: { thread: 'T-1', path: 'notes.md', destination: '.git/hooks/pre-commit' },
+      thread: { id: THREAD },
+    }),
+    contains: 'BLOCKED by CC Safety Net',
+    rejected: true,
+    lines: 1,
+  },
+  {
+    name: 'a thread changes download into the Git directory',
+    event: () => ({
+      tool: 'download_thread_changes',
+      input: { thread: 'T-1', destination: '.git' },
+      thread: { id: THREAD },
+    }),
+    contains: 'BLOCKED by CC Safety Net',
+    rejected: true,
+    lines: 1,
+  },
   { name: 'an event that is null', event: () => null, rejected: true, lines: 0 },
   {
     name: 'an event without a tool name',
@@ -209,6 +231,7 @@ let fixture: HookFixture;
 
 beforeEach(() => {
   fixture = createHookFixture('next-amp-');
+  mkdirSync(join(fixture.project, '.git'), { recursive: true });
 });
 
 afterEach(() => {

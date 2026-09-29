@@ -95,6 +95,16 @@ const OUTCOMES: Readonly<Record<string, HookOutcome>> = {
   'an allowed PowerShell command': { document: 'none', audit: 'allow' },
   'a destructive Monitor command': { document: 'deny', audit: 'deny', ruleId: 'git.reset-hard' },
   'a Monitor watch without a command': { document: 'none', audit: 'none' },
+  'a Grep over a private key directory in paths': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'secret.home.ssh',
+  },
+  'an Edit whose input is a raw patch onto a private key': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'secret.home.ssh',
+  },
   'a destructive monitor command': { document: 'deny', audit: 'deny', ruleId: 'git.reset-hard' },
   'a transcript under the Codex home': { document: 'none', audit: 'allow' },
   'a transcript under the Copilot home': { document: 'none', audit: 'allow' },
@@ -346,6 +356,20 @@ const HOST_SPECS: readonly HostSpec[] = [
             timeout_ms: 1000,
             ws: { url: 'wss://example.test/events' },
           },
+        }),
+      },
+      {
+        name: 'a Grep over a private key directory in paths',
+        stdin: claudePayload(fixture, {
+          tool_name: 'Grep',
+          tool_input: { pattern: 'KEY', paths: [join(fixture.home, '.ssh')] },
+        }),
+      },
+      {
+        name: 'an Edit whose input is a raw patch onto a private key',
+        stdin: claudePayload(fixture, {
+          tool_name: 'Edit',
+          tool_input: `*** Begin Patch\n*** Update File: ${join(fixture.home, '.ssh', 'id_rsa')}\n@@\n-a\n+b\n*** End Patch\n`,
         }),
       },
       {

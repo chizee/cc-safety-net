@@ -116,6 +116,7 @@ export function extractPathLikeToolValues(
   return extractPathLikeToolValuesAt(
     input,
     pathLikeKeys,
+    false,
     { nodes: 0, keys: 0, stringBytes: 0, ancestors: new Set() },
     1,
   );
@@ -124,17 +125,22 @@ export function extractPathLikeToolValues(
 function extractPathLikeToolValuesAt(
   input: unknown,
   pathLikeKeys: ReadonlySet<string>,
+  underPathLikeKey: boolean,
   state: ToolInputTraversalState,
   depth: number,
 ): string[] {
   const snapshot = snapshotToolInputObject(input, state, depth);
+  if (typeof input === 'string') return underPathLikeKey ? [input] : [];
   if (!snapshot) return [];
-  const values = snapshot.entries.flatMap(([key, value]) => {
-    const nested = extractPathLikeToolValuesAt(value, pathLikeKeys, state, depth + 1);
-    return typeof value === 'string' && pathLikeKeys.has(normalizeToolInputKey(key))
-      ? [value]
-      : nested;
-  });
+  const values = snapshot.entries.flatMap(([key, value]) =>
+    extractPathLikeToolValuesAt(
+      value,
+      pathLikeKeys,
+      snapshot.array ? underPathLikeKey : pathLikeKeys.has(normalizeToolInputKey(key)),
+      state,
+      depth + 1,
+    ),
+  );
   state.ancestors.delete(snapshot.object);
   return values;
 }
