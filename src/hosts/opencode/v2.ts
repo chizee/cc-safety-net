@@ -34,6 +34,7 @@ export function createOpenCodeV2Plugin() {
             try: () =>
               evaluateOpenCodeTool({
                 configCwd: ctx.location.directory,
+                expandHomeWorkdir: true,
                 tool: event.tool,
                 sessionID: event.sessionID,
                 toolInput: event.input,

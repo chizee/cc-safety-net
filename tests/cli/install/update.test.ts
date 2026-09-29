@@ -47,7 +47,10 @@ test('updates a v2 OpenCode package object through the native package manager', 
       '.config/opencode/opencode.jsonc':
         '{"plugins":[{"package":"cc-safety-net@latest","options":{}}]}',
     },
-    script: openCodeV2Script(),
+    script: openCodeV2Script(
+      undefined,
+      'Plugin "cc-safety-net@latest" is already configured in <home>/.config/opencode/opencode.jsonc\n',
+    ),
     options: () => versions(),
   });
   expect(result.exitCode).toBe(0);
@@ -276,4 +279,28 @@ test('a Copilot plugin checkout on disk is enough to update Copilot', async () =
     ].sort(),
   });
   expect(result.lines[0]).toBe('Updated GitHub Copilot CLI integration');
+});
+
+test('a Claude Code install under CLAUDE_CONFIG_DIR is found and updated', async () => {
+  const result = await flow({
+    invoke: 'update',
+    env: { CLAUDE_CONFIG_DIR: '<home>/relocated' },
+    seed: {
+      'relocated/plugins/installed_plugins.json':
+        '{"plugins":{"cc-safety-net@cc-marketplace":[{}]}}\n',
+      'relocated/settings.json': '{"enabledPlugins":{"cc-safety-net@cc-marketplace":true}}\n',
+    },
+    script: [{ command: 'claude' }],
+    options: () => versions(),
+  });
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    log: [
+      'claude --version\t<root>',
+      'claude plugin marketplace update cc-marketplace\t<root>',
+      'claude plugin update cc-safety-net@cc-marketplace\t<root>',
+    ].sort(),
+  });
+  expect(result.lines[0]).toBe('Updated Claude Code integration');
 });

@@ -39,6 +39,8 @@ export interface SystemInfo {
 
   ampPluginListOutput: string | null;
 
+  openCodePluginListOutput: string | null;
+
   nodeVersion: string | null;
 
   npmVersion: string | null;

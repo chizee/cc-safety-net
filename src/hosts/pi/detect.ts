@@ -2,13 +2,18 @@ import { join } from 'node:path';
 import type { Environment } from '@/core/environment';
 import {
   type DetectContext,
+  expandTilde,
   type HookDetection,
   readRecord,
   readStateFile,
 } from '@/hosts/detect/context';
 
 export function getPiSettingsPath(environment: Environment): string {
-  return join(environment.home, '.pi', 'agent', 'settings.json');
+  const agentDir = environment.env.get('PI_CODING_AGENT_DIR');
+  return join(
+    agentDir ? expandTilde(agentDir, environment.home) : join(environment.home, '.pi', 'agent'),
+    'settings.json',
+  );
 }
 
 export function isPiSafetyNetPackageSource(source: unknown): source is string {

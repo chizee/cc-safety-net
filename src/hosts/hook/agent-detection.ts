@@ -51,6 +51,7 @@ export function detectClaudeShapeAgent(
     return 'unknown';
   }
 
+  if (environment.env.get('COPILOT_CLI') === '1') return 'copilot-cli';
   if (
     environment.env.get('CLAUDECODE') === '1' ||
     Boolean(environment.env.get('CLAUDE_CODE_ENTRYPOINT'))

@@ -34,15 +34,20 @@ describe('where OpenCode keeps its config and cache', () => {
   });
 
   test.each([
-    ['the XDG default', undefined, '<home>/.config/opencode'],
-    ['an XDG_CONFIG_HOME the user moved', '<home>/xdg', '<home>/xdg/opencode'],
-  ])('derives the config directory from %s', async (_case, xdg, expected) => {
+    ['the XDG default', {}, '<home>/.config/opencode'],
+    ['an XDG_CONFIG_HOME the user moved', { XDG_CONFIG_HOME: '<home>/xdg' }, '<home>/xdg/opencode'],
+    [
+      'the XDG default when OPENCODE_CONFIG_DIR is empty',
+      { OPENCODE_CONFIG_DIR: '' },
+      '<home>/.config/opencode',
+    ],
+  ])('derives the config directory from %s', async (_case, env, expected) => {
     expect(
       (
         await differential(
           {
             seed: {},
-            env: xdg === undefined ? {} : { XDG_CONFIG_HOME: xdg },
+            env,
           },
           (environment) => getOpenCodeConfigDir(environment),
         )
@@ -220,5 +225,48 @@ describe('taking the plugin back out of the config', () => {
     expect(fileAt(result.tree, CONFIG_C)).toBe(
       '{\n// keep\n"plugins": [\n{"package":"other","options":{"note":"cc-safety-net"}},\n/* before */  /* after */\n"other-cc-safety-net"\n]}',
     );
+  });
+
+  const NATIVE_CONFIG = 'native-config/opencode.json';
+  const uninstallWithNativeConfigDir = async (seed: TreeSpec) =>
+    await differential(
+      { seed, env: { OPENCODE_CONFIG_DIR: '<home>/native-config' } },
+      (environment) => uninstallOpenCode(environment),
+    );
+
+  test('removes a v1 entry from the XDG config while OPENCODE_CONFIG_DIR names another directory', async () => {
+    const result = await uninstallWithNativeConfigDir({ [CONFIG]: '{"plugin":["cc-safety-net"]}' });
+
+    expect(result.outcome).toEqual({
+      kind: 'returned',
+      value: { path: `<home>/${CONFIG}`, alreadyInstalled: true },
+    });
+    expect(fileAt(result.tree, CONFIG)).toBe('{"plugin":[]}');
+  });
+
+  test('removes the entry from both directories v1 loads', async () => {
+    const result = await uninstallWithNativeConfigDir({
+      [NATIVE_CONFIG]: '{"plugin":["cc-safety-net"]}',
+      [CONFIG]: '{"plugin":["cc-safety-net"]}',
+    });
+
+    expect(result.outcome).toEqual({
+      kind: 'returned',
+      value: { path: `<home>/${NATIVE_CONFIG}`, alreadyInstalled: true },
+    });
+    expect(fileAt(result.tree, NATIVE_CONFIG)).toBe('{"plugin":[]}');
+    expect(fileAt(result.tree, CONFIG)).toBe('{"plugin":[]}');
+  });
+
+  test('removes a v2 entry from the directory OPENCODE_CONFIG_DIR names', async () => {
+    const result = await uninstallWithNativeConfigDir({
+      [NATIVE_CONFIG]: '{"plugins":["cc-safety-net@latest"]}',
+    });
+
+    expect(result.outcome).toEqual({
+      kind: 'returned',
+      value: { path: `<home>/${NATIVE_CONFIG}`, alreadyInstalled: true },
+    });
+    expect(fileAt(result.tree, NATIVE_CONFIG)).toBe('{"plugins":[]}');
   });
 });

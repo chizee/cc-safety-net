@@ -160,30 +160,47 @@ function parseVersion(output: string | null): string | null {
 }
 
 export async function getSystemInfo(
+  hasOpenCodeEntry: (openCodeVersion: string) => boolean,
   fetcher: VersionFetcher = defaultVersionFetcher,
+  cwd = process.cwd(),
 ): Promise<SystemInfo> {
-  const [versionEntries, codexPluginListOutput, ampPluginListOutput, nodeRaw, npmRaw, bunRaw] =
-    await Promise.all([
-      Promise.all(
-        installIntegrationMetadata.map(
-          async (integration) =>
-            [integration.id, parseVersion(await fetcher([...integration.probeCommand]))] as const,
-        ),
-      ),
-
-      fetcher(['codex', 'plugin', 'list'], 30_000),
-
-      fetcher(['amp', 'plugins', 'list'], 30_000),
-      fetcher(['node', '--version']),
-      fetcher(['npm', '--version']),
-      fetcher(['bun', '--version']),
-    ]);
+  const versionProbes = Promise.all(
+    installIntegrationMetadata.map(
+      async (integration) =>
+        [integration.id, parseVersion(await fetcher([...integration.probeCommand]))] as const,
+    ),
+  );
+  const [
+    versionEntries,
+    openCodePluginListOutput,
+    codexPluginListOutput,
+    ampPluginListOutput,
+    nodeRaw,
+    npmRaw,
+    bunRaw,
+  ] = await Promise.all([
+    versionProbes,
+    versionProbes.then(async (entries) => {
+      const openCodeVersion = entries.find(([id]) => id === 'opencode')?.[1];
+      if (!openCodeVersion?.startsWith('2.') || !hasOpenCodeEntry(openCodeVersion)) return null;
+      const location = ['--param', `location[directory]=${cwd}`];
+      const awaitPluginActivation = ['opencode', 'api', 'integration.list', ...location];
+      await fetcher(awaitPluginActivation, 30_000);
+      return fetcher(['opencode', 'api', 'plugin.list', ...location], 30_000);
+    }),
+    fetcher(['codex', 'plugin', 'list'], 30_000),
+    fetcher(['amp', 'plugins', 'list'], 30_000),
+    fetcher(['node', '--version']),
+    fetcher(['npm', '--version']),
+    fetcher(['bun', '--version']),
+  ]);
 
   return {
     version: CURRENT_VERSION,
     versions: Object.fromEntries(versionEntries),
     codexPluginListOutput,
     ampPluginListOutput,
+    openCodePluginListOutput,
     nodeVersion: parseVersion(nodeRaw),
     npmVersion: parseVersion(npmRaw),
     bunVersion: parseVersion(bunRaw),

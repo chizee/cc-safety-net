@@ -38,11 +38,6 @@
   "src/hosts/hook/pre-tool-use.ts": [
     "// Only a host that prompts on `ask` may use it; Codex rejects it and runs the tool."
   ],
-  "src/hosts/openclaw/install.ts": [
-    "// OpenClaw >= 2026.8.1 refuses a non-interactive path install until its declared",
-    "// capabilities are accepted. Install also enables the plugin; a separate `enable`",
-    "// can race the Gateway's follow-up reload and fail with \"config reload superseded\"."
-  ],
   "src/hosts/opencode/v2.ts": ["// The tool event does not expose the resolved executable."],
   "tests/core/io/safe-read.test.ts": [
     "// macOS resolves a file's canonical path from the vnode's last-looked-up name, so while",

@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { AMP_MANAGED_HEADER } from '@/hosts/amp/artifact';
+import { buildOpenClawArtifactHeader } from '@/hosts/openclaw/artifact';
 import type { InstallTarget } from '@/hosts/install/targets';
 import { type FlowSpec, openCodeV2Script, runSide } from '../../helpers/command-flow';
 import { type TreeSpec, writeTree } from '../../helpers/fixture-tree';
@@ -509,6 +510,31 @@ test('Pi drops the extensions filter its settings carried', async () => {
   );
 });
 
+test('Pi drops the extensions filter from the settings under PI_CODING_AGENT_DIR', async () => {
+  const result = await flow({
+    invoke: 'install',
+    args: ['--pi'],
+    script: [{ command: 'pi' }],
+    env: { PI_CODING_AGENT_DIR: '<home>/pi-agent' },
+    seed: {
+      'pi-agent/settings.json':
+        '{"packages":[{"source":"npm:cc-safety-net","extensions":["-cc-safety-net"]}]}',
+    },
+  });
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    lines: [
+      'Installed Pi integration',
+      'Enabled npm:cc-safety-net extensions in <home>/pi-agent/settings.json',
+      '',
+    ],
+  });
+  expect(fileAt(result.tree, 'pi-agent/settings.json')).toBe(
+    `${JSON.stringify({ packages: [{ source: 'npm:cc-safety-net' }] }, null, 2)}\n`,
+  );
+});
+
 function fixtureDir(spec: TreeSpec): string {
   const dir = join(createTempRoot('cc-safety-net-fixture-'), 'fixture');
   mkdirSync(dir, { recursive: true });
@@ -559,11 +585,16 @@ test('OpenCode installs only when the cached plugin actually exports a factory',
   });
 });
 
+const OPENCODE_V2_ACTIVATION_LOG = [
+  'opencode api integration.list --param location[directory]=<root>\t<root>',
+  'opencode api plugin.list --param location[directory]=<root>\t<root>',
+];
+
 test.each([
-  ['cc-safety-net  2.4.2  cc-safety-net@latest', 0],
-  ['-  2.4.2  cc-safety-net@latest', 1],
-  ['cc-safety-net  2.4.2  other-package@latest', 1],
-])('OpenCode v2 verifies the loaded plugin row %s', async (row, exitCode) => {
+  ['cc-safety-net  2.4.2  cc-safety-net@latest', 0, OPENCODE_V2_ACTIVATION_LOG],
+  ['-  2.4.2  cc-safety-net@latest', 1, []],
+  ['cc-safety-net  2.4.2  other-package@latest', 1, []],
+])('OpenCode v2 verifies the loaded plugin row %s', async (row, exitCode, activationLog) => {
   const result = await flow({
     invoke: 'install',
     args: ['--opencode'],
@@ -572,9 +603,170 @@ test.each([
   expect(result.exitCode).toBe(exitCode);
   expect(result.log).toEqual([
     'opencode --version\t<root>',
+    ...activationLog,
     'opencode plugin add cc-safety-net@latest\t<root>',
     'opencode plugin list\t<root>',
-    'opencode plugin update cc-safety-net@latest\t<root>',
+  ]);
+});
+
+test('OpenCode v2 first install does not run plugin update and succeeds', async () => {
+  const result = await flow({
+    invoke: 'install',
+    args: ['--opencode'],
+    script: [
+      { command: 'opencode', args: ['--version'], stdout: '2.0.19\n' },
+      {
+        command: 'opencode',
+        args: ['plugin', 'add', 'cc-safety-net@latest'],
+        stdout:
+          'Plugin "cc-safety-net@latest" installed and added to <home>/.config/opencode/opencode.json\n',
+      },
+      {
+        command: 'opencode',
+        args: ['plugin', 'update', 'cc-safety-net@latest'],
+        stderr: 'Plugin is not configured: cc-safety-net@latest\n',
+        exit: 1,
+      },
+      {
+        command: 'opencode',
+        args: ['plugin', 'list'],
+        stdout: 'ID             VERSION  SOURCE\ncc-safety-net  2.4.2    cc-safety-net@latest\n',
+      },
+      ...openCodeV2Script(),
+    ],
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.errors).toEqual([]);
+  expect(result.lines).toContain('Installed OpenCode integration');
+  expect(result.log).toEqual([
+    'opencode --version\t<root>',
+    ...OPENCODE_V2_ACTIVATION_LOG,
+    'opencode plugin add cc-safety-net@latest\t<root>',
+    'opencode plugin list\t<root>',
+  ]);
+});
+
+test('OpenCode v2 reinstall verifies the plugin row listed after the update', async () => {
+  const listingAfterUpdate = [
+    {
+      command: 'opencode',
+      args: ['plugin', 'list'],
+      stdout: 'ID  VERSION  SOURCE\n-  2.4.3  cc-safety-net@latest\n',
+    },
+  ];
+  const result = await flow({
+    invoke: 'install',
+    args: ['--opencode'],
+    seedTmp: { 'after-update/fake-script.json': JSON.stringify(listingAfterUpdate) },
+    script: [
+      { command: 'opencode', args: ['--version'], stdout: '2.0.19\n' },
+      {
+        command: 'opencode',
+        args: ['plugin', 'add', 'cc-safety-net@latest'],
+        stdout:
+          'Plugin "cc-safety-net@latest" is already configured in <home>/.config/opencode/opencode.json\n',
+      },
+      {
+        command: 'opencode',
+        args: ['plugin', 'update', 'cc-safety-net@latest'],
+        seedDir: '<root>/tmp/after-update',
+        seedInto: '<root>',
+      },
+      {
+        command: 'opencode',
+        args: ['plugin', 'list'],
+        stdout: 'ID  VERSION  SOURCE\ncc-safety-net  2.4.1  cc-safety-net@latest\n',
+      },
+    ],
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.errors).toEqual([
+    'OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.',
+  ]);
+});
+
+test('OpenCode v2 install waits for the plugin row to appear', async () => {
+  const result = await flow({
+    invoke: 'install',
+    args: ['--opencode'],
+    script: [
+      { command: 'opencode', args: ['plugin', 'list'], call: 1, stdout: 'No plugins found\n' },
+      ...openCodeV2Script(),
+    ],
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.errors).toEqual([]);
+  expect(result.log).toEqual([
+    'opencode --version\t<root>',
+    ...OPENCODE_V2_ACTIVATION_LOG,
+    'opencode plugin add cc-safety-net@latest\t<root>',
+    'opencode plugin list\t<root>',
+    'opencode plugin list\t<root>',
+  ]);
+});
+
+test('OpenCode v2 install fails with the host error when the listed plugin failed setup', async () => {
+  const failedInventory = {
+    location: { directory: '/x' },
+    data: [
+      {
+        id: 'cc-safety-net',
+        source: { type: 'package', target: 'cc-safety-net@latest', version: '2.4.2' },
+        features: { server: true },
+        state: { status: 'failed', error: 'Error: boom\n    at setup' },
+      },
+    ],
+  };
+  const result = await flow({
+    invoke: 'install',
+    args: ['--opencode'],
+    script: [
+      {
+        command: 'opencode',
+        args: ['api', 'plugin.list'],
+        stdout: JSON.stringify(failedInventory),
+      },
+      ...openCodeV2Script(),
+    ],
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.errors).toEqual(['OpenCode reports cc-safety-net failed: Error: boom']);
+  expect(result.log).toContain(
+    'opencode api integration.list --param location[directory]=<root>\t<root>',
+  );
+  expect(result.log).toContain(
+    'opencode api plugin.list --param location[directory]=<root>\t<root>',
+  );
+});
+
+test.each([
+  ['an empty inventory', JSON.stringify({ location: { directory: '/x' }, data: [] })],
+  ['an unreadable inventory', 'not json'],
+  [
+    'an inventory with only another plugin active',
+    JSON.stringify({
+      location: { directory: '/x' },
+      data: [
+        {
+          id: 'other',
+          source: { type: 'package', target: 'other@latest' },
+          state: { status: 'active' },
+        },
+      ],
+    }),
+  ],
+])('OpenCode v2 install fails when %s shows no active cc-safety-net', async (_case, inventory) => {
+  const result = await flow({
+    invoke: 'install',
+    args: ['--opencode'],
+    script: [
+      { command: 'opencode', args: ['api', 'plugin.list'], stdout: inventory },
+      ...openCodeV2Script(),
+    ],
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.errors).toEqual([
+    'OpenCode lists no active cc-safety-net for this directory. Run `opencode api plugin.list` for details.',
   ]);
 });
 
@@ -642,6 +834,8 @@ const openclawScript = (status: string) => [
   },
   { command: 'openclaw' },
 ];
+const LOADED = `${JSON.stringify({ plugin: { status: 'loaded' } })}\n`;
+const DISABLED = `${JSON.stringify({ plugin: { status: 'disabled' } })}\n`;
 const openclawCalls = [
   'openclaw plugins install <repo>/dist/openclaw/cc-safety-net --force --accept-capabilities\t<root>',
   'openclaw plugins inspect cc-safety-net --runtime --json\t<root>',
@@ -673,6 +867,59 @@ test('an OpenClaw plugin that did not load fails the install', async () => {
     lines: [''],
     errors: [
       'OpenClaw reports the cc-safety-net plugin with status "error". Run `openclaw plugins inspect cc-safety-net --runtime` for details.',
+    ],
+    log: openclawCalls,
+  });
+});
+
+test('OpenClaw reinstall after uninstall re-enables the plugin that uninstall left disabled', async () => {
+  const result = await flow({
+    invoke: ['install', 'uninstall', 'install'],
+    args: ['--openclaw'],
+    script: [
+      { command: 'openclaw', args: ['plugins', 'inspect'], call: 1, stdout: LOADED },
+      { command: 'openclaw', args: ['plugins', 'inspect'], call: 2, stdout: DISABLED },
+      { command: 'openclaw', args: ['plugins', 'inspect'], call: 3, stdout: LOADED },
+      { command: 'openclaw' },
+    ],
+  });
+
+  expect(result).toMatchObject({
+    exitCode: [0, 0, 0],
+    lines: [
+      'Installed OpenClaw integration',
+      ...OPENCLAW_NOTE,
+      'Uninstalled OpenClaw integration',
+      'Installed OpenClaw integration',
+      ...OPENCLAW_NOTE,
+      '',
+    ],
+    log: [
+      ...openclawCalls,
+      ...openclawCalls,
+      'openclaw plugins uninstall cc-safety-net --force\t<root>',
+      'openclaw plugins enable cc-safety-net\t<root>',
+      'openclaw plugins inspect cc-safety-net --runtime --json\t<root>',
+    ].sort(),
+  });
+});
+
+test('an installed OpenClaw plugin the user disabled stays disabled', async () => {
+  const result = await flow({
+    invoke: 'install',
+    args: ['--openclaw'],
+    script: openclawScript('disabled'),
+    seed: {
+      '.openclaw/extensions/cc-safety-net/index.js': `${buildOpenClawArtifactHeader('dev')}export default {};\n`,
+      '.openclaw/extensions/cc-safety-net/openclaw.plugin.json': '{"id":"cc-safety-net"}\n',
+      '.openclaw/extensions/cc-safety-net/package.json': '{"name":"cc-safety-net"}\n',
+    },
+  });
+
+  expect(result).toMatchObject({
+    exitCode: 1,
+    errors: [
+      'OpenClaw reports the cc-safety-net plugin with status "disabled"; run `openclaw plugins enable cc-safety-net`. Run `openclaw plugins inspect cc-safety-net --runtime` for details.',
     ],
     log: openclawCalls,
   });

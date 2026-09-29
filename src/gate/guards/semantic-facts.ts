@@ -18,6 +18,7 @@ import { type GuardSyntax, readGuardSyntax } from './guard-walk';
 
 const PATH_LIKE_KEYS = new Set([
   'absolutepath',
+  'destination',
   'directorypath',
   'directory_path',
   'file',
@@ -26,6 +27,7 @@ const PATH_LIKE_KEYS = new Set([
   'include',
   'notebook_path',
   'path',
+  'paths',
   'searchdirectory',
   'search_directory',
   'searchpath',
@@ -159,7 +161,7 @@ function extractDirectPathFacts(invocation: ToolInvocation): string[] {
         : PATH_LIKE_KEYS;
   return [
     ...extractPathLikeToolValues(invocation.input, keys),
-    ...(invocation.route.kind === 'patch'
+    ...(invocation.route.kind === 'patch' || typeof invocation.input === 'string'
       ? extractPatchTargetsFromToolInput(invocation.input)
       : []),
   ];

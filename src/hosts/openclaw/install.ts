@@ -2,7 +2,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Environment } from '@/core/environment';
-import { lstatOrUndefined, readRecord } from '@/hosts/detect/context';
+import { expandTilde, lstatOrUndefined, readRecord } from '@/hosts/detect/context';
 import { type NativeCommand, runNativeCommand } from '@/hosts/install/native';
 import {
   OPENCLAW_MANAGED_HEADER,
@@ -14,32 +14,35 @@ import {
 
 const OPENCLAW_ARTIFACT_RELATIVE = join('openclaw', OPENCLAW_PLUGIN_ID);
 
+export const OPENCLAW_ENABLE_HINT = `run \`openclaw plugins enable ${OPENCLAW_PLUGIN_ID}\``;
+const OPENCLAW_RELOAD_SUPERSEDED = 'config reload superseded by a newer runtime config source';
+
 const INSTALLED_PLUGIN_FILES = [
   OPENCLAW_PLUGIN_ENTRY_FILE,
   OPENCLAW_PLUGIN_MANIFEST_FILE,
   OPENCLAW_PLUGIN_PACKAGE_FILE,
 ];
 
-function expandTilde(value: string, homeDir: string): string {
-  if (value === '~') return homeDir;
-  if (value.startsWith('~/') || value.startsWith('~\\')) return join(homeDir, value.slice(2));
-  return value;
+function getOpenClawHome(environment: Environment): string {
+  const openClawHome = environment.env.get('OPENCLAW_HOME')?.trim();
+  return openClawHome ? expandTilde(openClawHome, environment.home) : environment.home;
 }
 
 function getOpenClawStateDir(environment: Environment): string {
+  const openClawHome = getOpenClawHome(environment);
   const stateDir = environment.env.get('OPENCLAW_STATE_DIR')?.trim();
-  if (stateDir) return expandTilde(stateDir, environment.home);
+  if (stateDir) return expandTilde(stateDir, openClawHome);
 
   const configPath = environment.env.get('OPENCLAW_CONFIG_PATH')?.trim();
   return configPath
-    ? dirname(expandTilde(configPath, environment.home))
-    : join(environment.home, '.openclaw');
+    ? dirname(expandTilde(configPath, openClawHome))
+    : join(openClawHome, '.openclaw');
 }
 
 export function getOpenClawConfigPath(environment: Environment): string {
   const configPath = environment.env.get('OPENCLAW_CONFIG_PATH')?.trim();
   return configPath
-    ? expandTilde(configPath, environment.home)
+    ? expandTilde(configPath, getOpenClawHome(environment))
     : join(getOpenClawStateDir(environment), 'openclaw.json');
 }
 
@@ -104,9 +107,6 @@ export function resolveOpenClawArtifactDir(
 export function getOpenClawInstallCommands(
   artifactDir: string = resolveOpenClawArtifactDir(),
 ): readonly NativeCommand[] {
-  // OpenClaw >= 2026.8.1 refuses a non-interactive path install until its declared
-  // capabilities are accepted. Install also enables the plugin; a separate `enable`
-  // can race the Gateway's follow-up reload and fail with "config reload superseded".
   return [['openclaw', 'plugins', 'install', artifactDir, '--force', '--accept-capabilities']];
 }
 
@@ -122,21 +122,38 @@ function readOpenClawPluginStatus(inspectOutput: string): string | undefined {
   return typeof status === 'string' ? status : undefined;
 }
 
-export async function verifyOpenClawPluginRuntime(): Promise<void> {
-  const status = readOpenClawPluginStatus(
-    await runNativeCommand(
-      ['openclaw', 'plugins', 'inspect', OPENCLAW_PLUGIN_ID, '--runtime', '--json'],
-      {
-        stdoutOnly: true,
-      },
-    ),
+async function enableOpenClawPlugin(): Promise<void> {
+  await runNativeCommand(['openclaw', 'plugins', 'enable', OPENCLAW_PLUGIN_ID]).catch(
+    (error: unknown) => {
+      const savedBeforeReloadSuperseded =
+        error instanceof Error && error.message.includes(OPENCLAW_RELOAD_SUPERSEDED);
+      if (!savedBeforeReloadSuperseded) throw error;
+    },
   );
+}
+
+export async function verifyOpenClawPluginRuntime(enableIfDisabled: boolean): Promise<void> {
+  const inspectStatus = async () =>
+    readOpenClawPluginStatus(
+      await runNativeCommand(
+        ['openclaw', 'plugins', 'inspect', OPENCLAW_PLUGIN_ID, '--runtime', '--json'],
+        {
+          stdoutOnly: true,
+        },
+      ),
+    );
+  const firstStatus = await inspectStatus();
+  const enable = firstStatus === 'disabled' && enableIfDisabled;
+  if (enable) await enableOpenClawPlugin();
+  const status = enable ? await inspectStatus() : firstStatus;
   if (status === 'loaded') return;
   throw new Error(
     `${
       status === undefined
         ? `The ${OPENCLAW_PLUGIN_ID} plugin's load state could not be verified: OpenClaw's runtime inspect report was unreadable.`
-        : `OpenClaw reports the ${OPENCLAW_PLUGIN_ID} plugin with status "${status}".`
+        : status === 'disabled'
+          ? `OpenClaw reports the ${OPENCLAW_PLUGIN_ID} plugin with status "disabled"; ${OPENCLAW_ENABLE_HINT}.`
+          : `OpenClaw reports the ${OPENCLAW_PLUGIN_ID} plugin with status "${status}".`
     } Run \`openclaw plugins inspect ${OPENCLAW_PLUGIN_ID} --runtime\` for details.`,
   );
 }

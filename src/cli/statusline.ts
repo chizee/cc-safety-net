@@ -5,6 +5,7 @@ import { resolveEffectiveDestructiveCommandRules } from '@/core/policy/effective
 import { ENV_FLAGS, envTruthy, getCCSafetyNetEnvModes } from '@/core/policy/env';
 import { loadPolicySnapshot } from '@/core/policy/snapshot';
 import { readBoundedHookInput } from '@/gate/intake';
+import { getClaudeConfigDir } from '@/hosts/claude-code/detect';
 
 type StatuslineInput = Parameters<typeof readBoundedHookInput>[0] & { isTTY?: boolean };
 
@@ -22,7 +23,7 @@ function getSettingsPath(environment: Environment): string {
   if (override) {
     return override;
   }
-  return join(environment.home, '.claude', 'settings.json');
+  return join(getClaudeConfigDir(environment), 'settings.json');
 }
 
 interface ClaudeSettings {

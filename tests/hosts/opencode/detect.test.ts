@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import type { HookDetection } from '@/hosts/detect/context';
 import { detect as detectOpenCode } from '@/hosts/opencode/detect';
 import type { TreeSpec } from '../../helpers/fixture-tree';
@@ -97,4 +97,118 @@ test('follows XDG_CONFIG_HOME to the config OpenCode would read', async () => {
       },
     ),
   ).toEqual(configured('xdg/opencode/opencode.json'));
+});
+
+describe('with OPENCODE_CONFIG_DIR naming another directory', () => {
+  const NATIVE_CONFIG = 'native-config/opencode.json';
+  const nativeConfigDir = { OPENCODE_CONFIG_DIR: '<home>/native-config' };
+  const v2Entry = '{"plugins":["cc-safety-net@latest"]}';
+
+  test('finds a v1 plugin in the XDG config', async () => {
+    expect(await detection({ [JSON_FILE]: plugins('cc-safety-net') }, nativeConfigDir)).toEqual(
+      configured(JSON_FILE),
+    );
+  });
+
+  test('finds a v2 plugin in the override directory', async () => {
+    expect(await detection({ [NATIVE_CONFIG]: v2Entry }, nativeConfigDir)).toEqual(
+      configured(NATIVE_CONFIG),
+    );
+  });
+
+  test('ignores the XDG config on v2, which reads only the override directory', async () => {
+    const detectionOnV2 = detectionRunner((environment) =>
+      detectOpenCode({ environment, cwd: environment.home, openCodeVersion: '2.0.19' }),
+    );
+    expect(await detectionOnV2({ [JSON_FILE]: v2Entry }, nativeConfigDir)).toEqual({
+      kind: 'returned' as const,
+      value: { platform: 'opencode', status: 'n/a', errors: undefined } satisfies HookDetection,
+    });
+  });
+
+  test('reads the override directory before the XDG config', async () => {
+    expect(
+      await detection(
+        { [NATIVE_CONFIG]: v2Entry, [JSON_FILE]: plugins('cc-safety-net') },
+        nativeConfigDir,
+      ),
+    ).toEqual(configured(NATIVE_CONFIG));
+  });
+});
+
+describe('on OpenCode v2 with the plugin inventory', () => {
+  const v2Entry = { [JSON_FILE]: '{"plugins":["cc-safety-net@latest"]}' };
+  const inventory = (...rows: readonly unknown[]) =>
+    JSON.stringify({ location: { directory: '/x' }, data: rows });
+  const detectionWith = (openCodePluginListOutput: string | null) =>
+    detectionRunner((environment) =>
+      detectOpenCode({
+        environment,
+        cwd: environment.home,
+        openCodeVersion: '2.0.19',
+        openCodePluginListOutput,
+      }),
+    );
+  const failedRow = (row: Record<string, unknown>) => ({
+    source: { type: 'package', target: 'cc-safety-net@latest' },
+    features: { server: true },
+    ...row,
+  });
+
+  test.each([
+    [
+      'a setup failure',
+      failedRow({
+        id: 'cc-safety-net',
+        source: { type: 'package', target: 'cc-safety-net@latest', version: '1.0.0' },
+        state: {
+          status: 'failed',
+          error: 'Error: invalid shell option\n    at setup (plugin.js:1:1)',
+        },
+      }),
+      'Error: invalid shell option',
+    ],
+    [
+      'a module load failure, which carries no id',
+      failedRow({ state: { status: 'failed', error: 'Cannot find module', ref: 'err_1234abcd' } }),
+      'Cannot find module',
+    ],
+  ])('reports %s as disabled', async (_case, row, error) => {
+    expect(await detectionWith(inventory(row))(v2Entry)).toEqual({
+      kind: 'returned' as const,
+      value: {
+        platform: 'opencode',
+        status: 'disabled',
+        method: 'opencode api plugin.list',
+        configPath: `<home>/${JSON_FILE}`,
+        errors: [`OpenCode reports cc-safety-net failed: ${error}`],
+      } satisfies HookDetection,
+    });
+  });
+
+  test.each([
+    [
+      'an active row',
+      inventory(
+        failedRow({ id: 'cc-safety-net', state: { status: 'active' } }),
+        failedRow({
+          id: 'other',
+          source: { type: 'package', target: 'other@latest' },
+          state: { status: 'failed', error: 'boom' },
+        }),
+      ),
+    ],
+    [
+      'an active row beside a failed reload of it',
+      inventory(
+        failedRow({ id: 'cc-safety-net', state: { status: 'active' } }),
+        failedRow({ state: { status: 'failed', error: 'Plugin failed to load', ref: 'err_1' } }),
+      ),
+    ],
+    ['no inventory', null],
+    ['an unreadable inventory', 'not json'],
+    ['an inventory without the plugin', inventory()],
+  ])('keeps the config answer given %s', async (_case, output) => {
+    expect(await detectionWith(output)(v2Entry)).toEqual(configured(JSON_FILE));
+  });
 });

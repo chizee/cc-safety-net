@@ -29,6 +29,7 @@ type GrokBuildHookOutput = { decision: 'allow' } | { decision: 'deny'; reason: s
 
 const GROK_BUILD_COMMAND_TOOLS = new Map<string, CommandToolKind>([
   ['run_terminal_command', 'auto'],
+  ['monitor', 'auto'],
 ]);
 
 function getGrokBuildToolRoute(toolName: string) {

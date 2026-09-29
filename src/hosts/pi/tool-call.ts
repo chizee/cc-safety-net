@@ -35,7 +35,10 @@ type PiToolCallEvent = {
   input?: Record<string, unknown>;
 };
 
-const PI_COMMAND_TOOL_ADAPTERS = new Map<string, CommandToolKind>([['bash', 'posix']]);
+const PI_COMMAND_TOOL_ADAPTERS = new Map<string, CommandToolKind>([
+  ['bash', 'posix'],
+  ['powershell', 'powershell'],
+]);
 
 const PI_HOST: PluginToolCallHost<unknown, PiToolCallContext, PiToolCallResult> = {
   agent: 'pi',

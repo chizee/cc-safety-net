@@ -16,6 +16,8 @@ import type { InstallResult } from '@/hosts/install/types';
 const OPENCODE_PACKAGE = 'cc-safety-net';
 const OPENCODE_CACHE_PACKAGE = `${OPENCODE_PACKAGE}@latest`;
 const OPENCODE_CONFIG_FILES = ['opencode.json', 'opencode.jsonc'] as const;
+const OPENCODE_PLUGIN_LIST_ATTEMPTS = 60;
+const OPENCODE_PLUGIN_LIST_INTERVAL_MS = 250;
 
 const OPENCODE_PLUGIN_EXPORT = 'CCSafetyNetPlugin';
 const OPENCODE_JSON_ERRORS = {
@@ -23,19 +25,26 @@ const OPENCODE_JSON_ERRORS = {
   bracketError: 'Unmatched plugin array in OpenCode config',
 };
 
-export function getOpenCodeConfigDir(environment: Environment) {
-  return (
-    environment.env.get('OPENCODE_CONFIG_DIR') ??
-    join(environment.env.get('XDG_CONFIG_HOME') || join(environment.home, '.config'), 'opencode')
+function getOpenCodeXdgConfigDir(environment: Environment) {
+  return join(
+    environment.env.get('XDG_CONFIG_HOME') || join(environment.home, '.config'),
+    'opencode',
   );
 }
 
-function getDefaultOpenCodeConfigPath(environment: Environment) {
-  return join(getOpenCodeConfigDir(environment), OPENCODE_CONFIG_FILES[0]);
+/** @internal */
+export function getOpenCodeConfigDir(environment: Environment) {
+  return environment.env.get('OPENCODE_CONFIG_DIR') || getOpenCodeXdgConfigDir(environment);
 }
 
-function getOpenCodeConfigPaths(environment: Environment) {
+export function getOpenCodeV2ConfigPaths(environment: Environment) {
   return OPENCODE_CONFIG_FILES.map((filename) => join(getOpenCodeConfigDir(environment), filename));
+}
+
+export function getOpenCodeConfigPaths(environment: Environment) {
+  return [
+    ...new Set([getOpenCodeConfigDir(environment), getOpenCodeXdgConfigDir(environment)]),
+  ].flatMap((directory) => OPENCODE_CONFIG_FILES.map((filename) => join(directory, filename)));
 }
 
 function getOpenCodeCachePath(environment: Environment) {
@@ -69,7 +78,7 @@ export async function getOpenCodeInstallPlan(environment: Environment) {
     );
   }
   if (major === 2) {
-    for (const configPath of getOpenCodeConfigPaths(environment)) {
+    for (const configPath of getOpenCodeV2ConfigPaths(environment)) {
       if (!existsSync(configPath)) continue;
       const config = parseOpenCodeConfig(readFileSync(configPath, 'utf-8'), configPath);
       const conflicting = ['plugin', 'plugins'].some((key) => {
@@ -91,16 +100,33 @@ export async function getOpenCodeInstallPlan(environment: Environment) {
       }
     }
     return {
-      commands: [
-        ['opencode', 'plugin', 'add', OPENCODE_CACHE_PACKAGE],
-        ['opencode', 'plugin', 'update', OPENCODE_CACHE_PACKAGE],
-      ] as const,
+      commands: [],
       afterInstall: async () => {
-        const output = await runNativeCommand(['opencode', 'plugin', 'list'], { stdoutOnly: true });
-        if (/^cc-safety-net\s+\S+\s+cc-safety-net@latest\s*$/m.test(output)) return;
-        throw new Error(
-          'OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.',
+        const added = await runNativeCommand(
+          ['opencode', 'plugin', 'add', OPENCODE_CACHE_PACKAGE],
+          { stdoutOnly: true },
         );
+        if (added.includes('is already configured in')) {
+          await runNativeCommand(['opencode', 'plugin', 'update', OPENCODE_CACHE_PACKAGE]);
+        }
+        const output = await waitForOpenCodePluginRow();
+        if (!/^cc-safety-net\s+\S+\s+cc-safety-net@latest\s*$/m.test(output)) {
+          throw new Error(
+            'OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.',
+          );
+        }
+        const location = ['--param', `location[directory]=${process.cwd()}`];
+        await runNativeCommand(['opencode', 'api', 'integration.list', ...location]);
+        const inventory = await runNativeCommand(['opencode', 'api', 'plugin.list', ...location], {
+          stdoutOnly: true,
+        });
+        const failure = findOpenCodePluginFailure(inventory);
+        if (failure) throw new Error(failure);
+        if (!readOpenCodePluginStates(inventory).some(isActivePluginState)) {
+          throw new Error(
+            'OpenCode lists no active cc-safety-net for this directory. Run `opencode api plugin.list` for details.',
+          );
+        }
       },
     };
   }
@@ -109,6 +135,50 @@ export async function getOpenCodeInstallPlan(environment: Environment) {
     commands: [['opencode', 'plugin', '-g', '-f', OPENCODE_CACHE_PACKAGE]] as const,
     afterInstall: () => verifyOpenCodePluginRuntime(environment),
   };
+}
+
+function readOpenCodePluginStates(pluginListOutput: string | null | undefined) {
+  return readPluginInventory(pluginListOutput)
+    .filter(
+      (row) =>
+        readRecord(row, 'id') === OPENCODE_PACKAGE ||
+        isManagedPlugin(readRecord(readRecord(row, 'source'), 'target')),
+    )
+    .map((row) => readRecord(row, 'state'));
+}
+
+function isActivePluginState(state: unknown) {
+  return readRecord(state, 'status') === 'active';
+}
+
+export function findOpenCodePluginFailure(pluginListOutput: string | null | undefined) {
+  const states = readOpenCodePluginStates(pluginListOutput);
+  if (states.some(isActivePluginState)) return undefined;
+  const failure = states.find((state) => readRecord(state, 'status') === 'failed');
+  if (!failure) return undefined;
+  return `OpenCode reports cc-safety-net failed: ${String(readRecord(failure, 'error')).split('\n')[0]}`;
+}
+
+function readPluginInventory(output: string | null | undefined): unknown[] {
+  if (!output) return [];
+  try {
+    const rows = readRecord(JSON.parse(output), 'data');
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
+async function waitForOpenCodePluginRow(attempt = 1): Promise<string> {
+  const output = await runNativeCommand(['opencode', 'plugin', 'list'], { stdoutOnly: true });
+  if (
+    /^cc-safety-net\s|\scc-safety-net@latest\s*$/m.test(output) ||
+    attempt === OPENCODE_PLUGIN_LIST_ATTEMPTS
+  ) {
+    return output;
+  }
+  await new Promise((resolve) => setTimeout(resolve, OPENCODE_PLUGIN_LIST_INTERVAL_MS));
+  return waitForOpenCodePluginRow(attempt + 1);
 }
 
 /** @internal */
@@ -224,7 +294,10 @@ export function uninstallOpenCode(environment: Environment): InstallResult {
 
   if (errors.length > 0) throw new Error(errors.join('\n'));
   return {
-    path: changedPaths[0] ?? existingConfigPath ?? getDefaultOpenCodeConfigPath(environment),
+    path:
+      changedPaths[0] ??
+      existingConfigPath ??
+      join(getOpenCodeConfigDir(environment), OPENCODE_CONFIG_FILES[0]),
     alreadyInstalled: changedPaths.length > 0,
   };
 }

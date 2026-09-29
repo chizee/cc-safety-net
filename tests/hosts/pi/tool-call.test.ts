@@ -83,6 +83,17 @@ const ROWS: readonly Row[] = [
     lines: 1,
   },
   {
+    name: 'a destructive powershell command',
+    event: () => ({
+      type: 'tool_call',
+      toolName: 'powershell',
+      input: { command: 'git reset --hard' },
+    }),
+    contains: 'Rule: git.reset-hard',
+    blocked: true,
+    lines: 1,
+  },
+  {
     name: 'a read of a file in the project',
     event: () => read('README.md'),
     blocked: false,

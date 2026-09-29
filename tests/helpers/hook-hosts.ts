@@ -93,6 +93,40 @@ const OUTCOMES: Readonly<Record<string, HookOutcome>> = {
     ruleId: 'powershell.remove-item-recursive-force-root-or-home',
   },
   'an allowed PowerShell command': { document: 'none', audit: 'allow' },
+  'a destructive Monitor command': { document: 'deny', audit: 'deny', ruleId: 'git.reset-hard' },
+  'a Monitor watch without a command': { document: 'none', audit: 'none' },
+  'a PowerShell removal Copilot sends as Bash': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'powershell.remove-item-recursive-force-root-or-home',
+  },
+  'a denied command in object tool args': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'git.reset-hard',
+  },
+  'an allowed command in object tool args': { document: 'none', audit: 'allow' },
+  'a raw apply_patch string onto a private key': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'secret.home.ssh',
+  },
+  'a JSON-encoded apply_patch string onto a private key': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'secret.home.ssh',
+  },
+  'a Grep over a private key directory in paths': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'secret.home.ssh',
+  },
+  'an Edit whose input is a raw patch onto a private key': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'secret.home.ssh',
+  },
+  'a destructive monitor command': { document: 'deny', audit: 'deny', ruleId: 'git.reset-hard' },
   'a transcript under the Codex home': { document: 'none', audit: 'allow' },
   'a transcript under the Copilot home': { document: 'none', audit: 'allow' },
   'a transcript under the Claude config directory': { document: 'none', audit: 'allow' },
@@ -102,6 +136,24 @@ const OUTCOMES: Readonly<Record<string, HookOutcome>> = {
   'a tool cwd that does not exist': REQUESTED_UNUSABLE,
   'a blank tool cwd': MALFORMED,
   'a tool cwd that is not a string': MALFORMED,
+  'a recursive delete whose dir_path is the home directory': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'rm.recursive-force-home-cwd',
+  },
+  'a recursive delete whose dir_path is below the home session cwd': {
+    document: 'none',
+    audit: 'allow',
+  },
+  'a dir_path outside the session cwd': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'rm.recursive-force-home-cwd',
+  },
+  'a dir_path that does not exist': REQUESTED_UNUSABLE,
+  'an empty dir_path': { document: 'none', audit: 'allow' },
+  'a whitespace-only dir_path': MALFORMED,
+  'a dir_path that is not a string': MALFORMED,
   'tool args that are not a string': { document: 'deny', audit: 'deny' },
   'tool args that are not JSON': { document: 'deny', audit: 'deny' },
   'a powershell command': {
@@ -259,6 +311,9 @@ const copilotPayload = (fixture: HookFixture, overrides: Record<string, unknown>
     ...overrides,
   });
 
+const privateKeyPatch = (fixture: HookFixture) =>
+  `*** Begin Patch\n*** Update File: ${join(fixture.home, '.ssh', 'id_rsa')}\n@@\n-a\n+b\n*** End Patch\n`;
+
 const cursorPayload = (fixture: HookFixture, overrides: Record<string, unknown>) =>
   JSON.stringify({
     conversation_id: SESSION,
@@ -304,6 +359,15 @@ const kimiPayload = (fixture: HookFixture, cwd: unknown) =>
     cwd: fixture.project,
   });
 
+const geminiPayload = (cwd: string, command: string, dirPath: unknown) =>
+  JSON.stringify({
+    session_id: SESSION,
+    hook_event_name: 'BeforeTool',
+    tool_name: 'run_shell_command',
+    tool_input: { command, dir_path: dirPath },
+    cwd,
+  });
+
 const HOST_SPECS: readonly HostSpec[] = [
   {
     id: 'claude-code',
@@ -325,6 +389,45 @@ const HOST_SPECS: readonly HostSpec[] = [
         stdin: claudePayload(fixture, {
           tool_name: 'PowerShell',
           tool_input: { command: 'Get-ChildItem' },
+        }),
+      },
+      {
+        name: 'a destructive Monitor command',
+        stdin: claudePayload(fixture, {
+          tool_name: 'Monitor',
+          tool_input: { description: 'reset', timeout_ms: 1000, command: 'git reset --hard' },
+        }),
+      },
+      {
+        name: 'a Monitor watch without a command',
+        stdin: claudePayload(fixture, {
+          tool_name: 'Monitor',
+          tool_input: {
+            description: 'events',
+            timeout_ms: 1000,
+            ws: { url: 'wss://example.test/events' },
+          },
+        }),
+      },
+      {
+        name: 'a PowerShell removal Copilot sends as Bash',
+        stdin: claudePayload(fixture, {
+          tool_input: { command: 'Remove-Item -Recurse -Force $HOME' },
+        }),
+        env: { COPILOT_CLI: '1' },
+      },
+      {
+        name: 'a Grep over a private key directory in paths',
+        stdin: claudePayload(fixture, {
+          tool_name: 'Grep',
+          tool_input: { pattern: 'KEY', paths: [join(fixture.home, '.ssh')] },
+        }),
+      },
+      {
+        name: 'an Edit whose input is a raw patch onto a private key',
+        stdin: claudePayload(fixture, {
+          tool_name: 'Edit',
+          tool_input: `*** Begin Patch\n*** Update File: ${join(fixture.home, '.ssh', 'id_rsa')}\n@@\n-a\n+b\n*** End Patch\n`,
         }),
       },
       {
@@ -385,6 +488,33 @@ const HOST_SPECS: readonly HostSpec[] = [
     commandTool: 'run_shell_command',
     unsupportedEvent: 'AfterTool',
     build: claudeShaped('BeforeTool'),
+    extraRows: (fixture) => [
+      {
+        name: 'a recursive delete whose dir_path is the home directory',
+        stdin: geminiPayload(fixture.root, 'rm -rf build', 'home'),
+      },
+      {
+        name: 'a recursive delete whose dir_path is below the home session cwd',
+        stdin: geminiPayload(fixture.home, 'rm -rf build', '.copilot'),
+      },
+      {
+        name: 'a dir_path outside the session cwd',
+        stdin: geminiPayload(fixture.project, 'rm -rf build', '../home'),
+      },
+      {
+        name: 'a dir_path that does not exist',
+        stdin: geminiPayload(fixture.project, 'git status', 'missing-dir'),
+      },
+      { name: 'an empty dir_path', stdin: geminiPayload(fixture.project, 'git status', '') },
+      {
+        name: 'a whitespace-only dir_path',
+        stdin: geminiPayload(fixture.project, 'git status', '  '),
+      },
+      {
+        name: 'a dir_path that is not a string',
+        stdin: geminiPayload(fixture.project, 'git status', 5),
+      },
+    ],
   },
   {
     id: 'copilot-cli',
@@ -401,6 +531,32 @@ const HOST_SPECS: readonly HostSpec[] = [
     extraRows: (fixture) => [
       { name: 'tool args that are not a string', stdin: copilotPayload(fixture, { toolArgs: 5 }) },
       { name: 'tool args that are not JSON', stdin: copilotPayload(fixture, { toolArgs: '{' }) },
+      {
+        name: 'a denied command in object tool args',
+        stdin: copilotPayload(fixture, {
+          toolArgs: { command: 'git reset --hard', description: 'Reset the tree' },
+        }),
+      },
+      {
+        name: 'an allowed command in object tool args',
+        stdin: copilotPayload(fixture, {
+          toolArgs: { command: 'git status --short', description: 'Show working tree status' },
+        }),
+      },
+      {
+        name: 'a raw apply_patch string onto a private key',
+        stdin: copilotPayload(fixture, {
+          toolName: 'apply_patch',
+          toolArgs: privateKeyPatch(fixture),
+        }),
+      },
+      {
+        name: 'a JSON-encoded apply_patch string onto a private key',
+        stdin: copilotPayload(fixture, {
+          toolName: 'apply_patch',
+          toolArgs: JSON.stringify(privateKeyPatch(fixture)),
+        }),
+      },
       {
         name: 'a powershell command',
         stdin: copilotPayload(fixture, {
@@ -527,6 +683,13 @@ const HOST_SPECS: readonly HostSpec[] = [
       toolInput: payload.args,
     }),
     extraRows: (fixture) => [
+      {
+        name: 'a destructive monitor command',
+        stdin: grokPayload(fixture, {
+          toolName: 'monitor',
+          toolInput: { command: 'git reset --hard', description: 'reset' },
+        }),
+      },
       {
         name: 'tool input the host truncated',
         stdin: grokPayload(fixture, { toolInputTruncated: true }),

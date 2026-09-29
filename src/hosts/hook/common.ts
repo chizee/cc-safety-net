@@ -10,12 +10,16 @@ import { createProcessEnvironment, type Environment } from '@/core/environment';
 import { ENV_FLAGS, envTruthy, shouldRecordAllowedCommands } from '@/core/policy/env';
 import { getCommandFromToolInput, ToolInputLimitError } from '@/core/tool-input';
 import {
+  cwdProblem,
+  outputCwdDenial,
   outputFailedClosed,
   parseHookJson,
   readBoundedHookInput,
+  resolveCanonicalCwd,
+  resolveContainedCwd,
   resolveStandardHookContext,
 } from '@/gate/intake';
-import type { ToolCallContext, ToolRoute } from '@/gate/invocation';
+import type { CommandToolKind, ToolCallContext, ToolRoute } from '@/gate/invocation';
 import { createToolInvocation } from '@/gate/invocation';
 import { type GuardDependencies, GuardEvaluationError, type GuardStage } from '@/gate/pipeline';
 import { writeIntegrationDenialAudit } from '@/hosts/audit';
@@ -72,6 +76,35 @@ export const getStandardHookContext: HookAdapter<{ cwd?: string }>['getContext']
     environment.paths,
     process.cwd(),
   );
+
+export const getToolCwdHookContext =
+  (
+    cwdKey: string,
+    commandTools: ReadonlyMap<string, CommandToolKind>,
+    options?: { emptyMeansSessionCwd: boolean; allowOutsideSessionCwd: boolean },
+  ): HookAdapter<{ cwd?: string; tool_input?: Record<string, unknown> }>['getContext'] =>
+  (input, toolInput, toolName, outputDeny, environment) => {
+    const context = getStandardHookContext(input, toolInput, toolName, outputDeny, environment);
+    if (!context) return null;
+    const args = input.tool_input;
+    if (!commandTools.has(toolName) || !args || !Object.hasOwn(args, cwdKey)) return context;
+    const requestedCwd = args[cwdKey];
+    if (options?.emptyMeansSessionCwd && requestedCwd === '') return context;
+    if (typeof requestedCwd !== 'string' || requestedCwd.trim() === '') {
+      outputFailedClosed(outputDeny, toolInput, toolName);
+      return null;
+    }
+    const executionCwd = options?.allowOutsideSessionCwd
+      ? resolveCanonicalCwd(requestedCwd, context.configCwd, environment.paths)
+      : resolveContainedCwd(requestedCwd, [context.configCwd], environment.paths);
+    if (executionCwd) return { configCwd: context.configCwd, executionCwd };
+    outputCwdDenial(outputDeny, toolInput, toolName, {
+      directory: 'requested',
+      problem: cwdProblem(requestedCwd, context.configCwd, environment.paths),
+      cwd: requestedCwd,
+    });
+    return null;
+  };
 
 function outputHookDeny(
   createDenyOutput: (message: string) => object,

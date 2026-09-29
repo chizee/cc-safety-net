@@ -18,6 +18,7 @@ import { installAmp, uninstallAmp } from '@/hosts/amp/install';
 import { installAntigravityCli, uninstallAntigravityCli } from '@/hosts/antigravity-cli/install';
 import { getIntegrationDisplayName } from '@/hosts/catalog';
 import { detectClaudeCode, hasClaudeInstalledPlugin } from '@/hosts/claude-code/detect';
+import { CODEX_TRUST_HINT } from '@/hosts/codex/detect';
 import { _getCopilotConfigHome } from '@/hosts/copilot-cli/detect';
 import {
   COPILOT_LEGACY_PLUGIN_DIR,
@@ -67,10 +68,11 @@ import {
 import type { InstallResult } from '@/hosts/install/types';
 import { detect as detectKimiCodeHook } from '@/hosts/kimi-code/detect';
 import { installKimiCode, uninstallKimiCode } from '@/hosts/kimi-code/install';
-import { OPENCLAW_PLUGIN_ID } from '@/hosts/openclaw/artifact';
+import { OPENCLAW_PLUGIN_ENTRY_FILE, OPENCLAW_PLUGIN_ID } from '@/hosts/openclaw/artifact';
 import {
   assertOpenClawPluginDirIsOurs,
   getOpenClawInstallCommands,
+  getOpenClawPluginDir,
   verifyOpenClawPluginRuntime,
 } from '@/hosts/openclaw/install';
 import { getOpenCodeInstallPlan, uninstallOpenCode } from '@/hosts/opencode/install';
@@ -220,8 +222,7 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
       ['codex', 'plugin', 'remove', 'cc-safety-net@cc-marketplace'],
       ['codex', 'plugin', 'marketplace', 'remove', 'cc-marketplace'],
     ],
-    postInstallMessage:
-      'Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it.',
+    postInstallMessage: CODEX_TRUST_HINT,
   },
   'copilot-cli': {
     installCommands: async () => {
@@ -293,7 +294,15 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   },
   openclaw: {
     beforeInstall: assertOpenClawPluginDirIsOurs,
-    installCommands: () => ({ commands: getOpenClawInstallCommands() }),
+    installCommands: (environment) => {
+      const pluginWasAbsent = !existsSync(
+        join(getOpenClawPluginDir(environment), OPENCLAW_PLUGIN_ENTRY_FILE),
+      );
+      return {
+        commands: getOpenClawInstallCommands(),
+        afterInstall: () => verifyOpenClawPluginRuntime(pluginWasAbsent),
+      };
+    },
     uninstallCommands: [['openclaw', 'plugins', 'uninstall', OPENCLAW_PLUGIN_ID, '--force']],
     postInstallMessage: [
       'Restart the OpenClaw Gateway to apply the change.',
@@ -641,13 +650,7 @@ const INSTALL_EXTRAS: Partial<
       if (!updating) clearNpxSafetyNetCache(environment);
     },
   },
-  openclaw: {
-    afterInstall: async () => {
-      await verifyOpenClawPluginRuntime();
-      return undefined;
-    },
-    beforeUninstall: assertOpenClawPluginDirIsOurs,
-  },
+  openclaw: { beforeUninstall: assertOpenClawPluginDirIsOurs },
   pi: { afterInstall: removePiExtensionsFilter },
 };
 

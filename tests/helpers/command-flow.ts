@@ -9,6 +9,7 @@ import type { UpdateInfo } from '@/hosts/doctor-types';
 import { createFakeBin, type FakeScriptEntry } from './fake-bin';
 import { createFakeInput, createFakeOutput } from './fake-tty';
 import { snapshotTree, type TreeSpec, writeTree } from './fixture-tree';
+import { resolvePlaceholders } from './host-differential';
 import {
   createTempRoot,
   isolationEnv,
@@ -26,22 +27,44 @@ export type FlowOptions = Omit<RunInstallCommandOptions, 'input' | 'output'> & {
   scriptPath?: string;
 };
 
+type Invocation = 'install' | 'uninstall' | 'update';
+
 export type FlowSpec = {
   seed?: TreeSpec;
   seedTmp?: TreeSpec;
+  env?: Record<string, string>;
   script?: readonly FakeScriptEntry[];
   extraCommands?: readonly string[];
-  invoke: 'install' | 'uninstall' | 'update';
+  invoke: Invocation | readonly Invocation[];
   args?: readonly string[];
   options?: (home: string) => FlowOptions;
 };
 
-export function openCodeV2Script(row = 'cc-safety-net  2.4.2  cc-safety-net@latest') {
+export function openCodeV2Script(
+  row = 'cc-safety-net  2.4.2  cc-safety-net@latest',
+  addStdout = 'Plugin "cc-safety-net@latest" installed and added to <home>/.config/opencode/opencode.json\n',
+) {
   return [
     { command: 'opencode', args: ['--version'], stdout: '2.0.6\n' },
-    { command: 'opencode', args: ['plugin', 'add', 'cc-safety-net@latest'] },
+    { command: 'opencode', args: ['plugin', 'add', 'cc-safety-net@latest'], stdout: addStdout },
     { command: 'opencode', args: ['plugin', 'update', 'cc-safety-net@latest'] },
     { command: 'opencode', args: ['plugin', 'list'], stdout: `ID  VERSION  SOURCE\n${row}\n` },
+    { command: 'opencode', args: ['api', 'integration.list'] },
+    {
+      command: 'opencode',
+      args: ['api', 'plugin.list'],
+      stdout: JSON.stringify({
+        location: { directory: '/x' },
+        data: [
+          {
+            id: 'cc-safety-net',
+            source: { type: 'package', target: 'cc-safety-net@latest' },
+            features: { server: true },
+            state: { status: 'active' },
+          },
+        ],
+      }),
+    },
   ];
 }
 
@@ -82,10 +105,25 @@ export async function runSide(spec: FlowSpec) {
   const args = spec.args ?? [];
   const previousCwd = process.cwd();
   process.chdir(root);
-  const exitCode = await withProcessEnv(isolationEnv(home, { ...fakeBin.env, TMPDIR: tmp }), () => {
-    if (spec.invoke === 'update') return runUpdateCommand(args, callOptions);
-    return runInstallCommand(spec.invoke, args, callOptions);
-  }).finally(() => {
+  const reportedCwd = process.cwd();
+  const run = (invoke: Invocation) =>
+    invoke === 'update'
+      ? runUpdateCommand(args, callOptions)
+      : runInstallCommand(invoke, args, callOptions);
+  const exitCodes = await withProcessEnv(
+    isolationEnv(home, {
+      ...fakeBin.env,
+      TMPDIR: tmp,
+      ...resolvePlaceholders(spec.env, home),
+    }),
+    () =>
+      [spec.invoke]
+        .flat()
+        .reduce<Promise<number[]>>(
+          async (codes, invoke) => [...(await codes), await run(invoke)],
+          Promise.resolve([]),
+        ),
+  ).finally(() => {
     process.chdir(previousCwd);
     console.error = reportedError;
     console.warn = reportedWarning;
@@ -93,7 +131,7 @@ export async function runSide(spec: FlowSpec) {
 
   return normalize(
     {
-      exitCode,
+      exitCode: typeof spec.invoke === 'string' ? exitCodes[0] : exitCodes,
       lines: output.text().split('\n'),
       errors,
       warnings,
@@ -101,6 +139,12 @@ export async function runSide(spec: FlowSpec) {
       tree: snapshotHome(home),
       tmp: snapshotTree(tmp),
     },
-    [[home, '<home>'], [root, '<root>'], [REPO_ROOT, '<repo>'], ...WINDOWS_SEPARATOR_FOLDS],
+    [
+      [home, '<home>'],
+      [reportedCwd, '<root>'],
+      [root, '<root>'],
+      [REPO_ROOT, '<repo>'],
+      ...WINDOWS_SEPARATOR_FOLDS,
+    ],
   );
 }

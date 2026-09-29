@@ -9,8 +9,12 @@ import {
 
 const CLAUDE_SAFETY_NET_PLUGIN_ID = 'cc-safety-net@cc-marketplace';
 
+export function getClaudeConfigDir(environment: Environment) {
+  return environment.env.get('CLAUDE_CONFIG_DIR') || join(environment.home, '.claude');
+}
+
 function getClaudeInstalledPluginsPath(environment: Environment): string {
-  return join(environment.home, '.claude', 'plugins', 'installed_plugins.json');
+  return join(getClaudeConfigDir(environment), 'plugins', 'installed_plugins.json');
 }
 
 function isInstalledPluginRecord(value: unknown, pluginId: string): boolean {
@@ -32,7 +36,7 @@ export function detectClaudeCode(environment: Environment): HookDetection {
     return { platform: 'claude-code', status: 'n/a' };
   }
 
-  const settingsPath = join(environment.home, '.claude', 'settings.json');
+  const settingsPath = join(getClaudeConfigDir(environment), 'settings.json');
   const settings = readStateFile(settingsPath);
   if (settings.kind === 'unreadable') return { platform: 'claude-code', status: 'not-inspected' };
 

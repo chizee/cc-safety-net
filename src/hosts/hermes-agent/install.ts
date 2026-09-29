@@ -1,5 +1,5 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { Environment } from '@/core/environment';
 import { atomicWriteFile } from '@/core/io/atomic-write';
 import { lstatOrUndefined } from '@/hosts/detect/context';
@@ -13,9 +13,30 @@ import { getPackageVersion } from '@/hosts/system-info';
 
 const BYTECODE_CACHE_DIR = '__pycache__';
 
+const HERMES_PROFILE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+function readActiveProfile(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf-8').trim();
+  } catch {
+    return undefined;
+  }
+}
+
 export function getHermesHomeDir(environment: Environment): string {
   const hermesHome = environment.env.get('HERMES_HOME')?.trim();
-  return hermesHome ? hermesHome : join(environment.home, '.hermes');
+  if (hermesHome && basename(dirname(hermesHome)) === 'profiles') return hermesHome;
+
+  const root = hermesHome || join(environment.home, '.hermes');
+  const activeProfilePath = join(root, 'active_profile');
+  const activeProfile = readActiveProfile(activeProfilePath);
+  const profile = activeProfile?.toLowerCase();
+  if (!profile || profile === 'default') return root;
+  if (!HERMES_PROFILE_ID.test(profile))
+    throw new Error(
+      `Invalid Hermes profile name "${activeProfile}" in ${activeProfilePath}; run \`hermes profile use <name>\` with a valid profile.`,
+    );
+  return join(root, 'profiles', profile);
 }
 
 export function getHermesAgentPluginDir(environment: Environment): string {

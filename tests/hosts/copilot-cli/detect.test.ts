@@ -9,6 +9,9 @@ import { removeTempRoots } from '../../helpers/temp-home';
 const REPO_HOOK = 'repo/.github/hooks/a.json';
 const USER_HOOK = '.copilot/hooks/b.json';
 const REPO_SETTINGS = 'repo/.github/copilot/settings.json';
+const REPO_LOCAL_SETTINGS = 'repo/.github/copilot/settings.local.json';
+const CLAUDE_SETTINGS = 'repo/.claude/settings.json';
+const CLAUDE_LOCAL_SETTINGS = 'repo/.claude/settings.local.json';
 const USER_SETTINGS = '.copilot/settings.json';
 const USER_CONFIG = '.copilot/config.json';
 const PLUGIN = '.copilot/installed-plugins/cc-marketplace/cc-safety-net/plugin.json';
@@ -58,16 +61,17 @@ const VERSIONS: Array<string | null> = [null, '0.0.400', '0.0.422', '1.0.8'];
 
 afterEach(removeTempRoots);
 
-test.each(['{"disableAllHooks":"false"}', '{"hooks":[]}'])(
-  'rejects malformed Copilot hook settings: %s',
-  async (content) => {
-    expect(await detection({ [REPO_HOOK]: content }, '1.0.8')).toEqual(
-      absent([
-        `Invalid hook config ${at(REPO_HOOK)}: hooks.preToolUse must be an array of hook objects`,
-      ]),
-    );
-  },
-);
+test.each([
+  '{"disableAllHooks":"false"}',
+  '{"hooks":[]}',
+  '{"hooks":{"preToolUse":[{"exec":"npx","args":{}}]}}',
+])('rejects malformed Copilot hook settings: %s', async (content) => {
+  expect(await detection({ [REPO_HOOK]: content }, '1.0.8')).toEqual(
+    absent([
+      `Invalid hook config ${at(REPO_HOOK)}: hooks.preToolUse must be an array of hook objects`,
+    ]),
+  );
+});
 
 test('reports a regular file occupying the Copilot hooks directory', async () => {
   const result = await detection({ '.copilot/hooks': 'not a directory' }, '1.0.8');
@@ -152,6 +156,67 @@ describe('the version gate on each hook source', () => {
   });
 });
 
+describe('the hook entry forms the host accepts', () => {
+  const entryFile = (entry: Record<string, unknown>) =>
+    JSON.stringify({ hooks: { preToolUse: [entry] } });
+
+  test.each(VERSIONS)('counts an entry with no type at version %s', async (version) => {
+    expect(
+      await detection(
+        { [REPO_HOOK]: entryFile({ bash: 'npx -y cc-safety-net hook --copilot-cli' }) },
+        version,
+      ),
+    ).toEqual(viaHooks([at(REPO_HOOK)]));
+  });
+
+  test.each([
+    ['a command', { type: 'command' }],
+    ['an untyped', {}],
+  ])('counts %s exec entry with args', async (_label, typed) => {
+    expect(
+      await detection(
+        {
+          [REPO_HOOK]: entryFile({
+            ...typed,
+            exec: 'npx',
+            args: ['-y', 'cc-safety-net', 'hook', '--copilot-cli'],
+          }),
+        },
+        '1.0.8',
+      ),
+    ).toEqual(viaHooks([at(REPO_HOOK)]));
+  });
+
+  test('ignores a Safety Net command in an entry of another type', async () => {
+    expect(
+      await detection(
+        {
+          [REPO_HOOK]: entryFile({
+            type: 'prompt',
+            bash: 'npx -y cc-safety-net hook --copilot-cli',
+          }),
+        },
+        '1.0.8',
+      ),
+    ).toEqual(absent());
+  });
+});
+
+describe('the repository .claude settings files', () => {
+  test.each([CLAUDE_SETTINGS, CLAUDE_LOCAL_SETTINGS])(
+    'reads an inline hook definition from %s',
+    async (path) => {
+      expect(await detection({ [path]: HOOK_FILE }, '1.0.8')).toEqual(viaHooks([at(path)]));
+    },
+  );
+
+  test('orders them after the .github/copilot settings', async () => {
+    expect(
+      await detection({ [REPO_SETTINGS]: HOOK_FILE, [CLAUDE_SETTINGS]: HOOK_FILE }, '1.0.8'),
+    ).toEqual(viaHooks([at(REPO_SETTINGS), at(CLAUDE_SETTINGS)]));
+  });
+});
+
 describe('disableAllHooks', () => {
   const disabledBy = (path: string, errors?: string[]): Detected => ({
     kind: 'returned',
@@ -206,6 +271,31 @@ describe('disableAllHooks', () => {
     ).toEqual(viaHooks([at(REPO_HOOK)]));
   });
 
+  test('a .claude local settings file switches everything off', async () => {
+    expect(
+      await detection(
+        {
+          [CLAUDE_LOCAL_SETTINGS]: JSON.stringify({ disableAllHooks: true }),
+          [REPO_HOOK]: HOOK_FILE,
+        },
+        '1.0.8',
+      ),
+    ).toEqual(disabledBy(at(CLAUDE_LOCAL_SETTINGS)));
+  });
+
+  test('a .github/copilot false ends the search before a .claude true', async () => {
+    expect(
+      await detection(
+        {
+          [REPO_SETTINGS]: JSON.stringify({ disableAllHooks: false }),
+          [CLAUDE_SETTINGS]: JSON.stringify({ disableAllHooks: true }),
+          [REPO_HOOK]: HOOK_FILE,
+        },
+        '1.0.8',
+      ),
+    ).toEqual(viaHooks([at(REPO_HOOK)]));
+  });
+
   test('reads the user settings as JSONC, so a commented false still ends the search', async () => {
     expect(
       await detection(
@@ -248,54 +338,105 @@ describe('config files it cannot use', () => {
 
 describe('the plugin checkout under the Copilot home', () => {
   const INSTALLED = { [PLUGIN]: '{"name":"cc-safety-net"}' };
+  const pluginSwitch = (on: boolean) => JSON.stringify({ enabledPlugins: { [PLUGIN_ID]: on } });
+
+  const pluginOn: Detected = {
+    kind: 'returned',
+    value: {
+      platform: 'copilot-cli',
+      status: 'configured',
+      method: 'plugin config',
+      configPath: PLUGIN_DIR,
+      configPaths: undefined,
+      errors: undefined,
+    },
+  };
+
+  const pluginOffBy = (path: string): Detected => ({
+    kind: 'returned',
+    value: {
+      platform: 'copilot-cli',
+      status: 'disabled',
+      method: 'plugin config',
+      configPath: path,
+      errors: [`${PLUGIN_ID} is installed but not enabled in Copilot CLI`],
+    },
+  });
 
   test.each(VERSIONS)('reports an installed plugin with no settings at %s', async (version) => {
-    expect(await detection(INSTALLED, version)).toEqual({
-      kind: 'returned',
-      value: {
-        platform: 'copilot-cli',
-        status: 'configured',
-        method: 'plugin config',
-        configPath: PLUGIN_DIR,
-        configPaths: undefined,
-        errors: undefined,
-      },
-    });
+    expect(await detection(INSTALLED, version)).toEqual(pluginOn);
   });
 
   test('reports a plugin the settings switch off', async () => {
     expect(
+      await detection({ ...INSTALLED, [USER_SETTINGS]: pluginSwitch(false) }, '1.0.8'),
+    ).toEqual(pluginOffBy(at(USER_SETTINGS)));
+  });
+
+  test.each([REPO_SETTINGS, REPO_LOCAL_SETTINGS, CLAUDE_SETTINGS, CLAUDE_LOCAL_SETTINGS])(
+    'reports a plugin the repository file %s switches off',
+    async (path) => {
+      expect(await detection({ ...INSTALLED, [path]: pluginSwitch(false) }, '1.0.8')).toEqual(
+        pluginOffBy(at(path)),
+      );
+    },
+  );
+
+  test('lets the repository local settings switch back on what the shared settings switch off', async () => {
+    expect(
       await detection(
         {
           ...INSTALLED,
-          [USER_SETTINGS]: JSON.stringify({ enabledPlugins: { [PLUGIN_ID]: false } }),
+          [REPO_LOCAL_SETTINGS]: pluginSwitch(true),
+          [REPO_SETTINGS]: pluginSwitch(false),
         },
         '1.0.8',
       ),
-    ).toEqual({
-      kind: 'returned',
-      value: {
-        platform: 'copilot-cli',
-        status: 'disabled',
-        method: 'plugin config',
-        configPath: at(USER_SETTINGS),
-        errors: [`${PLUGIN_ID} is installed but not enabled in Copilot CLI`],
-      },
-    });
+    ).toEqual(pluginOn);
+  });
+
+  test('lets the repository switch back on what the user settings switch off', async () => {
+    expect(
+      await detection(
+        { ...INSTALLED, [USER_SETTINGS]: pluginSwitch(false), [REPO_SETTINGS]: pluginSwitch(true) },
+        '1.0.8',
+      ),
+    ).toEqual(pluginOn);
+  });
+
+  test('keeps the user switch when the repository names only other plugins', async () => {
+    expect(
+      await detection(
+        {
+          ...INSTALLED,
+          [USER_SETTINGS]: pluginSwitch(false),
+          [REPO_SETTINGS]: JSON.stringify({ enabledPlugins: { 'other@x': false } }),
+        },
+        '1.0.8',
+      ),
+    ).toEqual(pluginOffBy(at(USER_SETTINGS)));
   });
 
   test('treats an absent enabledPlugins entry as on', async () => {
-    expect(await detection({ ...INSTALLED, [USER_SETTINGS]: '{}' }, '1.0.8')).toEqual({
-      kind: 'returned',
-      value: {
-        platform: 'copilot-cli',
-        status: 'configured',
-        method: 'plugin config',
-        configPath: PLUGIN_DIR,
-        configPaths: undefined,
-        errors: undefined,
-      },
-    });
+    expect(await detection({ ...INSTALLED, [USER_SETTINGS]: '{}' }, '1.0.8')).toEqual(pluginOn);
+  });
+
+  test('keeps a standalone hook configured when the repository switches the plugin off', async () => {
+    expect(
+      await detection(
+        { ...INSTALLED, [REPO_SETTINGS]: pluginSwitch(false), [REPO_HOOK]: HOOK_FILE },
+        '1.0.8',
+      ),
+    ).toEqual(viaHooks([at(REPO_HOOK)]));
+  });
+
+  test('applies a repository switch even when the user settings cannot be read', async () => {
+    expect(
+      await detection(
+        { ...INSTALLED, [USER_SETTINGS]: null, [REPO_SETTINGS]: pluginSwitch(false) },
+        '1.0.8',
+      ),
+    ).toEqual(pluginOffBy(at(REPO_SETTINGS)));
   });
 
   test('refuses to guess when the settings cannot be read', async () => {

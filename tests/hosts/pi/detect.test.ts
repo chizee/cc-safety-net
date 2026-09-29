@@ -69,3 +69,28 @@ test.each([
     status({ platform: 'pi', status: 'not-inspected' }),
   );
 });
+
+test.each([
+  ['an absolute path', '<home>/pi-agent'],
+  ['a path under ~', '~/pi-agent'],
+])('reads the settings under PI_CODING_AGENT_DIR given as %s', async (_case, agentDir) => {
+  expect(
+    await detection(
+      { 'pi-agent/settings.json': JSON.stringify({ packages: ['npm:cc-safety-net'] }) },
+      { PI_CODING_AGENT_DIR: agentDir },
+    ),
+  ).toEqual(
+    status({
+      platform: 'pi',
+      status: 'configured',
+      method: 'package config',
+      configPath: '<home>/pi-agent/settings.json',
+    }),
+  );
+});
+
+test('ignores ~/.pi/agent when PI_CODING_AGENT_DIR names another directory', async () => {
+  expect(
+    await detection(settings('npm:cc-safety-net'), { PI_CODING_AGENT_DIR: '<home>/pi-agent' }),
+  ).toEqual(status({ platform: 'pi', status: 'n/a' }));
+});

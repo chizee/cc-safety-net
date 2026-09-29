@@ -100,6 +100,7 @@ function callTool(runtime: ReturnType<typeof host>, tool: string, input: unknown
 test.each([
   ['shell', { command: 'git reset --hard' }, 'git.reset-hard'],
   ['shell', { command: 'git status', workdir: 'missing' }, 'Working directory: missing'],
+  ['shell', { command: 'git status', workdir: '~other' }, 'Working directory: ~other'],
   ['shell', { command: 'x'.repeat(1_048_577) }, 'limit exceeded'],
   ['read', { path: '~/.ssh/id_rsa' }, 'secret.home.ssh'],
   ['write', { path: '~/.cc-safety-net/policy.json', content: '{}' }, 'protected policy'],
@@ -128,6 +129,26 @@ test('v2 records effective cwd', async () => {
     toolName: 'shell',
   });
   expect(runtime.commands.map((command) => command.name)).toEqual(['cc-safety-net']);
+});
+
+test('v2 analyzes a ~ workdir in the home directory, not <project>/~', async () => {
+  mkdirSync(join(fixture.project, '~'));
+  const result = await callTool(host(), 'shell', { command: 'rm -rf build', workdir: '~' });
+  expect(result.returned).toBeInstanceOf(Tool.Error);
+  expect(result.returned instanceof Tool.Error ? result.returned.message : '').toContain(
+    'rm.recursive-force-home-cwd',
+  );
+  expect(result.entries[0]?.entry).toMatchObject({ cwd: fixture.home, decision: 'deny' });
+});
+
+test.each([
+  ['~', () => fixture.home],
+  ['~/', () => fixture.home],
+  ['~/.codex', () => join(fixture.home, '.codex')],
+] as const)('v2 resolves %s under the home directory like the host', async (workdir, expected) => {
+  const result = await callTool(host(), 'shell', { command: 'git status', workdir });
+  expect(result.returned).toBe('executed');
+  expect(result.entries[0]?.entry).toMatchObject({ cwd: expected(), decision: 'allow' });
 });
 
 test('v2 only grants command capability to the exact shell name', async () => {

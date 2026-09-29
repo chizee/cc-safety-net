@@ -44,6 +44,37 @@ test('protects a custom OpenCode config filename while allowing a neighboring fi
   expect(findSensitivePathTarget(['neighbor/settings.json'], home, environment)).toBeNull();
 });
 
+test.each([
+  ['the default location', {}, '.config'],
+  ['a custom config dir', { OPENCODE_CONFIG_DIR: 'custom', XDG_CONFIG_HOME: 'xdg' }, 'xdg'],
+])('protects the OpenCode v1 global config.json under %s', (_, overrides, configHome) => {
+  const home = createTempRoot('secret-v1-config-');
+  writeTree(home, {
+    [`${configHome}/opencode/config.json`]: '{}',
+    [`${configHome}/other/config.json`]: '{}',
+  });
+  const environment = environmentFor(home, isolationEnv(home, overrides));
+  const target = join(home, configHome, 'opencode', 'config.json');
+  expect(findSensitivePathTarget([target], home, environment)).toEqual({
+    target,
+    ruleId: 'secret.cli.opencode.config',
+  });
+  expect(
+    findSensitivePathTarget([join(home, configHome, 'other', 'config.json')], home, environment),
+  ).toBeNull();
+});
+
+test('keeps the OpenCode v1 global opencode.json protected under a custom config dir', () => {
+  const home = createTempRoot('secret-v1-opencode-json-');
+  writeTree(home, { '.config/opencode/opencode.json': '{}' });
+  const environment = environmentFor(home, isolationEnv(home, { OPENCODE_CONFIG_DIR: 'custom' }));
+  const target = join(home, '.config', 'opencode', 'opencode.json');
+  expect(findSensitivePathTarget([target], home, environment)).toEqual({
+    target,
+    ruleId: 'secret.cli.opencode.config',
+  });
+});
+
 test.each(['', '-wal', '-shm'])('protects a relocated OpenCode database%s', (suffix) => {
   const home = createTempRoot('secret-database-');
   writeTree(home, { [`storage/session.sqlite${suffix}`]: 'fixture' });

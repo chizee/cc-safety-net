@@ -45,6 +45,7 @@ test('system info distinguishes available versions from missing programs', () =>
     versions: { cursor: '1.2.3' },
     codexPluginListOutput: null,
     ampPluginListOutput: null,
+    openCodePluginListOutput: null,
     nodeVersion: '22.0.0',
     npmVersion: null,
     bunVersion: '1.4.2',

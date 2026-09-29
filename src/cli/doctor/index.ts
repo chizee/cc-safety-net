@@ -24,6 +24,7 @@ import { resolveEffectiveDestructiveCommandRules } from '@/core/policy/effective
 import { getCCSafetyNetEnvModes } from '@/core/policy/env';
 import { describeConfigState, loadPolicySnapshot } from '@/core/policy/snapshot';
 import { detectAllHooks } from '@/hosts/detect/index';
+import { detect as detectOpenCode } from '@/hosts/opencode/detect';
 import type { DoctorOptions, DoctorReport } from '@/hosts/doctor-types';
 import { runIntegrationSelfTest } from '@/hosts/self-test';
 import { getPackageVersion, getSystemInfo } from '@/hosts/system-info';
@@ -65,11 +66,17 @@ async function collectDoctorReport(
 ): Promise<DoctorReport> {
   const cwd = options.cwd ?? process.cwd();
 
-  const system = await getSystemInfo();
+  const system = await getSystemInfo(
+    (openCodeVersion) => detectOpenCode({ environment, cwd, openCodeVersion }).status !== 'n/a',
+    undefined,
+    cwd,
+  );
   const hooks = detectAllHooks(environment, cwd, {
     ampPluginListOutput: system.ampPluginListOutput,
     codexPluginListOutput: system.codexPluginListOutput,
     copilotCliVersion: system.versions['copilot-cli'],
+    openCodeVersion: system.versions.opencode,
+    openCodePluginListOutput: system.openCodePluginListOutput,
   });
   const configInfo = getConfigInfo(environment, cwd);
   const environmentInfo = getEnvironmentInfo(environment);

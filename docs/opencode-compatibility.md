@@ -13,10 +13,22 @@ peer. Both entries load the same runtime plugin; automatic installation is uncha
 npx -y cc-safety-net@latest install --opencode
 ```
 
-The installer checks the host version. For v2 it uses `opencode plugin add` and
-`opencode plugin update`, then checks the package ID and source in `opencode plugin list`.
-That listing confirms discovery, not successful hook activation. Check OpenCode's diagnostics
-if the plugin fails to activate. As with v1, protection requires a loaded integration.
+The installer checks the host version. For v2 it runs `opencode plugin add`, then
+`opencode plugin update` only when `add` reports the plugin already configured (the background
+service does not know a newly added plugin yet). It then waits up to about 15 seconds for the
+service to list the plugin and checks the package ID and source in `opencode plugin list`.
+That listing confirms discovery, not activation, so the installer then asks the host for
+activation state with the same check as `doctor` below. If OpenCode marks the plugin failed and
+no copy of it is active, the install fails with the first line of OpenCode's error; if the host
+lists no active copy at all, the install fails too. The GUI's Enable button runs this install. As with v1, protection requires a loaded integration.
+
+On v2, when the config OpenCode loads has a `cc-safety-net` entry, `doctor` and the GUI ask the
+host for activation state. They run `opencode api integration.list`, then
+`opencode api plugin.list` for the current directory. If OpenCode marks the plugin failed and
+no copy of it is active, `doctor` reports it as not configured with the first line of
+OpenCode's error, and the GUI shows it as disabled. These commands may start OpenCode's
+persistent background service, as the installer and the v2 TUI already do. On v1, `doctor` and
+the GUI still read only the config.
 
 If an existing global config uses `cc-safety-net` or a pinned version, the v2 installer stops
 before changing it. Change that entry's package spec to `cc-safety-net@latest`, keeping its

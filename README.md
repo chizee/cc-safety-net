@@ -132,7 +132,7 @@ The policy and secret-path extractors are mostly POSIX. For PowerShell they reso
 
 Policy-file protection matches exact paths. It does not emulate commands. Use OS permissions or a sandbox when you need that.
 
-Codex has one integration-specific limit. Its unified exec path is the default on macOS and Linux. It sends a hook payload when a command starts a session, but it sends none for `write_stdin`. CC Safety Net can inspect and audit the command that opens the session. It cannot inspect or audit text that the model types into the running session. Codex emits no event for that call, so an adapter change cannot close this gap.
+Codex has two integration-specific limits. Its unified exec path is the default shell path. It sends a hook payload when a command starts a session, but it sends none for `write_stdin`. CC Safety Net can inspect and audit the command that opens the session. It cannot inspect or audit text that the model types into the running session. Codex emits no event for that call, so an adapter change cannot close this gap. The `exec_command` payload also omits the call's `workdir`: it carries only `{command}`, and its `cwd` is the turn directory. Codex runs the command in `workdir`, but CC Safety Net analyzes it in the turn directory, so relative paths and outside-directory rules can be judged against the wrong directory.
 
 [SECURITY.md](SECURITY.md) contains the full residual-risk registry. [Known Limitations](https://ccsafetynet.com/docs/guides/known-limitations) explains what those risks mean in practice.
 

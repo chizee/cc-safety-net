@@ -89,6 +89,18 @@ const ROWS: readonly Row[] = [
     expected: 'claude-code',
   },
   {
+    name: 'no transcript path inside a Copilot CLI hook',
+    transcript: () => undefined,
+    env: { COPILOT_CLI: '1' },
+    expected: 'copilot-cli',
+  },
+  {
+    name: 'a Claude Code transcript while a Copilot CLI variable is inherited',
+    transcript: (root) => join(root, '.claude', 'projects', 'p.jsonl'),
+    env: { COPILOT_CLI: '1' },
+    expected: 'claude-code',
+  },
+  {
     name: 'no transcript path with a Claude Code entrypoint',
     transcript: () => undefined,
     env: { CLAUDE_CODE_ENTRYPOINT: 'cli' },
@@ -108,6 +120,7 @@ for (const row of ROWS) {
         CLAUDE_CONFIG_DIR: rooted(row.env?.CLAUDE_CONFIG_DIR),
         CLAUDECODE: row.env?.CLAUDECODE,
         CLAUDE_CODE_ENTRYPOINT: row.env?.CLAUDE_CODE_ENTRYPOINT,
+        COPILOT_CLI: row.env?.COPILOT_CLI,
       },
       () => {
         expect<string>(portedDetect(row.transcript(home), createProcessEnvironment())).toBe(

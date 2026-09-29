@@ -4,12 +4,14 @@ import { corpusToolInputs } from '../helpers/shell-inputs';
 
 const PATH_LIKE_KEYS = new Set([
   'absolutepath',
+  'destination',
   'directory_path',
   'file',
   'file_path',
   'filepath',
   'notebook_path',
   'path',
+  'paths',
   'target_file',
 ]);
 
@@ -215,15 +217,16 @@ describe('core/tool-input', () => {
     expectRead(input, expected);
   });
 
-  test('a path-like key is matched wherever it appears, and only when it holds the string', () => {
+  test('a path-like key is matched wherever it appears, and read when it holds strings', () => {
     expectRead(
       { 'file-path': 'hyphen.txt', FILE_PATH: 'upper.txt', file_path: ['array', { path: 'deep' }] },
-      { paths: ['hyphen.txt', 'upper.txt', 'deep'] },
+      { paths: ['hyphen.txt', 'upper.txt', 'array', 'deep'] },
     );
     expectRead(
-      { paths: [{ notebook_path: 'n.ipynb' }, ['skip', { absolutePath: '/abs' }]] },
-      { paths: ['n.ipynb', '/abs'] },
+      { paths: [{ notebook_path: 'n.ipynb' }, ['nested', { absolutePath: '/abs' }]] },
+      { paths: ['n.ipynb', 'nested', '/abs'] },
     );
+    expectRead({ items: ['not-a-path', { destination: 'out.txt' }] }, { paths: ['out.txt'] });
     expectRead(
       { edits: [{ target_file: 'a.ts' }, { target_file: 'b.ts' }], path: 7, file: null },
       { paths: ['a.ts', 'b.ts'] },

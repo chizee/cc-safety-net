@@ -71,6 +71,27 @@ describe('the GUI integrations probe', () => {
     );
   });
 
+  test.each([
+    ['with', 'cc-safety-net@latest', ['integration.list', 'plugin.list']],
+    ['without', 'other@latest', []],
+  ])(
+    'asks OpenCode v2 for its plugin inventory only %s a cc-safety-net entry',
+    async (_case, plugin, operations) => {
+      const asked: string[] = [];
+      await differential(
+        { seed: { '.config/opencode/opencode.json': JSON.stringify({ plugins: [plugin] }) } },
+        (environment) =>
+          portedIntegrations(environment, {
+            fetcher: async (args) => {
+              if (args[0] === 'opencode' && args[1] === 'api') asked.push(String(args[2]));
+              return args.join(' ') === 'opencode --version' ? '2.0.19' : null;
+            },
+          }),
+      );
+      expect(asked).toEqual(operations);
+    },
+  );
+
   test('reports a plugin record it cannot parse as uninspected, not as absent', async () => {
     const unreadable = await integrationsOver({ [CLAUDE_PLUGINS]: 'nope' });
 

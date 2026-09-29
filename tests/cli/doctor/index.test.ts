@@ -14,6 +14,7 @@ import {
   seedFiles,
 } from '../../helpers/cli-differential';
 import { json } from '../../helpers/cli-fixtures';
+import { createFakeBin, type FakeScriptEntry } from '../../helpers/fake-bin';
 import { foldWindowsPosture, normalizeDoctorJson } from '../../helpers/doctor-json';
 import { environmentFor, removeTempRoots } from '../../helpers/temp-home';
 
@@ -32,6 +33,27 @@ async function runDoctorJson(slug: string, row: Omit<CliRow, 'args'>) {
   const outcome = { ...result, stdout: foldWindowsPosture(result.stdout) };
   expect(normalizeDoctorJson(outcome.stdout)).toMatchSnapshot(slug);
   return { outcome, report: JSON.parse(outcome.stdout) as DoctorReport };
+}
+
+async function doctorOpenCodeV2Hook(seed: (side: CliSide) => readonly FakeScriptEntry[]) {
+  const result = await runCliCommand(
+    {
+      args: ['doctor', '--json', '--skip-update-check'],
+      seed: (side) => {
+        createFakeBin(side.root, [
+          { command: 'opencode', args: ['--version'], stdout: '2.0.19\n' },
+          ...seed(side),
+        ]);
+        seedFiles(side, {
+          'home/.config/opencode/opencode.json': '{"plugins":["cc-safety-net@latest"]}',
+        });
+      },
+    },
+    (environment) => runDoctor(environment, { json: true, skipUpdateCheck: true }),
+  );
+  return (JSON.parse(result.stdout) as DoctorReport).hooks.find(
+    (hook) => hook.platform === 'opencode',
+  );
 }
 
 const mkdirPrivate = (path: string) => mkdirSync(path, { recursive: true, mode: 0o700 });
@@ -118,6 +140,60 @@ describe('doctor --json', () => {
     expect(report.findings).toEqual([]);
     expect(report.hooks.filter((hook) => hook.configured).map((hook) => hook.platform)).toEqual([
       'cursor',
+    ]);
+  }, 120_000);
+
+  test('an OpenCode v2 entry outside OPENCODE_CONFIG_DIR is not reported configured', async () => {
+    const hook = await doctorOpenCodeV2Hook((side) => {
+      side.env.OPENCODE_CONFIG_DIR = join(side.home, 'native-config');
+      return [];
+    });
+    expect(hook?.configured).toBe(false);
+  }, 120_000);
+
+  test('an OpenCode v2 plugin the host reports failed is detected but not configured', async () => {
+    const hook = await doctorOpenCodeV2Hook((side) => [
+      {
+        command: 'opencode',
+        args: ['api', 'plugin.list'],
+        stdout: JSON.stringify({
+          location: { directory: side.home },
+          data: [
+            {
+              id: 'cc-safety-net',
+              source: { type: 'package', target: 'cc-safety-net@latest', version: '1.0.0' },
+              features: { server: true },
+              state: { status: 'failed', error: 'Error: invalid shell option' },
+            },
+          ],
+        }),
+      },
+    ]);
+    expect(hook).toMatchObject({
+      detected: true,
+      configured: false,
+      errors: ['OpenCode reports cc-safety-net failed: Error: invalid shell option'],
+    });
+  }, 120_000);
+
+  test('an OpenCode v2 without a cc-safety-net entry is never asked for its plugin inventory', async () => {
+    const opencode = { readLog: (): string[] => [] };
+    await runCliCommand(
+      {
+        args: ['doctor', '--json', '--skip-update-check'],
+        seed: (side) => {
+          opencode.readLog = createFakeBin(side.root, [
+            { command: 'opencode', args: ['--version'], stdout: '2.0.19\n' },
+          ]).readLog;
+          seedFiles(side, {
+            'home/.config/opencode/opencode.json': '{"plugins":["other@latest"]}',
+          });
+        },
+      },
+      (environment) => runDoctor(environment, { json: true, skipUpdateCheck: true }),
+    );
+    expect(opencode.readLog().filter((line) => line.startsWith('opencode '))).toEqual([
+      `opencode --version\t${join('<root>', 'project')}`,
     ]);
   }, 120_000);
 

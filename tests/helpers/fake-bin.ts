@@ -14,6 +14,7 @@ import { join } from 'node:path';
 export type FakeScriptEntry = {
   command: string;
   args?: string[];
+  call?: number;
   stdout?: string;
   stderr?: string;
   exit?: number;

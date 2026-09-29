@@ -28,7 +28,7 @@ function seedHome(prefix: string, seed: TreeSpec): string {
   return home;
 }
 
-function resolvePlaceholders(env: Record<string, string> | undefined, home: string) {
+export function resolvePlaceholders(env: Record<string, string> | undefined, home: string) {
   return Object.fromEntries(
     Object.entries(env ?? {}).map(([name, value]) => [name, value.replaceAll('<home>', home)]),
   );

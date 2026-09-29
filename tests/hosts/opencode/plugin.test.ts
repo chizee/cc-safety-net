@@ -81,6 +81,13 @@ const ROWS: readonly Row[] = [
     lines: 1,
   },
   {
+    name: 'a ~ workdir stays project-relative on v1',
+    args: () => ({ command: 'git status', workdir: '~' }),
+    contains: cwdReason('requested'),
+    blocked: true,
+    lines: 1,
+  },
+  {
     name: 'a blank workdir',
     args: () => ({ command: 'git status', workdir: '' }),
     contains: 'failed closed',

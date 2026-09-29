@@ -20,11 +20,11 @@ import {
   findOpenClawArtifactDir,
   getOpenClawConfigPath,
   getOpenClawPluginDir,
+  OPENCLAW_ENABLE_HINT,
 } from '@/hosts/openclaw/install';
 import { getPackageVersion } from '@/hosts/system-info';
 
 const PLATFORM = 'openclaw';
-const ENABLE_HINT = `run \`openclaw plugins enable ${OPENCLAW_PLUGIN_ID}\``;
 
 function readPluginFile(dir: string, name: string): { content: string } | { error: string } {
   const path = join(dir, name);
@@ -73,7 +73,8 @@ function stringList(value: unknown): string[] {
 
 function enablementError(environment: Environment): string | undefined {
   const configPath = getOpenClawConfigPath(environment);
-  if (!lstatOrUndefined(configPath)) return `${OPENCLAW_PLUGIN_ID} is not enabled; ${ENABLE_HINT}`;
+  if (!lstatOrUndefined(configPath))
+    return `${OPENCLAW_PLUGIN_ID} is not enabled; ${OPENCLAW_ENABLE_HINT}`;
 
   const config = (() => {
     try {
@@ -82,7 +83,8 @@ function enablementError(environment: Environment): string | undefined {
       return undefined;
     }
   })();
-  if (config === undefined) return `Failed to read ${configPath}; fix it, then ${ENABLE_HINT}`;
+  if (config === undefined)
+    return `Failed to read ${configPath}; fix it, then ${OPENCLAW_ENABLE_HINT}`;
 
   const plugins = readRecord(config, 'plugins');
   if (readRecord(plugins, 'enabled') === false)
@@ -96,13 +98,13 @@ function enablementError(environment: Environment): string | undefined {
     stringList(readRecord(plugins, 'deny')).includes(OPENCLAW_PLUGIN_ID) ||
     entryEnabled === false
   )
-    return `${OPENCLAW_PLUGIN_ID} is disabled in ${configPath}; ${ENABLE_HINT}`;
+    return `${OPENCLAW_PLUGIN_ID} is disabled in ${configPath}; ${OPENCLAW_ENABLE_HINT}`;
 
   const allow = stringList(readRecord(plugins, 'allow'));
   if (allow.length > 0 && !allow.includes(OPENCLAW_PLUGIN_ID))
-    return `plugins.allow in ${configPath} does not list ${OPENCLAW_PLUGIN_ID}; add it, then ${ENABLE_HINT}`;
+    return `plugins.allow in ${configPath} does not list ${OPENCLAW_PLUGIN_ID}; add it, then ${OPENCLAW_ENABLE_HINT}`;
   if (allow.includes(OPENCLAW_PLUGIN_ID) || entryEnabled === true) return undefined;
-  return `${OPENCLAW_PLUGIN_ID} is not enabled; ${ENABLE_HINT}`;
+  return `${OPENCLAW_PLUGIN_ID} is not enabled; ${OPENCLAW_ENABLE_HINT}`;
 }
 
 function artifactVersion(content: string): string | undefined {
