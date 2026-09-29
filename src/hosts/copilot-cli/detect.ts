@@ -15,6 +15,8 @@ interface CopilotHookEntry {
   bash?: string;
   powershell?: string;
   command?: string;
+  exec?: string;
+  args?: string[];
 }
 
 interface CopilotHookConfig {
@@ -31,6 +33,7 @@ interface CopilotInlineConfigSource {
 
 interface CopilotDetectionState {
   activeConfigPaths: string[];
+  repoInlineSources: (CopilotInlineConfigSource | undefined)[];
   disabledBy?: string;
 }
 
@@ -73,17 +76,24 @@ export function _getCopilotConfigHome(environment: Environment): string {
 function _hasSafetyNetCopilotHook(config: CopilotHookConfig): boolean {
   const preToolUseHooks = config.hooks?.preToolUse ?? [];
   return preToolUseHooks.some((hook) => {
-    if (hook.type !== 'command') return false;
+    if (hook.type !== undefined && hook.type !== 'command') return false;
     return (
       _isSafetyNetCopilotCommand(hook.command) ||
       _isSafetyNetCopilotCommand(hook.bash) ||
-      _isSafetyNetCopilotCommand(hook.powershell)
+      _isSafetyNetCopilotCommand(hook.powershell) ||
+      _isSafetyNetCopilotCommand(hook.exec && [hook.exec, ...(hook.args ?? [])].join(' '))
     );
   });
 }
 
 function _isStringOrAbsent(value: unknown): value is string | undefined {
   return value === undefined || typeof value === 'string';
+}
+
+function _isStringArrayOrAbsent(value: unknown): value is string[] | undefined {
+  return (
+    value === undefined || (Array.isArray(value) && value.every((item) => typeof item === 'string'))
+  );
 }
 
 function _isCopilotHookConfig(value: unknown): value is CopilotHookConfig {
@@ -108,7 +118,9 @@ function _isCopilotHookConfig(value: unknown): value is CopilotHookConfig {
         _isStringOrAbsent((entry as Record<string, unknown>).type) &&
         _isStringOrAbsent((entry as Record<string, unknown>).command) &&
         _isStringOrAbsent((entry as Record<string, unknown>).bash) &&
-        _isStringOrAbsent((entry as Record<string, unknown>).powershell),
+        _isStringOrAbsent((entry as Record<string, unknown>).powershell) &&
+        _isStringOrAbsent((entry as Record<string, unknown>).exec) &&
+        _isStringArrayOrAbsent((entry as Record<string, unknown>).args),
     )
   );
 }
@@ -235,7 +247,7 @@ function _checkCopilotEnabled(
           `GitHub Copilot CLI version unavailable; treating disableAllHooks in ${disableSource} as active`,
         );
       }
-      return { activeConfigPaths: [], disabledBy: disableSource };
+      return { activeConfigPaths: [], repoInlineSources, disabledBy: disableSource };
     }
   }
 
@@ -296,6 +308,7 @@ function _checkCopilotEnabled(
       ...matchedInlinePaths(userInlineSources),
       ...userHookPaths,
     ],
+    repoInlineSources,
   };
 }
 
@@ -324,21 +337,23 @@ export function detect(context: DetectContext): HookDetection {
   const pluginInstalled = existsSync(pluginDir);
   const settingsPath = join(configHome, 'settings.json');
   const settings = readStateFile(settingsPath, stripJsonComments);
+  const readPluginSwitch = (config: unknown) =>
+    readRecord(readRecord(config, 'enabledPlugins'), COPILOT_PLUGIN_ID);
+  const pluginSource =
+    hooksCheck.repoInlineSources.find(
+      (source) => typeof readPluginSwitch(source?.config) === 'boolean',
+    ) ?? (settings.kind === 'ok' ? { path: settingsPath, config: settings.value } : undefined);
 
   if (pluginInstalled && settings.kind === 'unreadable') {
     return { platform: 'copilot-cli', status: 'not-inspected' };
   }
 
-  if (
-    pluginInstalled &&
-    settings.kind === 'ok' &&
-    readRecord(readRecord(settings.value, 'enabledPlugins'), COPILOT_PLUGIN_ID) === false
-  ) {
+  if (pluginInstalled && pluginSource && readPluginSwitch(pluginSource.config) === false) {
     return {
       platform: 'copilot-cli',
       status: 'disabled',
       method: 'plugin config',
-      configPath: settingsPath,
+      configPath: pluginSource.path,
       errors: [`${COPILOT_PLUGIN_ID} is installed but not enabled in Copilot CLI`],
     };
   }
