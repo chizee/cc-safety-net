@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { Plugin, PluginInput } from '@opencode-ai/plugin';
 import {
   type CwdDenial,
@@ -73,6 +73,7 @@ export function createCCSafetyNetPlugin(guardDependencies: Partial<GuardDependen
 export function evaluateOpenCodeTool({
   configCwd,
   homeDir,
+  expandHomeWorkdir = false,
   tool,
   sessionID,
   toolInput,
@@ -81,6 +82,7 @@ export function evaluateOpenCodeTool({
 }: {
   configCwd: string;
   homeDir?: string;
+  expandHomeWorkdir?: boolean;
   tool: string;
   sessionID: string;
   toolInput: unknown;
@@ -124,7 +126,11 @@ export function evaluateOpenCodeTool({
     );
     return;
   }
-  const executionCwd = resolveOpenCodeExecutionCwd(configCwd, toolInput);
+  const executionCwd = resolveOpenCodeExecutionCwd(
+    configCwd,
+    toolInput,
+    expandHomeWorkdir ? environment.home : undefined,
+  );
   if (executionCwd === null) {
     throwPreflightDenial(createFailedClosedDenial({ command, toolName: tool }), tool);
     return;
@@ -193,16 +199,28 @@ function getOpenCodeToolRoute(toolName: string, shell: CommandToolKind): ToolRou
 function resolveOpenCodeExecutionCwd(
   configCwd: string,
   toolInput: unknown,
+  workdirHome: string | undefined,
 ): string | CwdDenial | null {
   if (!toolInput || typeof toolInput !== 'object' || Array.isArray(toolInput)) return configCwd;
   if (!Object.hasOwn(toolInput, 'workdir')) return configCwd;
 
   const workdir = (toolInput as Record<string, unknown>).workdir;
   if (typeof workdir !== 'string' || workdir.trim() === '') return null;
-  const resolvedWorkdir =
+  const normalizedWorkdir =
     process.platform === 'win32' ? normalizeOpenCodeWindowsWorkdir(workdir) : workdir;
+  const isHomeRelative =
+    normalizedWorkdir.startsWith('~/') ||
+    (process.platform === 'win32' && normalizedWorkdir.startsWith('~\\'));
+  const hostWorkdir =
+    workdirHome === undefined
+      ? normalizedWorkdir
+      : normalizedWorkdir === '~'
+        ? workdirHome
+        : isHomeRelative
+          ? join(workdirHome, normalizedWorkdir.slice(2))
+          : normalizedWorkdir;
 
-  const executionCwd = resolve(configCwd, resolvedWorkdir);
+  const executionCwd = resolve(configCwd, hostWorkdir);
   return isUsableDirectory(executionCwd)
     ? executionCwd
     : { directory: 'requested', problem: 'unusable', cwd: workdir };
