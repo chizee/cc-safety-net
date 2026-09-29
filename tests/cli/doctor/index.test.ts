@@ -176,6 +176,27 @@ describe('doctor --json', () => {
     });
   }, 120_000);
 
+  test('an OpenCode v2 without a cc-safety-net entry is never asked for its plugin inventory', async () => {
+    const opencode = { readLog: (): string[] => [] };
+    await runCliCommand(
+      {
+        args: ['doctor', '--json', '--skip-update-check'],
+        seed: (side) => {
+          opencode.readLog = createFakeBin(side.root, [
+            { command: 'opencode', args: ['--version'], stdout: '2.0.19\n' },
+          ]).readLog;
+          seedFiles(side, {
+            'home/.config/opencode/opencode.json': '{"plugins":["other@latest"]}',
+          });
+        },
+      },
+      (environment) => runDoctor(environment, { json: true, skipUpdateCheck: true }),
+    );
+    expect(opencode.readLog().filter((line) => line.startsWith('opencode '))).toEqual([
+      'opencode --version\t<root>/project',
+    ]);
+  }, 120_000);
+
   test('both scopes report their own invalid rule config', async () => {
     const { report } = await runDoctorJson('invalid-configs', {
       seed: (side) => {

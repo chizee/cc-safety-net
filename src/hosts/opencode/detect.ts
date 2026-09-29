@@ -31,14 +31,16 @@ export function detect(context: DetectContext): HookDetection {
         const config: unknown = JSON.parse(json);
 
         if (hasOpenCodePlugin(config)) {
-          const failure = readPluginInventory(context.openCodePluginListOutput)
+          const states = readPluginInventory(context.openCodePluginListOutput)
             .filter(
               (row) =>
                 readRecord(row, 'id') === 'cc-safety-net' ||
                 isManagedPlugin(readRecord(readRecord(row, 'source'), 'target')),
             )
-            .map((row) => readRecord(row, 'state'))
-            .find((state) => readRecord(state, 'status') === 'failed');
+            .map((row) => readRecord(row, 'state'));
+          const failure = states.some((state) => readRecord(state, 'status') === 'active')
+            ? undefined
+            : states.find((state) => readRecord(state, 'status') === 'failed');
           if (failure) {
             return {
               platform: 'opencode',

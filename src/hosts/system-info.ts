@@ -160,6 +160,7 @@ function parseVersion(output: string | null): string | null {
 }
 
 export async function getSystemInfo(
+  hasOpenCodeEntry: (openCodeVersion: string) => boolean,
   fetcher: VersionFetcher = defaultVersionFetcher,
 ): Promise<SystemInfo> {
   const versionProbes = Promise.all(
@@ -179,7 +180,8 @@ export async function getSystemInfo(
   ] = await Promise.all([
     versionProbes,
     versionProbes.then(async (entries) => {
-      if (!entries.find(([id]) => id === 'opencode')?.[1]?.startsWith('2.')) return null;
+      const openCodeVersion = entries.find(([id]) => id === 'opencode')?.[1];
+      if (!openCodeVersion?.startsWith('2.') || !hasOpenCodeEntry(openCodeVersion)) return null;
       const location = ['--param', `location[directory]=${process.cwd()}`];
       const awaitPluginActivation = ['opencode', 'api', 'integration.list', ...location];
       await fetcher(awaitPluginActivation, 30_000);

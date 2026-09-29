@@ -83,10 +83,13 @@ describe('the system report', () => {
   test('probes every host once and parses whatever each one printed', async () => {
     const record = async (report: typeof getSystemInfo) => {
       const calls: { args: string[]; timeoutMs: number | undefined }[] = [];
-      const info = await report(async (args, timeoutMs) => {
-        calls.push({ args, timeoutMs });
-        return FETCHED_OUTPUTS[calls.length % FETCHED_OUTPUTS.length] ?? null;
-      });
+      const info = await report(
+        () => true,
+        async (args, timeoutMs) => {
+          calls.push({ args, timeoutMs });
+          return FETCHED_OUTPUTS[calls.length % FETCHED_OUTPUTS.length] ?? null;
+        },
+      );
       return { calls, info };
     };
     const ported = await record(getSystemInfo);
@@ -106,7 +109,9 @@ describe('the system report', () => {
 
   test.each([
     [
+      '2.0.19 with a cc-safety-net entry',
       '2.0.19',
+      true,
       [
         {
           args: [
@@ -131,19 +136,31 @@ describe('the system report', () => {
       ],
       'plugin inventory',
     ],
-    ['1.18.33', [], null],
-  ])('asks OpenCode %s for its plugin inventory only on v2', async (version, apiCalls, output) => {
-    const calls: { args: string[]; timeoutMs: number | undefined }[] = [];
-    const info = await getSystemInfo(async (args, timeoutMs) => {
-      calls.push({ args, timeoutMs });
-      if (args.join(' ') === 'opencode --version') return version;
-      return args[2] === 'plugin.list' ? 'plugin inventory' : null;
-    });
-    expect(calls.filter((call) => call.args[0] === 'opencode' && call.args[1] === 'api')).toEqual(
-      apiCalls,
-    );
-    expect(info.openCodePluginListOutput).toBe(output);
-  });
+    ['2.0.19 without a cc-safety-net entry', '2.0.19', false, [], null],
+    ['1.18.33 with a cc-safety-net entry', '1.18.33', true, [], null],
+  ])(
+    'asks OpenCode %s for its plugin inventory only on v2 with the entry',
+    async (_case, version, hasEntry, apiCalls, output) => {
+      const calls: { args: string[]; timeoutMs: number | undefined }[] = [];
+      const entryChecks: string[] = [];
+      const info = await getSystemInfo(
+        (openCodeVersion) => {
+          entryChecks.push(openCodeVersion);
+          return hasEntry;
+        },
+        async (args, timeoutMs) => {
+          calls.push({ args, timeoutMs });
+          if (args.join(' ') === 'opencode --version') return version;
+          return args[2] === 'plugin.list' ? 'plugin inventory' : null;
+        },
+      );
+      expect(entryChecks).toEqual(version.startsWith('2.') ? [version] : []);
+      expect(calls.filter((call) => call.args[0] === 'opencode' && call.args[1] === 'api')).toEqual(
+        apiCalls,
+      );
+      expect(info.openCodePluginListOutput).toBe(output);
+    },
+  );
 
   test('reports the build-time package version', () => {
     expect(getPackageVersion()).toBe('dev');

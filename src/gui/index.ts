@@ -50,6 +50,7 @@ import { getIntegrationDisplayName, installIntegrationMetadata } from '@/hosts/c
 import { detectAllHooks } from '@/hosts/detect/index';
 import type { SystemInfo, UpdateInfo } from '@/hosts/doctor-types';
 import { INSTALL_TARGETS, type InstallAction, type InstallTarget } from '@/hosts/install/targets';
+import { detect as detectOpenCode } from '@/hosts/opencode/detect';
 import { getPackageVersion, getSystemInfo, type VersionFetcher } from '@/hosts/system-info';
 import { getActivityFeed } from './activity';
 import {
@@ -690,7 +691,11 @@ export async function fetchIntegrations(
   environment: Environment,
   probe: { fetcher?: VersionFetcher } = {},
 ): Promise<IntegrationsStatus> {
-  const systemInfo = await getSystemInfo(probe.fetcher);
+  const systemInfo = await getSystemInfo(
+    (openCodeVersion) =>
+      detectOpenCode({ environment, cwd: process.cwd(), openCodeVersion }).status !== 'n/a',
+    probe.fetcher,
+  );
   const hookStatuses = detectHooksFromSystemInfo(environment, systemInfo);
   return {
     targets: installIntegrationMetadata.map((meta) => {

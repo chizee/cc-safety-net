@@ -198,6 +198,13 @@ describe('on OpenCode v2 with the plugin inventory', () => {
         }),
       ),
     ],
+    [
+      'an active row beside a failed reload of it',
+      inventory(
+        failedRow({ id: 'cc-safety-net', state: { status: 'active' } }),
+        failedRow({ state: { status: 'failed', error: 'Plugin failed to load', ref: 'err_1' } }),
+      ),
+    ],
     ['no inventory', null],
     ['an unreadable inventory', 'not json'],
     ['an inventory without the plugin', inventory()],
