@@ -26,6 +26,7 @@ const NOTHING_PROBED: DoctorFacts['system'] = {
   versions: {},
   codexPluginListOutput: null,
   ampPluginListOutput: null,
+  openCodePluginListOutput: null,
   nodeVersion: null,
   npmVersion: null,
   bunVersion: null,

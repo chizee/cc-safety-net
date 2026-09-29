@@ -14,7 +14,7 @@ import {
   seedFiles,
 } from '../../helpers/cli-differential';
 import { json } from '../../helpers/cli-fixtures';
-import { createFakeBin } from '../../helpers/fake-bin';
+import { createFakeBin, type FakeScriptEntry } from '../../helpers/fake-bin';
 import { foldWindowsPosture, normalizeDoctorJson } from '../../helpers/doctor-json';
 import { environmentFor, removeTempRoots } from '../../helpers/temp-home';
 
@@ -33,6 +33,27 @@ async function runDoctorJson(slug: string, row: Omit<CliRow, 'args'>) {
   const outcome = { ...result, stdout: foldWindowsPosture(result.stdout) };
   expect(normalizeDoctorJson(outcome.stdout)).toMatchSnapshot(slug);
   return { outcome, report: JSON.parse(outcome.stdout) as DoctorReport };
+}
+
+async function doctorOpenCodeV2Hook(seed: (side: CliSide) => readonly FakeScriptEntry[]) {
+  const result = await runCliCommand(
+    {
+      args: ['doctor', '--json', '--skip-update-check'],
+      seed: (side) => {
+        createFakeBin(side.root, [
+          { command: 'opencode', args: ['--version'], stdout: '2.0.19\n' },
+          ...seed(side),
+        ]);
+        seedFiles(side, {
+          'home/.config/opencode/opencode.json': '{"plugins":["cc-safety-net@latest"]}',
+        });
+      },
+    },
+    (environment) => runDoctor(environment, { json: true, skipUpdateCheck: true }),
+  );
+  return (JSON.parse(result.stdout) as DoctorReport).hooks.find(
+    (hook) => hook.platform === 'opencode',
+  );
 }
 
 const mkdirPrivate = (path: string) => mkdirSync(path, { recursive: true, mode: 0o700 });
@@ -123,23 +144,36 @@ describe('doctor --json', () => {
   }, 120_000);
 
   test('an OpenCode v2 entry outside OPENCODE_CONFIG_DIR is not reported configured', async () => {
-    const result = await runCliCommand(
+    const hook = await doctorOpenCodeV2Hook((side) => {
+      side.env.OPENCODE_CONFIG_DIR = join(side.home, 'native-config');
+      return [];
+    });
+    expect(hook?.configured).toBe(false);
+  }, 120_000);
+
+  test('an OpenCode v2 plugin the host reports failed is detected but not configured', async () => {
+    const hook = await doctorOpenCodeV2Hook((side) => [
       {
-        args: ['doctor', '--json', '--skip-update-check'],
-        seed: (side) => {
-          side.env.OPENCODE_CONFIG_DIR = join(side.home, 'native-config');
-          createFakeBin(side.root, [
-            { command: 'opencode', args: ['--version'], stdout: '2.0.19\n' },
-          ]);
-          seedFiles(side, {
-            'home/.config/opencode/opencode.json': '{"plugins":["cc-safety-net@latest"]}',
-          });
-        },
+        command: 'opencode',
+        args: ['api', 'plugin.list'],
+        stdout: JSON.stringify({
+          location: { directory: side.home },
+          data: [
+            {
+              id: 'cc-safety-net',
+              source: { type: 'package', target: 'cc-safety-net@latest', version: '1.0.0' },
+              features: { server: true },
+              state: { status: 'failed', error: 'Error: invalid shell option' },
+            },
+          ],
+        }),
       },
-      (environment) => runDoctor(environment, { json: true, skipUpdateCheck: true }),
-    );
-    const report = JSON.parse(result.stdout) as DoctorReport;
-    expect(report.hooks.find((hook) => hook.platform === 'opencode')?.configured).toBe(false);
+    ]);
+    expect(hook).toMatchObject({
+      detected: true,
+      configured: false,
+      errors: ['OpenCode reports cc-safety-net failed: Error: invalid shell option'],
+    });
   }, 120_000);
 
   test('both scopes report their own invalid rule config', async () => {

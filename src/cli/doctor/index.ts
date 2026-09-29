@@ -71,6 +71,7 @@ async function collectDoctorReport(
     codexPluginListOutput: system.codexPluginListOutput,
     copilotCliVersion: system.versions['copilot-cli'],
     openCodeVersion: system.versions.opencode,
+    openCodePluginListOutput: system.openCodePluginListOutput,
   });
   const configInfo = getConfigInfo(environment, cwd);
   const environmentInfo = getEnvironmentInfo(environment);

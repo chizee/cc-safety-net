@@ -104,6 +104,47 @@ describe('the system report', () => {
     expect(ported.info.platform).toBe(`${process.platform} ${process.arch}`);
   });
 
+  test.each([
+    [
+      '2.0.19',
+      [
+        {
+          args: [
+            'opencode',
+            'api',
+            'integration.list',
+            '--param',
+            `location[directory]=${process.cwd()}`,
+          ],
+          timeoutMs: 30_000,
+        },
+        {
+          args: [
+            'opencode',
+            'api',
+            'plugin.list',
+            '--param',
+            `location[directory]=${process.cwd()}`,
+          ],
+          timeoutMs: 30_000,
+        },
+      ],
+      'plugin inventory',
+    ],
+    ['1.18.33', [], null],
+  ])('asks OpenCode %s for its plugin inventory only on v2', async (version, apiCalls, output) => {
+    const calls: { args: string[]; timeoutMs: number | undefined }[] = [];
+    const info = await getSystemInfo(async (args, timeoutMs) => {
+      calls.push({ args, timeoutMs });
+      if (args.join(' ') === 'opencode --version') return version;
+      return args[2] === 'plugin.list' ? 'plugin inventory' : null;
+    });
+    expect(calls.filter((call) => call.args[0] === 'opencode' && call.args[1] === 'api')).toEqual(
+      apiCalls,
+    );
+    expect(info.openCodePluginListOutput).toBe(output);
+  });
+
   test('reports the build-time package version', () => {
     expect(getPackageVersion()).toBe('dev');
   });

@@ -170,7 +170,7 @@ function parseOpenCodeConfig(content: string, configPath: string) {
   }
 }
 
-function isManagedPlugin(plugin: unknown) {
+export function isManagedPlugin(plugin: unknown) {
   const spec = typeof plugin === 'string' ? plugin : readRecord(plugin, 'package');
   return (
     typeof spec === 'string' &&
