@@ -95,8 +95,18 @@ function inspectFile(
   }
 }
 
+function pluginDirOrError(environment: Environment): { path: string } | { error: string } {
+  try {
+    return { path: getHermesAgentPluginDir(environment) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export function detect(context: DetectContext): HookDetection {
-  const configPath = getHermesAgentPluginDir(context.environment);
+  const pluginDir = pluginDirOrError(context.environment);
+  if ('error' in pluginDir) return { platform: PLATFORM, status: 'n/a', errors: [pluginDir.error] };
+  const configPath = pluginDir.path;
   const unusable = inspectManagedPluginDir(PLATFORM, configPath);
   if (unusable) return unusable;
 

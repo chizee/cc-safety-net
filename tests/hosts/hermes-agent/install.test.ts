@@ -108,6 +108,70 @@ describe('the Hermes Agent plugin directory differential', () => {
 
     expectHermesRow(steps, { dir, alreadyInstalled: false });
   });
+
+  test.each([
+    [
+      'a sticky profile under the default home',
+      {},
+      { '.hermes/active_profile': 'work\n' },
+      '.hermes/profiles/work',
+    ],
+    [
+      'a sticky profile named in mixed case, lowercased',
+      {},
+      { '.hermes/active_profile': 'Work\n' },
+      '.hermes/profiles/work',
+    ],
+    [
+      'a sticky default profile, which is the home itself',
+      {},
+      { '.hermes/active_profile': 'default\n' },
+      '.hermes',
+    ],
+    [
+      'a sticky DEFAULT profile, matched case-insensitively',
+      {},
+      { '.hermes/active_profile': ' DEFAULT \n' },
+      '.hermes',
+    ],
+    ['an empty sticky profile file', {}, { '.hermes/active_profile': '  \n' }, '.hermes'],
+    [
+      'a sticky profile under a HERMES_HOME root',
+      { HERMES_HOME: '<home>/hermes-root' },
+      { 'hermes-root/active_profile': 'work\n' },
+      'hermes-root/profiles/work',
+    ],
+    [
+      'a HERMES_HOME that already names a profile, ignoring the sticky one',
+      { HERMES_HOME: '<home>/hermes-root/profiles/p' },
+      { 'hermes-root/active_profile': 'work\n' },
+      'hermes-root/profiles/p',
+    ],
+  ])('follows %s', async (_case, env, seed, hermesDir) => {
+    const dir = `${hermesDir}/plugins/cc-safety-net`;
+    const { steps } = await row(seed, env);
+
+    expectHermesRow(steps, { dir, alreadyInstalled: false });
+  });
+
+  test('refuses a sticky profile name that would leave the profiles directory', async () => {
+    const seed = { '.hermes/active_profile': '../escape\n' };
+    const message =
+      'Invalid Hermes profile name "../escape" in <home>/.hermes/active_profile; run `hermes profile use <name>` with a valid profile.';
+    const { steps, tree } = await row(seed);
+
+    expect({
+      install: steps?.install.result,
+      detected: steps?.install.detection,
+      uninstall: steps?.uninstall.result,
+      hermes: entriesUnder(tree, '.hermes'),
+    }).toEqual({
+      install: { ok: false, error: { name: 'Error', message } },
+      detected: { platform: 'hermes-agent', status: 'n/a', errors: [message] },
+      uninstall: { ok: false, error: { name: 'Error', message } },
+      hermes: { '.hermes': 'directory', ...seed },
+    });
+  });
 });
 
 describe('refusing a managed path that is not ours', () => {
