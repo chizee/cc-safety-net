@@ -18,6 +18,7 @@ import { installAmp, uninstallAmp } from '@/hosts/amp/install';
 import { installAntigravityCli, uninstallAntigravityCli } from '@/hosts/antigravity-cli/install';
 import { getIntegrationDisplayName } from '@/hosts/catalog';
 import { detectClaudeCode, hasClaudeInstalledPlugin } from '@/hosts/claude-code/detect';
+import { CODEX_TRUST_HINT } from '@/hosts/codex/detect';
 import { _getCopilotConfigHome } from '@/hosts/copilot-cli/detect';
 import {
   COPILOT_LEGACY_PLUGIN_DIR,
@@ -221,8 +222,7 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
       ['codex', 'plugin', 'remove', 'cc-safety-net@cc-marketplace'],
       ['codex', 'plugin', 'marketplace', 'remove', 'cc-marketplace'],
     ],
-    postInstallMessage:
-      'Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it.',
+    postInstallMessage: CODEX_TRUST_HINT,
   },
   'copilot-cli': {
     installCommands: async () => {

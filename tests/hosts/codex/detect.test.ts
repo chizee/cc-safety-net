@@ -45,6 +45,14 @@ test('reports an installed row the user switched off, and says what it must say'
 test('reports an installed and enabled row as configured', async () => {
   expect(await detection(row('installed, enabled'))).toEqual({
     kind: 'returned',
-    value: { platform: 'codex', status: 'configured', method: LISTING, configPath: LISTING },
+    value: {
+      platform: 'codex',
+      status: 'configured',
+      method: LISTING,
+      configPath: LISTING,
+      errors: [
+        'Codex runs only trusted hooks, and doctor cannot check trust. Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it.',
+      ],
+    },
   });
 });
