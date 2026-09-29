@@ -65,7 +65,7 @@ const adapters = [
       timestamp: Date.now(),
       cwd,
       toolName: 'bash',
-      toolArgs: JSON.stringify({ command }),
+      toolArgs: { command, description: 'Run the command' },
     }),
     denyReason: (output: Record<string, unknown>) => {
       expect(output.permissionDecision).toBe('deny');

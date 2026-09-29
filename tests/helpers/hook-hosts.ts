@@ -95,6 +95,22 @@ const OUTCOMES: Readonly<Record<string, HookOutcome>> = {
   'an allowed PowerShell command': { document: 'none', audit: 'allow' },
   'a destructive Monitor command': { document: 'deny', audit: 'deny', ruleId: 'git.reset-hard' },
   'a Monitor watch without a command': { document: 'none', audit: 'none' },
+  'a PowerShell removal Copilot sends as Bash': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'powershell.remove-item-recursive-force-root-or-home',
+  },
+  'a denied command in object tool args': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'git.reset-hard',
+  },
+  'an allowed command in object tool args': { document: 'none', audit: 'allow' },
+  'a raw apply_patch string onto a private key': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'secret.home.ssh',
+  },
   'a Grep over a private key directory in paths': {
     document: 'deny',
     audit: 'deny',
@@ -359,6 +375,13 @@ const HOST_SPECS: readonly HostSpec[] = [
         }),
       },
       {
+        name: 'a PowerShell removal Copilot sends as Bash',
+        stdin: claudePayload(fixture, {
+          tool_input: { command: 'Remove-Item -Recurse -Force $HOME' },
+        }),
+        env: { COPILOT_CLI: '1' },
+      },
+      {
         name: 'a Grep over a private key directory in paths',
         stdin: claudePayload(fixture, {
           tool_name: 'Grep',
@@ -446,6 +469,25 @@ const HOST_SPECS: readonly HostSpec[] = [
     extraRows: (fixture) => [
       { name: 'tool args that are not a string', stdin: copilotPayload(fixture, { toolArgs: 5 }) },
       { name: 'tool args that are not JSON', stdin: copilotPayload(fixture, { toolArgs: '{' }) },
+      {
+        name: 'a denied command in object tool args',
+        stdin: copilotPayload(fixture, {
+          toolArgs: { command: 'git reset --hard', description: 'Reset the tree' },
+        }),
+      },
+      {
+        name: 'an allowed command in object tool args',
+        stdin: copilotPayload(fixture, {
+          toolArgs: { command: 'git status --short', description: 'Show working tree status' },
+        }),
+      },
+      {
+        name: 'a raw apply_patch string onto a private key',
+        stdin: copilotPayload(fixture, {
+          toolName: 'apply_patch',
+          toolArgs: `*** Begin Patch\n*** Update File: ${join(fixture.home, '.ssh', 'id_rsa')}\n@@\n-a\n+b\n*** End Patch\n`,
+        }),
+      },
       {
         name: 'a powershell command',
         stdin: copilotPayload(fixture, {

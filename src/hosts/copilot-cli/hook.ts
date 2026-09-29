@@ -7,7 +7,7 @@ interface CopilotCliHookInput {
   timestamp: number;
   cwd: string;
   toolName: string;
-  toolArgs: string;
+  toolArgs: unknown;
 }
 
 interface CopilotCliHookOutput {
@@ -36,17 +36,23 @@ export async function runCopilotCliHook(): Promise<void> {
     isSupported: () => true,
     getToolName: (input) => input.toolName,
     getToolInput: (input, toolName, outputDeny) => {
+      const route = getCopilotCliToolRoute(toolName);
+      if (typeof input.toolArgs === 'object' && input.toolArgs !== null) {
+        return { ok: true, input: input.toolArgs, route };
+      }
       if (typeof input.toolArgs !== 'string') {
         outputDeny({ reason: 'Failed to parse toolArgs JSON.' });
         return { ok: false };
       }
+      const isRawPatch = route.kind === 'patch' && !input.toolArgs.trimStart().startsWith('{');
+      if (isRawPatch) return { ok: true, input: input.toolArgs, route };
       const toolInput = parseHookJson<unknown>(
         input.toolArgs,
         outputDeny,
         'Failed to parse toolArgs JSON.',
       );
       if (toolInput === undefined) return { ok: false };
-      return { ok: true, input: toolInput, route: getCopilotCliToolRoute(toolName) };
+      return { ok: true, input: toolInput, route };
     },
     getContext: getStandardHookContext,
     getSessionId: (input) =>
