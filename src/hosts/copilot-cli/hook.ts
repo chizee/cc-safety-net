@@ -44,7 +44,8 @@ export async function runCopilotCliHook(): Promise<void> {
         outputDeny({ reason: 'Failed to parse toolArgs JSON.' });
         return { ok: false };
       }
-      const isRawPatch = route.kind === 'patch' && !input.toolArgs.trimStart().startsWith('{');
+      const isRawPatch =
+        route.kind === 'patch' && input.toolArgs.trimStart().startsWith('*** Begin Patch');
       if (isRawPatch) return { ok: true, input: input.toolArgs, route };
       const toolInput = parseHookJson<unknown>(
         input.toolArgs,

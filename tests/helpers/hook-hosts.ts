@@ -111,6 +111,11 @@ const OUTCOMES: Readonly<Record<string, HookOutcome>> = {
     audit: 'deny',
     ruleId: 'secret.home.ssh',
   },
+  'a JSON-encoded apply_patch string onto a private key': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'secret.home.ssh',
+  },
   'a Grep over a private key directory in paths': {
     document: 'deny',
     audit: 'deny',
@@ -287,6 +292,9 @@ const copilotPayload = (fixture: HookFixture, overrides: Record<string, unknown>
     toolArgs: JSON.stringify({ command: 'git status' }),
     ...overrides,
   });
+
+const privateKeyPatch = (fixture: HookFixture) =>
+  `*** Begin Patch\n*** Update File: ${join(fixture.home, '.ssh', 'id_rsa')}\n@@\n-a\n+b\n*** End Patch\n`;
 
 const cursorPayload = (fixture: HookFixture, overrides: Record<string, unknown>) =>
   JSON.stringify({
@@ -485,7 +493,14 @@ const HOST_SPECS: readonly HostSpec[] = [
         name: 'a raw apply_patch string onto a private key',
         stdin: copilotPayload(fixture, {
           toolName: 'apply_patch',
-          toolArgs: `*** Begin Patch\n*** Update File: ${join(fixture.home, '.ssh', 'id_rsa')}\n@@\n-a\n+b\n*** End Patch\n`,
+          toolArgs: privateKeyPatch(fixture),
+        }),
+      },
+      {
+        name: 'a JSON-encoded apply_patch string onto a private key',
+        stdin: copilotPayload(fixture, {
+          toolName: 'apply_patch',
+          toolArgs: JSON.stringify(privateKeyPatch(fixture)),
         }),
       },
       {
