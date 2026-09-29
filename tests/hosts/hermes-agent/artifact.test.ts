@@ -71,16 +71,25 @@ def get_session_cwd(session_key):
     return RECORDS.get(session_key)
 `;
 
-const FILE_TOOLS_PATHS_STUB = `from pathlib import PurePosixPath
+const RESOLVE_BASE_DIR_STUB = `from pathlib import PurePosixPath
 
 
 def _resolve_base_dir(task_id="default", *, container_paths=None):
     return PurePosixPath("/workspaces") / task_id
 `;
 
+const FILE_TOOLS_LAYOUTS = {
+  split: {
+    'file_tools_paths.py': RESOLVE_BASE_DIR_STUB,
+    'file_tools.py': 'from tools.file_tools_paths import _resolve_base_dir\n',
+  },
+  inline: { 'file_tools.py': RESOLVE_BASE_DIR_STUB },
+  absent: {},
+};
+
 function runPlugin(
   call: { tool_name: string; args: Record<string, unknown>; task_id: string },
-  options: { fileToolsPaths: boolean; terminalCwd?: string },
+  options: { fileTools: keyof typeof FILE_TOOLS_LAYOUTS; terminalCwd?: string },
 ) {
   const root = createTempRoot('ccsn-hermes-plugin-');
   const pluginPath = join(root, '__init__.py');
@@ -93,8 +102,8 @@ function runPlugin(
     'def get_current_session_key(default="default"):\n    return default\n',
   );
   writeFileSync(join(tools, 'terminal_tool.py'), TERMINAL_TOOL_STUB);
-  if (options.fileToolsPaths)
-    writeFileSync(join(tools, 'file_tools_paths.py'), FILE_TOOLS_PATHS_STUB);
+  for (const [name, source] of Object.entries(FILE_TOOLS_LAYOUTS[options.fileTools]))
+    writeFileSync(join(tools, name), source);
   const payloadPath = join(root, 'payload.json');
   const binDir = writeFakeCommands(root, {
     npx: 'writeFileSync(process.env.CCSN_TEST_PAYLOAD ?? "", await Bun.stdin.text());',
@@ -157,17 +166,28 @@ describe.skipIf(!python3Bin)('the Hermes Agent plugin under python3', () => {
       cwd: '/workspaces/task-9',
     },
   ])('sends the directory Hermes uses: $name', (row) => {
-    const result = runPlugin(row.call, { fileToolsPaths: true, terminalCwd: row.terminalCwd });
+    const result = runPlugin(row.call, { fileTools: 'split', terminalCwd: row.terminalCwd });
 
     expect(result.stderr).toBe('');
     expect(result.directive).toBeNull();
     expect(result.payload?.cwd).toBe(row.cwd);
   });
 
+  test('reads the base directory where Hermes before v2026.9.7 defines it', () => {
+    const result = runPlugin(
+      { tool_name: 'read_file', args: { path: 'notes.txt' }, task_id: 'task-7' },
+      { fileTools: 'inline' },
+    );
+
+    expect(result.stderr).toBe('');
+    expect(result.directive).toBeNull();
+    expect(result.payload?.cwd).toBe('/workspaces/task-7');
+  });
+
   test('blocks a file tool when the Hermes file tool directory cannot be read', () => {
     const result = runPlugin(
       { tool_name: 'read_file', args: { path: 'notes.txt' }, task_id: 'task-7' },
-      { fileToolsPaths: false },
+      { fileTools: 'absent' },
     );
 
     expect(result.stderr).toBe('');
@@ -175,7 +195,7 @@ describe.skipIf(!python3Bin)('the Hermes Agent plugin under python3', () => {
     expect(result.directive).toEqual({
       action: 'block',
       message:
-        "CC Safety Net failed closed: the Hermes file tool directory could not be read (No module named 'tools.file_tools_paths'). Update cc-safety-net and reinstall the plugin with: npx -y cc-safety-net install --hermes-agent.",
+        "CC Safety Net failed closed: the Hermes file tool directory could not be read (No module named 'tools.file_tools'). Update cc-safety-net and reinstall the plugin with: npx -y cc-safety-net install --hermes-agent.",
     });
   });
 });

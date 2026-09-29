@@ -74,11 +74,11 @@ def _terminal_cwd(task_id):
 def _file_tool_cwd(task_id):
     """Return the directory Hermes resolves this file tool's relative paths against.
 
-    tools/file_tools.py passes \`task_id or "default"\` to \`_resolve_base_dir\` in
-    tools/file_tools_paths.py, which walks the session's cwd record, the task's cwd override,
-    \`TERMINAL_CWD\`, then the process directory.
+    tools/file_tools.py passes \`task_id or "default"\` to \`_resolve_base_dir\`, which walks the
+    session's cwd record, the task's cwd override, \`TERMINAL_CWD\`, then the process directory.
+    tools.file_tools defines it up to v2026.8.31 and re-exports it from tools.file_tools_paths since.
     """
-    from tools.file_tools_paths import _resolve_base_dir
+    from tools.file_tools import _resolve_base_dir
 
     return str(_resolve_base_dir(task_id or "default"))
 
