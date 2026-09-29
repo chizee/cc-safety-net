@@ -15,6 +15,9 @@ import {
 const OPENCLAW_ARTIFACT_RELATIVE = join('openclaw', OPENCLAW_PLUGIN_ID);
 
 export const OPENCLAW_ENABLE_HINT = `run \`openclaw plugins enable ${OPENCLAW_PLUGIN_ID}\``;
+const OPENCLAW_RELOAD_SUPERSEDED = 'config reload superseded by a newer runtime config source';
+const OPENCLAW_ENABLE_ATTEMPTS = 3;
+const OPENCLAW_ENABLE_RETRY_MS = 500;
 
 const INSTALLED_PLUGIN_FILES = [
   OPENCLAW_PLUGIN_ENTRY_FILE,
@@ -127,6 +130,18 @@ function readOpenClawPluginStatus(inspectOutput: string): string | undefined {
   return typeof status === 'string' ? status : undefined;
 }
 
+async function enableOpenClawPlugin(attempt = 1): Promise<void> {
+  await runNativeCommand(['openclaw', 'plugins', 'enable', OPENCLAW_PLUGIN_ID]).catch(
+    async (error: unknown) => {
+      const supersededByInstallReload =
+        error instanceof Error && error.message.includes(OPENCLAW_RELOAD_SUPERSEDED);
+      if (!supersededByInstallReload || attempt === OPENCLAW_ENABLE_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, OPENCLAW_ENABLE_RETRY_MS));
+      await enableOpenClawPlugin(attempt + 1);
+    },
+  );
+}
+
 export async function verifyOpenClawPluginRuntime(enableIfDisabled: boolean): Promise<void> {
   const inspectStatus = async () =>
     readOpenClawPluginStatus(
@@ -139,7 +154,7 @@ export async function verifyOpenClawPluginRuntime(enableIfDisabled: boolean): Pr
     );
   const firstStatus = await inspectStatus();
   const enable = firstStatus === 'disabled' && enableIfDisabled;
-  if (enable) await runNativeCommand(['openclaw', 'plugins', 'enable', OPENCLAW_PLUGIN_ID]);
+  if (enable) await enableOpenClawPlugin();
   const status = enable ? await inspectStatus() : firstStatus;
   if (status === 'loaded') return;
   throw new Error(

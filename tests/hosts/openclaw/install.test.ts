@@ -237,6 +237,7 @@ describe('verifying that the installed plugin actually loads', () => {
   const INSPECT_CALL = `openclaw ${INSPECT_ARGS.join(' ')}`;
   const ENABLE_CALL = 'openclaw plugins enable cc-safety-net';
   const enableSucceeds = { command: 'openclaw', args: ['plugins', 'enable', 'cc-safety-net'] };
+  const RELOAD_SUPERSEDED = 'Error: config reload superseded by a newer runtime config source';
   const verify = async (script: readonly FakeScriptEntry[], enableIfDisabled = false) => {
     const bin = createFakeBin(createTempRoot('next-openclaw-verify-'), script);
     const outcome = await withProcessEnv(bin.env, () =>
@@ -286,6 +287,53 @@ describe('verifying that the installed plugin actually loads', () => {
     ).toEqual({
       outcome: { kind: 'returned', value: undefined },
       calls: [INSPECT_CALL, ENABLE_CALL, INSPECT_CALL],
+    });
+  });
+
+  test('retries an enable the Gateway rejected while its install reload settled', async () => {
+    expect(
+      await verify(
+        [
+          reportStatus('disabled', 1),
+          { ...enableSucceeds, call: 1, stderr: `${RELOAD_SUPERSEDED}\n`, exit: 1 },
+          enableSucceeds,
+          reportStatus('loaded', 2),
+        ],
+        true,
+      ),
+    ).toEqual({
+      outcome: { kind: 'returned', value: undefined },
+      calls: [INSPECT_CALL, ENABLE_CALL, ENABLE_CALL, INSPECT_CALL],
+    });
+  });
+
+  test('stops retrying an enable the Gateway keeps rejecting', async () => {
+    expect(
+      await verify(
+        [
+          reportStatus('disabled'),
+          { ...enableSucceeds, stderr: `${RELOAD_SUPERSEDED}\n`, exit: 1 },
+        ],
+        true,
+      ),
+    ).toEqual({
+      outcome: {
+        kind: 'threw',
+        message: `Failed to run ${ENABLE_CALL} (exit 1).\n${RELOAD_SUPERSEDED}`,
+      },
+      calls: [INSPECT_CALL, ENABLE_CALL, ENABLE_CALL, ENABLE_CALL],
+    });
+  });
+
+  test('does not retry an enable that failed for another reason', async () => {
+    expect(
+      await verify(
+        [reportStatus('disabled'), { ...enableSucceeds, stderr: 'denied\n', exit: 1 }],
+        true,
+      ),
+    ).toEqual({
+      outcome: { kind: 'threw', message: `Failed to run ${ENABLE_CALL} (exit 1).\ndenied` },
+      calls: [INSPECT_CALL, ENABLE_CALL],
     });
   });
 
