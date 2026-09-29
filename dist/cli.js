@@ -46,8 +46,7 @@ provides_hooks:
 Registers pre_tool_call and forwards the tool call to the packaged CC Safety Net
 adapter (cc-safety-net hook --hermes-agent) over JSON stdin. The adapter prints nothing
 when the call is allowed and an {"action": "block", ...} directive when it is denied.
-Hermes ignores a callback that raises, so every transport and analysis failure is turned
-into an explicit block here instead.
+Every transport and analysis failure is returned as a block that names its cause.
 """
 
 import json
@@ -66,7 +65,7 @@ def _block(detail):
     return {"action": "block", "message": "CC Safety Net failed closed: " + detail}
 
 
-def _terminal_cwd(task_id, process_cwd):
+def _terminal_cwd(task_id):
     """Return the directory Hermes will run this terminal command in.
 
     A \`terminal\` call without \`workdir\` runs in the session's own cwd RECORD, not in the
@@ -84,8 +83,20 @@ def _terminal_cwd(task_id, process_cwd):
     return (
         get_session_cwd(get_current_session_key(default="") or (task_id or ""))
         or os.environ.get("TERMINAL_CWD")
-        or process_cwd
+        or os.getcwd()
     )
+
+
+def _file_tool_cwd(task_id):
+    """Return the directory Hermes resolves this file tool's relative paths against.
+
+    tools/file_tools.py passes \`task_id or "default"\` to \`_resolve_base_dir\` in
+    tools/file_tools_paths.py, which walks the session's cwd record, the task's cwd override,
+    \`TERMINAL_CWD\`, then the process directory.
+    """
+    from tools.file_tools_paths import _resolve_base_dir
+
+    return str(_resolve_base_dir(task_id or "default"))
 
 
 def _pre_tool_call(tool_name="", args=None, session_id="", task_id="", **_):
@@ -97,20 +108,17 @@ def _pre_tool_call(tool_name="", args=None, session_id="", task_id="", **_):
         return _block(ANALYZER[0] + " was not found on PATH.")
 
     try:
-        cwd = os.getcwd()
+        cwd = _terminal_cwd(task_id) if tool_name == "terminal" else _file_tool_cwd(task_id)
     except OSError as error:
         return _block("the working directory could not be resolved (%s)." % error)
-
-    if tool_name == "terminal":
-        try:
-            cwd = _terminal_cwd(task_id, cwd)
-        except ImportError as error:
-            # Without the session record we cannot tell which directory the command runs in,
-            # and analysing the wrong one clears every path-scoped protection.
-            return _block(
-                "the Hermes session directory could not be read (%s). Update cc-safety-net and "
-                "reinstall the plugin with: npx -y cc-safety-net install --hermes-agent." % error
-            )
+    except ImportError as error:
+        # Without Hermes' own directory lookup we cannot tell which directory the call acts in,
+        # and analysing the wrong one clears every path-scoped protection.
+        return _block(
+            "the Hermes %s directory could not be read (%s). Update cc-safety-net and "
+            "reinstall the plugin with: npx -y cc-safety-net install --hermes-agent."
+            % ("session" if tool_name == "terminal" else "file tool", error)
+        )
 
     payload = json.dumps(
         {
@@ -133,8 +141,8 @@ def _pre_tool_call(tool_name="", args=None, session_id="", task_id="", **_):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             # Decode explicitly: the analyzer writes UTF-8, and a locale decoder would raise
-            # UnicodeDecodeError on output it cannot read — an exception Hermes swallows by
-            # allowing the tool call. "replace" turns that into unreadable output, which blocks.
+            # UnicodeDecodeError on output it cannot read. "replace" turns that into unreadable
+            # output, which blocks with its cause named.
             encoding="utf-8",
             errors="replace",
             # Resolve the analyzer from a neutral directory: npx prefers a repository-local
