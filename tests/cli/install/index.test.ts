@@ -585,11 +585,16 @@ test('OpenCode installs only when the cached plugin actually exports a factory',
   });
 });
 
+const OPENCODE_V2_ACTIVATION_LOG = [
+  'opencode api integration.list --param location[directory]=<root>\t<root>',
+  'opencode api plugin.list --param location[directory]=<root>\t<root>',
+];
+
 test.each([
-  ['cc-safety-net  2.4.2  cc-safety-net@latest', 0],
-  ['-  2.4.2  cc-safety-net@latest', 1],
-  ['cc-safety-net  2.4.2  other-package@latest', 1],
-])('OpenCode v2 verifies the loaded plugin row %s', async (row, exitCode) => {
+  ['cc-safety-net  2.4.2  cc-safety-net@latest', 0, OPENCODE_V2_ACTIVATION_LOG],
+  ['-  2.4.2  cc-safety-net@latest', 1, []],
+  ['cc-safety-net  2.4.2  other-package@latest', 1, []],
+])('OpenCode v2 verifies the loaded plugin row %s', async (row, exitCode, activationLog) => {
   const result = await flow({
     invoke: 'install',
     args: ['--opencode'],
@@ -598,6 +603,7 @@ test.each([
   expect(result.exitCode).toBe(exitCode);
   expect(result.log).toEqual([
     'opencode --version\t<root>',
+    ...activationLog,
     'opencode plugin add cc-safety-net@latest\t<root>',
     'opencode plugin list\t<root>',
   ]);
@@ -626,6 +632,7 @@ test('OpenCode v2 first install does not run plugin update and succeeds', async 
         args: ['plugin', 'list'],
         stdout: 'ID             VERSION  SOURCE\ncc-safety-net  2.4.2    cc-safety-net@latest\n',
       },
+      ...openCodeV2Script(),
     ],
   });
   expect(result.exitCode).toBe(0);
@@ -633,6 +640,7 @@ test('OpenCode v2 first install does not run plugin update and succeeds', async 
   expect(result.lines).toContain('Installed OpenCode integration');
   expect(result.log).toEqual([
     'opencode --version\t<root>',
+    ...OPENCODE_V2_ACTIVATION_LOG,
     'opencode plugin add cc-safety-net@latest\t<root>',
     'opencode plugin list\t<root>',
   ]);
@@ -690,10 +698,45 @@ test('OpenCode v2 install waits for the plugin row to appear', async () => {
   expect(result.errors).toEqual([]);
   expect(result.log).toEqual([
     'opencode --version\t<root>',
+    ...OPENCODE_V2_ACTIVATION_LOG,
     'opencode plugin add cc-safety-net@latest\t<root>',
     'opencode plugin list\t<root>',
     'opencode plugin list\t<root>',
   ]);
+});
+
+test('OpenCode v2 install fails with the host error when the listed plugin failed setup', async () => {
+  const failedInventory = {
+    location: { directory: '/x' },
+    data: [
+      {
+        id: 'cc-safety-net',
+        source: { type: 'package', target: 'cc-safety-net@latest', version: '2.4.2' },
+        features: { server: true },
+        state: { status: 'failed', error: 'Error: boom\n    at setup' },
+      },
+    ],
+  };
+  const result = await flow({
+    invoke: 'install',
+    args: ['--opencode'],
+    script: [
+      {
+        command: 'opencode',
+        args: ['api', 'plugin.list'],
+        stdout: JSON.stringify(failedInventory),
+      },
+      ...openCodeV2Script(),
+    ],
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.errors).toEqual(['OpenCode reports cc-safety-net failed: Error: boom']);
+  expect(result.log).toContain(
+    'opencode api integration.list --param location[directory]=<root>\t<root>',
+  );
+  expect(result.log).toContain(
+    'opencode api plugin.list --param location[directory]=<root>\t<root>',
+  );
 });
 
 test.each([

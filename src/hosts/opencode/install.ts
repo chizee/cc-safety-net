@@ -110,10 +110,19 @@ export async function getOpenCodeInstallPlan(environment: Environment) {
           await runNativeCommand(['opencode', 'plugin', 'update', OPENCODE_CACHE_PACKAGE]);
         }
         const output = await waitForOpenCodePluginRow();
-        if (/^cc-safety-net\s+\S+\s+cc-safety-net@latest\s*$/m.test(output)) return;
-        throw new Error(
-          'OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.',
+        if (!/^cc-safety-net\s+\S+\s+cc-safety-net@latest\s*$/m.test(output)) {
+          throw new Error(
+            'OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.',
+          );
+        }
+        const location = ['--param', `location[directory]=${process.cwd()}`];
+        await runNativeCommand(['opencode', 'api', 'integration.list', ...location]);
+        const failure = findOpenCodePluginFailure(
+          await runNativeCommand(['opencode', 'api', 'plugin.list', ...location], {
+            stdoutOnly: true,
+          }),
         );
+        if (failure) throw new Error(failure);
       },
     };
   }
@@ -122,6 +131,30 @@ export async function getOpenCodeInstallPlan(environment: Environment) {
     commands: [['opencode', 'plugin', '-g', '-f', OPENCODE_CACHE_PACKAGE]] as const,
     afterInstall: () => verifyOpenCodePluginRuntime(environment),
   };
+}
+
+export function findOpenCodePluginFailure(pluginListOutput: string | null | undefined) {
+  const states = readPluginInventory(pluginListOutput)
+    .filter(
+      (row) =>
+        readRecord(row, 'id') === OPENCODE_PACKAGE ||
+        isManagedPlugin(readRecord(readRecord(row, 'source'), 'target')),
+    )
+    .map((row) => readRecord(row, 'state'));
+  if (states.some((state) => readRecord(state, 'status') === 'active')) return undefined;
+  const failure = states.find((state) => readRecord(state, 'status') === 'failed');
+  if (!failure) return undefined;
+  return `OpenCode reports cc-safety-net failed: ${String(readRecord(failure, 'error')).split('\n')[0]}`;
+}
+
+function readPluginInventory(output: string | null | undefined): unknown[] {
+  if (!output) return [];
+  try {
+    const rows = readRecord(JSON.parse(output), 'data');
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
 }
 
 async function waitForOpenCodePluginRow(attempt = 1): Promise<string> {
@@ -170,7 +203,7 @@ function parseOpenCodeConfig(content: string, configPath: string) {
   }
 }
 
-export function isManagedPlugin(plugin: unknown) {
+function isManagedPlugin(plugin: unknown) {
   const spec = typeof plugin === 'string' ? plugin : readRecord(plugin, 'package');
   return (
     typeof spec === 'string' &&

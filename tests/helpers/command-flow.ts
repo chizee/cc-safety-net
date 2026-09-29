@@ -49,6 +49,22 @@ export function openCodeV2Script(
     { command: 'opencode', args: ['plugin', 'add', 'cc-safety-net@latest'], stdout: addStdout },
     { command: 'opencode', args: ['plugin', 'update', 'cc-safety-net@latest'] },
     { command: 'opencode', args: ['plugin', 'list'], stdout: `ID  VERSION  SOURCE\n${row}\n` },
+    { command: 'opencode', args: ['api', 'integration.list'] },
+    {
+      command: 'opencode',
+      args: ['api', 'plugin.list'],
+      stdout: JSON.stringify({
+        location: { directory: '/x' },
+        data: [
+          {
+            id: 'cc-safety-net',
+            source: { type: 'package', target: 'cc-safety-net@latest' },
+            features: { server: true },
+            state: { status: 'active' },
+          },
+        ],
+      }),
+    },
   ];
 }
 
@@ -89,6 +105,7 @@ export async function runSide(spec: FlowSpec) {
   const args = spec.args ?? [];
   const previousCwd = process.cwd();
   process.chdir(root);
+  const reportedCwd = process.cwd();
   const run = (invoke: Invocation) =>
     invoke === 'update'
       ? runUpdateCommand(args, callOptions)
@@ -122,6 +139,12 @@ export async function runSide(spec: FlowSpec) {
       tree: snapshotHome(home),
       tmp: snapshotTree(tmp),
     },
-    [[home, '<home>'], [root, '<root>'], [REPO_ROOT, '<repo>'], ...WINDOWS_SEPARATOR_FOLDS],
+    [
+      [home, '<home>'],
+      [reportedCwd, '<root>'],
+      [root, '<root>'],
+      [REPO_ROOT, '<repo>'],
+      ...WINDOWS_SEPARATOR_FOLDS,
+    ],
   );
 }
