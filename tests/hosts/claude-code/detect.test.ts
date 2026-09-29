@@ -99,3 +99,44 @@ describe('asking whether a specific plugin id is installed', () => {
     expect(await legacyInstalled(seed)).toEqual({ kind: 'returned', value: false });
   });
 });
+
+describe('with CLAUDE_CONFIG_DIR naming another directory', () => {
+  const RELOCATED = { CLAUDE_CONFIG_DIR: '<home>/relocated' };
+  const RELOCATED_INSTALLED = 'relocated/plugins/installed_plugins.json';
+  const RELOCATED_SETTINGS = 'relocated/settings.json';
+  const relocatedInstall = (enabled: boolean) => ({
+    [RELOCATED_INSTALLED]: installedPlugins(PLUGIN_ID),
+    [RELOCATED_SETTINGS]: enabledPlugins(enabled),
+  });
+
+  test('reads the install record and settings from there', async () => {
+    expect(await detection(relocatedInstall(true), RELOCATED)).toEqual({
+      kind: 'returned',
+      value: { ...CONFIGURED, configPath: `<home>/${RELOCATED_INSTALLED}` },
+    });
+  });
+
+  test('reports the plugin disabled by the relocated settings', async () => {
+    expect(await detection(relocatedInstall(false), RELOCATED)).toEqual({
+      kind: 'returned',
+      value: { ...DISABLED, configPath: `<home>/${RELOCATED_SETTINGS}` },
+    });
+  });
+
+  test('ignores an install left in ~/.claude, which Claude Code no longer reads', async () => {
+    expect(await detection({ ...OURS, [SETTINGS]: enabledPlugins(true) }, RELOCATED)).toEqual({
+      kind: 'returned',
+      value: ABSENT,
+    });
+  });
+
+  test('finds a specific plugin id in the relocated install record', async () => {
+    expect(
+      (
+        await differential({ seed: relocatedInstall(true), env: RELOCATED }, (environment) =>
+          hasClaudeInstalledPlugin(environment, PLUGIN_ID),
+        )
+      ).outcome,
+    ).toEqual({ kind: 'returned', value: true });
+  });
+});

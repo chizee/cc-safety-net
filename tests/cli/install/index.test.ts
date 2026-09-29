@@ -510,6 +510,31 @@ test('Pi drops the extensions filter its settings carried', async () => {
   );
 });
 
+test('Pi drops the extensions filter from the settings under PI_CODING_AGENT_DIR', async () => {
+  const result = await flow({
+    invoke: 'install',
+    args: ['--pi'],
+    script: [{ command: 'pi' }],
+    env: { PI_CODING_AGENT_DIR: '<home>/pi-agent' },
+    seed: {
+      'pi-agent/settings.json':
+        '{"packages":[{"source":"npm:cc-safety-net","extensions":["-cc-safety-net"]}]}',
+    },
+  });
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    lines: [
+      'Installed Pi integration',
+      'Enabled npm:cc-safety-net extensions in <home>/pi-agent/settings.json',
+      '',
+    ],
+  });
+  expect(fileAt(result.tree, 'pi-agent/settings.json')).toBe(
+    `${JSON.stringify({ packages: [{ source: 'npm:cc-safety-net' }] }, null, 2)}\n`,
+  );
+});
+
 function fixtureDir(spec: TreeSpec): string {
   const dir = join(createTempRoot('cc-safety-net-fixture-'), 'fixture');
   mkdirSync(dir, { recursive: true });

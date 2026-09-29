@@ -35,6 +35,16 @@ test.each([
   ).toBe(expected);
 });
 
+test('reads plugin activation from the settings under CLAUDE_CONFIG_DIR', () => {
+  const home = createTempRoot('statusline-settings-');
+  writeTree(home, { 'relocated/settings.json': PLUGIN_SETTINGS });
+  expect(
+    isPluginEnabled(
+      environmentFor(home, isolationEnv(home, { CLAUDE_CONFIG_DIR: join(home, 'relocated') })),
+    ),
+  ).toBe(true);
+});
+
 test('malformed settings disable the plugin and report the path in debug mode', async () => {
   const home = createTempRoot('statusline-settings-');
   writeTree(home, { '.claude/settings.json': '{' });

@@ -280,3 +280,27 @@ test('a Copilot plugin checkout on disk is enough to update Copilot', async () =
   });
   expect(result.lines[0]).toBe('Updated GitHub Copilot CLI integration');
 });
+
+test('a Claude Code install under CLAUDE_CONFIG_DIR is found and updated', async () => {
+  const result = await flow({
+    invoke: 'update',
+    env: { CLAUDE_CONFIG_DIR: '<home>/relocated' },
+    seed: {
+      'relocated/plugins/installed_plugins.json':
+        '{"plugins":{"cc-safety-net@cc-marketplace":[{}]}}\n',
+      'relocated/settings.json': '{"enabledPlugins":{"cc-safety-net@cc-marketplace":true}}\n',
+    },
+    script: [{ command: 'claude' }],
+    options: () => versions(),
+  });
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    log: [
+      'claude --version\t<root>',
+      'claude plugin marketplace update cc-marketplace\t<root>',
+      'claude plugin update cc-safety-net@cc-marketplace\t<root>',
+    ].sort(),
+  });
+  expect(result.lines[0]).toBe('Updated Claude Code integration');
+});

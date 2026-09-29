@@ -9,6 +9,7 @@ import type { UpdateInfo } from '@/hosts/doctor-types';
 import { createFakeBin, type FakeScriptEntry } from './fake-bin';
 import { createFakeInput, createFakeOutput } from './fake-tty';
 import { snapshotTree, type TreeSpec, writeTree } from './fixture-tree';
+import { resolvePlaceholders } from './host-differential';
 import {
   createTempRoot,
   isolationEnv,
@@ -31,6 +32,7 @@ type Invocation = 'install' | 'uninstall' | 'update';
 export type FlowSpec = {
   seed?: TreeSpec;
   seedTmp?: TreeSpec;
+  env?: Record<string, string>;
   script?: readonly FakeScriptEntry[];
   extraCommands?: readonly string[];
   invoke: Invocation | readonly Invocation[];
@@ -91,13 +93,19 @@ export async function runSide(spec: FlowSpec) {
     invoke === 'update'
       ? runUpdateCommand(args, callOptions)
       : runInstallCommand(invoke, args, callOptions);
-  const exitCodes = await withProcessEnv(isolationEnv(home, { ...fakeBin.env, TMPDIR: tmp }), () =>
-    [spec.invoke]
-      .flat()
-      .reduce<Promise<number[]>>(
-        async (codes, invoke) => [...(await codes), await run(invoke)],
-        Promise.resolve([]),
-      ),
+  const exitCodes = await withProcessEnv(
+    isolationEnv(home, {
+      ...fakeBin.env,
+      TMPDIR: tmp,
+      ...resolvePlaceholders(spec.env, home),
+    }),
+    () =>
+      [spec.invoke]
+        .flat()
+        .reduce<Promise<number[]>>(
+          async (codes, invoke) => [...(await codes), await run(invoke)],
+          Promise.resolve([]),
+        ),
   ).finally(() => {
     process.chdir(previousCwd);
     console.error = reportedError;

@@ -2,7 +2,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Environment } from '@/core/environment';
-import { lstatOrUndefined, readRecord } from '@/hosts/detect/context';
+import { expandTilde, lstatOrUndefined, readRecord } from '@/hosts/detect/context';
 import { type NativeCommand, runNativeCommand } from '@/hosts/install/native';
 import {
   OPENCLAW_MANAGED_HEADER,
@@ -24,12 +24,6 @@ const INSTALLED_PLUGIN_FILES = [
   OPENCLAW_PLUGIN_MANIFEST_FILE,
   OPENCLAW_PLUGIN_PACKAGE_FILE,
 ];
-
-function expandTilde(value: string, homeDir: string): string {
-  if (value === '~') return homeDir;
-  if (value.startsWith('~/') || value.startsWith('~\\')) return join(homeDir, value.slice(2));
-  return value;
-}
 
 function getOpenClawHome(environment: Environment): string {
   const openClawHome = environment.env.get('OPENCLAW_HOME')?.trim();

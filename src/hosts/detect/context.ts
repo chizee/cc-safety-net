@@ -1,4 +1,5 @@
 import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Environment } from '@/core/environment';
 import type { HookPlatform } from '@/hosts/doctor-types';
 
@@ -33,6 +34,12 @@ export function readStateFile(
   } catch {
     return { kind: 'unreadable' };
   }
+}
+
+export function expandTilde(value: string, homeDir: string): string {
+  if (value === '~') return homeDir;
+  if (value.startsWith('~/') || value.startsWith('~\\')) return join(homeDir, value.slice(2));
+  return value;
 }
 
 export function lstatOrUndefined(path: string) {
