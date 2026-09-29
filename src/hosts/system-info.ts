@@ -162,6 +162,7 @@ function parseVersion(output: string | null): string | null {
 export async function getSystemInfo(
   hasOpenCodeEntry: (openCodeVersion: string) => boolean,
   fetcher: VersionFetcher = defaultVersionFetcher,
+  cwd = process.cwd(),
 ): Promise<SystemInfo> {
   const versionProbes = Promise.all(
     installIntegrationMetadata.map(
@@ -182,7 +183,7 @@ export async function getSystemInfo(
     versionProbes.then(async (entries) => {
       const openCodeVersion = entries.find(([id]) => id === 'opencode')?.[1];
       if (!openCodeVersion?.startsWith('2.') || !hasOpenCodeEntry(openCodeVersion)) return null;
-      const location = ['--param', `location[directory]=${process.cwd()}`];
+      const location = ['--param', `location[directory]=${cwd}`];
       const awaitPluginActivation = ['opencode', 'api', 'integration.list', ...location];
       await fetcher(awaitPluginActivation, 30_000);
       return fetcher(['opencode', 'api', 'plugin.list', ...location], 30_000);

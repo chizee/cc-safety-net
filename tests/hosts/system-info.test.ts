@@ -119,18 +119,12 @@ describe('the system report', () => {
             'api',
             'integration.list',
             '--param',
-            `location[directory]=${process.cwd()}`,
+            'location[directory]=/work/project',
           ],
           timeoutMs: 30_000,
         },
         {
-          args: [
-            'opencode',
-            'api',
-            'plugin.list',
-            '--param',
-            `location[directory]=${process.cwd()}`,
-          ],
+          args: ['opencode', 'api', 'plugin.list', '--param', 'location[directory]=/work/project'],
           timeoutMs: 30_000,
         },
       ],
@@ -153,6 +147,7 @@ describe('the system report', () => {
           if (args.join(' ') === 'opencode --version') return version;
           return args[2] === 'plugin.list' ? 'plugin inventory' : null;
         },
+        '/work/project',
       );
       expect(entryChecks).toEqual(version.startsWith('2.') ? [version] : []);
       expect(calls.filter((call) => call.args[0] === 'opencode' && call.args[1] === 'api')).toEqual(

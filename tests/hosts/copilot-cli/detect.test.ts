@@ -421,6 +421,15 @@ describe('the plugin checkout under the Copilot home', () => {
     expect(await detection({ ...INSTALLED, [USER_SETTINGS]: '{}' }, '1.0.8')).toEqual(pluginOn);
   });
 
+  test('keeps a standalone hook configured when the repository switches the plugin off', async () => {
+    expect(
+      await detection(
+        { ...INSTALLED, [REPO_SETTINGS]: pluginSwitch(false), [REPO_HOOK]: HOOK_FILE },
+        '1.0.8',
+      ),
+    ).toEqual(viaHooks([at(REPO_HOOK)]));
+  });
+
   test('applies a repository switch even when the user settings cannot be read', async () => {
     expect(
       await detection(

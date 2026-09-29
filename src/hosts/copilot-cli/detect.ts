@@ -350,7 +350,11 @@ export function detect(context: DetectContext): HookDetection {
     return { platform: 'copilot-cli', status: 'not-inspected' };
   }
 
-  if (pluginInstalled && pluginSource && readPluginSwitch(pluginSource.config) === false) {
+  const pluginSwitchedOff =
+    pluginInstalled &&
+    pluginSource !== undefined &&
+    readPluginSwitch(pluginSource.config) === false;
+  if (pluginSwitchedOff && hooksCheck.activeConfigPaths.length === 0) {
     return {
       platform: 'copilot-cli',
       status: 'disabled',
@@ -360,8 +364,8 @@ export function detect(context: DetectContext): HookDetection {
     };
   }
 
-  if (pluginInstalled || hooksCheck.activeConfigPaths.length > 0) {
-    const viaPlugin = pluginInstalled;
+  const viaPlugin = pluginInstalled && !pluginSwitchedOff;
+  if (viaPlugin || hooksCheck.activeConfigPaths.length > 0) {
     const primaryConfigPath = hooksCheck.activeConfigPaths[0];
     return {
       platform: 'copilot-cli',

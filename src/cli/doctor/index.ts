@@ -68,6 +68,8 @@ async function collectDoctorReport(
 
   const system = await getSystemInfo(
     (openCodeVersion) => detectOpenCode({ environment, cwd, openCodeVersion }).status !== 'n/a',
+    undefined,
+    cwd,
   );
   const hooks = detectAllHooks(environment, cwd, {
     ampPluginListOutput: system.ampPluginListOutput,
