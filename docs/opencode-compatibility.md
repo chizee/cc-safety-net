@@ -17,8 +17,10 @@ The installer checks the host version. For v2 it runs `opencode plugin add`, the
 `opencode plugin update` only when `add` reports the plugin already configured (the background
 service does not know a newly added plugin yet). It then waits up to about 15 seconds for the
 service to list the plugin and checks the package ID and source in `opencode plugin list`.
-That listing confirms discovery, not successful hook activation. Check OpenCode's diagnostics
-if the plugin fails to activate. As with v1, protection requires a loaded integration.
+That listing confirms discovery, not activation, so the installer then asks the host for
+activation state with the same check as `doctor` below. If OpenCode marks the plugin failed and
+no copy of it is active, the install fails with the first line of OpenCode's error. The GUI's
+Enable button runs this install. As with v1, protection requires a loaded integration.
 
 On v2, when the config OpenCode loads has a `cc-safety-net` entry, `doctor` and the GUI ask the
 host for activation state. They run `opencode api integration.list`, then
