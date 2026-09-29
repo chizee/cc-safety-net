@@ -36,10 +36,13 @@ export type FlowSpec = {
   options?: (home: string) => FlowOptions;
 };
 
-export function openCodeV2Script(row = 'cc-safety-net  2.4.2  cc-safety-net@latest') {
+export function openCodeV2Script(
+  row = 'cc-safety-net  2.4.2  cc-safety-net@latest',
+  addStdout = 'Plugin "cc-safety-net@latest" installed and added to <home>/.config/opencode/opencode.json\n',
+) {
   return [
     { command: 'opencode', args: ['--version'], stdout: '2.0.6\n' },
-    { command: 'opencode', args: ['plugin', 'add', 'cc-safety-net@latest'] },
+    { command: 'opencode', args: ['plugin', 'add', 'cc-safety-net@latest'], stdout: addStdout },
     { command: 'opencode', args: ['plugin', 'update', 'cc-safety-net@latest'] },
     { command: 'opencode', args: ['plugin', 'list'], stdout: `ID  VERSION  SOURCE\n${row}\n` },
   ];

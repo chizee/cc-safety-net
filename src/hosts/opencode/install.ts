@@ -16,6 +16,8 @@ import type { InstallResult } from '@/hosts/install/types';
 const OPENCODE_PACKAGE = 'cc-safety-net';
 const OPENCODE_CACHE_PACKAGE = `${OPENCODE_PACKAGE}@latest`;
 const OPENCODE_CONFIG_FILES = ['opencode.json', 'opencode.jsonc'] as const;
+const OPENCODE_PLUGIN_LIST_ATTEMPTS = 60;
+const OPENCODE_PLUGIN_LIST_INTERVAL_MS = 250;
 
 const OPENCODE_PLUGIN_EXPORT = 'CCSafetyNetPlugin';
 const OPENCODE_JSON_ERRORS = {
@@ -91,12 +93,16 @@ export async function getOpenCodeInstallPlan(environment: Environment) {
       }
     }
     return {
-      commands: [
-        ['opencode', 'plugin', 'add', OPENCODE_CACHE_PACKAGE],
-        ['opencode', 'plugin', 'update', OPENCODE_CACHE_PACKAGE],
-      ] as const,
+      commands: [],
       afterInstall: async () => {
-        const output = await runNativeCommand(['opencode', 'plugin', 'list'], { stdoutOnly: true });
+        const added = await runNativeCommand(
+          ['opencode', 'plugin', 'add', OPENCODE_CACHE_PACKAGE],
+          { stdoutOnly: true },
+        );
+        const output = await waitForOpenCodePluginRow();
+        if (added.includes('is already configured in')) {
+          await runNativeCommand(['opencode', 'plugin', 'update', OPENCODE_CACHE_PACKAGE]);
+        }
         if (/^cc-safety-net\s+\S+\s+cc-safety-net@latest\s*$/m.test(output)) return;
         throw new Error(
           'OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.',
@@ -109,6 +115,18 @@ export async function getOpenCodeInstallPlan(environment: Environment) {
     commands: [['opencode', 'plugin', '-g', '-f', OPENCODE_CACHE_PACKAGE]] as const,
     afterInstall: () => verifyOpenCodePluginRuntime(environment),
   };
+}
+
+async function waitForOpenCodePluginRow(attempt = 1): Promise<string> {
+  const output = await runNativeCommand(['opencode', 'plugin', 'list'], { stdoutOnly: true });
+  if (
+    /^cc-safety-net\s|\scc-safety-net@latest\s*$/m.test(output) ||
+    attempt === OPENCODE_PLUGIN_LIST_ATTEMPTS
+  ) {
+    return output;
+  }
+  await new Promise((resolve) => setTimeout(resolve, OPENCODE_PLUGIN_LIST_INTERVAL_MS));
+  return waitForOpenCodePluginRow(attempt + 1);
 }
 
 /** @internal */

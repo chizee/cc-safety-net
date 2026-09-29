@@ -5,7 +5,11 @@ const [name = '', ...args] = process.argv.slice(2);
 
 const logged = process.platform === 'win32' ? args.join(' ').replaceAll('"', '') : args.join(' ');
 
-appendFileSync(process.env.CC_SAFETY_NET_FAKE_LOG ?? '', `${name} ${logged}\t${process.cwd()}\n`);
+const logPath = process.env.CC_SAFETY_NET_FAKE_LOG ?? '';
+appendFileSync(logPath, `${name} ${logged}\t${process.cwd()}\n`);
+const call = readFileSync(logPath, 'utf-8')
+  .split('\n')
+  .filter((line) => line.startsWith(`${name} ${logged}\t`)).length;
 
 const script = JSON.parse(
   readFileSync(process.env.CC_SAFETY_NET_FAKE_SCRIPT ?? '', 'utf-8'),
@@ -13,7 +17,9 @@ const script = JSON.parse(
 
 const match = script.find(
   (entry) =>
-    entry.command === name && (entry.args ?? []).every((arg, index) => args[index] === arg),
+    entry.command === name &&
+    (entry.call ?? call) === call &&
+    (entry.args ?? []).every((arg, index) => args[index] === arg),
 );
 
 if (!match) {

@@ -47,7 +47,10 @@ test('updates a v2 OpenCode package object through the native package manager', 
       '.config/opencode/opencode.jsonc':
         '{"plugins":[{"package":"cc-safety-net@latest","options":{}}]}',
     },
-    script: openCodeV2Script(),
+    script: openCodeV2Script(
+      undefined,
+      'Plugin "cc-safety-net@latest" is already configured in <home>/.config/opencode/opencode.jsonc\n',
+    ),
     options: () => versions(),
   });
   expect(result.exitCode).toBe(0);

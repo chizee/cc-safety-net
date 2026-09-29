@@ -13,8 +13,10 @@ peer. Both entries load the same runtime plugin; automatic installation is uncha
 npx -y cc-safety-net@latest install --opencode
 ```
 
-The installer checks the host version. For v2 it uses `opencode plugin add` and
-`opencode plugin update`, then checks the package ID and source in `opencode plugin list`.
+The installer checks the host version. For v2 it runs `opencode plugin add`, waits up to about
+15 seconds for the background service to list the plugin, and checks the package ID and source in
+`opencode plugin list`. It runs `opencode plugin update` only when `add` reports the plugin already
+configured, because the service does not know a newly added plugin yet.
 That listing confirms discovery, not successful hook activation. Check OpenCode's diagnostics
 if the plugin fails to activate. As with v1, protection requires a loaded integration.
 

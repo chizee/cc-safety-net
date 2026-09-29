@@ -574,7 +574,60 @@ test.each([
     'opencode --version\t<root>',
     'opencode plugin add cc-safety-net@latest\t<root>',
     'opencode plugin list\t<root>',
-    'opencode plugin update cc-safety-net@latest\t<root>',
+  ]);
+});
+
+test('OpenCode v2 first install does not run plugin update and succeeds', async () => {
+  const result = await flow({
+    invoke: 'install',
+    args: ['--opencode'],
+    script: [
+      { command: 'opencode', args: ['--version'], stdout: '2.0.19\n' },
+      {
+        command: 'opencode',
+        args: ['plugin', 'add', 'cc-safety-net@latest'],
+        stdout:
+          'Plugin "cc-safety-net@latest" installed and added to <home>/.config/opencode/opencode.json\n',
+      },
+      {
+        command: 'opencode',
+        args: ['plugin', 'update', 'cc-safety-net@latest'],
+        stderr: 'Plugin is not configured: cc-safety-net@latest\n',
+        exit: 1,
+      },
+      {
+        command: 'opencode',
+        args: ['plugin', 'list'],
+        stdout: 'ID             VERSION  SOURCE\ncc-safety-net  2.4.2    cc-safety-net@latest\n',
+      },
+    ],
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.errors).toEqual([]);
+  expect(result.lines).toContain('Installed OpenCode integration');
+  expect(result.log).toEqual([
+    'opencode --version\t<root>',
+    'opencode plugin add cc-safety-net@latest\t<root>',
+    'opencode plugin list\t<root>',
+  ]);
+});
+
+test('OpenCode v2 install waits for the plugin row to appear', async () => {
+  const result = await flow({
+    invoke: 'install',
+    args: ['--opencode'],
+    script: [
+      { command: 'opencode', args: ['plugin', 'list'], call: 1, stdout: 'No plugins found\n' },
+      ...openCodeV2Script(),
+    ],
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.errors).toEqual([]);
+  expect(result.log).toEqual([
+    'opencode --version\t<root>',
+    'opencode plugin add cc-safety-net@latest\t<root>',
+    'opencode plugin list\t<root>',
+    'opencode plugin list\t<root>',
   ]);
 });
 
