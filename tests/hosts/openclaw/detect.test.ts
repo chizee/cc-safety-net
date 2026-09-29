@@ -76,13 +76,24 @@ describe('reading the installed OpenClaw plugin', () => {
     );
   });
 
-  test('follows OPENCLAW_CONFIG_PATH to the state directory beside it', async () => {
-    const dir = 'elsewhere/extensions/cc-safety-net';
+  test.each([
+    [
+      'OPENCLAW_CONFIG_PATH to the state directory beside it',
+      'elsewhere',
+      { OPENCLAW_CONFIG_PATH: posix.join('<home>', 'elsewhere/openclaw.json') },
+    ],
+    [
+      'OPENCLAW_HOME to the .openclaw directory inside it',
+      'oc/.openclaw',
+      { OPENCLAW_HOME: posix.join('<home>', 'oc') },
+    ],
+  ])('follows %s', async (_case, stateDir, env) => {
+    const dir = `${stateDir}/extensions/cc-safety-net`;
 
     expect(
       await detection(
-        { ...installedAt(dir, 'dev'), 'elsewhere/openclaw.json': ENABLING[CONFIG] },
-        { OPENCLAW_CONFIG_PATH: posix.join('<home>', 'elsewhere/openclaw.json') },
+        { ...installedAt(dir, 'dev'), [`${stateDir}/openclaw.json`]: ENABLING[CONFIG] },
+        env,
       ),
     ).toEqual(configured(posix.join('<home>', dir)));
   });

@@ -26,20 +26,26 @@ function expandTilde(value: string, homeDir: string): string {
   return value;
 }
 
+function getOpenClawHome(environment: Environment): string {
+  const openClawHome = environment.env.get('OPENCLAW_HOME')?.trim();
+  return openClawHome ? expandTilde(openClawHome, environment.home) : environment.home;
+}
+
 function getOpenClawStateDir(environment: Environment): string {
+  const openClawHome = getOpenClawHome(environment);
   const stateDir = environment.env.get('OPENCLAW_STATE_DIR')?.trim();
-  if (stateDir) return expandTilde(stateDir, environment.home);
+  if (stateDir) return expandTilde(stateDir, openClawHome);
 
   const configPath = environment.env.get('OPENCLAW_CONFIG_PATH')?.trim();
   return configPath
-    ? dirname(expandTilde(configPath, environment.home))
-    : join(environment.home, '.openclaw');
+    ? dirname(expandTilde(configPath, openClawHome))
+    : join(openClawHome, '.openclaw');
 }
 
 export function getOpenClawConfigPath(environment: Environment): string {
   const configPath = environment.env.get('OPENCLAW_CONFIG_PATH')?.trim();
   return configPath
-    ? expandTilde(configPath, environment.home)
+    ? expandTilde(configPath, getOpenClawHome(environment))
     : join(getOpenClawStateDir(environment), 'openclaw.json');
 }
 
