@@ -290,24 +290,23 @@ describe('verifying that the installed plugin actually loads', () => {
     });
   });
 
-  test('retries an enable the Gateway rejected while its install reload settled', async () => {
+  test('accepts an enable OpenClaw saved before a newer reload superseded its runtime apply', async () => {
     expect(
       await verify(
         [
           reportStatus('disabled', 1),
-          { ...enableSucceeds, call: 1, stderr: `${RELOAD_SUPERSEDED}\n`, exit: 1 },
-          enableSucceeds,
+          { ...enableSucceeds, stderr: `${RELOAD_SUPERSEDED}\n`, exit: 1 },
           reportStatus('loaded', 2),
         ],
         true,
       ),
     ).toEqual({
       outcome: { kind: 'returned', value: undefined },
-      calls: [INSPECT_CALL, ENABLE_CALL, ENABLE_CALL, INSPECT_CALL],
+      calls: [INSPECT_CALL, ENABLE_CALL, INSPECT_CALL],
     });
   });
 
-  test('stops retrying an enable the Gateway keeps rejecting', async () => {
+  test('reports the disabled status when a superseded enable left the plugin disabled', async () => {
     expect(
       await verify(
         [
@@ -319,9 +318,9 @@ describe('verifying that the installed plugin actually loads', () => {
     ).toEqual({
       outcome: {
         kind: 'threw',
-        message: `Failed to run ${ENABLE_CALL} (exit 1).\n${RELOAD_SUPERSEDED}`,
+        message: `OpenClaw reports the cc-safety-net plugin with status "disabled"; run \`openclaw plugins enable cc-safety-net\`. ${INSPECT_HINT}`,
       },
-      calls: [INSPECT_CALL, ENABLE_CALL, ENABLE_CALL, ENABLE_CALL],
+      calls: [INSPECT_CALL, ENABLE_CALL, INSPECT_CALL],
     });
   });
 
