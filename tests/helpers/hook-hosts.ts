@@ -341,7 +341,11 @@ const HOST_SPECS: readonly HostSpec[] = [
         name: 'a Monitor watch without a command',
         stdin: claudePayload(fixture, {
           tool_name: 'Monitor',
-          tool_input: { description: 'events', timeout_ms: 1000, ws: 'wss://example.test/events' },
+          tool_input: {
+            description: 'events',
+            timeout_ms: 1000,
+            ws: { url: 'wss://example.test/events' },
+          },
         }),
       },
       {
