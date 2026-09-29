@@ -1,6 +1,6 @@
 import { getToolRoute } from '@/gate/intake';
 import type { CommandToolKind } from '@/gate/invocation';
-import { getStandardHookContext, runConfiguredHookAdapter } from '@/hosts/hook/common';
+import { getToolCwdHookContext, runConfiguredHookAdapter } from '@/hosts/hook/common';
 import { GEMINI_CLI_HOOK_EVENT } from '@/hosts/hook/constants';
 
 interface GeminiHookInput {
@@ -44,7 +44,10 @@ export async function runGeminiCLIHook(): Promise<void> {
       input: input.tool_input,
       route: getGeminiCliToolRoute(toolName),
     }),
-    getContext: getStandardHookContext,
+    getContext: getToolCwdHookContext('dir_path', GEMINI_CLI_COMMAND_TOOLS, {
+      emptyMeansSessionCwd: true,
+      allowOutsideSessionCwd: true,
+    }),
     getSessionId: (input) => input.session_id,
   });
 }

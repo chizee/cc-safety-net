@@ -136,6 +136,24 @@ const OUTCOMES: Readonly<Record<string, HookOutcome>> = {
   'a tool cwd that does not exist': REQUESTED_UNUSABLE,
   'a blank tool cwd': MALFORMED,
   'a tool cwd that is not a string': MALFORMED,
+  'a recursive delete whose dir_path is the home directory': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'rm.recursive-force-home-cwd',
+  },
+  'a recursive delete whose dir_path is below the home session cwd': {
+    document: 'none',
+    audit: 'allow',
+  },
+  'a dir_path outside the session cwd': {
+    document: 'deny',
+    audit: 'deny',
+    ruleId: 'rm.recursive-force-home-cwd',
+  },
+  'a dir_path that does not exist': REQUESTED_UNUSABLE,
+  'an empty dir_path': { document: 'none', audit: 'allow' },
+  'a whitespace-only dir_path': MALFORMED,
+  'a dir_path that is not a string': MALFORMED,
   'tool args that are not a string': { document: 'deny', audit: 'deny' },
   'tool args that are not JSON': { document: 'deny', audit: 'deny' },
   'a powershell command': {
@@ -341,6 +359,15 @@ const kimiPayload = (fixture: HookFixture, cwd: unknown) =>
     cwd: fixture.project,
   });
 
+const geminiPayload = (cwd: string, command: string, dirPath: unknown) =>
+  JSON.stringify({
+    session_id: SESSION,
+    hook_event_name: 'BeforeTool',
+    tool_name: 'run_shell_command',
+    tool_input: { command, dir_path: dirPath },
+    cwd,
+  });
+
 const HOST_SPECS: readonly HostSpec[] = [
   {
     id: 'claude-code',
@@ -461,6 +488,33 @@ const HOST_SPECS: readonly HostSpec[] = [
     commandTool: 'run_shell_command',
     unsupportedEvent: 'AfterTool',
     build: claudeShaped('BeforeTool'),
+    extraRows: (fixture) => [
+      {
+        name: 'a recursive delete whose dir_path is the home directory',
+        stdin: geminiPayload(fixture.root, 'rm -rf build', 'home'),
+      },
+      {
+        name: 'a recursive delete whose dir_path is below the home session cwd',
+        stdin: geminiPayload(fixture.home, 'rm -rf build', '.copilot'),
+      },
+      {
+        name: 'a dir_path outside the session cwd',
+        stdin: geminiPayload(fixture.project, 'rm -rf build', '../home'),
+      },
+      {
+        name: 'a dir_path that does not exist',
+        stdin: geminiPayload(fixture.project, 'git status', 'missing-dir'),
+      },
+      { name: 'an empty dir_path', stdin: geminiPayload(fixture.project, 'git status', '') },
+      {
+        name: 'a whitespace-only dir_path',
+        stdin: geminiPayload(fixture.project, 'git status', '  '),
+      },
+      {
+        name: 'a dir_path that is not a string',
+        stdin: geminiPayload(fixture.project, 'git status', 5),
+      },
+    ],
   },
   {
     id: 'copilot-cli',
