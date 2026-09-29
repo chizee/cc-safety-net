@@ -93,6 +93,9 @@ const OUTCOMES: Readonly<Record<string, HookOutcome>> = {
     ruleId: 'powershell.remove-item-recursive-force-root-or-home',
   },
   'an allowed PowerShell command': { document: 'none', audit: 'allow' },
+  'a destructive Monitor command': { document: 'deny', audit: 'deny', ruleId: 'git.reset-hard' },
+  'a Monitor watch without a command': { document: 'none', audit: 'none' },
+  'a destructive monitor command': { document: 'deny', audit: 'deny', ruleId: 'git.reset-hard' },
   'a transcript under the Codex home': { document: 'none', audit: 'allow' },
   'a transcript under the Copilot home': { document: 'none', audit: 'allow' },
   'a transcript under the Claude config directory': { document: 'none', audit: 'allow' },
@@ -328,6 +331,20 @@ const HOST_SPECS: readonly HostSpec[] = [
         }),
       },
       {
+        name: 'a destructive Monitor command',
+        stdin: claudePayload(fixture, {
+          tool_name: 'Monitor',
+          tool_input: { description: 'reset', timeout_ms: 1000, command: 'git reset --hard' },
+        }),
+      },
+      {
+        name: 'a Monitor watch without a command',
+        stdin: claudePayload(fixture, {
+          tool_name: 'Monitor',
+          tool_input: { description: 'events', timeout_ms: 1000, ws: 'wss://example.test/events' },
+        }),
+      },
+      {
         name: 'a transcript under the Codex home',
         stdin: claudePayload(fixture, {
           transcript_path: join(fixture.home, '.codex', 'sessions', 't.jsonl'),
@@ -527,6 +544,13 @@ const HOST_SPECS: readonly HostSpec[] = [
       toolInput: payload.args,
     }),
     extraRows: (fixture) => [
+      {
+        name: 'a destructive monitor command',
+        stdin: grokPayload(fixture, {
+          toolName: 'monitor',
+          toolInput: { command: 'git reset --hard', description: 'reset' },
+        }),
+      },
       {
         name: 'tool input the host truncated',
         stdin: grokPayload(fixture, { toolInputTruncated: true }),
