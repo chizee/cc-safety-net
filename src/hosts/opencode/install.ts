@@ -117,12 +117,16 @@ export async function getOpenCodeInstallPlan(environment: Environment) {
         }
         const location = ['--param', `location[directory]=${process.cwd()}`];
         await runNativeCommand(['opencode', 'api', 'integration.list', ...location]);
-        const failure = findOpenCodePluginFailure(
-          await runNativeCommand(['opencode', 'api', 'plugin.list', ...location], {
-            stdoutOnly: true,
-          }),
-        );
+        const inventory = await runNativeCommand(['opencode', 'api', 'plugin.list', ...location], {
+          stdoutOnly: true,
+        });
+        const failure = findOpenCodePluginFailure(inventory);
         if (failure) throw new Error(failure);
+        if (!readOpenCodePluginStates(inventory).some(isActivePluginState)) {
+          throw new Error(
+            'OpenCode lists no active cc-safety-net for this directory. Run `opencode api plugin.list` for details.',
+          );
+        }
       },
     };
   }
@@ -133,15 +137,23 @@ export async function getOpenCodeInstallPlan(environment: Environment) {
   };
 }
 
-export function findOpenCodePluginFailure(pluginListOutput: string | null | undefined) {
-  const states = readPluginInventory(pluginListOutput)
+function readOpenCodePluginStates(pluginListOutput: string | null | undefined) {
+  return readPluginInventory(pluginListOutput)
     .filter(
       (row) =>
         readRecord(row, 'id') === OPENCODE_PACKAGE ||
         isManagedPlugin(readRecord(readRecord(row, 'source'), 'target')),
     )
     .map((row) => readRecord(row, 'state'));
-  if (states.some((state) => readRecord(state, 'status') === 'active')) return undefined;
+}
+
+function isActivePluginState(state: unknown) {
+  return readRecord(state, 'status') === 'active';
+}
+
+export function findOpenCodePluginFailure(pluginListOutput: string | null | undefined) {
+  const states = readOpenCodePluginStates(pluginListOutput);
+  if (states.some(isActivePluginState)) return undefined;
   const failure = states.find((state) => readRecord(state, 'status') === 'failed');
   if (!failure) return undefined;
   return `OpenCode reports cc-safety-net failed: ${String(readRecord(failure, 'error')).split('\n')[0]}`;

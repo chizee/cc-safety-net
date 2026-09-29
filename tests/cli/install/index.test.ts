@@ -740,6 +740,37 @@ test('OpenCode v2 install fails with the host error when the listed plugin faile
 });
 
 test.each([
+  ['an empty inventory', JSON.stringify({ location: { directory: '/x' }, data: [] })],
+  ['an unreadable inventory', 'not json'],
+  [
+    'an inventory with only another plugin active',
+    JSON.stringify({
+      location: { directory: '/x' },
+      data: [
+        {
+          id: 'other',
+          source: { type: 'package', target: 'other@latest' },
+          state: { status: 'active' },
+        },
+      ],
+    }),
+  ],
+])('OpenCode v2 install fails when %s shows no active cc-safety-net', async (_case, inventory) => {
+  const result = await flow({
+    invoke: 'install',
+    args: ['--opencode'],
+    script: [
+      { command: 'opencode', args: ['api', 'plugin.list'], stdout: inventory },
+      ...openCodeV2Script(),
+    ],
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.errors).toEqual([
+    'OpenCode lists no active cc-safety-net for this directory. Run `opencode api plugin.list` for details.',
+  ]);
+});
+
+test.each([
   '"cc-safety-net"',
   '{"package":"cc-safety-net@2.4.2","options":{"shell":"powershell"}}',
 ])('OpenCode v2 refuses a conflicting package spec before mutation: %s', async (entry) => {
