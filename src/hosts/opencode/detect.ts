@@ -1,16 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename } from 'node:path';
 import { stripJsonComments } from '@/core/io/jsonc';
 import type { DetectContext, HookDetection } from '@/hosts/detect/context';
-import { getOpenCodeConfigDir, hasOpenCodePlugin } from '@/hosts/opencode/install';
+import { getOpenCodeConfigPaths, hasOpenCodePlugin } from '@/hosts/opencode/install';
 
 export function detect(context: DetectContext): HookDetection {
   const errors: string[] = [];
-  const configDir = getOpenCodeConfigDir(context.environment);
-  const candidates = ['opencode.json', 'opencode.jsonc'];
-
-  for (const filename of candidates) {
-    const configPath = join(configDir, filename);
+  for (const configPath of getOpenCodeConfigPaths(context.environment)) {
     if (existsSync(configPath)) {
       try {
         const content = readFileSync(configPath, 'utf-8');
@@ -27,7 +23,9 @@ export function detect(context: DetectContext): HookDetection {
           };
         }
       } catch (e) {
-        errors.push(`Failed to parse ${filename}: ${e instanceof Error ? e.message : String(e)}`);
+        errors.push(
+          `Failed to parse ${basename(configPath)}: ${e instanceof Error ? e.message : String(e)}`,
+        );
       }
     }
   }

@@ -25,19 +25,22 @@ const OPENCODE_JSON_ERRORS = {
   bracketError: 'Unmatched plugin array in OpenCode config',
 };
 
-export function getOpenCodeConfigDir(environment: Environment) {
-  return (
-    environment.env.get('OPENCODE_CONFIG_DIR') ??
-    join(environment.env.get('XDG_CONFIG_HOME') || join(environment.home, '.config'), 'opencode')
+function getOpenCodeXdgConfigDir(environment: Environment) {
+  return join(
+    environment.env.get('XDG_CONFIG_HOME') || join(environment.home, '.config'),
+    'opencode',
   );
 }
 
-function getDefaultOpenCodeConfigPath(environment: Environment) {
-  return join(getOpenCodeConfigDir(environment), OPENCODE_CONFIG_FILES[0]);
+/** @internal */
+export function getOpenCodeConfigDir(environment: Environment) {
+  return environment.env.get('OPENCODE_CONFIG_DIR') || getOpenCodeXdgConfigDir(environment);
 }
 
-function getOpenCodeConfigPaths(environment: Environment) {
-  return OPENCODE_CONFIG_FILES.map((filename) => join(getOpenCodeConfigDir(environment), filename));
+export function getOpenCodeConfigPaths(environment: Environment) {
+  return [
+    ...new Set([getOpenCodeConfigDir(environment), getOpenCodeXdgConfigDir(environment)]),
+  ].flatMap((directory) => OPENCODE_CONFIG_FILES.map((filename) => join(directory, filename)));
 }
 
 function getOpenCodeCachePath(environment: Environment) {
@@ -71,7 +74,9 @@ export async function getOpenCodeInstallPlan(environment: Environment) {
     );
   }
   if (major === 2) {
-    for (const configPath of getOpenCodeConfigPaths(environment)) {
+    for (const configPath of OPENCODE_CONFIG_FILES.map((filename) =>
+      join(getOpenCodeConfigDir(environment), filename),
+    )) {
       if (!existsSync(configPath)) continue;
       const config = parseOpenCodeConfig(readFileSync(configPath, 'utf-8'), configPath);
       const conflicting = ['plugin', 'plugins'].some((key) => {
@@ -242,7 +247,10 @@ export function uninstallOpenCode(environment: Environment): InstallResult {
 
   if (errors.length > 0) throw new Error(errors.join('\n'));
   return {
-    path: changedPaths[0] ?? existingConfigPath ?? getDefaultOpenCodeConfigPath(environment),
+    path:
+      changedPaths[0] ??
+      existingConfigPath ??
+      join(getOpenCodeConfigDir(environment), OPENCODE_CONFIG_FILES[0]),
     alreadyInstalled: changedPaths.length > 0,
   };
 }

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import type { HookDetection } from '@/hosts/detect/context';
 import { detect as detectOpenCode } from '@/hosts/opencode/detect';
 import type { TreeSpec } from '../../helpers/fixture-tree';
@@ -97,4 +97,31 @@ test('follows XDG_CONFIG_HOME to the config OpenCode would read', async () => {
       },
     ),
   ).toEqual(configured('xdg/opencode/opencode.json'));
+});
+
+describe('with OPENCODE_CONFIG_DIR naming another directory', () => {
+  const NATIVE_CONFIG = 'native-config/opencode.json';
+  const nativeConfigDir = { OPENCODE_CONFIG_DIR: '<home>/native-config' };
+  const v2Entry = '{"plugins":["cc-safety-net@latest"]}';
+
+  test('finds a v1 plugin in the XDG config', async () => {
+    expect(await detection({ [JSON_FILE]: plugins('cc-safety-net') }, nativeConfigDir)).toEqual(
+      configured(JSON_FILE),
+    );
+  });
+
+  test('finds a v2 plugin in the override directory', async () => {
+    expect(await detection({ [NATIVE_CONFIG]: v2Entry }, nativeConfigDir)).toEqual(
+      configured(NATIVE_CONFIG),
+    );
+  });
+
+  test('reads the override directory before the XDG config', async () => {
+    expect(
+      await detection(
+        { [NATIVE_CONFIG]: v2Entry, [JSON_FILE]: plugins('cc-safety-net') },
+        nativeConfigDir,
+      ),
+    ).toEqual(configured(NATIVE_CONFIG));
+  });
 });
