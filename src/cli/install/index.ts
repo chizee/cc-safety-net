@@ -67,10 +67,11 @@ import {
 import type { InstallResult } from '@/hosts/install/types';
 import { detect as detectKimiCodeHook } from '@/hosts/kimi-code/detect';
 import { installKimiCode, uninstallKimiCode } from '@/hosts/kimi-code/install';
-import { OPENCLAW_PLUGIN_ID } from '@/hosts/openclaw/artifact';
+import { OPENCLAW_PLUGIN_ENTRY_FILE, OPENCLAW_PLUGIN_ID } from '@/hosts/openclaw/artifact';
 import {
   assertOpenClawPluginDirIsOurs,
   getOpenClawInstallCommands,
+  getOpenClawPluginDir,
   verifyOpenClawPluginRuntime,
 } from '@/hosts/openclaw/install';
 import { getOpenCodeInstallPlan, uninstallOpenCode } from '@/hosts/opencode/install';
@@ -293,7 +294,15 @@ const NATIVE_INSTALLS: Record<NativeInstallTarget, NativeInstallDefinition> = {
   },
   openclaw: {
     beforeInstall: assertOpenClawPluginDirIsOurs,
-    installCommands: () => ({ commands: getOpenClawInstallCommands() }),
+    installCommands: (environment) => {
+      const pluginWasAbsent = !existsSync(
+        join(getOpenClawPluginDir(environment), OPENCLAW_PLUGIN_ENTRY_FILE),
+      );
+      return {
+        commands: getOpenClawInstallCommands(),
+        afterInstall: () => verifyOpenClawPluginRuntime(pluginWasAbsent),
+      };
+    },
     uninstallCommands: [['openclaw', 'plugins', 'uninstall', OPENCLAW_PLUGIN_ID, '--force']],
     postInstallMessage: [
       'Restart the OpenClaw Gateway to apply the change.',
@@ -641,13 +650,7 @@ const INSTALL_EXTRAS: Partial<
       if (!updating) clearNpxSafetyNetCache(environment);
     },
   },
-  openclaw: {
-    afterInstall: async () => {
-      await verifyOpenClawPluginRuntime();
-      return undefined;
-    },
-    beforeUninstall: assertOpenClawPluginDirIsOurs,
-  },
+  openclaw: { beforeUninstall: assertOpenClawPluginDirIsOurs },
   pi: { afterInstall: removePiExtensionsFilter },
 };
 

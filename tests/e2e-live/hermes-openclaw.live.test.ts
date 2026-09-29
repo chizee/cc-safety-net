@@ -132,7 +132,7 @@ async function listRealHermesPlugins(cwd: string, home: string) {
 
 describe.skipIf(skipOpenClaw)('packaged OpenClaw plugin under the real openclaw CLI', () => {
   test(
-    'the built CLI installs a plugin the real host loads, and native uninstall removes it again',
+    'the built CLI installs a plugin the real host loads, native uninstall removes it, and a reinstall loads it again',
     async () => {
       await withHostWorkspace(async ({ cwd, home }) => {
         await runCommand(['node', cliPath, 'install', '--openclaw'], '', cwd, home, {
@@ -157,6 +157,14 @@ describe.skipIf(skipOpenClaw)('packaged OpenClaw plugin under the real openclaw 
             getOpenClawPluginDir(createTestEnvironment({ home, tmpdir: tmpdir(), env: new Map() })),
           ),
         ).toBe(false);
+
+        await runCommand(['node', cliPath, 'install', '--openclaw'], '', cwd, home, {
+          env: openClawEnv(home),
+        });
+
+        expect(await inspectRealOpenClawPlugin(cwd, home)).toMatchObject({
+          plugin: { id: OPENCLAW_PLUGIN_ID, enabled: true, status: 'loaded' },
+        });
       });
     },
     REAL_OPENCLAW_TIMEOUT_MS,

@@ -165,48 +165,85 @@ describe('finding the packaged plugin directory', () => {
 });
 
 describe('verifying that the installed plugin actually loads', () => {
-  const verify = async (entry: Omit<FakeScriptEntry, 'command' | 'args'>) => {
-    const root = createTempRoot('next-openclaw-verify-');
-    const runOne = async (name: string, run: () => Promise<void>) => {
-      const bin = createFakeBin(join(root, name), [
-        { command: 'openclaw', args: INSPECT_ARGS, ...entry },
-      ]);
-      const outcome = await withProcessEnv(bin.env, () => describeAsyncOutcome(run));
-      return { outcome, calls: bin.readLog().map((line) => line.split('\t')[0]) };
-    };
-    return runOne('ported', verifyOpenClawPluginRuntime);
+  const inspect = (entry: Omit<FakeScriptEntry, 'command' | 'args'>) => ({
+    command: 'openclaw',
+    args: INSPECT_ARGS,
+    ...entry,
+  });
+  const reportStatus = (status: string, call?: number) =>
+    inspect({ stdout: JSON.stringify({ plugin: { status } }), call });
+  const INSPECT_CALL = `openclaw ${INSPECT_ARGS.join(' ')}`;
+  const ENABLE_CALL = 'openclaw plugins enable cc-safety-net';
+  const enableSucceeds = { command: 'openclaw', args: ['plugins', 'enable', 'cc-safety-net'] };
+  const verify = async (script: readonly FakeScriptEntry[], enableIfDisabled = false) => {
+    const bin = createFakeBin(createTempRoot('next-openclaw-verify-'), script);
+    const outcome = await withProcessEnv(bin.env, () =>
+      describeAsyncOutcome(() => verifyOpenClawPluginRuntime(enableIfDisabled)),
+    );
+    return { outcome, calls: bin.readLog().map((line) => line.split('\t')[0]) };
   };
 
   test('accepts a loaded plugin however much trace lands on stderr', async () => {
     expect(
-      await verify({
-        stdout: '{"plugin":{"status":"loaded"}}',
-        stderr: 'plugin lifecycle: resolve\nplugin lifecycle: import\n',
-      }),
+      await verify([
+        inspect({
+          stdout: '{"plugin":{"status":"loaded"}}',
+          stderr: 'plugin lifecycle: resolve\nplugin lifecycle: import\n',
+        }),
+      ]),
     ).toEqual({
       outcome: { kind: 'returned', value: undefined },
-      calls: [`openclaw ${INSPECT_ARGS.join(' ')}`],
+      calls: [INSPECT_CALL],
     });
   });
 
   test('reports the status OpenClaw gave a plugin that did not load', async () => {
-    expect((await verify({ stdout: '{"plugin":{"status":"error"}}' })).outcome).toEqual({
+    expect((await verify([reportStatus('error')])).outcome).toEqual({
       kind: 'threw',
       message: `OpenClaw reports the cc-safety-net plugin with status "error". ${INSPECT_HINT}`,
     });
   });
 
   test('refuses to call a report it cannot read a success', async () => {
-    expect((await verify({ stdout: 'nope' })).outcome).toEqual({
+    expect((await verify([inspect({ stdout: 'nope' })])).outcome).toEqual({
       kind: 'threw',
       message: `The cc-safety-net plugin's load state could not be verified: OpenClaw's runtime inspect report was unreadable. ${INSPECT_HINT}`,
     });
   });
 
   test('passes a failed inspect command through as the command failure', async () => {
-    expect((await verify({ stderr: 'no such plugin\n', exit: 1 })).outcome).toEqual({
+    expect((await verify([inspect({ stderr: 'no such plugin\n', exit: 1 })])).outcome).toEqual({
       kind: 'threw',
       message: `Failed to run openclaw ${INSPECT_ARGS.join(' ')} (exit 1).\nno such plugin`,
+    });
+  });
+
+  test('enables a plugin OpenClaw kept disabled after an uninstall, then accepts it once loaded', async () => {
+    expect(
+      await verify([reportStatus('disabled', 1), enableSucceeds, reportStatus('loaded', 2)], true),
+    ).toEqual({
+      outcome: { kind: 'returned', value: undefined },
+      calls: [INSPECT_CALL, ENABLE_CALL, INSPECT_CALL],
+    });
+  });
+
+  test('reports the status when enabling does not make the plugin load', async () => {
+    expect(await verify([reportStatus('disabled'), enableSucceeds], true)).toEqual({
+      outcome: {
+        kind: 'threw',
+        message: `OpenClaw reports the cc-safety-net plugin with status "disabled". ${INSPECT_HINT}`,
+      },
+      calls: [INSPECT_CALL, ENABLE_CALL, INSPECT_CALL],
+    });
+  });
+
+  test('leaves a plugin disabled when it was already installed', async () => {
+    expect(await verify([reportStatus('disabled'), enableSucceeds])).toEqual({
+      outcome: {
+        kind: 'threw',
+        message: `OpenClaw reports the cc-safety-net plugin with status "disabled". ${INSPECT_HINT}`,
+      },
+      calls: [INSPECT_CALL],
     });
   });
 });

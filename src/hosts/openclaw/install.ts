@@ -104,9 +104,6 @@ export function resolveOpenClawArtifactDir(
 export function getOpenClawInstallCommands(
   artifactDir: string = resolveOpenClawArtifactDir(),
 ): readonly NativeCommand[] {
-  // OpenClaw >= 2026.8.1 refuses a non-interactive path install until its declared
-  // capabilities are accepted. Install also enables the plugin; a separate `enable`
-  // can race the Gateway's follow-up reload and fail with "config reload superseded".
   return [['openclaw', 'plugins', 'install', artifactDir, '--force', '--accept-capabilities']];
 }
 
@@ -122,15 +119,20 @@ function readOpenClawPluginStatus(inspectOutput: string): string | undefined {
   return typeof status === 'string' ? status : undefined;
 }
 
-export async function verifyOpenClawPluginRuntime(): Promise<void> {
-  const status = readOpenClawPluginStatus(
-    await runNativeCommand(
-      ['openclaw', 'plugins', 'inspect', OPENCLAW_PLUGIN_ID, '--runtime', '--json'],
-      {
-        stdoutOnly: true,
-      },
-    ),
-  );
+export async function verifyOpenClawPluginRuntime(enableIfDisabled: boolean): Promise<void> {
+  const inspectStatus = async () =>
+    readOpenClawPluginStatus(
+      await runNativeCommand(
+        ['openclaw', 'plugins', 'inspect', OPENCLAW_PLUGIN_ID, '--runtime', '--json'],
+        {
+          stdoutOnly: true,
+        },
+      ),
+    );
+  const firstStatus = await inspectStatus();
+  const enable = firstStatus === 'disabled' && enableIfDisabled;
+  if (enable) await runNativeCommand(['openclaw', 'plugins', 'enable', OPENCLAW_PLUGIN_ID]);
+  const status = enable ? await inspectStatus() : firstStatus;
   if (status === 'loaded') return;
   throw new Error(
     `${

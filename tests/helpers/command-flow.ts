@@ -26,12 +26,14 @@ export type FlowOptions = Omit<RunInstallCommandOptions, 'input' | 'output'> & {
   scriptPath?: string;
 };
 
+type Invocation = 'install' | 'uninstall' | 'update';
+
 export type FlowSpec = {
   seed?: TreeSpec;
   seedTmp?: TreeSpec;
   script?: readonly FakeScriptEntry[];
   extraCommands?: readonly string[];
-  invoke: 'install' | 'uninstall' | 'update';
+  invoke: Invocation | readonly Invocation[];
   args?: readonly string[];
   options?: (home: string) => FlowOptions;
 };
@@ -85,10 +87,18 @@ export async function runSide(spec: FlowSpec) {
   const args = spec.args ?? [];
   const previousCwd = process.cwd();
   process.chdir(root);
-  const exitCode = await withProcessEnv(isolationEnv(home, { ...fakeBin.env, TMPDIR: tmp }), () => {
-    if (spec.invoke === 'update') return runUpdateCommand(args, callOptions);
-    return runInstallCommand(spec.invoke, args, callOptions);
-  }).finally(() => {
+  const run = (invoke: Invocation) =>
+    invoke === 'update'
+      ? runUpdateCommand(args, callOptions)
+      : runInstallCommand(invoke, args, callOptions);
+  const exitCodes = await withProcessEnv(isolationEnv(home, { ...fakeBin.env, TMPDIR: tmp }), () =>
+    [spec.invoke]
+      .flat()
+      .reduce<Promise<number[]>>(
+        async (codes, invoke) => [...(await codes), await run(invoke)],
+        Promise.resolve([]),
+      ),
+  ).finally(() => {
     process.chdir(previousCwd);
     console.error = reportedError;
     console.warn = reportedWarning;
@@ -96,7 +106,7 @@ export async function runSide(spec: FlowSpec) {
 
   return normalize(
     {
-      exitCode,
+      exitCode: typeof spec.invoke === 'string' ? exitCodes[0] : exitCodes,
       lines: output.text().split('\n'),
       errors,
       warnings,

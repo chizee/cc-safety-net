@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { AMP_MANAGED_HEADER } from '@/hosts/amp/artifact';
+import { buildOpenClawArtifactHeader } from '@/hosts/openclaw/artifact';
 import type { InstallTarget } from '@/hosts/install/targets';
 import { type FlowSpec, openCodeV2Script, runSide } from '../../helpers/command-flow';
 import { type TreeSpec, writeTree } from '../../helpers/fixture-tree';
@@ -734,6 +735,8 @@ const openclawScript = (status: string) => [
   },
   { command: 'openclaw' },
 ];
+const LOADED = `${JSON.stringify({ plugin: { status: 'loaded' } })}\n`;
+const DISABLED = `${JSON.stringify({ plugin: { status: 'disabled' } })}\n`;
 const openclawCalls = [
   'openclaw plugins install <repo>/dist/openclaw/cc-safety-net --force --accept-capabilities\t<root>',
   'openclaw plugins inspect cc-safety-net --runtime --json\t<root>',
@@ -765,6 +768,59 @@ test('an OpenClaw plugin that did not load fails the install', async () => {
     lines: [''],
     errors: [
       'OpenClaw reports the cc-safety-net plugin with status "error". Run `openclaw plugins inspect cc-safety-net --runtime` for details.',
+    ],
+    log: openclawCalls,
+  });
+});
+
+test('OpenClaw reinstall after uninstall re-enables the plugin that uninstall left disabled', async () => {
+  const result = await flow({
+    invoke: ['install', 'uninstall', 'install'],
+    args: ['--openclaw'],
+    script: [
+      { command: 'openclaw', args: ['plugins', 'inspect'], call: 1, stdout: LOADED },
+      { command: 'openclaw', args: ['plugins', 'inspect'], call: 2, stdout: DISABLED },
+      { command: 'openclaw', args: ['plugins', 'inspect'], call: 3, stdout: LOADED },
+      { command: 'openclaw' },
+    ],
+  });
+
+  expect(result).toMatchObject({
+    exitCode: [0, 0, 0],
+    lines: [
+      'Installed OpenClaw integration',
+      ...OPENCLAW_NOTE,
+      'Uninstalled OpenClaw integration',
+      'Installed OpenClaw integration',
+      ...OPENCLAW_NOTE,
+      '',
+    ],
+    log: [
+      ...openclawCalls,
+      ...openclawCalls,
+      'openclaw plugins uninstall cc-safety-net --force\t<root>',
+      'openclaw plugins enable cc-safety-net\t<root>',
+      'openclaw plugins inspect cc-safety-net --runtime --json\t<root>',
+    ].sort(),
+  });
+});
+
+test('an installed OpenClaw plugin the user disabled stays disabled', async () => {
+  const result = await flow({
+    invoke: 'install',
+    args: ['--openclaw'],
+    script: openclawScript('disabled'),
+    seed: {
+      '.openclaw/extensions/cc-safety-net/index.js': `${buildOpenClawArtifactHeader('dev')}export default {};\n`,
+      '.openclaw/extensions/cc-safety-net/openclaw.plugin.json': '{"id":"cc-safety-net"}\n',
+      '.openclaw/extensions/cc-safety-net/package.json': '{"name":"cc-safety-net"}\n',
+    },
+  });
+
+  expect(result).toMatchObject({
+    exitCode: 1,
+    errors: [
+      'OpenClaw reports the cc-safety-net plugin with status "disabled". Run `openclaw plugins inspect cc-safety-net --runtime` for details.',
     ],
     log: openclawCalls,
   });
