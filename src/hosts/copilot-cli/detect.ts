@@ -339,12 +339,14 @@ export function detect(context: DetectContext): HookDetection {
   const settings = readStateFile(settingsPath, stripJsonComments);
   const readPluginSwitch = (config: unknown) =>
     readRecord(readRecord(config, 'enabledPlugins'), COPILOT_PLUGIN_ID);
+  const repoPluginSource = hooksCheck.repoInlineSources.find(
+    (source) => typeof readPluginSwitch(source?.config) === 'boolean',
+  );
   const pluginSource =
-    hooksCheck.repoInlineSources.find(
-      (source) => typeof readPluginSwitch(source?.config) === 'boolean',
-    ) ?? (settings.kind === 'ok' ? { path: settingsPath, config: settings.value } : undefined);
+    repoPluginSource ??
+    (settings.kind === 'ok' ? { path: settingsPath, config: settings.value } : undefined);
 
-  if (pluginInstalled && settings.kind === 'unreadable') {
+  if (pluginInstalled && !repoPluginSource && settings.kind === 'unreadable') {
     return { platform: 'copilot-cli', status: 'not-inspected' };
   }
 

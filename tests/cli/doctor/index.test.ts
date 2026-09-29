@@ -193,7 +193,7 @@ describe('doctor --json', () => {
       (environment) => runDoctor(environment, { json: true, skipUpdateCheck: true }),
     );
     expect(opencode.readLog().filter((line) => line.startsWith('opencode '))).toEqual([
-      'opencode --version\t<root>/project',
+      `opencode --version\t${join('<root>', 'project')}`,
     ]);
   }, 120_000);
 

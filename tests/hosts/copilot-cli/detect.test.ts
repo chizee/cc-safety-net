@@ -421,6 +421,15 @@ describe('the plugin checkout under the Copilot home', () => {
     expect(await detection({ ...INSTALLED, [USER_SETTINGS]: '{}' }, '1.0.8')).toEqual(pluginOn);
   });
 
+  test('applies a repository switch even when the user settings cannot be read', async () => {
+    expect(
+      await detection(
+        { ...INSTALLED, [USER_SETTINGS]: null, [REPO_SETTINGS]: pluginSwitch(false) },
+        '1.0.8',
+      ),
+    ).toEqual(pluginOffBy(at(REPO_SETTINGS)));
+  });
+
   test('refuses to guess when the settings cannot be read', async () => {
     expect(await detection({ ...INSTALLED, [USER_SETTINGS]: null }, '1.0.8')).toEqual({
       kind: 'returned',
