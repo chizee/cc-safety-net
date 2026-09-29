@@ -20,6 +20,14 @@ service to list the plugin and checks the package ID and source in `opencode plu
 That listing confirms discovery, not successful hook activation. Check OpenCode's diagnostics
 if the plugin fails to activate. As with v1, protection requires a loaded integration.
 
+On v2, when the config OpenCode loads has a `cc-safety-net` entry, `doctor` and the GUI ask the
+host for activation state. They run `opencode api integration.list`, then
+`opencode api plugin.list` for the current directory. If OpenCode marks the plugin failed and
+no copy of it is active, `doctor` reports it as not configured with the first line of
+OpenCode's error, and the GUI shows it as disabled. These commands may start OpenCode's
+persistent background service, as the installer and the v2 TUI already do. On v1, `doctor` and
+the GUI still read only the config.
+
 If an existing global config uses `cc-safety-net` or a pinned version, the v2 installer stops
 before changing it. Change that entry's package spec to `cc-safety-net@latest`, keeping its
 options and comments, then retry. This avoids creating duplicate plugin IDs.
