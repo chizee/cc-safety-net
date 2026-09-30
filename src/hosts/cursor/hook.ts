@@ -1,5 +1,6 @@
 import type { IntegrationDenial } from '@/core/denial';
 import type { Environment } from '@/core/environment';
+import { normalizeUriDrivePath } from '@/core/paths/canonicalization';
 import {
   cwdProblem,
   firstTrustedRoot,
@@ -100,11 +101,12 @@ function resolveCursorContext(
     return { configCwd: base, executionCwd: base };
   }
 
-  const workingDirectory = (toolInput as Record<string, unknown>).working_directory;
-  if (typeof workingDirectory !== 'string' || workingDirectory.trim() === '') {
+  const requestedWorkingDirectory = (toolInput as Record<string, unknown>).working_directory;
+  if (typeof requestedWorkingDirectory !== 'string' || requestedWorkingDirectory.trim() === '') {
     outputFailedClosed(outputDeny, toolInput, toolName);
     return null;
   }
+  const workingDirectory = normalizeUriDrivePath(requestedWorkingDirectory);
   const executionCwd = resolveContainedCwd(workingDirectory, roots, environment.paths);
   if (!executionCwd) {
     outputCwdDenial(outputDeny, toolInput, toolName, {
@@ -119,12 +121,16 @@ function resolveCursorContext(
 
 function requestedCursorRoots(input: CursorHookInput): string[] {
   if (input.workspace_roots === undefined) {
-    return typeof input.cwd === 'string' && input.cwd.trim() !== '' ? [input.cwd] : [];
+    return typeof input.cwd === 'string' && input.cwd.trim() !== ''
+      ? [normalizeUriDrivePath(input.cwd)]
+      : [];
   }
   if (!Array.isArray(input.workspace_roots)) return [];
-  return input.workspace_roots.filter((root) => typeof root === 'string' && root.trim() !== '');
+  return input.workspace_roots
+    .filter((root) => typeof root === 'string' && root.trim() !== '')
+    .map((root) => normalizeUriDrivePath(root));
 }
 
 function cursorBaseCwd(cwd: unknown): string {
-  return typeof cwd === 'string' && cwd.trim() !== '' ? cwd : '.';
+  return typeof cwd === 'string' && cwd.trim() !== '' ? normalizeUriDrivePath(cwd) : '.';
 }
