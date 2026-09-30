@@ -31,6 +31,14 @@ export function normalizeMsysDrivePath(
   return target.replace(/^\/([A-Za-z])(?:\/|$)/, '$1:/');
 }
 
+export function normalizeUriDrivePath(
+  target: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform !== 'win32') return target;
+  return target.replace(/^\/([A-Za-z]):(?:[/\\]|$)/, '$1:/');
+}
+
 export function isUnsupportedWindowsNamespacePath(
   target: string,
   platform: NodeJS.Platform = process.platform,

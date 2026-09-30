@@ -149,6 +149,47 @@ test("the debug detail is each implementation's own limit message", async () => 
   ]);
 });
 
+describe.skipIf(process.platform !== 'win32')('cursor on Windows', () => {
+  const host = HOOK_HOSTS.find((candidate) => candidate.id === 'cursor') as HookHost;
+  const uriPath = (path: string) => `/${path.replaceAll('\\', '/')}`;
+  const decisionOf = async (payload: Record<string, unknown>) =>
+    (
+      await runSide(host, {
+        name: 'uri drive paths',
+        stdin: JSON.stringify({
+          conversation_id: 'uri-session',
+          hook_event_name: 'preToolUse',
+          ...payload,
+        }),
+        expected: { document: 'allow', audit: 'none' },
+      })
+    ).stdout.map((line) => JSON.parse(line));
+
+  test('reads URI drive workspace roots as their directories', async () => {
+    expect(
+      await decisionOf({
+        tool_name: 'Read',
+        tool_input: { path: join(fixture.project, 'README.md') },
+        workspace_roots: [uriPath(fixture.project)],
+      }),
+    ).toEqual([{ permission: 'allow' }]);
+  });
+
+  test('reads a URI drive cwd and working directory as their directories', async () => {
+    expect(
+      await decisionOf({
+        tool_name: 'Shell',
+        tool_input: {
+          command: 'git status',
+          working_directory: uriPath(join(fixture.project, 'sub')),
+        },
+        cwd: uriPath(fixture.project),
+        workspace_roots: [uriPath(fixture.project)],
+      }),
+    ).toEqual([{ permission: 'allow' }]);
+  });
+});
+
 describe('an unverifiable command asks the user where the host can prompt', () => {
   const host = (id: string) => HOOK_HOSTS.find((candidate) => candidate.id === id) as HookHost;
   const payload = (command: string, extra: Record<string, unknown>) =>

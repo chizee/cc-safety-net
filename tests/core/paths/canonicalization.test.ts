@@ -9,6 +9,7 @@ import {
   isUnsupportedWindowsNamespacePath,
   normalizeMsysDrivePath,
   normalizeProtectedPathCandidate,
+  normalizeUriDrivePath,
   probeExistingPath,
   resolveExistingPath,
 } from '@/core/paths/canonicalization';
@@ -265,6 +266,25 @@ describe('platform path forms', () => {
       expect(normalizeMsysDrivePath(row.target, 'win32')).toBe(row.windows);
       expect(normalizeMsysDrivePath(row.target, 'linux')).toBe(row.target);
       expect(normalizeMsysDrivePath(row.target, 'darwin')).toBe(row.target);
+    });
+  }
+
+  const uriDrives = [
+    { name: 'drops the slash before a URI drive path', target: '/C:/Users', windows: 'C:/Users' },
+    { name: 'keeps a lowercase URI drive letter', target: '/c:/x', windows: 'c:/x' },
+    { name: 'accepts a backslash after a URI drive', target: '/C:\\x', windows: 'C:/x' },
+    { name: 'rewrites a bare URI drive to a drive root', target: '/C:', windows: 'C:/' },
+    { name: 'leaves an MSYS drive path alone', target: '/c/x', windows: '/c/x' },
+    { name: 'leaves a POSIX absolute path alone', target: '/tmp', windows: '/tmp' },
+    { name: 'leaves a colon later in the path alone', target: '/ab:/x', windows: '/ab:/x' },
+    { name: 'leaves an already-Windows drive path alone', target: 'C:/x', windows: 'C:/x' },
+  ];
+
+  for (const row of uriDrives) {
+    test(`${row.name} on Windows and nowhere else`, () => {
+      expect(normalizeUriDrivePath(row.target, 'win32')).toBe(row.windows);
+      expect(normalizeUriDrivePath(row.target, 'linux')).toBe(row.target);
+      expect(normalizeUriDrivePath(row.target, 'darwin')).toBe(row.target);
     });
   }
 
